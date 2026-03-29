@@ -242,8 +242,10 @@ export function createStarFieldLayer(options = {}) {
       context.mount.add(group);
     },
     async start(context) {
-      await rebuildGeometry(context);
       applyMaterialUniforms(context);
+      void rebuildGeometry(context).catch((error) => {
+        console.error('[StarFieldLayer] initial rebuild failed', error);
+      });
     },
     update(context) {
       applyMaterialUniforms(context);
