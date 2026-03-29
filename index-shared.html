@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit: Shared Dataset Proof</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --page-bg: #07111c;
+        --panel-bg: rgba(7, 16, 28, 0.88);
+        --panel-border: rgba(128, 186, 255, 0.22);
+        --panel-shadow: rgba(0, 0, 0, 0.3);
+        --text-main: #f5f7fb;
+        --text-muted: #9fb3c8;
+        --accent: #73d5ff;
+        --accent-strong: #96f0ff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: minmax(280px, 360px) 1fr;
+        background:
+          radial-gradient(circle at top, rgba(106, 183, 255, 0.2), transparent 30%),
+          linear-gradient(180deg, #0b1525 0%, var(--page-bg) 60%);
+        color: var(--text-main);
+        font: 15px/1.5 "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      }
+
+      aside,
+      main {
+        min-height: 100vh;
+      }
+
+      aside {
+        padding: 28px 24px;
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(3, 8, 15, 0.5);
+        backdrop-filter: blur(12px);
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: 1.5rem;
+        line-height: 1.1;
+      }
+
+      p,
+      li {
+        color: var(--text-muted);
+      }
+
+      ul {
+        padding-left: 18px;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin: 20px 0;
+      }
+
+      label {
+        display: block;
+        margin: 18px 0 8px;
+        color: var(--text-main);
+        font-size: 0.95rem;
+      }
+
+      select,
+      input[type="number"] {
+        width: 100%;
+        min-height: 42px;
+        padding: 0 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(115, 213, 255, 0.3);
+        background: rgba(12, 24, 40, 0.85);
+        color: var(--text-main);
+        font: inherit;
+      }
+
+      button,
+      a.button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid rgba(115, 213, 255, 0.4);
+        background: rgba(12, 24, 40, 0.85);
+        color: var(--text-main);
+        font: inherit;
+        text-decoration: none;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        cursor: default;
+        opacity: 0.45;
+      }
+
+      .status {
+        margin: 0 0 16px;
+        color: var(--accent-strong);
+        font-size: 0.95rem;
+      }
+
+      pre {
+        margin: 0;
+        padding: 16px;
+        overflow: auto;
+        border: 1px solid var(--panel-border);
+        border-radius: 18px;
+        background: var(--panel-bg);
+        box-shadow: 0 20px 40px var(--panel-shadow);
+        color: #d9e7f6;
+        font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      .meta-block {
+        margin: 0 0 16px;
+      }
+
+      main {
+        padding: 24px;
+      }
+
+      .viewer-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 20px;
+        width: 100%;
+        min-height: calc(100vh - 48px);
+      }
+
+      .viewer-shell {
+        width: 100%;
+        height: calc(100vh - 48px);
+        border: 1px solid var(--panel-border);
+        border-radius: 28px;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at top, rgba(148, 220, 255, 0.08), transparent 20%),
+          #02040b;
+        box-shadow: 0 25px 60px rgba(0, 0, 0, 0.35);
+      }
+
+      @media (max-width: 960px) {
+        body {
+          grid-template-columns: 1fr;
+        }
+
+        aside {
+          min-height: auto;
+          border-right: 0;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .viewer-shell {
+          height: 46vh;
+          min-height: 320px;
+        }
+
+        .viewer-grid {
+          grid-template-columns: 1fr;
+          min-height: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <h1>Shared Dataset Proof</h1>
+      <p>
+        This page keeps the two-viewer proof-of-sharing intact. Both panes reuse
+        one <code>DatasetSession</code>, while the left pane can still free-fly
+        in shell mode and the right pane stays as a reference view.
+      </p>
+      <ul>
+        <li>Both viewers share render bootstrap, root-shard warming, and cache stats.</li>
+        <li>The left pane uses <code>FreeFlyController</code> in <code>ObserverShellField</code> mode.</li>
+        <li>The right pane keeps the cartoon profile plus Orion constellation art from the packaged Western manifest.</li>
+        <li>The selector still switches both panes between shell-based and target-locked loading.</li>
+        <li>Use <code>index.html</code> for the focused single-view controller sandbox.</li>
+      </ul>
+      <label for="field-strategy">Interest Field</label>
+      <select id="field-strategy" data-field-strategy>
+        <option value="observer-shell" selected>ObserverShellField</option>
+        <option value="target-frustum">TargetFrustumField</option>
+      </select>
+      <label for="mag-limit">Magnitude Limit</label>
+      <input id="mag-limit" type="number" min="0" max="25" step="0.5" value="7.5" data-mag-limit />
+      <div class="controls">
+        <button type="button" data-action="create">Create Viewers</button>
+        <button type="button" data-action="dispose">Dispose Viewers</button>
+        <button type="button" data-action="refresh">Refresh Selection</button>
+        <button type="button" data-action="warm">Warm Dataset</button>
+        <a class="button" href="./index-vr.html">XR Demo</a>
+        <a class="button" href="./index.html">Free Roam Demo</a>
+      </div>
+      <p class="status">Status: <span data-status>idle</span></p>
+      <pre class="meta-block" data-summary></pre>
+      <pre data-snapshot></pre>
+    </aside>
+    <main>
+      <div class="viewer-grid">
+        <div class="viewer-shell" data-skykit-viewer-root></div>
+        <div class="viewer-shell" data-skykit-viewer-root></div>
+      </div>
+    </main>
+    <script type="module" src="/src/demo/main.js"></script>
+  </body>
+</html>

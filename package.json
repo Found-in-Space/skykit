@@ -1,0 +1,37 @@
+{
+  "name": "@found-in-space/skykit",
+  "version": "0.1.0",
+  "description": "Reusable runtime for building Found in Space sky experiences",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Found-in-Space/skykit.git"
+  },
+  "homepage": "https://github.com/Found-in-Space/skykit#readme",
+  "bugs": {
+    "url": "https://github.com/Found-in-Space/skykit/issues"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "node --test",
+    "test:watch": "node --test --watch"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}

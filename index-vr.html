@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit: XR Free Roam</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --page-bg: #050c14;
+        --panel-bg: rgba(8, 18, 31, 0.92);
+        --panel-border: rgba(128, 186, 255, 0.18);
+        --panel-shadow: rgba(0, 0, 0, 0.34);
+        --text-main: #f5f7fb;
+        --text-muted: #9fb3c8;
+        --accent-strong: #9fe9ff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: minmax(320px, 400px) 1fr;
+        background:
+          radial-gradient(circle at top left, rgba(120, 170, 255, 0.16), transparent 28%),
+          radial-gradient(circle at bottom right, rgba(82, 223, 214, 0.12), transparent 24%),
+          linear-gradient(180deg, #08131f 0%, var(--page-bg) 62%);
+        color: var(--text-main);
+        font: 15px/1.5 "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      }
+
+      aside,
+      main {
+        min-height: 100vh;
+      }
+
+      aside {
+        padding: 28px 24px;
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(4, 9, 16, 0.58);
+        backdrop-filter: blur(12px);
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 1.6rem;
+        line-height: 1.05;
+      }
+
+      p,
+      li {
+        color: var(--text-muted);
+      }
+
+      ul {
+        padding-left: 18px;
+      }
+
+      label {
+        display: block;
+        margin: 18px 0 8px;
+        color: var(--text-main);
+        font-size: 0.95rem;
+      }
+
+      input[type="number"] {
+        width: 100%;
+        min-height: 42px;
+        padding: 0 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(115, 213, 255, 0.3);
+        background: rgba(12, 24, 40, 0.85);
+        color: var(--text-main);
+        font: inherit;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin: 20px 0;
+      }
+
+      button,
+      a.button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid rgba(115, 213, 255, 0.35);
+        background: rgba(12, 24, 40, 0.85);
+        color: var(--text-main);
+        font: inherit;
+        text-decoration: none;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        cursor: default;
+        opacity: 0.45;
+      }
+
+      .status {
+        margin: 0 0 16px;
+        color: var(--accent-strong);
+        font-size: 0.95rem;
+      }
+
+      pre {
+        margin: 0;
+        padding: 16px;
+        overflow: auto;
+        border: 1px solid var(--panel-border);
+        border-radius: 18px;
+        background: var(--panel-bg);
+        box-shadow: 0 20px 40px var(--panel-shadow);
+        color: #d9e7f6;
+        font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      .meta-block {
+        margin: 0 0 16px;
+      }
+
+      main {
+        padding: 24px;
+      }
+
+      .viewer-shell {
+        width: 100%;
+        height: calc(100vh - 48px);
+        border: 1px solid var(--panel-border);
+        border-radius: 30px;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at top, rgba(148, 220, 255, 0.08), transparent 20%),
+          #02040b;
+        box-shadow: 0 25px 60px rgba(0, 0, 0, 0.35);
+      }
+
+      @media (max-width: 960px) {
+        body {
+          grid-template-columns: 1fr;
+        }
+
+        aside {
+          min-height: auto;
+          border-right: 0;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .viewer-shell {
+          height: 52vh;
+          min-height: 340px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <h1>XR Free Roam</h1>
+      <p>
+        This is the narrow Phase 5B headset validation page: one observer shell,
+        one star field, one locomotion controller, and just enough runtime
+        plumbing to test headset motion and progressive loading.
+      </p>
+      <ul>
+        <li>Success target 1: full <code>4π</code> lookaround without obvious lag, with full <code>6DoF</code> head and rig motion.</li>
+        <li>Success target 2: simple joystick forward, backward, and sideways movement for long-distance reload testing.</li>
+        <li>Scope is intentionally narrow: no pointer labels, no advanced HUD, no parity chase.</li>
+        <li>Use a WebXR-capable browser on a headset and press <code>Enter VR</code>.</li>
+      </ul>
+      <label for="mag-limit">Magnitude Limit</label>
+      <input id="mag-limit" type="number" min="0" max="25" step="0.5" value="7.5" data-mag-limit />
+      <div class="controls">
+        <button type="button" data-action="create">Create Viewer</button>
+        <button type="button" data-action="dispose">Dispose Viewer</button>
+        <button type="button" data-action="refresh">Refresh Selection</button>
+        <button type="button" data-action="warm">Warm Dataset</button>
+        <button type="button" data-action="enter-xr">Enter VR</button>
+        <button type="button" data-action="exit-xr">Exit VR</button>
+        <a class="button" href="./index.html">Desktop Demo</a>
+        <a class="button" href="./index-shared.html">Shared Session Demo</a>
+      </div>
+      <p class="status">Status: <span data-status>idle</span></p>
+      <pre class="meta-block" data-summary></pre>
+      <pre data-snapshot></pre>
+    </aside>
+    <main>
+      <div class="viewer-shell" data-skykit-viewer-root></div>
+    </main>
+    <script type="module" src="/src/demo/xr-free-roam.js"></script>
+  </body>
+</html>

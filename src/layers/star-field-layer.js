@@ -1,0 +1,273 @@
+import * as THREE from 'three';
+import { createDesktopStarFieldMaterialProfile } from './star-field-materials.js';
+import { identityIcrsToSceneTransform } from './scene-orientation.js';
+
+function transformPositionsInPlace(positions, transformPoint) {
+  if (typeof transformPoint !== 'function') {
+    return positions;
+  }
+
+  for (let index = 0; index < positions.length; index += 3) {
+    const [x, y, z] = transformPoint(
+      positions[index],
+      positions[index + 1],
+      positions[index + 2],
+    );
+    positions[index] = x;
+    positions[index + 1] = y;
+    positions[index + 2] = z;
+  }
+
+  return positions;
+}
+
+function normalizeMaterialProfile(profile) {
+  if (profile instanceof THREE.Material) {
+    return {
+      material: profile,
+      updateUniforms: null,
+      dispose() {
+        profile.dispose();
+      },
+    };
+  }
+
+  if (!profile?.material || !(profile.material instanceof THREE.Material)) {
+    throw new TypeError('StarFieldLayer materialFactory must return a Material or { material } profile');
+  }
+
+  return {
+    material: profile.material,
+    updateUniforms: typeof profile.updateUniforms === 'function' ? profile.updateUniforms : null,
+    dispose: typeof profile.dispose === 'function'
+      ? profile.dispose.bind(profile)
+      : () => {
+        profile.material.dispose();
+      },
+  };
+}
+
+function createSelectionSignature(selection) {
+  const nodes = Array.isArray(selection?.nodes) ? selection.nodes : [];
+  return nodes
+    .map((node) => node?.nodeKey ?? `${node?.payloadOffset ?? 'none'}:${node?.payloadLength ?? 0}`)
+    .join('|');
+}
+
+function clearGeometry(mesh) {
+  if (mesh.geometry) {
+    mesh.geometry.dispose();
+  }
+  mesh.geometry = new THREE.BufferGeometry();
+  mesh.userData.pickMeta = [];
+}
+
+export function createStarFieldLayer(options = {}) {
+  const group = new THREE.Group();
+  group.name = options.id ?? 'star-field-layer';
+
+  const transformPoint = options.positionTransform ?? identityIcrsToSceneTransform;
+  const materialFactory = options.materialFactory ?? ((context) => createDesktopStarFieldMaterialProfile(context));
+  const placeholderMaterial = new THREE.PointsMaterial();
+  const points = new THREE.Points(new THREE.BufferGeometry(), placeholderMaterial);
+  points.name = `${group.name}-points`;
+  points.frustumCulled = false;
+  group.add(points);
+
+  const cameraWorldPosition = new THREE.Vector3();
+  let materialProfile = null;
+  let bootstrap = null;
+  let currentSelectionSignature = null;
+  let loadGeneration = 0;
+  let activeLoadPromise = null;
+  let stats = {
+    nodeCount: 0,
+    starCount: 0,
+    loadGeneration: 0,
+  };
+
+  async function ensureMaterialProfile(context) {
+    if (materialProfile) {
+      return materialProfile;
+    }
+
+    const resolved = await materialFactory({
+      bootstrap,
+      context,
+      layerId: group.name,
+      renderer: context.renderer,
+      scene: context.scene,
+    });
+    materialProfile = normalizeMaterialProfile(resolved);
+    if (points.material === placeholderMaterial) {
+      placeholderMaterial.dispose();
+    }
+    points.material = materialProfile.material;
+    return materialProfile;
+  }
+
+  function applyMaterialUniforms(context) {
+    if (!materialProfile?.updateUniforms) {
+      return;
+    }
+
+    context.camera.getWorldPosition(cameraWorldPosition);
+    materialProfile.updateUniforms({
+      bootstrap,
+      cameraWorldPosition,
+      camera: context.camera,
+      frame: context.frame ?? null,
+      renderer: context.renderer,
+      state: context.state ?? {},
+      layer: api,
+    });
+  }
+
+  async function rebuildGeometry(context) {
+    const { datasetSession, selection } = context;
+    const selectionSignature = createSelectionSignature(selection);
+    if (selectionSignature === currentSelectionSignature && activeLoadPromise) {
+      return activeLoadPromise;
+    }
+
+    currentSelectionSignature = selectionSignature;
+    const generation = ++loadGeneration;
+    stats.loadGeneration = generation;
+
+    if (!datasetSession) {
+      stats = { nodeCount: 0, starCount: 0, loadGeneration: generation };
+      clearGeometry(points);
+      return null;
+    }
+
+    const nodes = Array.isArray(selection?.nodes)
+      ? selection.nodes.filter((node) => node && node.payloadLength > 0)
+      : [];
+    if (nodes.length === 0) {
+      stats = { nodeCount: 0, starCount: 0, loadGeneration: generation };
+      clearGeometry(points);
+      return null;
+    }
+
+    const loadPromise = (async () => {
+      const renderService = datasetSession.getRenderService();
+      bootstrap = await datasetSession.ensureRenderBootstrap();
+      await ensureMaterialProfile(context);
+
+      const decodedPayloads = await renderService.fetchNodePayloadBatch(nodes);
+      if (generation !== loadGeneration) {
+        return null;
+      }
+
+      const segments = [];
+      let totalCount = 0;
+
+      for (const { node, buffer } of decodedPayloads) {
+        const decoded = renderService.decodePayload(buffer, node);
+        transformPositionsInPlace(decoded.positions, transformPoint);
+        segments.push({ node, decoded });
+        totalCount += decoded.count;
+      }
+
+      if (generation !== loadGeneration) {
+        return null;
+      }
+
+      const positions = new Float32Array(totalCount * 3);
+      const teffLog8 = new Uint8Array(totalCount);
+      const magAbs = new Float32Array(totalCount);
+      const pickMeta = [];
+
+      let offset = 0;
+      for (const { node, decoded } of segments) {
+        positions.set(decoded.positions, offset * 3);
+        teffLog8.set(decoded.teffLog8, offset);
+        magAbs.set(decoded.magAbs, offset);
+
+        if (options.includePickMeta === true) {
+          for (let ordinal = 0; ordinal < decoded.count; ordinal += 1) {
+            pickMeta.push({
+              nodeKey: node.nodeKey ?? `${node.payloadOffset}:${node.payloadLength}`,
+              ordinal,
+              level: node.level,
+              centerX: node.centerX,
+              centerY: node.centerY,
+              centerZ: node.centerZ,
+            });
+          }
+        }
+
+        offset += decoded.count;
+      }
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute('teff_log8', new THREE.Uint8BufferAttribute(teffLog8, 1, true));
+      geometry.setAttribute('magAbs', new THREE.BufferAttribute(magAbs, 1));
+      geometry.computeBoundingSphere();
+
+      if (points.geometry) {
+        points.geometry.dispose();
+      }
+      points.geometry = geometry;
+      points.userData.pickMeta = pickMeta;
+      stats = {
+        nodeCount: nodes.length,
+        starCount: totalCount,
+        loadGeneration: generation,
+      };
+
+      applyMaterialUniforms(context);
+      context.runtime.renderOnce();
+      return geometry;
+    })().finally(() => {
+      if (activeLoadPromise === loadPromise) {
+        activeLoadPromise = null;
+      }
+    });
+
+    activeLoadPromise = loadPromise;
+    return loadPromise;
+  }
+
+  const api = {
+    id: group.name,
+    getStats() {
+      return { ...stats };
+    },
+    async attach(context) {
+      bootstrap = context.datasetSession ? await context.datasetSession.ensureRenderBootstrap() : null;
+      await ensureMaterialProfile(context);
+      applyMaterialUniforms(context);
+      context.mount.add(group);
+    },
+    async start(context) {
+      await rebuildGeometry(context);
+      applyMaterialUniforms(context);
+    },
+    update(context) {
+      applyMaterialUniforms(context);
+      const nextSignature = createSelectionSignature(context.selection);
+      if (!activeLoadPromise && nextSignature !== currentSelectionSignature) {
+        void rebuildGeometry(context).catch((error) => {
+          console.error('[StarFieldLayer] rebuild failed', error);
+        });
+      }
+    },
+    dispose(context) {
+      loadGeneration += 1;
+      if (points.geometry) {
+        points.geometry.dispose();
+      }
+      context.mount.remove(group);
+      if (materialProfile) {
+        materialProfile.dispose();
+        materialProfile = null;
+      } else if (points.material === placeholderMaterial) {
+        placeholderMaterial.dispose();
+      }
+    },
+  };
+
+  return api;
+}
