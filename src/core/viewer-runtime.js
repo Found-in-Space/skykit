@@ -181,7 +181,9 @@ function validatePart(entry) {
 }
 
 function createPerspectiveCamera(size) {
-  const camera = new THREE.PerspectiveCamera(60, size.width / size.height, 0.1, 500);
+  // The local-star datasets are scaled to 0.001 world units per parsec, so the
+  // default camera needs a very small near plane to avoid clipping nearby stars.
+  const camera = new THREE.PerspectiveCamera(60, size.width / size.height, 0.0001, 256);
   camera.position.set(0, 0.4, 4);
   return camera;
 }

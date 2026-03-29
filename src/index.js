@@ -18,6 +18,7 @@ export { createNoopInterestField } from './fields/noop-interest-field.js';
 export { createObserverShellField } from './fields/observer-shell-field.js';
 export { createTargetFrustumField } from './fields/target-frustum-field.js';
 export { createFreeFlyController } from './controllers/free-fly-controller.js';
+export { createFixedTargetParallaxController } from './controllers/fixed-target-parallax-controller.js';
 export {
   captureSelectionRefreshSnapshot,
   createSelectionRefreshController,
@@ -38,6 +39,7 @@ export {
 export { createCartoonStarFieldMaterialProfile } from './layers/star-field-materials.js';
 export { createDesktopStarFieldMaterialProfile } from './layers/star-field-materials.js';
 export { createVrStarFieldMaterialProfile } from './layers/star-field-materials.js';
+export { createDeviceTiltTracker } from './services/input/device-tilt-tracker.js';
 export {
   GALACTIC_CENTER_PC,
   ORION_CENTER_PC,
