@@ -19,6 +19,10 @@ function createCacheKey(namespace, kind, ...parts) {
   return [namespace, kind, ...parts].join(':');
 }
 
+function createPayloadCacheKey(namespace, node) {
+  return createCacheKey(namespace, 'payload', node.payloadOffset, node.payloadLength);
+}
+
 function normalizePositiveInteger(value, fallback) {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
@@ -296,26 +300,40 @@ function cacheContiguousShards(shardCache, namespace, buffer, fileOffset) {
   return primaryShard;
 }
 
-async function runWithConcurrency(tasks, maxConcurrent) {
-  const results = [];
-  const executing = [];
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
 
-  for (const task of tasks) {
-    const promise = Promise.resolve().then(() => task());
-    results.push(promise);
-    const marker = promise.finally(() => {
-      const index = executing.indexOf(marker);
-      if (index >= 0) {
-        executing.splice(index, 1);
-      }
-    });
-    executing.push(marker);
-    if (executing.length >= maxConcurrent) {
-      await Promise.race(executing);
+  return { promise, resolve, reject };
+}
+
+function runWithConcurrency(tasks, maxConcurrent) {
+  const deferreds = tasks.map(() => createDeferred());
+  let nextIndex = 0;
+  let activeCount = 0;
+
+  function launchNext() {
+    while (activeCount < maxConcurrent && nextIndex < tasks.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      activeCount += 1;
+
+      Promise.resolve()
+        .then(() => tasks[index]())
+        .then(deferreds[index].resolve, deferreds[index].reject)
+        .finally(() => {
+          activeCount -= 1;
+          launchNext();
+        });
     }
   }
 
-  return Promise.all(results);
+  launchNext();
+  return deferreds.map(({ promise }) => promise);
 }
 
 export function planPayloadRangeBatches(
@@ -636,7 +654,12 @@ export class OctreeFileService {
   }
 
   async fetchNodePayloadBatch(nodes) {
+    return this.fetchNodePayloadBatchProgressive(nodes);
+  }
+
+  async fetchNodePayloadBatchProgressive(nodes, options = {}) {
     this.assertUsable();
+    const onBatch = typeof options.onBatch === 'function' ? options.onBatch : null;
     const requestedNodes = (Array.isArray(nodes) ? nodes : [])
       .filter((node) => node && node.payloadLength > 0);
 
@@ -645,12 +668,14 @@ export class OctreeFileService {
     }
 
     const cache = this.session.getCache('payloads');
+    const cachedNodes = [];
     const missingNodes = [];
 
     for (const node of requestedNodes) {
-      const cacheKey = createCacheKey(this.namespace, 'payload', node.payloadOffset, node.payloadLength);
+      const cacheKey = createPayloadCacheKey(this.namespace, node);
       if (cache.has(cacheKey)) {
         this.stats.payloadCacheHits += 1;
+        cachedNodes.push(node);
       } else {
         missingNodes.push(node);
       }
@@ -680,7 +705,7 @@ export class OctreeFileService {
         const compressedSlice = batchBuffer.slice(sliceStart, sliceEnd);
         const buffer = await decompressGzip(compressedSlice);
         decodedBuffers.set(
-          createCacheKey(this.namespace, 'payload', batchNode.payloadOffset, batchNode.payloadLength),
+          createPayloadCacheKey(this.namespace, batchNode),
           buffer,
         );
       }));
@@ -691,18 +716,46 @@ export class OctreeFileService {
     const batchPromises = runWithConcurrency(batchTasks, this.maxInflightPayloadBatches);
 
     batches.forEach((batch, batchIndex) => {
-      const batchPromise = batchPromises.then((maps) => maps[batchIndex]);
+      const batchPromise = batchPromises[batchIndex];
       for (const batchNode of batch.nodes) {
-        const cacheKey = createCacheKey(this.namespace, 'payload', batchNode.payloadOffset, batchNode.payloadLength);
+        const cacheKey = createPayloadCacheKey(this.namespace, batchNode);
         cache.set(cacheKey, batchPromise.then((decodedBuffers) => decodedBuffers.get(cacheKey)));
       }
+
+      if (onBatch) {
+        void batchPromise
+          .then((decodedBuffers) => batch.nodes.map((batchNode) => ({
+            node: batchNode,
+            buffer: decodedBuffers.get(createPayloadCacheKey(this.namespace, batchNode)),
+          })))
+          .then((entries) => onBatch(entries))
+          .catch((error) => {
+            console.error('[OctreeFileService] progressive payload batch failed', error);
+          });
+      }
     });
+
+    if (onBatch && cachedNodes.length > 0) {
+      void Promise.all(cachedNodes.map(async (node) => ({
+        node,
+        buffer: await cache.get(createPayloadCacheKey(this.namespace, node)),
+      })))
+        .then((entries) => {
+          if (entries.length > 0) {
+            return onBatch(entries);
+          }
+          return null;
+        })
+        .catch((error) => {
+          console.error('[OctreeFileService] cached progressive payload batch failed', error);
+        });
+    }
 
     return Promise.all(
       requestedNodes.map(async (requestedNode) => ({
         node: requestedNode,
         buffer: await cache.get(
-          createCacheKey(this.namespace, 'payload', requestedNode.payloadOffset, requestedNode.payloadLength),
+          createPayloadCacheKey(this.namespace, requestedNode),
         ),
       })),
     );

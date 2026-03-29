@@ -54,6 +54,10 @@ function createSelectionSignature(selection) {
     .join('|');
 }
 
+function createNodeRenderKey(node) {
+  return node?.nodeKey ?? `${node?.payloadOffset ?? 'none'}:${node?.payloadLength ?? 0}`;
+}
+
 function clearGeometry(mesh) {
   if (mesh.geometry) {
     mesh.geometry.dispose();
@@ -123,6 +127,89 @@ export function createStarFieldLayer(options = {}) {
     });
   }
 
+  function decodeEntries(entries, renderService) {
+    const decodedByNodeKey = new Map();
+
+    for (const { node, buffer } of entries) {
+      const decoded = renderService.decodePayload(buffer, node);
+      transformPositionsInPlace(decoded.positions, transformPoint);
+      decodedByNodeKey.set(createNodeRenderKey(node), decoded);
+    }
+
+    return decodedByNodeKey;
+  }
+
+  function commitDecodedGeometry(context, nodes, decodedByNodeKey, generation) {
+    if (generation !== loadGeneration) {
+      return null;
+    }
+
+    const segments = [];
+    let totalCount = 0;
+
+    for (const node of nodes) {
+      const decoded = decodedByNodeKey.get(createNodeRenderKey(node));
+      if (!decoded) {
+        continue;
+      }
+
+      segments.push({ node, decoded });
+      totalCount += decoded.count;
+    }
+
+    if (generation !== loadGeneration) {
+      return null;
+    }
+
+    const positions = new Float32Array(totalCount * 3);
+    const teffLog8 = new Uint8Array(totalCount);
+    const magAbs = new Float32Array(totalCount);
+    const pickMeta = [];
+
+    let offset = 0;
+    for (const { node, decoded } of segments) {
+      positions.set(decoded.positions, offset * 3);
+      teffLog8.set(decoded.teffLog8, offset);
+      magAbs.set(decoded.magAbs, offset);
+
+      if (options.includePickMeta === true) {
+        for (let ordinal = 0; ordinal < decoded.count; ordinal += 1) {
+          pickMeta.push({
+            nodeKey: createNodeRenderKey(node),
+            ordinal,
+            level: node.level,
+            centerX: node.centerX,
+            centerY: node.centerY,
+            centerZ: node.centerZ,
+          });
+        }
+      }
+
+      offset += decoded.count;
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('teff_log8', new THREE.Uint8BufferAttribute(teffLog8, 1, true));
+    geometry.setAttribute('magAbs', new THREE.BufferAttribute(magAbs, 1));
+    geometry.computeBoundingSphere();
+
+    if (points.geometry) {
+      points.geometry.dispose();
+    }
+    points.geometry = geometry;
+    points.userData.pickMeta = pickMeta;
+    stats = {
+      nodeCount: segments.length,
+      starCount: totalCount,
+      loadGeneration: generation,
+    };
+
+    applyMaterialUniforms(context);
+    context.runtime.renderOnce();
+    return geometry;
+  }
+
   async function rebuildGeometry(context) {
     const { datasetSession, selection } = context;
     const selectionSignature = createSelectionSignature(selection);
@@ -154,72 +241,41 @@ export function createStarFieldLayer(options = {}) {
       bootstrap = await datasetSession.ensureRenderBootstrap();
       await ensureMaterialProfile(context);
 
+      const hasVisibleGeometry = stats.starCount > 0;
+      if (!hasVisibleGeometry && typeof renderService.fetchNodePayloadBatchProgressive === 'function') {
+        const decodedByNodeKey = new Map();
+        await renderService.fetchNodePayloadBatchProgressive(nodes, {
+          onBatch: (entries) => {
+            if (generation !== loadGeneration) {
+              return;
+            }
+
+            for (const [nodeKey, decoded] of decodeEntries(entries, renderService).entries()) {
+              decodedByNodeKey.set(nodeKey, decoded);
+            }
+
+            commitDecodedGeometry(context, nodes, decodedByNodeKey, generation);
+          },
+        });
+
+        if (generation !== loadGeneration) {
+          return null;
+        }
+
+        return points.geometry;
+      }
+
       const decodedPayloads = await renderService.fetchNodePayloadBatch(nodes);
       if (generation !== loadGeneration) {
         return null;
       }
 
-      const segments = [];
-      let totalCount = 0;
-
-      for (const { node, buffer } of decodedPayloads) {
-        const decoded = renderService.decodePayload(buffer, node);
-        transformPositionsInPlace(decoded.positions, transformPoint);
-        segments.push({ node, decoded });
-        totalCount += decoded.count;
-      }
-
-      if (generation !== loadGeneration) {
-        return null;
-      }
-
-      const positions = new Float32Array(totalCount * 3);
-      const teffLog8 = new Uint8Array(totalCount);
-      const magAbs = new Float32Array(totalCount);
-      const pickMeta = [];
-
-      let offset = 0;
-      for (const { node, decoded } of segments) {
-        positions.set(decoded.positions, offset * 3);
-        teffLog8.set(decoded.teffLog8, offset);
-        magAbs.set(decoded.magAbs, offset);
-
-        if (options.includePickMeta === true) {
-          for (let ordinal = 0; ordinal < decoded.count; ordinal += 1) {
-            pickMeta.push({
-              nodeKey: node.nodeKey ?? `${node.payloadOffset}:${node.payloadLength}`,
-              ordinal,
-              level: node.level,
-              centerX: node.centerX,
-              centerY: node.centerY,
-              centerZ: node.centerZ,
-            });
-          }
-        }
-
-        offset += decoded.count;
-      }
-
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      geometry.setAttribute('teff_log8', new THREE.Uint8BufferAttribute(teffLog8, 1, true));
-      geometry.setAttribute('magAbs', new THREE.BufferAttribute(magAbs, 1));
-      geometry.computeBoundingSphere();
-
-      if (points.geometry) {
-        points.geometry.dispose();
-      }
-      points.geometry = geometry;
-      points.userData.pickMeta = pickMeta;
-      stats = {
-        nodeCount: nodes.length,
-        starCount: totalCount,
-        loadGeneration: generation,
-      };
-
-      applyMaterialUniforms(context);
-      context.runtime.renderOnce();
-      return geometry;
+      return commitDecodedGeometry(
+        context,
+        nodes,
+        decodeEntries(decodedPayloads, renderService),
+        generation,
+      );
     })().finally(() => {
       if (activeLoadPromise === loadPromise) {
         activeLoadPromise = null;

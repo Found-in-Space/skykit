@@ -42,6 +42,17 @@ function toArrayBuffer(bytes) {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 }
 
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+}
+
 function createMockFetch(fileBytes, requests) {
   return async function mockFetch(url, options = {}) {
     const rangeHeader = options.headers?.Range ?? '';
@@ -226,6 +237,95 @@ test('fetchNodePayloadBatch coalesces nearby payload nodes into one range reques
     assert.equal(stats.payloadNodesFetched, 2);
     assert.equal(stats.payloadGapBytesRequested, gap.length);
     assert.equal(stats.rangeRequests, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('fetchNodePayloadBatchProgressive reports finished batches before the full request set completes', async () => {
+  const payloadA = new Uint8Array([1, 2, 3, 4]);
+  const payloadB = new Uint8Array([8, 13, 21]);
+  const compressedA = gzipSync(payloadA);
+  const compressedB = gzipSync(payloadB);
+  const leadingPad = new Uint8Array(64);
+  const middlePad = new Uint8Array(256);
+  const fileBytes = concatBytes([
+    leadingPad,
+    compressedA,
+    middlePad,
+    compressedB,
+  ]);
+  const payloadOffsetA = leadingPad.length;
+  const payloadOffsetB = leadingPad.length + compressedA.length + middlePad.length;
+  const requests = [];
+  const deferred = createDeferred();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const rangeHeader = options.headers?.Range ?? '';
+    const match = /^bytes=(\d+)-(\d+)$/.exec(rangeHeader);
+    assert.ok(match, `Unexpected range header: ${rangeHeader}`);
+
+    const start = Number(match[1]);
+    const end = Number(match[2]);
+    requests.push({ url, start, end });
+
+    if (start === payloadOffsetB) {
+      await deferred.promise;
+    }
+
+    const slice = fileBytes.slice(start, end + 1);
+    return {
+      ok: true,
+      status: 206,
+      async arrayBuffer() {
+        return toArrayBuffer(slice);
+      },
+    };
+  };
+
+  try {
+    const service = new OctreeFileService(createSession(), {
+      namespace: 'render',
+      url: 'memory://progressive-payloads.octree',
+      payloadMaxGapBytes: 64,
+      payloadMaxBatchBytes: 32,
+      maxInflightPayloadBatches: 2,
+    });
+
+    const seenBatches = [];
+    const firstBatchSeen = createDeferred();
+    let completed = false;
+    const fetchPromise = service.fetchNodePayloadBatchProgressive([
+      {
+        payloadOffset: payloadOffsetA,
+        payloadLength: compressedA.length,
+      },
+      {
+        payloadOffset: payloadOffsetB,
+        payloadLength: compressedB.length,
+      },
+    ], {
+      onBatch(entries) {
+        seenBatches.push(entries.map(({ buffer }) => [...new Uint8Array(buffer)]));
+        if (seenBatches.length === 1) {
+          firstBatchSeen.resolve();
+        }
+      },
+    }).then(() => {
+      completed = true;
+    });
+
+    await firstBatchSeen.promise;
+    assert.equal(seenBatches.length, 1);
+    assert.deepEqual(seenBatches[0], [[1, 2, 3, 4]]);
+    assert.equal(completed, false);
+
+    deferred.resolve();
+    await fetchPromise;
+
+    assert.equal(seenBatches.length, 2);
+    assert.deepEqual(seenBatches[1], [[8, 13, 21]]);
+    assert.equal(requests.length, 2);
   } finally {
     globalThis.fetch = originalFetch;
   }

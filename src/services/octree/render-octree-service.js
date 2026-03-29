@@ -70,6 +70,11 @@ export class RenderOctreeService {
     return this.file.fetchNodePayloadBatch(nodes);
   }
 
+  async fetchNodePayloadBatchProgressive(nodes, options = {}) {
+    this.assertUsable();
+    return this.file.fetchNodePayloadBatchProgressive(nodes, options);
+  }
+
   decodePayload(buffer, geom) {
     return this.file.decodePayload(buffer, geom);
   }

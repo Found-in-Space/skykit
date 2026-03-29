@@ -15,11 +15,12 @@ function createDeferred() {
 }
 
 test('StarFieldLayer start does not wait for the initial payload batch', async () => {
-  const deferred = createDeferred();
-  let fetchCount = 0;
+  const firstBatch = createDeferred();
+  const secondBatch = createDeferred();
+  let fetchProgressiveCount = 0;
   let renderCount = 0;
 
-  const node = {
+  const nodeA = {
     nodeKey: 'node:1',
     payloadOffset: 100,
     payloadLength: 24,
@@ -27,6 +28,15 @@ test('StarFieldLayer start does not wait for the initial payload batch', async (
     centerX: 0,
     centerY: 0,
     centerZ: 0,
+  };
+  const nodeB = {
+    nodeKey: 'node:2',
+    payloadOffset: 200,
+    payloadLength: 24,
+    level: 4,
+    centerX: 1,
+    centerY: 1,
+    centerZ: 1,
   };
 
   const layer = createStarFieldLayer({
@@ -37,23 +47,45 @@ test('StarFieldLayer start does not wait for the initial payload batch', async (
     datasetSession: {
       ensureRenderBootstrap: async () => ({ worldHalfSize: 1 }),
       getRenderService: () => ({
-        async fetchNodePayloadBatch(nodes) {
-          fetchCount += 1;
-          assert.deepEqual(nodes, [node]);
-          await deferred.promise;
-          return [{ node, buffer: new ArrayBuffer(0) }];
+        async fetchNodePayloadBatchProgressive(nodes, options = {}) {
+          fetchProgressiveCount += 1;
+          assert.deepEqual(nodes, [nodeA, nodeB]);
+          firstBatch.resolve();
+          await options.onBatch?.([{ node: nodeA, buffer: new ArrayBuffer(0) }]);
+          await secondBatch.promise;
+          await options.onBatch?.([{ node: nodeB, buffer: new ArrayBuffer(0) }]);
+          return [
+            { node: nodeA, buffer: new ArrayBuffer(0) },
+            { node: nodeB, buffer: new ArrayBuffer(0) },
+          ];
         },
-        decodePayload() {
+        async fetchNodePayloadBatch(nodes) {
+          assert.deepEqual(nodes, [nodeA, nodeB]);
+          return [
+            { node: nodeA, buffer: new ArrayBuffer(0) },
+            { node: nodeB, buffer: new ArrayBuffer(0) },
+          ];
+        },
+        decodePayload(buffer, node) {
+          if (node === nodeA) {
+            return {
+              positions: new Float32Array([1, 2, 3]),
+              teffLog8: new Uint8Array([7]),
+              magAbs: new Float32Array([4.5]),
+              count: 1,
+            };
+          }
+
           return {
-            positions: new Float32Array([1, 2, 3]),
-            teffLog8: new Uint8Array([7]),
-            magAbs: new Float32Array([4.5]),
+            positions: new Float32Array([4, 5, 6]),
+            teffLog8: new Uint8Array([8]),
+            magAbs: new Float32Array([5.5]),
             count: 1,
           };
         },
       }),
     },
-    selection: { nodes: [node] },
+    selection: { nodes: [nodeA, nodeB] },
     mount: new THREE.Group(),
     camera: new THREE.PerspectiveCamera(),
     renderer: {},
@@ -75,24 +107,26 @@ test('StarFieldLayer start does not wait for the initial payload batch', async (
 
   await Promise.resolve();
   assert.equal(startSettled, true);
+  await firstBatch.promise;
   await Promise.resolve();
   await Promise.resolve();
-  assert.equal(fetchCount, 1);
-  assert.deepEqual(layer.getStats(), {
-    nodeCount: 0,
-    starCount: 0,
-    loadGeneration: 1,
-  });
-
-  deferred.resolve();
-  await startPromise;
-  await Promise.resolve();
-  await Promise.resolve();
-
+  assert.equal(fetchProgressiveCount, 1);
   assert.deepEqual(layer.getStats(), {
     nodeCount: 1,
     starCount: 1,
     loadGeneration: 1,
   });
   assert.equal(renderCount, 1);
+
+  secondBatch.resolve();
+  await startPromise;
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(layer.getStats(), {
+    nodeCount: 2,
+    starCount: 2,
+    loadGeneration: 1,
+  });
+  assert.equal(renderCount, 2);
 });
