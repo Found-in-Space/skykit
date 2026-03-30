@@ -47,3 +47,37 @@ test('DeviceTiltTracker remaps axes and inversion flags before reporting normali
 
   tracker.dispose();
 });
+
+test('DeviceTiltTracker marks landscape-native orientation and compensates angle', async () => {
+  const eventTarget = new FakeEventTarget();
+  const updates = [];
+  const tracker = createDeviceTiltTracker({
+    eventTarget,
+    screenSource: {
+      screen: {
+        orientation: {
+          angle: 0,
+          type: 'landscape-primary',
+        },
+      },
+    },
+    windowSource: { orientation: 0 },
+    deviceOrientationEvent: {},
+    onUpdate(state) {
+      updates.push(state);
+    },
+  });
+
+  const enabled = await tracker.enable();
+  assert.equal(enabled.ok, true);
+
+  eventTarget.dispatchEvent(createOrientationEvent(0, 0));
+
+  assert.equal(updates[0].phase, 'calibrated');
+  assert.equal(updates[0].screen.angleDeg, 0);
+  assert.equal(updates[0].screen.type, 'landscape-primary');
+  assert.equal(updates[0].screen.landscapeNative, true);
+  assert.equal(updates[0].screen.compensatedAngleDeg, 90);
+
+  tracker.dispose();
+});

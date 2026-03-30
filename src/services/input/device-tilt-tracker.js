@@ -37,17 +37,32 @@ function snapshotVector(vector) {
 function normalizeScreenOrientation(screenSource, windowSource) {
   const screenAngle = screenSource?.screen?.orientation?.angle;
   const windowAngle = windowSource?.orientation;
+  const orientationType = screenSource?.screen?.orientation?.type ?? null;
   const rawAngle = Number.isFinite(screenAngle)
     ? Number(screenAngle)
     : Number.isFinite(windowAngle)
       ? Number(windowAngle)
       : 0;
   const normalizedDegrees = ((rawAngle % 360) + 360) % 360;
+  const isQuarterTurn = normalizedDegrees === 90 || normalizedDegrees === 270;
+  const isHalfTurn = normalizedDegrees === 0 || normalizedDegrees === 180;
+  const isLandscapeNative = typeof orientationType === 'string'
+    ? orientationType.startsWith('landscape')
+      ? isHalfTurn
+      : orientationType.startsWith('portrait')
+        ? isQuarterTurn
+        : false
+    : false;
+  const compensationDegrees = isLandscapeNative ? 90 : 0;
+  const compensatedDegrees = ((normalizedDegrees + compensationDegrees) % 360 + 360) % 360;
 
   return {
     angleDeg: normalizedDegrees,
     angleRad: MathUtils.degToRad(normalizedDegrees),
-    type: screenSource?.screen?.orientation?.type ?? null,
+    compensatedAngleDeg: compensatedDegrees,
+    compensatedAngleRad: MathUtils.degToRad(compensatedDegrees),
+    landscapeNative: isLandscapeNative,
+    type: orientationType,
   };
 }
 
@@ -113,9 +128,9 @@ export function createDeviceTiltTracker(options = {}) {
     const quaternion = createDeviceTiltQuaternion(
       Number(event.beta),
       Number(event.gamma),
-      screenOrientation.angleRad,
+      screenOrientation.compensatedAngleRad,
     );
-    baselineScreenAngleRad = screenOrientation.angleRad;
+    baselineScreenAngleRad = screenOrientation.compensatedAngleRad;
     baselineRight.copy(SCREEN_RIGHT_AXIS).applyQuaternion(quaternion);
     baselineUp.copy(SCREEN_UP_AXIS).applyQuaternion(quaternion);
 
@@ -129,6 +144,9 @@ export function createDeviceTiltTracker(options = {}) {
       screen: {
         angleDeg: round(screenOrientation.angleDeg, 1),
         angleRad: round(screenOrientation.angleRad),
+        compensatedAngleDeg: round(screenOrientation.compensatedAngleDeg, 1),
+        compensatedAngleRad: round(screenOrientation.compensatedAngleRad),
+        landscapeNative: screenOrientation.landscapeNative,
         type: screenOrientation.type,
       },
       projected: {
@@ -169,7 +187,7 @@ export function createDeviceTiltTracker(options = {}) {
     const screenOrientation = normalizeScreenOrientation(screenSource, windowSource);
     if (
       baselineScreenAngleRad == null
-      || Math.abs(screenOrientation.angleRad - baselineScreenAngleRad) > orientationChangeToleranceRad
+      || Math.abs(screenOrientation.compensatedAngleRad - baselineScreenAngleRad) > orientationChangeToleranceRad
     ) {
       calibrate(event, screenOrientation);
       return;
@@ -178,7 +196,7 @@ export function createDeviceTiltTracker(options = {}) {
     const quaternion = createDeviceTiltQuaternion(
       Number(event.beta),
       Number(event.gamma),
-      screenOrientation.angleRad,
+      screenOrientation.compensatedAngleRad,
     );
     currentNormal.copy(SCREEN_NORMAL_AXIS).applyQuaternion(quaternion);
 
@@ -201,6 +219,9 @@ export function createDeviceTiltTracker(options = {}) {
       screen: {
         angleDeg: round(screenOrientation.angleDeg, 1),
         angleRad: round(screenOrientation.angleRad),
+        compensatedAngleDeg: round(screenOrientation.compensatedAngleDeg, 1),
+        compensatedAngleRad: round(screenOrientation.compensatedAngleRad),
+        landscapeNative: screenOrientation.landscapeNative,
         type: screenOrientation.type,
       },
       projected: {

@@ -42,6 +42,7 @@ The Vite demo entrypoints are:
 - `index.html`: desktop free-roam demo
 - `index-shared.html`: shared-session desktop demo
 - `index-vr.html`: XR free-roam demo
+- `index-parallax-debug.html`: device orientation + parallax sensor debug sandbox
 
 ## Docs
 

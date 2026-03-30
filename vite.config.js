@@ -12,7 +12,11 @@ export default defineConfig({
         index: path.resolve(__dirname, 'index.html'),
         shared: path.resolve(__dirname, 'index-shared.html'),
         xr: path.resolve(__dirname, 'index-vr.html'),
+        parallaxDebug: path.resolve(__dirname, 'index-parallax-debug.html'),
       },
     },
+  },
+  server: {
+    allowedHosts: true,
   },
 });

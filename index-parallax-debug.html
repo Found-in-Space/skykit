@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit: Parallax Sensor Debug</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --page-bg: #050c14;
+        --panel-bg: rgba(7, 15, 28, 0.82);
+        --panel-border: rgba(141, 183, 255, 0.14);
+        --panel-shadow: rgba(0, 0, 0, 0.34);
+        --text-main: #f5f7fb;
+        --text-muted: #9fb3c8;
+        --text-soft: #c2d2e4;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        padding: 24px;
+        background:
+          radial-gradient(circle at top left, rgba(120, 170, 255, 0.16), transparent 28%),
+          radial-gradient(circle at bottom right, rgba(82, 223, 214, 0.1), transparent 24%),
+          linear-gradient(180deg, #08131f 0%, var(--page-bg) 62%);
+        color: var(--text-main);
+        font: 15px/1.5 "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      }
+
+      h1,
+      h2 {
+        margin: 0;
+        font-weight: 600;
+        letter-spacing: -0.03em;
+      }
+
+      h1 {
+        font-size: clamp(2.2rem, 6vw, 4rem);
+        line-height: 0.95;
+        max-width: 12ch;
+      }
+
+      h2 {
+        font-size: 1.35rem;
+        line-height: 1.1;
+        margin-bottom: 0.75rem;
+      }
+
+      p {
+        margin: 0;
+      }
+
+      .lede {
+        max-width: 60ch;
+        margin-top: 1rem;
+        color: var(--text-soft);
+      }
+
+      .intro-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.8rem;
+        margin-top: 1.5rem;
+      }
+
+      button,
+      a.button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid rgba(115, 213, 255, 0.35);
+        background: rgba(12, 24, 40, 0.85);
+        color: var(--text-main);
+        font: inherit;
+        text-decoration: none;
+        cursor: pointer;
+      }
+
+      .status {
+        margin-top: 1.2rem;
+        color: var(--text-muted);
+      }
+
+      .dashboard {
+        margin-top: 2rem;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+      }
+
+      .panel {
+        padding: 1.1rem;
+        border-radius: 1.2rem;
+        border: 1px solid var(--panel-border);
+        background:
+          radial-gradient(circle at top, rgba(71, 108, 201, 0.16), transparent 55%),
+          var(--panel-bg);
+        box-shadow: 0 18px 44px var(--panel-shadow);
+      }
+
+      .panel-hero {
+        grid-column: span 2;
+      }
+
+      .pad {
+        position: relative;
+        aspect-ratio: 1;
+        max-width: 20rem;
+        margin-top: 1rem;
+        border-radius: 1.4rem;
+        border: 1px solid rgba(141, 183, 255, 0.18);
+        background:
+          radial-gradient(circle at center, rgba(73, 120, 255, 0.14), transparent 60%),
+          rgba(4, 10, 20, 0.92);
+        overflow: hidden;
+      }
+
+      .pad-grid::before,
+      .pad-grid::after {
+        content: '';
+        position: absolute;
+        background: rgba(141, 183, 255, 0.18);
+      }
+
+      .pad-grid::before {
+        top: 50%;
+        left: 0;
+        right: 0;
+        height: 1px;
+        transform: translateY(-50%);
+      }
+
+      .pad-grid::after {
+        left: 50%;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        transform: translateX(-50%);
+      }
+
+      .pad-dot {
+        position: absolute;
+        width: 1rem;
+        height: 1rem;
+        border-radius: 999px;
+        background: linear-gradient(135deg, #f2c879, #8db7ff);
+        box-shadow: 0 0 0 6px rgba(141, 183, 255, 0.12);
+        transform: translate(-50%, -50%);
+        left: 50%;
+        top: 50%;
+      }
+
+      .axis-grid,
+      .metric-list {
+        display: grid;
+        gap: 1rem;
+        margin-top: 1rem;
+      }
+
+      .axis-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .axis-card,
+      .metric {
+        display: grid;
+        gap: 0.45rem;
+      }
+
+      .axis-card-row,
+      .metric-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+
+      .axis-card-row span,
+      .metric-row span,
+      .metrics-inline,
+      .debug-list dt {
+        color: var(--text-muted);
+      }
+
+      .axis-bar {
+        position: relative;
+        height: 1rem;
+        border-radius: 999px;
+        border: 1px solid rgba(141, 183, 255, 0.12);
+        background:
+          linear-gradient(90deg, rgba(115, 158, 255, 0.08) 0%, rgba(115, 158, 255, 0.18) 50%, rgba(115, 158, 255, 0.08) 100%);
+      }
+
+      .axis-bar::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 50%;
+        width: 1px;
+        background: rgba(242, 200, 121, 0.45);
+        transform: translateX(-50%);
+      }
+
+      .axis-bar-marker {
+        position: absolute;
+        top: 50%;
+        width: 0.7rem;
+        height: 0.7rem;
+        border-radius: 999px;
+        background: #8db7ff;
+        transform: translate(-50%, -50%);
+        box-shadow: 0 0 0 3px rgba(141, 183, 255, 0.12);
+      }
+
+      .axis-bar-marker[data-saturated='true'] {
+        background: #f2c879;
+        box-shadow: 0 0 0 3px rgba(242, 200, 121, 0.18);
+      }
+
+      .metrics-inline {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.45rem 1rem;
+      }
+
+      .debug-list {
+        display: grid;
+        gap: 0.8rem;
+        margin: 1rem 0 0;
+      }
+
+      .debug-list div {
+        display: grid;
+        gap: 0.2rem;
+      }
+
+      .debug-list dt,
+      .debug-list dd {
+        margin: 0;
+      }
+
+      .debug-list dd {
+        font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #d9e7f6;
+        word-break: break-word;
+      }
+
+      @media (max-width: 900px) {
+        .dashboard,
+        .axis-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .panel-hero {
+          grid-column: span 1;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <section class="intro">
+      <h1>Device Motion Debug</h1>
+      <p class="lede">
+        Sensor-only sandbox for tuning parallax motion. Use this page while iterating on
+        <code>createDeviceTiltTracker()</code> locally in this repo.
+      </p>
+      <div class="intro-actions">
+        <button type="button" data-action="enable-debug-motion">Enable Device Motion</button>
+        <button type="button" data-action="recenter-debug-motion">Recenter</button>
+        <a class="button" href="./index.html">Free Roam Demo</a>
+        <a class="button" href="./index-shared.html">Shared Session Demo</a>
+        <a class="button" href="./index-vr.html">XR Demo</a>
+      </div>
+      <p class="status">Status: <span data-debug-status>Waiting for device motion to be enabled.</span></p>
+    </section>
+
+    <section class="dashboard">
+      <article class="panel panel-hero">
+        <h2>Screen-space motion</h2>
+        <div class="pad">
+          <div class="pad-grid" aria-hidden="true"></div>
+          <div class="pad-dot axis-bar-marker" data-debug-pad-dot aria-hidden="true"></div>
+        </div>
+        <div class="axis-grid">
+          <div class="axis-card">
+            <div class="axis-card-row">
+              <span>Normalized X</span>
+              <strong data-debug-value="normalized-x">0.0000</strong>
+            </div>
+            <div class="axis-bar">
+              <div class="axis-bar-marker" data-debug-bar="normalized-x"></div>
+            </div>
+          </div>
+          <div class="axis-card">
+            <div class="axis-card-row">
+              <span>Normalized Y</span>
+              <strong data-debug-value="normalized-y">0.0000</strong>
+            </div>
+            <div class="axis-bar">
+              <div class="axis-bar-marker" data-debug-bar="normalized-y"></div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h2>Raw sensor angles</h2>
+        <div class="metric-list">
+          <div class="metric">
+            <div class="metric-row">
+              <span>Alpha</span>
+              <strong data-debug-value="raw-alpha">0.00</strong>
+            </div>
+          </div>
+          <div class="metric">
+            <div class="metric-row">
+              <span>Beta</span>
+              <strong data-debug-value="raw-beta">0.00</strong>
+            </div>
+            <div class="axis-bar">
+              <div class="axis-bar-marker" data-debug-bar="raw-beta"></div>
+            </div>
+          </div>
+          <div class="metric">
+            <div class="metric-row">
+              <span>Gamma</span>
+              <strong data-debug-value="raw-gamma">0.00</strong>
+            </div>
+            <div class="axis-bar">
+              <div class="axis-bar-marker" data-debug-bar="raw-gamma"></div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h2>Projection and clipping</h2>
+        <div class="metric-list">
+          <div class="metric">
+            <div class="metric-row">
+              <span>Projected X</span>
+              <strong data-debug-value="projected-x">0.0000</strong>
+            </div>
+            <div class="axis-bar">
+              <div class="axis-bar-marker" data-debug-bar="projected-x"></div>
+            </div>
+          </div>
+          <div class="metric">
+            <div class="metric-row">
+              <span>Projected Y</span>
+              <strong data-debug-value="projected-y">0.0000</strong>
+            </div>
+            <div class="axis-bar">
+              <div class="axis-bar-marker" data-debug-bar="projected-y"></div>
+            </div>
+          </div>
+          <div class="metrics-inline">
+            <p>Clamped X: <strong data-debug-value="clamped-x">0.0000</strong></p>
+            <p>Clamped Y: <strong data-debug-value="clamped-y">0.0000</strong></p>
+            <p>Saturated X: <strong data-debug-value="saturated-x">no</strong></p>
+            <p>Saturated Y: <strong data-debug-value="saturated-y">no</strong></p>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h2>Calibration details</h2>
+        <dl class="debug-list">
+          <div>
+            <dt>Phase</dt>
+            <dd data-debug-phase>idle</dd>
+          </div>
+          <div>
+            <dt>Screen orientation</dt>
+            <dd data-debug-orientation-type>unknown</dd>
+          </div>
+          <div>
+            <dt>Screen angle</dt>
+            <dd data-debug-value="screen-angle-deg">0.0 deg</dd>
+          </div>
+          <div>
+            <dt>Compensated angle</dt>
+            <dd data-debug-value="screen-compensated-angle-deg">0.0 deg</dd>
+          </div>
+          <div>
+            <dt>Landscape native</dt>
+            <dd data-debug-value="landscape-native">no</dd>
+          </div>
+          <div>
+            <dt>Baseline right</dt>
+            <dd data-debug-value="baseline-right">0.0000, 0.0000, 0.0000</dd>
+          </div>
+          <div>
+            <dt>Baseline up</dt>
+            <dd data-debug-value="baseline-up">0.0000, 0.0000, 0.0000</dd>
+          </div>
+          <div>
+            <dt>Current normal</dt>
+            <dd data-debug-value="current-normal">0.0000, 0.0000, 0.0000</dd>
+          </div>
+        </dl>
+      </article>
+    </section>
+
+    <script type="module" src="/src/demo/parallax-sensor-debug.js"></script>
+  </body>
+</html>
