@@ -66,6 +66,12 @@ function clearGeometry(mesh) {
   mesh.userData.pickMeta = [];
 }
 
+function notifyCommit(options, payload) {
+  if (typeof options.onCommit === 'function') {
+    options.onCommit(payload);
+  }
+}
+
 export function createStarFieldLayer(options = {}) {
   const group = new THREE.Group();
   group.name = options.id ?? 'star-field-layer';
@@ -205,6 +211,14 @@ export function createStarFieldLayer(options = {}) {
       loadGeneration: generation,
     };
 
+    notifyCommit(options, {
+      geometry,
+      positions,
+      teffLog8,
+      magAbs,
+      starCount: totalCount,
+      loadGeneration: generation,
+    });
     applyMaterialUniforms(context);
     context.runtime.renderOnce();
     return geometry;
@@ -290,6 +304,24 @@ export function createStarFieldLayer(options = {}) {
     id: group.name,
     getStats() {
       return { ...stats };
+    },
+    getStarData() {
+      const geometry = points.geometry;
+      const positions = geometry?.getAttribute?.('position');
+      const teffLog8 = geometry?.getAttribute?.('teff_log8');
+      const magAbs = geometry?.getAttribute?.('magAbs');
+
+      if (!positions || !teffLog8 || !magAbs) {
+        return null;
+      }
+
+      return {
+        positions: positions.array,
+        teffLog8: teffLog8.array,
+        magAbs: magAbs.array,
+        starCount: stats.starCount,
+        loadGeneration: stats.loadGeneration,
+      };
     },
     async attach(context) {
       bootstrap = context.datasetSession ? await context.datasetSession.ensureRenderBootstrap() : null;

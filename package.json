@@ -1,6 +1,6 @@
 {
   "name": "@found-in-space/skykit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Reusable runtime for building Found in Space sky experiences",
   "license": "MIT",
   "type": "module",
@@ -25,6 +25,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "diag:observer-shell": "node ./scripts/observer-shell-diagnostic.mjs",
     "test": "node --test",
     "test:watch": "node --test --watch"
   },
