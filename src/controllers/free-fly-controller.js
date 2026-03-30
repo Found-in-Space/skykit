@@ -6,6 +6,7 @@ import { SCALE } from '../services/octree/scene-scale.js';
 const DEFAULT_OBSERVER_PC = Object.freeze({ x: 0, y: 0, z: 0 });
 const DEFAULT_MOVE_SPEED_PC_PER_SECOND = 12;
 const DEFAULT_LOOK_SENSITIVITY = 0.0025;
+const DEFAULT_ARROW_LOOK_SPEED_RAD_PER_SEC = 1.0;
 const DEFAULT_PITCH_LIMIT_RAD = Math.PI / 2 - 0.05;
 
 function clonePoint(point) {
@@ -121,6 +122,10 @@ export function createFreeFlyController(options = {}) {
     DEFAULT_MOVE_SPEED_PC_PER_SECOND,
   );
   const lookSensitivity = normalizePositiveNumber(options.lookSensitivity, DEFAULT_LOOK_SENSITIVITY);
+  const arrowLookSpeedRadPerSec = normalizePositiveNumber(
+    options.arrowLookSpeedRadPerSec,
+    DEFAULT_ARROW_LOOK_SPEED_RAD_PER_SEC,
+  );
   const pitchLimitRad = normalizePositiveNumber(options.pitchLimitRad, DEFAULT_PITCH_LIMIT_RAD);
   const icrsToSceneTransform = typeof options.icrsToSceneTransform === 'function'
     ? options.icrsToSceneTransform
@@ -129,11 +134,16 @@ export function createFreeFlyController(options = {}) {
     ? options.sceneToIcrsTransform
     : identitySceneToIcrsTransform;
 
+  const getForwardSpeed = typeof options.getForwardSpeed === 'function'
+    ? options.getForwardSpeed
+    : () => 0;
+
   const pressedKeys = new Set();
   const euler = new THREE.Euler(0, 0, 0, 'YXZ');
   const lookQuaternion = new THREE.Quaternion();
   const localMovement = new THREE.Vector3();
   const worldMovement = new THREE.Vector3();
+  const autoForwardVector = new THREE.Vector3();
 
   let pointerTarget = null;
   let keyboardTarget = null;
@@ -338,12 +348,21 @@ export function createFreeFlyController(options = {}) {
     },
     update(context) {
       ensureOrientation(context);
+
+      // Arrow keys rotate the camera (look); WASD moves the observer
+      const arrowLookStep = arrowLookSpeedRadPerSec * Math.max(0, context.frame?.deltaSeconds ?? 0);
+      if (arrowLookStep > 0) {
+        euler.y -= createSignedKeyAxis(pressedKeys, ['ArrowRight'], ['ArrowLeft']) * arrowLookStep;
+        euler.x += createSignedKeyAxis(pressedKeys, ['ArrowUp'], ['ArrowDown']) * arrowLookStep;
+        euler.x = Math.max(-pitchLimitRad, Math.min(pitchLimitRad, euler.x));
+      }
+
       lookQuaternion.setFromEuler(euler);
 
       localMovement.set(
-        createSignedKeyAxis(pressedKeys, ['KeyD', 'ArrowRight'], ['KeyA', 'ArrowLeft']),
+        createSignedKeyAxis(pressedKeys, ['KeyD'], ['KeyA']),
         createSignedKeyAxis(pressedKeys, ['KeyE', 'Space'], ['KeyQ', 'ShiftLeft', 'ShiftRight']),
-        createSignedKeyAxis(pressedKeys, ['KeyS', 'ArrowDown'], ['KeyW', 'ArrowUp']),
+        createSignedKeyAxis(pressedKeys, ['KeyS'], ['KeyW']),
       );
 
       let nextObserverPc = getObserverPc(context.state);
@@ -365,9 +384,22 @@ export function createFreeFlyController(options = {}) {
         lastObserverPc = clonePoint(nextObserverPc);
       }
 
+      // Auto-forward driven by getForwardSpeed (e.g. a touch speed slider)
+      const forwardSpeedPcPerSec = Math.max(0, getForwardSpeed());
+      if (forwardSpeedPcPerSec > 0) {
+        autoForwardVector.set(0, 0, -1).applyQuaternion(lookQuaternion);
+        nextObserverPc = moveObserverPcFromSceneDirection(
+          nextObserverPc,
+          autoForwardVector,
+          forwardSpeedPcPerSec * Math.max(0, context.frame?.deltaSeconds ?? 0),
+          sceneToIcrsTransform,
+        );
+        writeObserverPc(context.state, nextObserverPc);
+      }
+
       stats = {
         ...stats,
-        moving: localMovement.lengthSq() > 0,
+        moving: localMovement.lengthSq() > 0 || forwardSpeedPcPerSec > 0,
       };
       applyCameraPose(context);
     },
