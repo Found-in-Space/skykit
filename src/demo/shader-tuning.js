@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   createDesktopStarFieldMaterialProfile,
+  createTunedStarFieldMaterialProfile,
   createVrStarFieldMaterialProfile,
 } from '../layers/star-field-materials.js';
 import { SCALE } from '../services/octree/scene-scale.js';
@@ -82,6 +83,9 @@ function createMaterialProfile(profile, opts) {
   if (profile === 'vr') {
     return createVrStarFieldMaterialProfile(opts);
   }
+  if (profile === 'tuned') {
+    return createTunedStarFieldMaterialProfile(opts);
+  }
   return createDesktopStarFieldMaterialProfile(opts);
 }
 
@@ -142,15 +146,19 @@ camera.lookAt(0, 0, -1);
 
 const scene = new THREE.Scene();
 
-let activeProfile = 'desktop';
+let activeProfile = 'tuned';
 let materialProfile = null;
 let points = null;
+let haloPoints = null;
 let starData = null;
 
 function rebuild() {
   if (points) {
     scene.remove(points);
     points.geometry.dispose();
+  }
+  if (haloPoints) {
+    scene.remove(haloPoints);
   }
   if (materialProfile) {
     materialProfile.dispose();
@@ -170,6 +178,14 @@ function rebuild() {
   points = new THREE.Points(starData.geometry, materialProfile.material);
   points.frustumCulled = false;
   scene.add(points);
+
+  if (materialProfile.haloMaterial) {
+    haloPoints = new THREE.Points(starData.geometry, materialProfile.haloMaterial);
+    haloPoints.frustumCulled = false;
+    scene.add(haloPoints);
+  } else {
+    haloPoints = null;
+  }
 
   updateLabels();
 }
@@ -222,17 +238,26 @@ function updateLabels() {
 function syncUniforms() {
   if (!materialProfile) return;
 
-  const mat = materialProfile.material;
-  mat.uniforms.uExposure.value = getExposure();
-  mat.uniforms.uMagLimit.value = getMagLimit();
-  mat.uniforms.uSizeMin.value = getSizeMin();
-  mat.uniforms.uSizeMax.value = getSizeMax();
-  mat.uniforms.uMagFadeRange.value = getFadeRange();
-  mat.uniforms.uCameraPosition.value.set(0, 0, 0);
+  const u = materialProfile.material.uniforms;
+  u.uExposure.value = getExposure();
+  u.uMagLimit.value = getMagLimit();
+  if (u.uSizeMin) u.uSizeMin.value = getSizeMin();
+  if (u.uSizeMax) u.uSizeMax.value = getSizeMax();
+  u.uMagFadeRange.value = getFadeRange();
+  u.uCameraPosition.value.set(0, 0, 0);
+
+  if (materialProfile.haloMaterial) {
+    const h = materialProfile.haloMaterial.uniforms;
+    h.uExposure.value = getExposure();
+    h.uMagLimit.value = getMagLimit();
+    h.uMagFadeRange.value = getFadeRange();
+    h.uCameraPosition.value.set(0, 0, 0);
+  }
 }
 
 function updateReadouts() {
-  readout('exposure', Math.round(getExposure()));
+  const exp = getExposure();
+  readout('exposure', exp >= 1 ? exp.toFixed(0) : exp.toFixed(3));
   readout('mag-limit', getMagLimit().toFixed(1));
   readout('size-min', getSizeMin().toFixed(1));
   readout('size-max', getSizeMax().toFixed(0));
@@ -245,19 +270,51 @@ function updateInfo() {
 
   const exposure = getExposure();
   const limit = getMagLimit();
+  const sMin = getSizeMin();
+  const sMax = getSizeMax();
+  const linScale = 12.0;
+  const haloThreshold = 10.0;
+
+  const header = activeProfile === 'tuned'
+    ? 'm       flux       rawR   radius  lum    halo'
+    : 'm       flux       I(clamp)  size(magD)';
+
   const lines = starData.mags.map((m) => {
     const flux = Math.pow(10, -0.4 * m);
-    const intensity = Math.min(Math.max(flux * exposure, 0.02), 1.0);
+    const relFlux = activeProfile === 'tuned'
+      ? Math.pow(10, 0.4 * (limit - m))
+      : flux;
+    const energy = relFlux * exposure;
+
+    if (activeProfile === 'tuned') {
+      const rawRadius = Math.sqrt(energy) * linScale;
+      let luminance, radius;
+      if (rawRadius < sMin) {
+        luminance = Math.pow(rawRadius, 3) / Math.pow(sMin, 3);
+        radius = luminance < 0.03 ? 0 : sMin;
+        if (luminance < 0.03) luminance = 0;
+      } else {
+        luminance = 1.0;
+        const maxLin = 8.0;
+        radius = rawRadius > maxLin
+          ? maxLin + Math.sqrt(1 + rawRadius - maxLin) - 1
+          : rawRadius;
+      }
+      radius = Math.min(radius, sMax);
+      const excess = rawRadius - haloThreshold;
+      const haloAlpha = Math.max(0, Math.min(excess / 30, 1));
+      const haloFlag = haloAlpha > 0.001 ? `${(haloAlpha * 100).toFixed(0)}%` : '  -';
+      return `m=${String(m).padStart(4)}  flux=${flux.toExponential(1).padStart(9)}  rawR=${rawRadius.toFixed(1).padStart(6)}  r=${radius.toFixed(1).padStart(5)}px  L=${luminance.toFixed(3)}  halo=${haloFlag}`;
+    }
+
+    const intensity = Math.min(Math.max(energy, 0.02), 1.0);
     const magDiff = limit - m;
-    const size = Math.min(
-      Math.max(getSizeMin() + Math.pow(Math.max(magDiff, 0), 1.15) * 1.4, getSizeMin()),
-      getSizeMax(),
-    );
+    const size = Math.min(Math.max(sMin + Math.pow(Math.max(magDiff, 0), 1.15) * 1.4, sMin), sMax);
     const clamped = intensity >= 1.0 ? ' CLAMPED' : '';
     return `m=${String(m).padStart(4)}  flux=${flux.toExponential(1).padStart(9)}  I=${intensity.toFixed(3)}${clamped}  size=${size.toFixed(1)}px`;
   });
 
-  infoBlock.textContent = lines.join('\n');
+  infoBlock.textContent = header + '\n' + lines.join('\n');
 }
 
 // --- Controls wiring ---
@@ -269,11 +326,21 @@ ctrlSizeMax.addEventListener('input', () => { updateReadouts(); syncUniforms(); 
 ctrlFadeRange.addEventListener('input', () => { updateReadouts(); syncUniforms(); updateInfo(); });
 ctrlMagBrightest.addEventListener('input', () => { updateReadouts(); rebuild(); updateInfo(); });
 
+const PROFILE_SIZE_MAX = { desktop: 20, tuned: 256, vr: 64 };
+const PROFILE_SIZE_MIN = { desktop: 1.0, tuned: 2.0, vr: 1.0 };
+
 profileButtons.forEach((btn) => {
   btn.addEventListener('click', () => {
     profileButtons.forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     activeProfile = btn.dataset.profile;
+
+    const defaultMax = PROFILE_SIZE_MAX[activeProfile] ?? 20;
+    const defaultMin = PROFILE_SIZE_MIN[activeProfile] ?? 1.0;
+    ctrlSizeMax.value = String(defaultMax);
+    ctrlSizeMin.value = String(defaultMin);
+
+    updateReadouts();
     rebuild();
     updateInfo();
   });

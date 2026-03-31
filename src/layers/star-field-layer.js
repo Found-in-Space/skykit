@@ -25,6 +25,7 @@ function normalizeMaterialProfile(profile) {
   if (profile instanceof THREE.Material) {
     return {
       material: profile,
+      haloMaterial: null,
       updateUniforms: null,
       dispose() {
         profile.dispose();
@@ -36,13 +37,19 @@ function normalizeMaterialProfile(profile) {
     throw new TypeError('StarFieldLayer materialFactory must return a Material or { material } profile');
   }
 
+  const haloMat = profile.haloMaterial instanceof THREE.Material
+    ? profile.haloMaterial
+    : null;
+
   return {
     material: profile.material,
+    haloMaterial: haloMat,
     updateUniforms: typeof profile.updateUniforms === 'function' ? profile.updateUniforms : null,
     dispose: typeof profile.dispose === 'function'
       ? profile.dispose.bind(profile)
       : () => {
         profile.material.dispose();
+        if (haloMat) haloMat.dispose();
       },
   };
 }
@@ -58,12 +65,16 @@ function createNodeRenderKey(node) {
   return node?.nodeKey ?? `${node?.payloadOffset ?? 'none'}:${node?.payloadLength ?? 0}`;
 }
 
-function clearGeometry(mesh) {
+function clearGeometry(mesh, haloMesh) {
   if (mesh.geometry) {
     mesh.geometry.dispose();
   }
-  mesh.geometry = new THREE.BufferGeometry();
+  const empty = new THREE.BufferGeometry();
+  mesh.geometry = empty;
   mesh.userData.pickMeta = [];
+  if (haloMesh) {
+    haloMesh.geometry = empty;
+  }
 }
 
 function notifyCommit(options, payload) {
@@ -83,6 +94,8 @@ export function createStarFieldLayer(options = {}) {
   points.name = `${group.name}-points`;
   points.frustumCulled = false;
   group.add(points);
+
+  let haloPoints = null;
 
   const cameraWorldPosition = new THREE.Vector3();
   let materialProfile = null;
@@ -113,6 +126,14 @@ export function createStarFieldLayer(options = {}) {
       placeholderMaterial.dispose();
     }
     points.material = materialProfile.material;
+
+    if (materialProfile.haloMaterial && !haloPoints) {
+      haloPoints = new THREE.Points(points.geometry, materialProfile.haloMaterial);
+      haloPoints.name = `${group.name}-halo`;
+      haloPoints.frustumCulled = false;
+      group.add(haloPoints);
+    }
+
     return materialProfile;
   }
 
@@ -204,6 +225,9 @@ export function createStarFieldLayer(options = {}) {
       points.geometry.dispose();
     }
     points.geometry = geometry;
+    if (haloPoints) {
+      haloPoints.geometry = geometry;
+    }
     points.userData.pickMeta = pickMeta;
     stats = {
       nodeCount: segments.length,
@@ -237,7 +261,7 @@ export function createStarFieldLayer(options = {}) {
 
     if (!datasetSession) {
       stats = { nodeCount: 0, starCount: 0, loadGeneration: generation };
-      clearGeometry(points);
+      clearGeometry(points, haloPoints);
       return null;
     }
 
@@ -246,7 +270,7 @@ export function createStarFieldLayer(options = {}) {
       : [];
     if (nodes.length === 0) {
       stats = { nodeCount: 0, starCount: 0, loadGeneration: generation };
-      clearGeometry(points);
+      clearGeometry(points, haloPoints);
       return null;
     }
 
@@ -356,6 +380,7 @@ export function createStarFieldLayer(options = {}) {
       } else if (points.material === placeholderMaterial) {
         placeholderMaterial.dispose();
       }
+      haloPoints = null;
     },
   };
 

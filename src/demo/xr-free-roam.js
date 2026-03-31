@@ -7,7 +7,7 @@ import {
   createSelectionRefreshController,
   createStarFieldLayer,
   createViewer,
-  createVrStarFieldMaterialProfile,
+  createTunedStarFieldMaterialProfile,
   getDatasetSession,
   ORION_CENTER_PC,
   resolveFoundInSpaceDatasetOverrides,
@@ -232,9 +232,7 @@ async function mountViewer() {
       createStarFieldLayer({
         id: 'phase-5b-vr-star-field-layer',
         positionTransform: ORION_SCENE_TRANSFORM,
-        materialFactory: () => createVrStarFieldMaterialProfile({
-          exposure: 1e5,
-        }),
+        materialFactory: () => createTunedStarFieldMaterialProfile(),
       }),
     ],
     state: {
@@ -245,7 +243,7 @@ async function mountViewer() {
       mDesired: activeMagLimit,
       starFieldScale: 1.0,
       starFieldExtinctionScale: 1.0,
-      starFieldExposure: 1e5,
+      starFieldExposure: 0.028,
     },
     clearColor: 0x02040b,
   });

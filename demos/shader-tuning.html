@@ -136,28 +136,28 @@
 
       <div class="control-row">
         <label for="ctrl-exposure">Exposure</label>
-        <input id="ctrl-exposure" type="range" min="0" max="8" step="0.01" value="4.38" />
-        <span class="value-readout" data-readout="exposure">80</span>
+        <input id="ctrl-exposure" type="range" min="-6" max="6" step="0.01" value="-3.58" />
+        <span class="value-readout" data-readout="exposure">0.03</span>
       </div>
       <div class="control-row">
         <label for="ctrl-mag-limit">Mag limit</label>
-        <input id="ctrl-mag-limit" type="range" min="-5" max="25" step="0.5" value="7.5" />
-        <span class="value-readout" data-readout="mag-limit">7.5</span>
+        <input id="ctrl-mag-limit" type="range" min="-5" max="25" step="0.5" value="6.5" />
+        <span class="value-readout" data-readout="mag-limit">6.5</span>
       </div>
       <div class="control-row">
         <label for="ctrl-size-min">Size min</label>
-        <input id="ctrl-size-min" type="range" min="0.5" max="8" step="0.1" value="1.0" />
-        <span class="value-readout" data-readout="size-min">1.0</span>
+        <input id="ctrl-size-min" type="range" min="0.5" max="8" step="0.1" value="2.0" />
+        <span class="value-readout" data-readout="size-min">2.0</span>
       </div>
       <div class="control-row">
         <label for="ctrl-size-max">Size max</label>
-        <input id="ctrl-size-max" type="range" min="4" max="128" step="1" value="20" />
-        <span class="value-readout" data-readout="size-max">20</span>
+        <input id="ctrl-size-max" type="range" min="4" max="256" step="1" value="256" />
+        <span class="value-readout" data-readout="size-max">256</span>
       </div>
       <div class="control-row">
         <label for="ctrl-fade-range">Fade range</label>
-        <input id="ctrl-fade-range" type="range" min="0" max="8" step="0.1" value="3.0" />
-        <span class="value-readout" data-readout="fade-range">3.0</span>
+        <input id="ctrl-fade-range" type="range" min="0" max="8" step="0.1" value="1.0" />
+        <span class="value-readout" data-readout="fade-range">1.0</span>
       </div>
       <div class="control-row">
         <label for="ctrl-mag-brightest">Brightest mag</label>
@@ -167,7 +167,8 @@
 
       <p class="aside-section-title">Profile</p>
       <div class="controls">
-        <button type="button" data-profile="desktop" class="active">Desktop</button>
+        <button type="button" data-profile="desktop">Desktop</button>
+        <button type="button" data-profile="tuned" class="active">Tuned</button>
         <button type="button" data-profile="vr">VR</button>
       </div>
 

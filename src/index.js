@@ -37,6 +37,7 @@ export {
 } from './layers/scene-orientation.js';
 export { createCartoonStarFieldMaterialProfile } from './layers/star-field-materials.js';
 export { createDesktopStarFieldMaterialProfile } from './layers/star-field-materials.js';
+export { createTunedStarFieldMaterialProfile } from './layers/star-field-materials.js';
 export { createVrStarFieldMaterialProfile } from './layers/star-field-materials.js';
 export { createHighlightStarFieldMaterialProfile } from './layers/highlight-star-field-materials.js';
 export { createDeviceTiltTracker } from './services/input/device-tilt-tracker.js';

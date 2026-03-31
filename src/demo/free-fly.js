@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {
   createCameraRigController,
   createFoundInSpaceDatasetOptions,
-  createDesktopStarFieldMaterialProfile,
+  createTunedStarFieldMaterialProfile,
   createObserverShellField,
   ORION_CENTER_PC,
   createSceneOrientationTransforms,
@@ -197,16 +197,14 @@ async function mountViewer() {
       createStarFieldLayer({
         id: 'phase-5-free-fly-star-field-layer',
         positionTransform: ORION_SCENE_TRANSFORM,
-        materialFactory: () => createDesktopStarFieldMaterialProfile({
-          exposure: 80,
-        }),
+        materialFactory: () => createTunedStarFieldMaterialProfile(),
       }),
     ],
     state: {
       demo: 'phase-5-free-fly',
       observerPc: { x: 0, y: 0, z: 0 },
       mDesired: activeMagLimit,
-      starFieldExposure: 80,
+      starFieldExposure: 0.028,
       targetPc: ORION_CENTER_PC,
       fieldStrategy: 'observer-shell',
     },
