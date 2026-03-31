@@ -1,11 +1,8 @@
-# SkyKit
+# Found in Space — SkyKit
 
-SkyKit is the reusable Found in Space runtime for building interactive 3D sky experiences.
+Part of [Found in Space](https://foundin.space/), a project that turns real astronomical measurements into interactive explorations of the solar neighbourhood. See all repositories at [github.com/Found-in-Space](https://github.com/Found-in-Space).
 
-- GitHub: `https://github.com/Found-in-Space/skykit`
-- npm: `@found-in-space/skykit`
-
-SkyKit pulls together dataset services, loading and sharding strategies, scene and controller skeletons, rendering layers, and shader-based star rendering. It can be used as:
+SkyKit is the reusable runtime for building interactive 3D sky experiences. It pulls together dataset services, loading and sharding strategies, scene and controller skeletons, rendering layers, and shader-based star rendering. It can be used as:
 
 - a standalone viewer runtime for desktop or XR demos
 - a source-level library for custom visualizations, experiences, or games
@@ -43,6 +40,12 @@ The Vite demo entrypoints are:
 - `index-shared.html`: shared-session desktop demo
 - `index-vr.html`: XR free-roam demo
 - `index-parallax-debug.html`: device orientation + parallax sensor debug sandbox
+
+## npm
+
+```
+@found-in-space/skykit
+```
 
 ## Docs
 
