@@ -450,7 +450,8 @@ export function createCameraRigController(options = {}) {
       rig.positionPc.z += (dz / distance) * step;
 
       if (automation.orient !== false) {
-        const targetQ = rig.computeOrientationToward(t);
+        const orientTarget = automation.orientToward ?? t;
+        const targetQ = rig.computeOrientationToward(orientTarget);
         if (targetQ) {
           const alpha = 1 - (1 - (automation.turnBlend ?? 0.05)) ** (dt * 60);
           rig.slerpToward(targetQ, alpha);
@@ -553,6 +554,7 @@ export function createCameraRigController(options = {}) {
     flyTo(targetPc, opts = {}) {
       const target = normalizePoint(targetPc, null);
       if (!target) return;
+      const orientToward = normalizePoint(opts.orientToward, null);
       automation = {
         type: 'flyTo',
         target,
@@ -561,6 +563,7 @@ export function createCameraRigController(options = {}) {
         arrivalThreshold: positiveFinite(opts.arrivalThreshold, 0.01),
         turnBlend: opts.turnBlend ?? 0.05,
         orient: opts.orient,
+        orientToward,
         onArrive: typeof opts.onArrive === 'function' ? opts.onArrive : null,
       };
     },

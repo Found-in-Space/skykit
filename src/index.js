@@ -41,8 +41,10 @@ export { createVrStarFieldMaterialProfile } from './layers/star-field-materials.
 export { createHighlightStarFieldMaterialProfile } from './layers/highlight-star-field-materials.js';
 export { createDeviceTiltTracker } from './services/input/device-tilt-tracker.js';
 export {
+  ALCYONE_PC,
   GALACTIC_CENTER_PC,
   ORION_CENTER_PC,
+  ORION_NEBULA_PC,
   SCENE_TARGETS_PC,
   SOLAR_ORIGIN_PC,
 } from './scene-targets.js';
