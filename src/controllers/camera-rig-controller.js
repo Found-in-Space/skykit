@@ -1,0 +1,730 @@
+import * as THREE from 'three';
+import { normalizePoint, resolvePointSpec } from '../fields/octree-selection.js';
+import { SCALE } from '../services/octree/scene-scale.js';
+import { createDeviceTiltTracker } from '../services/input/device-tilt-tracker.js';
+import { createCameraRig, LOCAL_RIGHT, LOCAL_UP, LOCAL_FORWARD } from './camera-rig.js';
+
+function clonePoint(p) {
+  return p ? { x: p.x, y: p.y, z: p.z } : null;
+}
+
+function positiveFinite(value, fallback) {
+  return Number.isFinite(value) && value > 0 ? Number(value) : fallback;
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function isEditableTarget(target) {
+  if (!target || typeof target !== 'object') return false;
+  if (target.isContentEditable === true) return true;
+  const tag = (typeof target.tagName === 'string' ? target.tagName : '').toUpperCase();
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+}
+
+function keyAxis(pressed, positive, negative) {
+  let value = 0;
+  for (const code of positive) if (pressed.has(code)) value += 1;
+  for (const code of negative) if (pressed.has(code)) value -= 1;
+  return value;
+}
+
+export function readXrAxes(inputSources, options = {}) {
+  const deadzone = positiveFinite(options.deadzone, 0.15);
+  let bestMagnitude = 0;
+  let bestAxes = { x: 0, y: 0, activeHand: null };
+
+  for (const source of Array.from(inputSources ?? [])) {
+    const gamepad = source?.gamepad;
+    if (!gamepad || gamepad.axes.length < 2) continue;
+    const xi = gamepad.axes.length >= 4 ? 2 : 0;
+    const yi = gamepad.axes.length >= 4 ? 3 : 1;
+    const rawX = Math.abs(gamepad.axes[xi] ?? 0) < deadzone ? 0 : Number(gamepad.axes[xi] ?? 0);
+    const rawY = Math.abs(gamepad.axes[yi] ?? 0) < deadzone ? 0 : Number(gamepad.axes[yi] ?? 0);
+    const magnitude = Math.hypot(rawX, rawY);
+    if (magnitude > bestMagnitude) {
+      bestMagnitude = magnitude;
+      bestAxes = {
+        x: rawX,
+        y: rawY,
+        activeHand: typeof source.handedness === 'string' ? source.handedness : null,
+      };
+    }
+  }
+
+  return bestAxes;
+}
+
+const MOVE_KEYS = [
+  'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE',
+  'Space', 'ShiftLeft', 'ShiftRight',
+  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+];
+
+export function createCameraRigController(options = {}) {
+  const id = options.id ?? 'camera-rig-controller';
+  const integration = options.integration === 'inertial' ? 'inertial' : 'direct';
+
+  const moveSpeed = positiveFinite(options.moveSpeed, 12);
+  const lookSensitivity = positiveFinite(options.lookSensitivity, 0.0025);
+  const keyboardTurnSpeed = positiveFinite(options.keyboardTurnSpeed, 1.0);
+  const rollSpeed = positiveFinite(options.rollSpeed, 1.0);
+  const getForwardSpeed = typeof options.getForwardSpeed === 'function'
+    ? options.getForwardSpeed
+    : () => 0;
+
+  const thrustAcceleration = positiveFinite(options.thrustAcceleration, 10);
+  const maxSpeed = positiveFinite(options.maxSpeed, 45);
+  const brakeFactor = positiveFinite(options.brakeFactor, 2);
+  const dragCoefficient = Number.isFinite(options.dragCoefficient)
+    ? Math.max(0, Number(options.dragCoefficient))
+    : 0;
+
+  const isParallaxMode = options.targetLock != null;
+  const targetLockSpec = options.targetLock ?? null;
+  const resolveOffsetPc = (() => {
+    const spec = options.offsetPc ?? options.getOffsetPc;
+    if (typeof spec === 'function') return (ctx) => {
+      const v = spec(ctx);
+      return Number.isFinite(v) ? Number(v) : 0.12;
+    };
+    return () => positiveFinite(spec, 0.12);
+  })();
+  const easing = (() => {
+    const v = options.easing;
+    return Number.isFinite(v) && v > 0 && v <= 1 ? Number(v) : 0.08;
+  })();
+  const pointerOpts = options.pointer && typeof options.pointer === 'object' ? options.pointer : {};
+  const pointerInvertX = pointerOpts.invertX === true;
+  const pointerInvertY = pointerOpts.invertY === true;
+  const motionOpts = options.motion && typeof options.motion === 'object' ? options.motion : {};
+  const onModeChange = typeof options.onModeChange === 'function' ? options.onModeChange : () => {};
+  const onStatus = typeof options.onStatus === 'function' ? options.onStatus : () => {};
+
+  const xrEnabled = options.xr === true;
+  const xrMoveSpeed = positiveFinite(options.xrMoveSpeed ?? options.moveSpeed, 4);
+  const xrDeadzone = positiveFinite(options.xrDeadzone, 0.15);
+
+  const rig = createCameraRig({
+    observerPc: options.observerPc,
+    lookAtPc: isParallaxMode ? undefined : options.lookAtPc,
+    sceneScale: options.sceneScale,
+    icrsToSceneTransform: options.icrsToSceneTransform,
+    sceneToIcrsTransform: options.sceneToIcrsTransform,
+  });
+
+  const pressedKeys = new Set();
+  let pointerTarget = null;
+  let keyboardTarget = null;
+  let dragPointerId = null;
+  let dragLastX = 0;
+  let dragLastY = 0;
+  let lastObserverPc = rig.clonePosition();
+
+  let targetLockPc = null;
+  let motionEnabled = false;
+  let targetOffset = { x: 0, y: 0 };
+  let currentOffset = { x: 0, y: 0 };
+  let deviceTiltTracker = null;
+
+  let automation = null;
+
+  const _movement = new THREE.Vector3();
+  const _worldMovement = new THREE.Vector3();
+  const _forward = new THREE.Vector3();
+  const _right = new THREE.Vector3();
+  const _cameraWorldQ = new THREE.Quaternion();
+
+  let stats = {
+    observerPc: rig.clonePosition(),
+    pointerActive: false,
+    moving: false,
+    automation: null,
+  };
+
+  function resolveTargetLock(context) {
+    if (!targetLockSpec) return null;
+    const stateTarget = normalizePoint(context?.state?.targetPc, null);
+    return resolvePointSpec(targetLockSpec, context, stateTarget);
+  }
+
+  function setTargetOffset(x, y, mode) {
+    targetOffset = { x: clamp(x, -1, 1), y: clamp(y, -1, 1) };
+    stats = { ...stats, inputMode: mode, targetOffset: { ...targetOffset } };
+    onModeChange(mode);
+  }
+
+  function createDeviceTiltTrackerIfNeeded() {
+    if (deviceTiltTracker || !isParallaxMode) return;
+    deviceTiltTracker = createDeviceTiltTracker({
+      ...motionOpts,
+      onUpdate(state) {
+        if (state.phase === 'calibrated') {
+          targetOffset = { x: 0, y: 0 };
+          currentOffset = { x: 0, y: 0 };
+          onStatus('Motion recalibrated for the current screen orientation.');
+          return;
+        }
+        if (state.phase !== 'update') return;
+        setTargetOffset(state.normalized.x, state.normalized.y, 'device motion');
+      },
+    });
+  }
+
+  // --- Pointer handlers ---
+
+  function onPointerDown(event) {
+    if (event.button !== 0) return;
+
+    if (isParallaxMode) {
+      updatePointerOffset(event);
+      return;
+    }
+
+    dragPointerId = event.pointerId;
+    dragLastX = event.clientX;
+    dragLastY = event.clientY;
+    if (pointerTarget?.style) pointerTarget.style.cursor = 'grabbing';
+    if (typeof pointerTarget?.setPointerCapture === 'function') {
+      try { pointerTarget.setPointerCapture(event.pointerId); } catch (_) { /* non-DOM */ }
+    }
+  }
+
+  function onPointerMove(event) {
+    if (isParallaxMode) {
+      if (!motionEnabled) updatePointerOffset(event);
+      return;
+    }
+
+    if (dragPointerId == null || event.pointerId !== dragPointerId) return;
+    const dx = event.clientX - dragLastX;
+    const dy = event.clientY - dragLastY;
+    dragLastX = event.clientX;
+    dragLastY = event.clientY;
+
+    rig.rotateLocal(LOCAL_UP, -dx * lookSensitivity);
+    rig.rotateLocal(LOCAL_RIGHT, -dy * lookSensitivity);
+  }
+
+  function onPointerEnd(event) {
+    if (isParallaxMode) {
+      if (!motionEnabled) setTargetOffset(0, 0, 'pointer');
+      return;
+    }
+
+    if (dragPointerId == null || event.pointerId !== dragPointerId) return;
+    if (typeof pointerTarget?.releasePointerCapture === 'function') {
+      try { pointerTarget.releasePointerCapture(event.pointerId); } catch (_) { /* non-DOM */ }
+    }
+    dragPointerId = null;
+    if (pointerTarget?.style) pointerTarget.style.cursor = '';
+  }
+
+  function updatePointerOffset(event) {
+    if (!pointerTarget || motionEnabled) return;
+    const bounds = typeof pointerTarget.getBoundingClientRect === 'function'
+      ? pointerTarget.getBoundingClientRect()
+      : null;
+    if (!bounds || !(bounds.width > 0) || !(bounds.height > 0)) return;
+    const nx = ((event.clientX - bounds.left) / bounds.width) * 2 - 1;
+    const ny = ((event.clientY - bounds.top) / bounds.height) * 2 - 1;
+    setTargetOffset(
+      pointerInvertX ? -nx : nx,
+      pointerInvertY ? -ny : ny,
+      'pointer',
+    );
+  }
+
+  // --- Keyboard handlers ---
+
+  function onKeyDown(event) {
+    if (event.repeat || isEditableTarget(event.target)) return;
+    if (!MOVE_KEYS.includes(event.code)) return;
+    pressedKeys.add(event.code);
+    event.preventDefault();
+  }
+
+  function onKeyUp(event) {
+    if (!pressedKeys.has(event.code)) return;
+    pressedKeys.delete(event.code);
+    event.preventDefault();
+  }
+
+  // --- Update modes ---
+
+  function updateFreeFly(context) {
+    const dt = Math.max(0, context.frame?.deltaSeconds ?? 0);
+
+    const lookStep = keyboardTurnSpeed * dt;
+    if (lookStep > 0) {
+      const yaw = keyAxis(pressedKeys, ['ArrowRight'], ['ArrowLeft']);
+      const pitch = keyAxis(pressedKeys, ['ArrowDown'], ['ArrowUp']);
+      if (yaw !== 0) rig.rotateLocal(LOCAL_UP, -yaw * lookStep);
+      if (pitch !== 0) rig.rotateLocal(LOCAL_RIGHT, pitch * lookStep);
+    }
+
+    const roll = keyAxis(pressedKeys, ['KeyE'], ['KeyQ']);
+    if (roll !== 0) rig.rotateLocal(LOCAL_FORWARD, -roll * rollSpeed * dt);
+
+    _movement.set(
+      keyAxis(pressedKeys, ['KeyD'], ['KeyA']),
+      keyAxis(pressedKeys, ['Space'], ['ShiftLeft', 'ShiftRight']),
+      keyAxis(pressedKeys, ['KeyS'], ['KeyW']),
+    );
+
+    if (_movement.lengthSq() > 0) {
+      _movement.normalize();
+      _worldMovement.copy(_movement).applyQuaternion(rig.orientation);
+      rig.moveInSceneDirection(_worldMovement, moveSpeed * dt);
+    }
+
+    const forwardSpeedPcPerSec = Math.max(0, getForwardSpeed());
+    if (forwardSpeedPcPerSec > 0) {
+      _forward.set(0, 0, -1).applyQuaternion(rig.orientation);
+      rig.moveInSceneDirection(_forward, forwardSpeedPcPerSec * dt);
+    }
+
+    rig.applyToCamera(context.camera);
+    stats = {
+      ...stats,
+      observerPc: rig.clonePosition(),
+      pointerActive: dragPointerId != null,
+      moving: _movement.lengthSq() > 0 || forwardSpeedPcPerSec > 0,
+    };
+  }
+
+  function updateInertial(context) {
+    const dt = Math.max(0, context.frame?.deltaSeconds ?? 0);
+    if (!(dt > 0)) {
+      rig.applyToCamera(context.camera);
+      return;
+    }
+
+    const yaw = keyAxis(pressedKeys, ['KeyD', 'ArrowRight'], ['KeyA', 'ArrowLeft']);
+    if (yaw !== 0) rig.rotateLocal(LOCAL_UP, -yaw * keyboardTurnSpeed * dt);
+
+    const roll = keyAxis(pressedKeys, ['KeyE'], ['KeyQ']);
+    if (roll !== 0) rig.rotateLocal(LOCAL_FORWARD, -roll * rollSpeed * dt);
+
+    const thrustInput = keyAxis(pressedKeys, ['KeyW', 'ArrowUp'], ['KeyS', 'ArrowDown']);
+    if (thrustInput !== 0) {
+      _forward.set(0, 0, -1).applyQuaternion(rig.orientation).normalize();
+      const accel = thrustInput > 0 ? thrustAcceleration : thrustAcceleration * brakeFactor;
+      rig.velocity.addScaledVector(_forward, accel * thrustInput * dt);
+    }
+
+    if (dragCoefficient > 0 && rig.velocity.lengthSq() > 0) {
+      rig.velocity.multiplyScalar(Math.max(0, 1 - dragCoefficient * dt));
+    }
+
+    const speed = rig.velocity.length();
+    if (speed > maxSpeed) {
+      rig.velocity.multiplyScalar(maxSpeed / speed);
+    } else if (speed < 1e-6) {
+      rig.velocity.set(0, 0, 0);
+    }
+
+    const currentSpeed = rig.velocity.length();
+    if (currentSpeed > 0) {
+      _worldMovement.copy(rig.velocity).normalize();
+      rig.moveInSceneDirection(_worldMovement, currentSpeed * dt);
+    }
+
+    rig.applyToCamera(context.camera);
+    stats = {
+      ...stats,
+      observerPc: rig.clonePosition(),
+      pointerActive: dragPointerId != null,
+      moving: currentSpeed > 0.001,
+      speedPcPerSecond: currentSpeed,
+    };
+  }
+
+  function updateParallax(context) {
+    targetLockPc = resolveTargetLock(context) ?? targetLockPc;
+    if (!targetLockPc) return;
+
+    currentOffset.x += (targetOffset.x - currentOffset.x) * easing;
+    currentOffset.y += (targetOffset.y - currentOffset.y) * easing;
+
+    const offsetPc = resolveOffsetPc(context);
+    const observerSceneX = currentOffset.x * offsetPc * rig.sceneScale;
+    const observerSceneY = currentOffset.y * offsetPc * rig.sceneScale;
+    const [ix, iy, iz] = rig.sceneToIcrs(observerSceneX, observerSceneY, 0);
+    rig.positionPc.x = ix / rig.sceneScale;
+    rig.positionPc.y = iy / rig.sceneScale;
+    rig.positionPc.z = iz / rig.sceneScale;
+
+    context.state.targetPc = clonePoint(targetLockPc);
+    rig.applyLookAtToCamera(context.camera, targetLockPc);
+
+    stats = {
+      ...stats,
+      observerPc: rig.clonePosition(),
+      targetPc: clonePoint(targetLockPc),
+      motionEnabled,
+      currentOffset: { ...currentOffset },
+      targetOffset: { ...targetOffset },
+      inputMode: stats.inputMode ?? 'pointer',
+    };
+  }
+
+  function updateXr(context) {
+    if (context.xr?.presenting !== true) return false;
+
+    const axes = readXrAxes(context.xr?.session?.inputSources ?? [], { deadzone: xrDeadzone });
+    stats = {
+      ...stats,
+      activeHand: axes.activeHand,
+      locomotionAxes: { x: axes.x, y: axes.y },
+    };
+
+    if (axes.x !== 0 || axes.y !== 0) {
+      context.camera.updateMatrixWorld();
+      context.camera.getWorldQuaternion(_cameraWorldQ);
+      _forward.set(0, 0, -1).applyQuaternion(_cameraWorldQ);
+      _forward.y = 0;
+      if (_forward.lengthSq() === 0) _forward.set(0, 0, -1);
+      else _forward.normalize();
+
+      _right.crossVectors(_forward, LOCAL_UP);
+      if (_right.lengthSq() === 0) _right.set(1, 0, 0);
+      else _right.normalize();
+
+      _movement.copy(_right).multiplyScalar(axes.x).addScaledVector(_forward, -axes.y);
+      const strength = _movement.length();
+      if (strength > 0) {
+        const sceneScale = positiveFinite(context.state?.starFieldScale, rig.sceneScale);
+        rig.moveInSceneDirection(
+          _movement.normalize(),
+          (xrMoveSpeed * strength * Math.max(0, context.frame?.deltaSeconds ?? 0)) / sceneScale,
+        );
+      }
+    }
+
+    const sceneScale = positiveFinite(context.state?.starFieldScale, rig.sceneScale);
+    const [sx, sy, sz] = rig.icrsToScene(
+      rig.positionPc.x * sceneScale,
+      rig.positionPc.y * sceneScale,
+      rig.positionPc.z * sceneScale,
+    );
+    context.navigationRoot.position.set(sx, sy, sz);
+    context.contentRoot.scale.setScalar(sceneScale / SCALE);
+
+    stats = {
+      ...stats,
+      observerPc: rig.clonePosition(),
+      sceneScale,
+      presenting: true,
+    };
+    return true;
+  }
+
+  // --- Automation ---
+
+  function updateAutomation(context) {
+    if (!automation) return false;
+    const dt = Math.max(0, context.frame?.deltaSeconds ?? 0);
+    if (!(dt > 0)) return true;
+
+    if (automation.type === 'flyTo') {
+      const t = automation.target;
+      const dx = t.x - rig.positionPc.x;
+      const dy = t.y - rig.positionPc.y;
+      const dz = t.z - rig.positionPc.z;
+      const distance = Math.hypot(dx, dy, dz);
+
+      if (distance < (automation.arrivalThreshold ?? 0.01)) {
+        rig.setPosition(t);
+        const cb = automation.onArrive;
+        automation = null;
+        cb?.();
+        return false;
+      }
+
+      const speed = Math.min(automation.speed, distance * (automation.deceleration ?? 2));
+      const step = Math.min(speed * dt, distance);
+      rig.positionPc.x += (dx / distance) * step;
+      rig.positionPc.y += (dy / distance) * step;
+      rig.positionPc.z += (dz / distance) * step;
+
+      if (automation.orient !== false) {
+        const targetQ = rig.computeOrientationToward(t);
+        if (targetQ) {
+          const alpha = 1 - (1 - (automation.turnBlend ?? 0.05)) ** (dt * 60);
+          rig.slerpToward(targetQ, alpha);
+        }
+      }
+      return true;
+    }
+
+    if (automation.type === 'orbit') {
+      automation.angle += (automation.angularSpeed ?? 0.1) * dt;
+      const { center, radius } = automation;
+      const cosA = Math.cos(automation.angle);
+      const sinA = Math.sin(automation.angle);
+      const [ix, iy, iz] = rig.sceneToIcrs(
+        cosA * radius * rig.sceneScale,
+        0,
+        sinA * radius * rig.sceneScale,
+      );
+      rig.positionPc.x = center.x + ix / rig.sceneScale;
+      rig.positionPc.y = center.y + iy / rig.sceneScale;
+      rig.positionPc.z = center.z + iz / rig.sceneScale;
+      rig.orientToward(center);
+      return true;
+    }
+
+    if (automation.type === 'lookAt') {
+      const targetQ = rig.computeOrientationToward(automation.target);
+      if (targetQ) {
+        const alpha = 1 - (1 - (automation.blend ?? 0.05)) ** (dt * 60);
+        rig.slerpToward(targetQ, alpha);
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  // --- State sync ---
+
+  function writeToState(state) {
+    state.observerPc = rig.clonePosition();
+    lastObserverPc = rig.clonePosition();
+  }
+
+  function readFromState(state) {
+    const statePc = normalizePoint(state?.observerPc, null);
+    if (!statePc) return;
+    if (
+      statePc.x !== lastObserverPc.x
+      || statePc.y !== lastObserverPc.y
+      || statePc.z !== lastObserverPc.z
+    ) {
+      rig.setPosition(statePc);
+      lastObserverPc = clonePoint(statePc);
+    }
+  }
+
+  // --- Event binding helpers ---
+
+  function bindEvents() {
+    if (isParallaxMode) {
+      pointerTarget?.addEventListener?.('pointermove', onPointerMove);
+      pointerTarget?.addEventListener?.('pointerdown', onPointerDown);
+      pointerTarget?.addEventListener?.('pointerleave', onPointerEnd);
+      pointerTarget?.addEventListener?.('pointerup', onPointerEnd);
+      pointerTarget?.addEventListener?.('pointercancel', onPointerEnd);
+    } else {
+      pointerTarget?.addEventListener?.('pointerdown', onPointerDown);
+      pointerTarget?.addEventListener?.('pointermove', onPointerMove);
+      pointerTarget?.addEventListener?.('pointerup', onPointerEnd);
+      pointerTarget?.addEventListener?.('pointercancel', onPointerEnd);
+      keyboardTarget?.addEventListener?.('keydown', onKeyDown);
+      keyboardTarget?.addEventListener?.('keyup', onKeyUp);
+    }
+  }
+
+  function unbindEvents() {
+    if (isParallaxMode) {
+      pointerTarget?.removeEventListener?.('pointermove', onPointerMove);
+      pointerTarget?.removeEventListener?.('pointerdown', onPointerDown);
+      pointerTarget?.removeEventListener?.('pointerleave', onPointerEnd);
+      pointerTarget?.removeEventListener?.('pointerup', onPointerEnd);
+      pointerTarget?.removeEventListener?.('pointercancel', onPointerEnd);
+    } else {
+      pointerTarget?.removeEventListener?.('pointerdown', onPointerDown);
+      pointerTarget?.removeEventListener?.('pointermove', onPointerMove);
+      pointerTarget?.removeEventListener?.('pointerup', onPointerEnd);
+      pointerTarget?.removeEventListener?.('pointercancel', onPointerEnd);
+      keyboardTarget?.removeEventListener?.('keydown', onKeyDown);
+      keyboardTarget?.removeEventListener?.('keyup', onKeyUp);
+    }
+  }
+
+  // --- Controller API ---
+
+  return {
+    id,
+    rig,
+
+    flyTo(targetPc, opts = {}) {
+      const target = normalizePoint(targetPc, null);
+      if (!target) return;
+      automation = {
+        type: 'flyTo',
+        target,
+        speed: positiveFinite(opts.speed, moveSpeed),
+        deceleration: positiveFinite(opts.deceleration, 2),
+        arrivalThreshold: positiveFinite(opts.arrivalThreshold, 0.01),
+        turnBlend: opts.turnBlend ?? 0.05,
+        orient: opts.orient,
+        onArrive: typeof opts.onArrive === 'function' ? opts.onArrive : null,
+      };
+    },
+
+    orbit(centerPc, opts = {}) {
+      const center = normalizePoint(centerPc, null);
+      if (!center) return;
+      const dx = rig.positionPc.x - center.x;
+      const dy = rig.positionPc.y - center.y;
+      const dz = rig.positionPc.z - center.z;
+      const currentRadius = Math.hypot(dx, dy, dz);
+      automation = {
+        type: 'orbit',
+        center,
+        radius: positiveFinite(opts.radius, currentRadius || 1),
+        angularSpeed: opts.angularSpeed ?? 0.1,
+        angle: opts.initialAngle ?? 0,
+      };
+    },
+
+    lookAt(targetPc, opts = {}) {
+      const target = normalizePoint(targetPc, null);
+      if (!target) return;
+      automation = {
+        type: 'lookAt',
+        target,
+        blend: opts.blend ?? 0.05,
+      };
+    },
+
+    cancelAutomation() {
+      automation = null;
+    },
+
+    isMotionSupported() {
+      createDeviceTiltTrackerIfNeeded();
+      return deviceTiltTracker?.isSupported() ?? false;
+    },
+
+    async enableMotion() {
+      createDeviceTiltTrackerIfNeeded();
+      if (!deviceTiltTracker?.isSupported()) {
+        onStatus('Device motion is not available here, so this controller stays in pointer mode.');
+        return false;
+      }
+      if (!motionEnabled) {
+        const result = await deviceTiltTracker.enable();
+        if (!result.ok) {
+          onStatus('Motion access was not granted. You can still use pointer mode.');
+          return false;
+        }
+        motionEnabled = true;
+        onModeChange('device motion');
+        onStatus('Tilt the device to shift the observer while keeping the target fixed.');
+        return true;
+      }
+      deviceTiltTracker.recenter();
+      onStatus('Motion was recentered. Hold the device in a comfortable neutral position.');
+      return true;
+    },
+
+    recenterMotion() {
+      deviceTiltTracker?.recenter();
+      onStatus('Motion was recentered. Hold the device in a comfortable neutral position.');
+    },
+
+    getStats() {
+      return {
+        ...stats,
+        observerPc: clonePoint(stats.observerPc),
+        automation: automation ? automation.type : null,
+      };
+    },
+
+    attach(context) {
+      pointerTarget = options.pointerTarget ?? context.canvas ?? null;
+      keyboardTarget = options.keyboardTarget ?? globalThis.window ?? null;
+
+      if (!context.state || typeof context.state !== 'object') {
+        throw new TypeError('CameraRigController requires a mutable runtime state object');
+      }
+
+      targetLockPc = resolveTargetLock(context);
+
+      if (!context.state.observerPc) {
+        writeToState(context.state);
+      } else {
+        const statePc = normalizePoint(context.state.observerPc, null);
+        if (statePc) {
+          rig.setPosition(statePc);
+          lastObserverPc = clonePoint(statePc);
+        }
+      }
+
+      if (!isParallaxMode) {
+        const stateTarget = normalizePoint(context.state?.targetPc, null);
+        const lookTarget = normalizePoint(options.lookAtPc, null) ?? stateTarget;
+        if (lookTarget) rig.orientToward(lookTarget);
+      }
+
+      if (isParallaxMode && targetLockPc) {
+        context.state.targetPc = clonePoint(targetLockPc);
+        rig.applyLookAtToCamera(context.camera, targetLockPc);
+      } else {
+        rig.applyToCamera(context.camera);
+      }
+
+      if (xrEnabled && context.state) {
+        if (!Number.isFinite(context.state.starFieldScale) || context.state.starFieldScale <= 0) {
+          context.state.starFieldScale = rig.sceneScale;
+        }
+      }
+
+      bindEvents();
+    },
+
+    start(context) {
+      if (isParallaxMode) {
+        updateParallax(context);
+      } else {
+        rig.applyToCamera(context.camera);
+      }
+    },
+
+    update(context) {
+      readFromState(context.state);
+
+      if (xrEnabled && updateXr(context)) {
+        writeToState(context.state);
+        return;
+      }
+
+      if (updateAutomation(context)) {
+        rig.applyToCamera(context.camera);
+        writeToState(context.state);
+        stats = { ...stats, observerPc: rig.clonePosition(), automation: automation?.type ?? null };
+        return;
+      }
+
+      if (isParallaxMode) {
+        updateParallax(context);
+        writeToState(context.state);
+        return;
+      }
+
+      if (integration === 'inertial') {
+        updateInertial(context);
+      } else {
+        updateFreeFly(context);
+      }
+      writeToState(context.state);
+    },
+
+    dispose() {
+      pressedKeys.clear();
+      unbindEvents();
+      deviceTiltTracker?.dispose();
+      dragPointerId = null;
+      if (pointerTarget?.style) pointerTarget.style.cursor = '';
+      pointerTarget = null;
+      keyboardTarget = null;
+      automation = null;
+      motionEnabled = false;
+      rig.velocity.set(0, 0, 0);
+    },
+  };
+}

@@ -17,18 +17,16 @@ export {
 export { createNoopInterestField } from './fields/noop-interest-field.js';
 export { createObserverShellField } from './fields/observer-shell-field.js';
 export { createTargetFrustumField } from './fields/target-frustum-field.js';
-export { createFreeFlyController } from './controllers/free-fly-controller.js';
-export { createThrustController } from './controllers/thrust-controller.js';
-export { createFixedTargetParallaxController } from './controllers/fixed-target-parallax-controller.js';
+export { createCameraRig } from './controllers/camera-rig.js';
+export {
+  createCameraRigController,
+  readXrAxes,
+} from './controllers/camera-rig-controller.js';
 export {
   captureSelectionRefreshSnapshot,
   createSelectionRefreshController,
   getSelectionRefreshReasons,
 } from './controllers/selection-refresh-controller.js';
-export {
-  createXrLocomotionController,
-  readXrLocomotionAxes,
-} from './controllers/xr-locomotion-controller.js';
 export { createConstellationArtLayer } from './layers/constellation-art-layer.js';
 export { createMinimalSceneLayer } from './layers/minimal-scene-layer.js';
 export { createStarFieldLayer } from './layers/star-field-layer.js';

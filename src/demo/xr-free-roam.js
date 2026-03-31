@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {
+  createCameraRigController,
   createFoundInSpaceDatasetOptions,
   createObserverShellField,
   createSceneOrientationTransforms,
@@ -7,7 +8,6 @@ import {
   createStarFieldLayer,
   createViewer,
   createVrStarFieldMaterialProfile,
-  createXrLocomotionController,
   getDatasetSession,
   ORION_CENTER_PC,
   resolveFoundInSpaceDatasetOverrides,
@@ -38,7 +38,7 @@ function summarizeViewer(snapshot) {
   }
 
   const starLayerPart = snapshot.parts.find((part) => part.kind === 'layer' && part.stats?.starCount != null);
-  const xrPart = snapshot.parts.find((part) => part.id === 'phase-5b-xr-locomotion-controller');
+  const xrPart = snapshot.parts.find((part) => part.id === 'phase-5b-xr-camera-rig-controller');
   const refreshPart = snapshot.parts.find((part) => part.id === 'phase-5b-selection-refresh-controller');
 
   return {
@@ -213,12 +213,13 @@ async function mountViewer() {
       note: 'Minimal XR observer shell field for 5B headset validation.',
     }),
     controllers: [
-      createXrLocomotionController({
-        id: 'phase-5b-xr-locomotion-controller',
+      createCameraRigController({
+        id: 'phase-5b-xr-camera-rig-controller',
+        xr: true,
         icrsToSceneTransform: ORION_SCENE_TRANSFORM,
         sceneToIcrsTransform: ORION_SCENE_TO_ICRS_TRANSFORM,
         sceneScale: 1.0,
-        moveSpeedWorldUnitsPerSecond: 4.0,
+        moveSpeed: 4.0,
       }),
       createSelectionRefreshController({
         id: 'phase-5b-selection-refresh-controller',

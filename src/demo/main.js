@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import {
+  createCameraRigController,
   createCartoonStarFieldMaterialProfile,
   createConstellationArtLayer,
   createDesktopStarFieldMaterialProfile,
   createFoundInSpaceDatasetOptions,
-  createFreeFlyController,
   createObserverShellField,
   ORION_CENTER_PC,
   createSceneOrientationTransforms,
@@ -150,12 +150,12 @@ function createControllers(index) {
   }
 
   return [
-    createFreeFlyController({
-      id: 'phase-5-free-fly-controller',
+    createCameraRigController({
+      id: 'phase-5-camera-rig-controller',
       icrsToSceneTransform: ORION_SCENE_TRANSFORM,
       sceneToIcrsTransform: ORION_SCENE_TO_ICRS_TRANSFORM,
       lookAtPc: ORION_CENTER_PC,
-      moveSpeedPcPerSecond: 18,
+      moveSpeed: 18,
     }),
     createSelectionRefreshController({
       id: 'phase-5-selection-refresh-controller',

@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import {
+  createCameraRigController,
   createFoundInSpaceDatasetOptions,
   createDesktopStarFieldMaterialProfile,
-  createFreeFlyController,
   createObserverShellField,
   ORION_CENTER_PC,
   createSceneOrientationTransforms,
@@ -28,7 +28,7 @@ function summarizeViewer(snapshot) {
   }
 
   const starLayerPart = snapshot.parts.find((part) => part.kind === 'layer' && part.stats?.starCount != null);
-  const freeFlyPart = snapshot.parts.find((part) => part.id === 'phase-5-free-fly-controller');
+  const freeFlyPart = snapshot.parts.find((part) => part.id === 'phase-5-camera-rig-controller');
   const refreshPart = snapshot.parts.find((part) => part.id === 'phase-5-selection-refresh-controller');
 
   return {
@@ -179,12 +179,12 @@ async function mountViewer() {
       note: 'Single-view free-fly shell field for the Phase 5 controller sandbox.',
     }),
     controllers: [
-      createFreeFlyController({
-        id: 'phase-5-free-fly-controller',
+      createCameraRigController({
+        id: 'phase-5-camera-rig-controller',
         icrsToSceneTransform: ORION_SCENE_TRANSFORM,
         sceneToIcrsTransform: ORION_SCENE_TO_ICRS_TRANSFORM,
         lookAtPc: ORION_CENTER_PC,
-        moveSpeedPcPerSecond: 18,
+        moveSpeed: 18,
       }),
       createSelectionRefreshController({
         id: 'phase-5-selection-refresh-controller',
