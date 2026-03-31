@@ -19,7 +19,7 @@
 - Demo HTML lives in `demos/`.
 - All demo pages link `demos/shared.css` for common styles — add page-specific CSS inline only when needed.
 - `index.html` at the project root is the demo directory page with links to each demo.
-- To add a new demo: create `demos/<name>.html` (link `shared.css`), add a `<script type="module">` pointing at a new entry in `src/demo/`, register the HTML file in `vite.config.js` under `rollupOptions.input`, and add a link in `index.html`.
+- To add a new demo: create `demos/<name>.html` (link `shared.css`), add a `<script type="module">` pointing at a new entry in `src/demo/`, register the HTML file in `vite.config.js` under `rollupOptions.input`, and add a link in `index.html`. Example automation demo: `demos/fly-orbit.html` + `src/demo/fly-orbit.js`.
 
 ### Controllers
 

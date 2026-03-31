@@ -72,6 +72,13 @@ input[type="number"] {
   font: inherit;
 }
 
+.aside-section-title {
+  margin: 22px 0 0;
+  color: var(--text-main);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
 .controls {
   display: flex;
   flex-wrap: wrap;
