@@ -139,3 +139,114 @@ test('CameraRigController XR mode scales content and advances observer from stic
   assert.ok(state.observerPc.z < -1.9);
   assert.ok(Math.abs(navigationRoot.position.z - state.observerPc.z) < 1e-9);
 });
+
+test('CameraRigController XR mode derives movement from viewer pose, not stale camera quaternion', () => {
+  const controller = createCameraRigController({
+    xr: true,
+    sceneScale: 1.0,
+    moveSpeed: 2,
+  });
+  const navigationRoot = new THREE.Group();
+  const contentRoot = new THREE.Group();
+  const camera = new THREE.PerspectiveCamera();
+  camera.lookAt(0, 0, -1);
+  const state = {
+    observerPc: { x: 0, y: 0, z: 0 },
+    starFieldScale: 1.0,
+  };
+
+  const yaw90 = new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(0, 1, 0),
+    -Math.PI / 2,
+  );
+
+  const context = {
+    state,
+    camera,
+    navigationRoot,
+    contentRoot,
+    xr: {
+      presenting: true,
+      session: {
+        inputSources: [
+          { handedness: 'left', gamepad: { axes: [0, 0, 0, -1] } },
+        ],
+      },
+      referenceSpace: {},
+      frame: {
+        getViewerPose() {
+          return {
+            transform: {
+              orientation: { x: yaw90.x, y: yaw90.y, z: yaw90.z, w: yaw90.w },
+            },
+          };
+        },
+      },
+    },
+    frame: { deltaSeconds: 1 },
+  };
+
+  controller.attach(context);
+  controller.update(context);
+
+  assert.ok(Math.abs(state.observerPc.z) < 0.01, 'should not move along Z when facing +X');
+  assert.ok(state.observerPc.x > 1.9, 'should move along +X (headset forward)');
+});
+
+test('CameraRigController XR mode moves in full 3D when looking up or down', () => {
+  const controller = createCameraRigController({
+    xr: true,
+    sceneScale: 1.0,
+    moveSpeed: 2,
+  });
+  const navigationRoot = new THREE.Group();
+  const contentRoot = new THREE.Group();
+  const camera = new THREE.PerspectiveCamera();
+  camera.lookAt(0, 0, -1);
+  const state = {
+    observerPc: { x: 0, y: 0, z: 0 },
+    starFieldScale: 1.0,
+  };
+
+  const pitchDown45 = new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(1, 0, 0),
+    -Math.PI / 4,
+  );
+
+  const context = {
+    state,
+    camera,
+    navigationRoot,
+    contentRoot,
+    xr: {
+      presenting: true,
+      session: {
+        inputSources: [
+          { handedness: 'left', gamepad: { axes: [0, 0, 0, -1] } },
+        ],
+      },
+      referenceSpace: {},
+      frame: {
+        getViewerPose() {
+          return {
+            transform: {
+              orientation: {
+                x: pitchDown45.x,
+                y: pitchDown45.y,
+                z: pitchDown45.z,
+                w: pitchDown45.w,
+              },
+            },
+          };
+        },
+      },
+    },
+    frame: { deltaSeconds: 1 },
+  };
+
+  controller.attach(context);
+  controller.update(context);
+
+  assert.ok(state.observerPc.y < -0.5, 'should move downward when looking down');
+  assert.ok(state.observerPc.z < -0.5, 'should still move forward along Z');
+});

@@ -381,16 +381,23 @@ export function createCameraRigController(options = {}) {
     };
 
     if (axes.x !== 0 || axes.y !== 0) {
-      context.camera.updateMatrixWorld();
-      context.camera.getWorldQuaternion(_cameraWorldQ);
+      let gotPose = false;
+      const xrFrame = context.xr.frame;
+      const refSpace = context.xr.referenceSpace;
+      if (xrFrame && refSpace) {
+        const pose = xrFrame.getViewerPose(refSpace);
+        if (pose) {
+          const o = pose.transform.orientation;
+          _cameraWorldQ.set(o.x, o.y, o.z, o.w);
+          gotPose = true;
+        }
+      }
+      if (!gotPose) {
+        context.camera.updateMatrixWorld();
+        context.camera.getWorldQuaternion(_cameraWorldQ);
+      }
       _forward.set(0, 0, -1).applyQuaternion(_cameraWorldQ);
-      _forward.y = 0;
-      if (_forward.lengthSq() === 0) _forward.set(0, 0, -1);
-      else _forward.normalize();
-
-      _right.crossVectors(_forward, LOCAL_UP);
-      if (_right.lengthSq() === 0) _right.set(1, 0, 0);
-      else _right.normalize();
+      _right.set(1, 0, 0).applyQuaternion(_cameraWorldQ);
 
       _movement.copy(_right).multiplyScalar(axes.x).addScaledVector(_forward, -axes.y);
       const strength = _movement.length();
