@@ -10,9 +10,10 @@ export default defineConfig({
     rollupOptions: {
       input: {
         index: path.resolve(__dirname, 'index.html'),
-        shared: path.resolve(__dirname, 'index-shared.html'),
-        xr: path.resolve(__dirname, 'index-vr.html'),
-        parallaxDebug: path.resolve(__dirname, 'index-parallax-debug.html'),
+        freeRoam: path.resolve(__dirname, 'demos/free-roam.html'),
+        shared: path.resolve(__dirname, 'demos/shared-session.html'),
+        xr: path.resolve(__dirname, 'demos/xr-free-roam.html'),
+        parallaxDebug: path.resolve(__dirname, 'demos/parallax-debug.html'),
       },
     },
   },

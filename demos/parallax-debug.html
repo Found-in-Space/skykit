@@ -4,39 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SkyKit: Parallax Sensor Debug</title>
+    <link rel="stylesheet" href="./shared.css" />
     <style>
-      :root {
-        color-scheme: dark;
-        --page-bg: #050c14;
-        --panel-bg: rgba(7, 15, 28, 0.82);
-        --panel-border: rgba(141, 183, 255, 0.14);
-        --panel-shadow: rgba(0, 0, 0, 0.34);
-        --text-main: #f5f7fb;
-        --text-muted: #9fb3c8;
-        --text-soft: #c2d2e4;
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
       body {
-        margin: 0;
-        min-height: 100vh;
+        display: block;
         padding: 24px;
-        background:
-          radial-gradient(circle at top left, rgba(120, 170, 255, 0.16), transparent 28%),
-          radial-gradient(circle at bottom right, rgba(82, 223, 214, 0.1), transparent 24%),
-          linear-gradient(180deg, #08131f 0%, var(--page-bg) 62%);
-        color: var(--text-main);
-        font: 15px/1.5 "Avenir Next", Avenir, "Segoe UI", sans-serif;
-      }
-
-      h1,
-      h2 {
-        margin: 0;
-        font-weight: 600;
-        letter-spacing: -0.03em;
       }
 
       h1 {
@@ -46,19 +18,19 @@
       }
 
       h2 {
+        margin: 0 0 0.75rem;
         font-size: 1.35rem;
+        font-weight: 600;
         line-height: 1.1;
-        margin-bottom: 0.75rem;
+        letter-spacing: -0.03em;
       }
 
-      p {
-        margin: 0;
-      }
+      p { margin: 0; }
 
       .lede {
         max-width: 60ch;
         margin-top: 1rem;
-        color: var(--text-soft);
+        color: #c2d2e4;
       }
 
       .intro-actions {
@@ -66,22 +38,6 @@
         flex-wrap: wrap;
         gap: 0.8rem;
         margin-top: 1.5rem;
-      }
-
-      button,
-      a.button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 40px;
-        padding: 0 14px;
-        border-radius: 999px;
-        border: 1px solid rgba(115, 213, 255, 0.35);
-        background: rgba(12, 24, 40, 0.85);
-        color: var(--text-main);
-        font: inherit;
-        text-decoration: none;
-        cursor: pointer;
       }
 
       .status {
@@ -106,9 +62,7 @@
         box-shadow: 0 18px 44px var(--panel-shadow);
       }
 
-      .panel-hero {
-        grid-column: span 2;
-      }
+      .panel-hero { grid-column: span 2; }
 
       .pad {
         position: relative;
@@ -131,31 +85,25 @@
       }
 
       .pad-grid::before {
-        top: 50%;
-        left: 0;
-        right: 0;
+        top: 50%; left: 0; right: 0;
         height: 1px;
         transform: translateY(-50%);
       }
 
       .pad-grid::after {
-        left: 50%;
-        top: 0;
-        bottom: 0;
+        left: 50%; top: 0; bottom: 0;
         width: 1px;
         transform: translateX(-50%);
       }
 
       .pad-dot {
         position: absolute;
-        width: 1rem;
-        height: 1rem;
+        width: 1rem; height: 1rem;
         border-radius: 999px;
         background: linear-gradient(135deg, #f2c879, #8db7ff);
         box-shadow: 0 0 0 6px rgba(141, 183, 255, 0.12);
         transform: translate(-50%, -50%);
-        left: 50%;
-        top: 50%;
+        left: 50%; top: 50%;
       }
 
       .axis-grid,
@@ -165,15 +113,10 @@
         margin-top: 1rem;
       }
 
-      .axis-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
+      .axis-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
       .axis-card,
-      .metric {
-        display: grid;
-        gap: 0.45rem;
-      }
+      .metric { display: grid; gap: 0.45rem; }
 
       .axis-card-row,
       .metric-row {
@@ -186,9 +129,7 @@
       .axis-card-row span,
       .metric-row span,
       .metrics-inline,
-      .debug-list dt {
-        color: var(--text-muted);
-      }
+      .debug-list dt { color: var(--text-muted); }
 
       .axis-bar {
         position: relative;
@@ -202,9 +143,7 @@
       .axis-bar::before {
         content: '';
         position: absolute;
-        top: 0;
-        bottom: 0;
-        left: 50%;
+        top: 0; bottom: 0; left: 50%;
         width: 1px;
         background: rgba(242, 200, 121, 0.45);
         transform: translateX(-50%);
@@ -213,8 +152,7 @@
       .axis-bar-marker {
         position: absolute;
         top: 50%;
-        width: 0.7rem;
-        height: 0.7rem;
+        width: 0.7rem; height: 0.7rem;
         border-radius: 999px;
         background: #8db7ff;
         transform: translate(-50%, -50%);
@@ -238,15 +176,8 @@
         margin: 1rem 0 0;
       }
 
-      .debug-list div {
-        display: grid;
-        gap: 0.2rem;
-      }
-
-      .debug-list dt,
-      .debug-list dd {
-        margin: 0;
-      }
+      .debug-list div { display: grid; gap: 0.2rem; }
+      .debug-list dt, .debug-list dd { margin: 0; }
 
       .debug-list dd {
         font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -256,18 +187,14 @@
 
       @media (max-width: 900px) {
         .dashboard,
-        .axis-grid {
-          grid-template-columns: 1fr;
-        }
-
-        .panel-hero {
-          grid-column: span 1;
-        }
+        .axis-grid { grid-template-columns: 1fr; }
+        .panel-hero { grid-column: span 1; }
       }
     </style>
   </head>
   <body>
     <section class="intro">
+      <nav class="breadcrumb"><a href="../index.html">SkyKit</a> <span>/ Parallax Debug</span></nav>
       <h1>Device Motion Debug</h1>
       <p class="lede">
         Sensor-only sandbox for tuning parallax motion. Use this page while iterating on
@@ -276,9 +203,6 @@
       <div class="intro-actions">
         <button type="button" data-action="enable-debug-motion">Enable Device Motion</button>
         <button type="button" data-action="recenter-debug-motion">Recenter</button>
-        <a class="button" href="./index.html">Free Roam Demo</a>
-        <a class="button" href="./index-shared.html">Shared Session Demo</a>
-        <a class="button" href="./index-vr.html">XR Demo</a>
       </div>
       <p class="status">Status: <span data-debug-status>Waiting for device motion to be enabled.</span></p>
     </section>
