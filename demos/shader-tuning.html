@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit: Shader Tuning</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      body {
+        grid-template-columns: 1fr minmax(300px, 380px);
+      }
+
+      main {
+        padding: 0;
+        position: relative;
+        overflow: hidden;
+        order: -1;
+      }
+
+      aside {
+        border-right: 0;
+        border-left: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      #renderer-mount {
+        width: 100%;
+        height: 100vh;
+      }
+
+      #renderer-mount canvas {
+        display: block;
+        width: 100% !important;
+        height: 100% !important;
+      }
+
+      .mag-labels {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+
+      .mag-label {
+        position: absolute;
+        color: rgba(200, 215, 235, 0.7);
+        font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        text-align: center;
+        transform: translateX(-50%);
+        white-space: nowrap;
+      }
+
+      .mag-label .mag-value {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        color: rgba(220, 230, 245, 0.9);
+      }
+
+      .mag-label .mag-note {
+        display: block;
+        margin-top: 2px;
+        font-size: 9px;
+        color: rgba(160, 180, 200, 0.6);
+      }
+
+      input[type="range"] {
+        width: 100%;
+        min-height: 24px;
+        padding: 0;
+        border: none;
+        border-radius: 0;
+        background: none;
+        accent-color: var(--accent-strong);
+      }
+
+      .control-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 6px 0;
+      }
+
+      .control-row label {
+        margin: 0;
+        min-width: 110px;
+        font-size: 0.82rem;
+        color: var(--text-muted);
+      }
+
+      .control-row input[type="range"] {
+        flex: 1;
+      }
+
+      .control-row .value-readout {
+        min-width: 52px;
+        text-align: right;
+        font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: var(--text-main);
+      }
+
+      @media (max-width: 960px) {
+        body {
+          grid-template-columns: 1fr;
+        }
+
+        main {
+          order: -1;
+        }
+
+        aside {
+          border-left: 0;
+          border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        #renderer-mount {
+          height: 60vh;
+          min-height: 400px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div id="renderer-mount"></div>
+      <div class="mag-labels" id="mag-labels"></div>
+    </main>
+    <aside>
+      <nav class="breadcrumb"><a href="../index.html">SkyKit</a> <span>/ Shader Tuning</span></nav>
+      <h1>Shader Tuning</h1>
+      <p>
+        Synthetic stars at known apparent magnitudes, from the faintest
+        naked-eye star to a blinding close approach.
+      </p>
+
+      <div class="control-row">
+        <label for="ctrl-exposure">Exposure</label>
+        <input id="ctrl-exposure" type="range" min="0" max="8" step="0.01" value="4.38" />
+        <span class="value-readout" data-readout="exposure">80</span>
+      </div>
+      <div class="control-row">
+        <label for="ctrl-mag-limit">Mag limit</label>
+        <input id="ctrl-mag-limit" type="range" min="-5" max="25" step="0.5" value="7.5" />
+        <span class="value-readout" data-readout="mag-limit">7.5</span>
+      </div>
+      <div class="control-row">
+        <label for="ctrl-size-min">Size min</label>
+        <input id="ctrl-size-min" type="range" min="0.5" max="8" step="0.1" value="1.0" />
+        <span class="value-readout" data-readout="size-min">1.0</span>
+      </div>
+      <div class="control-row">
+        <label for="ctrl-size-max">Size max</label>
+        <input id="ctrl-size-max" type="range" min="4" max="128" step="1" value="20" />
+        <span class="value-readout" data-readout="size-max">20</span>
+      </div>
+      <div class="control-row">
+        <label for="ctrl-fade-range">Fade range</label>
+        <input id="ctrl-fade-range" type="range" min="0" max="8" step="0.1" value="3.0" />
+        <span class="value-readout" data-readout="fade-range">3.0</span>
+      </div>
+      <div class="control-row">
+        <label for="ctrl-mag-brightest">Brightest mag</label>
+        <input id="ctrl-mag-brightest" type="range" min="-20" max="0" step="1" value="-10" />
+        <span class="value-readout" data-readout="mag-brightest">-10</span>
+      </div>
+
+      <p class="aside-section-title">Profile</p>
+      <div class="controls">
+        <button type="button" data-profile="desktop" class="active">Desktop</button>
+        <button type="button" data-profile="vr">VR</button>
+      </div>
+
+      <pre class="meta-block" data-info></pre>
+    </aside>
+    <script type="module" src="/src/demo/shader-tuning.js"></script>
+  </body>
+</html>
