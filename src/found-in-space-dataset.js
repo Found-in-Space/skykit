@@ -1,5 +1,5 @@
-export const DEFAULT_FOUND_IN_SPACE_OCTREE_URL = 'https://foundinspace.s3.eu-central-1.amazonaws.com/stars.octree';
-export const DEFAULT_FOUND_IN_SPACE_META_OCTREE_URL = 'https://foundinspace.s3.eu-central-1.amazonaws.com/stars.meta.octree';
+export const DEFAULT_FOUND_IN_SPACE_OCTREE_URL = 'https://d1kwci8ql2abxm.cloudfront.net/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree';
+export const DEFAULT_FOUND_IN_SPACE_META_OCTREE_URL = 'https://d1kwci8ql2abxm.cloudfront.net/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.meta.octree';
 
 function normalizeNonEmptyString(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
