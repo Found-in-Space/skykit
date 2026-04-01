@@ -27,6 +27,9 @@ function ensureStyles() {
   inset: 0;
   pointer-events: none;
   z-index: 100;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
   display: grid;
   grid-template-areas:
     "tl tr"
@@ -80,8 +83,6 @@ function ensureStyles() {
   line-height: 1;
   pointer-events: auto;
   cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
   touch-action: none;
   transition: background 0.1s, border-color 0.1s;
 }
@@ -107,8 +108,6 @@ function ensureStyles() {
   font: inherit;
   cursor: pointer;
   pointer-events: auto;
-  user-select: none;
-  -webkit-user-select: none;
   touch-action: manipulation;
   transition: background 0.1s, border-color 0.1s;
 }
