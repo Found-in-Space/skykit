@@ -13,8 +13,6 @@ const DEFAULT_NEAR_DISTANCE_LO = 4.0;
 const DEFAULT_NEAR_DISTANCE_HI = 15.0;
 const DEFAULT_SAFE_MIN_SIZE = 4.0;
 const DEFAULT_SIZE_MIN = 1.0;
-const DEFAULT_SIZE_MAX = 20.0;
-const DEFAULT_EXPOSURE = 80.0;
 const DEFAULT_VR_EXPOSURE = 1e5;
 const DEFAULT_VR_SIZE_MAX = 8.0;
 const DEFAULT_VR_HYPERLOCAL_SIZE_MAX = 64.0;
@@ -38,139 +36,6 @@ function createCircleTexture() {
   const texture = new THREE.CanvasTexture(canvas);
   texture.needsUpdate = true;
   return texture;
-}
-
-export function createDesktopStarFieldMaterialProfile(options = {}) {
-  const texture = options.texture ?? createCircleTexture();
-  const ownsTexture = options.texture == null;
-  const material = new THREE.ShaderMaterial({
-    uniforms: {
-      uSizeMin: { value: options.sizeMin ?? DEFAULT_SIZE_MIN },
-      uSizeMax: { value: options.sizeMax ?? DEFAULT_SIZE_MAX },
-      uScale: { value: options.scale ?? SCALE },
-      uMagLimit: { value: options.magLimit ?? DEFAULT_MAG_LIMIT },
-      uMagFadeRange: { value: options.magFadeRange ?? DEFAULT_MAG_FADE_RANGE },
-      uExtinctionScale: { value: options.extinctionScale ?? 1.0 },
-      uExposure: { value: options.exposure ?? DEFAULT_EXPOSURE },
-      uCameraPosition: { value: new THREE.Vector3(0, 0, 0) },
-      map: { value: texture },
-    },
-    vertexShader: `
-      attribute float teff_log8;
-      attribute float magAbs;
-
-      varying vec3 vColor;
-      varying float vIntensity;
-
-      uniform float uSizeMin;
-      uniform float uSizeMax;
-      uniform float uScale;
-      uniform float uMagLimit;
-      uniform float uMagFadeRange;
-      uniform float uExtinctionScale;
-      uniform float uExposure;
-      uniform vec3 uCameraPosition;
-
-      float decodeTemperature(float log8) {
-        if (log8 >= 0.996) return 5800.0;
-        return 2000.0 * pow(25.0, log8);
-      }
-
-      vec3 blackbodyToRGB(float temp) {
-        float t = clamp(temp, 1000.0, 40000.0) / 100.0;
-        vec3 c;
-        if (t <= 66.0) c.r = 255.0;
-        else c.r = 329.698727446 * pow(t - 60.0, -0.1332047592);
-        if (t <= 66.0) c.g = 99.4708025861 * log(t) - 161.119568166;
-        else c.g = 288.1221695283 * pow(t - 60.0, -0.0755148492);
-        if (t >= 66.0) c.b = 255.0;
-        else if (t <= 19.0) c.b = 0.0;
-        else c.b = 138.5177312231 * log(t - 10.0) - 305.0447927307;
-        return clamp(c / 255.0, 0.0, 1.0);
-      }
-
-      void main() {
-        vec3 worldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-        float d = length(worldPos - uCameraPosition);
-        float dPc = max(d / uScale, 0.001);
-        float mApp = magAbs + uExtinctionScale * (5.0 * log(dPc) / log(10.0) - 5.0);
-
-        float tempK = decodeTemperature(teff_log8);
-        vColor = blackbodyToRGB(tempK);
-
-        float flux = pow(10.0, -0.4 * mApp);
-        vIntensity = clamp(flux * uExposure, 0.02, 1.0);
-
-        float magDiff = uMagLimit - mApp;
-        float sizeFromMag = uSizeMin + pow(max(magDiff, 0.0), 1.15) * 1.4;
-        gl_PointSize = clamp(sizeFromMag, uSizeMin, uSizeMax);
-
-        float edgeFade = 1.0 - smoothstep(uMagLimit - uMagFadeRange, uMagLimit, mApp);
-        vIntensity *= edgeFade;
-
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform sampler2D map;
-      varying vec3 vColor;
-      varying float vIntensity;
-
-      void main() {
-        if (vIntensity <= 0.0) discard;
-
-        float dist = distance(gl_PointCoord, vec2(0.5));
-        if (dist > 0.5) discard;
-
-        vec4 texColor = texture2D(map, gl_PointCoord);
-        float core = exp(-dist * 14.0);
-        float halo = texColor.a;
-
-        vec3 finalColor = mix(vColor, vec3(1.0), core);
-        float starAlpha = min(halo + core, 1.0) * vIntensity;
-        if (starAlpha < 0.01) discard;
-
-        gl_FragColor = vec4(finalColor, starAlpha);
-      }
-    `,
-    transparent: true,
-    alphaTest: 0.01,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  });
-
-  return {
-    material,
-    updateUniforms(context = {}) {
-      const {
-        cameraWorldPosition = null,
-        state = {},
-      } = context;
-
-      if (cameraWorldPosition) {
-        material.uniforms.uCameraPosition.value.copy(cameraWorldPosition);
-      }
-
-      material.uniforms.uScale.value = Number.isFinite(state.starFieldScale)
-        ? state.starFieldScale
-        : options.scale ?? SCALE;
-      material.uniforms.uExtinctionScale.value = Number.isFinite(state.starFieldExtinctionScale)
-        ? state.starFieldExtinctionScale
-        : options.extinctionScale ?? 1.0;
-      material.uniforms.uMagLimit.value = Number.isFinite(state.mDesired)
-        ? state.mDesired
-        : options.magLimit ?? DEFAULT_MAG_LIMIT;
-      material.uniforms.uExposure.value = Number.isFinite(state.starFieldExposure)
-        ? state.starFieldExposure
-        : options.exposure ?? DEFAULT_EXPOSURE;
-    },
-    dispose() {
-      material.dispose();
-      if (ownsTexture) {
-        texture.dispose();
-      }
-    },
-  };
 }
 
 export function createVrStarFieldMaterialProfile(options = {}) {
@@ -360,6 +225,30 @@ const DEFAULT_TUNED_LINEAR_SCALE = 12.0;
 const DEFAULT_TUNED_EXPOSURE = 0.028;
 const DEFAULT_TUNED_HALO_THRESHOLD = 10.0;
 const DEFAULT_TUNED_HALO_SIZE = 80.0;
+const DEFAULT_STAR_FIELD_PROFILE_SETTINGS = Object.freeze({
+  magLimit: DEFAULT_MAG_LIMIT,
+  magFadeRange: DEFAULT_MAG_FADE_RANGE,
+  sizeMin: DEFAULT_TUNED_POINT_SIZE_MIN,
+  sizeMax: DEFAULT_TUNED_POINT_SIZE_MAX,
+  linearScale: DEFAULT_TUNED_LINEAR_SCALE,
+  exposure: DEFAULT_TUNED_EXPOSURE,
+  haloThreshold: DEFAULT_TUNED_HALO_THRESHOLD,
+  haloSize: DEFAULT_TUNED_HALO_SIZE,
+  extinctionScale: 1.0,
+  scale: SCALE,
+});
+
+export const DEFAULT_STAR_FIELD_STATE = Object.freeze({
+  starFieldScale: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.scale,
+  starFieldExtinctionScale: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.extinctionScale,
+  starFieldExposure: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.exposure,
+});
+
+export const DEFAULT_XR_STAR_FIELD_STATE = Object.freeze({
+  starFieldScale: SCALE,
+  starFieldExtinctionScale: 1.0,
+  starFieldExposure: DEFAULT_VR_EXPOSURE,
+});
 
 function createBigHaloTexture() {
   const canvas = document.createElement('canvas');
@@ -614,6 +503,13 @@ export function createTunedStarFieldMaterialProfile(options = {}) {
       }
     },
   };
+}
+
+export function createDefaultStarFieldMaterialProfile(options = {}) {
+  return createTunedStarFieldMaterialProfile({
+    ...DEFAULT_STAR_FIELD_PROFILE_SETTINGS,
+    ...options,
+  });
 }
 
 export function createCartoonStarFieldMaterialProfile(options = {}) {

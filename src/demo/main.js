@@ -3,7 +3,8 @@ import {
   createCameraRigController,
   createCartoonStarFieldMaterialProfile,
   createConstellationArtLayer,
-  createDesktopStarFieldMaterialProfile,
+  createDefaultStarFieldMaterialProfile,
+  DEFAULT_STAR_FIELD_STATE,
   createFoundInSpaceDatasetOptions,
   createObserverShellField,
   ORION_CENTER_PC,
@@ -23,10 +24,6 @@ const {
 const DEFAULT_WESTERN_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stellarium-skycultures-western@0.1.0/dist/manifest.json';
 
 const mounts = [...document.querySelectorAll('[data-skykit-viewer-root]')];
-const createButton = document.querySelector('[data-action="create"]');
-const disposeButton = document.querySelector('[data-action="dispose"]');
-const refreshButton = document.querySelector('[data-action="refresh"]');
-const warmButton = document.querySelector('[data-action="warm"]');
 const fieldSelect = document.querySelector('[data-field-strategy]');
 const magLimitInput = document.querySelector('[data-mag-limit]');
 const statusValue = document.querySelector('[data-status]');
@@ -117,9 +114,7 @@ function createLayer(index) {
     id: `phase-5-star-field-layer-${index + 1}`,
     positionTransform: ORION_SCENE_TRANSFORM,
     materialFactory: () => (index % 2 === 0
-      ? createDesktopStarFieldMaterialProfile({
-        exposure: 80,
-      })
+      ? createDefaultStarFieldMaterialProfile()
       : createCartoonStarFieldMaterialProfile({
         color: 0xd8b15a,
         coreColor: 0xffefbe,
@@ -193,14 +188,6 @@ function renderSnapshot() {
   }, null, 2);
 }
 
-function syncButtons() {
-  const hasViewers = viewers.length > 0;
-  createButton.disabled = hasViewers;
-  disposeButton.disabled = !hasViewers;
-  refreshButton.disabled = !hasViewers;
-  warmButton.disabled = false;
-}
-
 async function warmDatasetSession() {
   warmState = {
     ...warmState,
@@ -263,11 +250,11 @@ async function mountViewers() {
       controllers: createControllers(index),
       layers: createLayers(index),
       state: {
+        ...DEFAULT_STAR_FIELD_STATE,
         demo: 'phase-5-controllers',
         slot: index + 1,
         observerPc: { x: 0, y: 0, z: 0 },
         mDesired: activeMagLimit,
-        starFieldExposure: 80,
         targetPc: ORION_CENTER_PC,
         fieldStrategy: activeFieldStrategy,
       },
@@ -276,7 +263,6 @@ async function mountViewers() {
   );
 
   renderSnapshot();
-  syncButtons();
   return viewers;
 }
 
@@ -288,36 +274,7 @@ async function disposeViewers() {
   await Promise.all(viewers.map((viewer) => viewer.dispose()));
   viewers = [];
   renderSnapshot();
-  syncButtons();
 }
-
-createButton.addEventListener('click', () => {
-  mountViewers().catch((error) => {
-    statusValue.textContent = 'error';
-    snapshotValue.textContent = error.stack ?? error.message;
-    console.error('[skykit-demo] create failed', error);
-  });
-});
-
-disposeButton.addEventListener('click', () => {
-  disposeViewers().catch((error) => {
-    statusValue.textContent = 'error';
-    snapshotValue.textContent = error.stack ?? error.message;
-    console.error('[skykit-demo] dispose failed', error);
-  });
-});
-
-refreshButton.addEventListener('click', () => {
-  Promise.all(viewers.map((viewer) => viewer.refreshSelection()))
-    .then(() => {
-      renderSnapshot();
-    })
-    .catch((error) => {
-      statusValue.textContent = 'error';
-      snapshotValue.textContent = error.stack ?? error.message;
-      console.error('[skykit-demo] selection refresh failed', error);
-    });
-});
 
 fieldSelect?.addEventListener('change', () => {
   activeFieldStrategy = fieldSelect.value;
@@ -326,7 +283,6 @@ fieldSelect?.addEventListener('change', () => {
     ? disposeViewers().then(() => mountViewers())
     : Promise.resolve().then(() => {
       renderSnapshot();
-      syncButtons();
     });
 
   remount.catch((error) => {
@@ -365,14 +321,6 @@ magLimitInput?.addEventListener('change', () => {
     });
 });
 
-warmButton.addEventListener('click', () => {
-  warmDatasetSession().catch((error) => {
-    statusValue.textContent = 'error';
-    snapshotValue.textContent = error.stack ?? error.message;
-    console.error('[skykit-demo] warm failed', error);
-  });
-});
-
 window.addEventListener('beforeunload', () => {
   if (snapshotTimer != null) {
     window.clearInterval(snapshotTimer);
@@ -386,7 +334,6 @@ window.addEventListener('beforeunload', () => {
 
 snapshotTimer = window.setInterval(renderSnapshot, 500);
 renderSnapshot();
-syncButtons();
 mountViewers().catch((error) => {
   statusValue.textContent = 'error';
   snapshotValue.textContent = error.stack ?? error.message;

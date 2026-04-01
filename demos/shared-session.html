@@ -13,6 +13,8 @@
       <p>
         Two viewers reuse one <code>DatasetSession</code>. The left pane can
         free-fly in shell mode while the right pane stays as a reference view.
+        Both mount automatically; use the snapshot JSON below if you need to
+        inspect bootstrap / warm state.
       </p>
       <ul>
         <li>Both viewers share render bootstrap, root-shard warming, and cache stats.</li>
@@ -27,12 +29,6 @@
       </select>
       <label for="mag-limit">Magnitude Limit</label>
       <input id="mag-limit" type="number" min="0" max="25" step="0.5" value="7.5" data-mag-limit />
-      <div class="controls">
-        <button type="button" data-action="create">Create Viewers</button>
-        <button type="button" data-action="dispose">Dispose Viewers</button>
-        <button type="button" data-action="refresh">Refresh Selection</button>
-        <button type="button" data-action="warm">Warm Dataset</button>
-      </div>
       <p class="status">Status: <span data-status>idle</span></p>
       <pre class="meta-block" data-summary></pre>
       <pre data-snapshot></pre>

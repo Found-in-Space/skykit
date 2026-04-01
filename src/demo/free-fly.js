@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import {
   createCameraRigController,
+  createDefaultStarFieldMaterialProfile,
+  DEFAULT_STAR_FIELD_STATE,
   createFoundInSpaceDatasetOptions,
-  createTunedStarFieldMaterialProfile,
   createObserverShellField,
   ORION_CENTER_PC,
   createSceneOrientationTransforms,
@@ -52,10 +53,6 @@ function createViewerCamera() {
 }
 
 const mount = document.querySelector('[data-skykit-viewer-root]');
-const createButton = document.querySelector('[data-action="create"]');
-const disposeButton = document.querySelector('[data-action="dispose"]');
-const refreshButton = document.querySelector('[data-action="refresh"]');
-const warmButton = document.querySelector('[data-action="warm"]');
 const magLimitInput = document.querySelector('[data-mag-limit]');
 const statusValue = document.querySelector('[data-status]');
 const summaryValue = document.querySelector('[data-summary]');
@@ -106,14 +103,6 @@ function renderSnapshot() {
     warmState,
     datasetSession: datasetDescription,
   }, null, 2);
-}
-
-function syncButtons() {
-  const hasViewer = viewer != null;
-  createButton.disabled = hasViewer;
-  disposeButton.disabled = !hasViewer;
-  refreshButton.disabled = !hasViewer;
-  warmButton.disabled = false;
 }
 
 async function warmDatasetSession() {
@@ -197,14 +186,14 @@ async function mountViewer() {
       createStarFieldLayer({
         id: 'phase-5-free-fly-star-field-layer',
         positionTransform: ORION_SCENE_TRANSFORM,
-        materialFactory: () => createTunedStarFieldMaterialProfile(),
+        materialFactory: () => createDefaultStarFieldMaterialProfile(),
       }),
     ],
     state: {
+      ...DEFAULT_STAR_FIELD_STATE,
       demo: 'phase-5-free-fly',
       observerPc: { x: 0, y: 0, z: 0 },
       mDesired: activeMagLimit,
-      starFieldExposure: 0.028,
       targetPc: ORION_CENTER_PC,
       fieldStrategy: 'observer-shell',
     },
@@ -212,48 +201,8 @@ async function mountViewer() {
   });
 
   renderSnapshot();
-  syncButtons();
   return viewer;
 }
-
-async function disposeViewer() {
-  if (!viewer) {
-    return;
-  }
-
-  await viewer.dispose();
-  viewer = null;
-  renderSnapshot();
-  syncButtons();
-}
-
-createButton.addEventListener('click', () => {
-  mountViewer().catch((error) => {
-    statusValue.textContent = 'error';
-    snapshotValue.textContent = error.stack ?? error.message;
-    console.error('[free-fly-demo] create failed', error);
-  });
-});
-
-disposeButton.addEventListener('click', () => {
-  disposeViewer().catch((error) => {
-    statusValue.textContent = 'error';
-    snapshotValue.textContent = error.stack ?? error.message;
-    console.error('[free-fly-demo] dispose failed', error);
-  });
-});
-
-refreshButton.addEventListener('click', () => {
-  viewer?.refreshSelection?.()
-    .then(() => {
-      renderSnapshot();
-    })
-    .catch((error) => {
-      statusValue.textContent = 'error';
-      snapshotValue.textContent = error.stack ?? error.message;
-      console.error('[free-fly-demo] selection refresh failed', error);
-    });
-});
 
 magLimitInput?.addEventListener('change', () => {
   const parsed = Number(magLimitInput.value);
@@ -281,14 +230,6 @@ magLimitInput?.addEventListener('change', () => {
     });
 });
 
-warmButton.addEventListener('click', () => {
-  warmDatasetSession().catch((error) => {
-    statusValue.textContent = 'error';
-    snapshotValue.textContent = error.stack ?? error.message;
-    console.error('[free-fly-demo] warm failed', error);
-  });
-});
-
 window.addEventListener('beforeunload', () => {
   if (snapshotTimer != null) {
     window.clearInterval(snapshotTimer);
@@ -303,7 +244,6 @@ window.addEventListener('beforeunload', () => {
 
 snapshotTimer = window.setInterval(renderSnapshot, 500);
 renderSnapshot();
-syncButtons();
 mountViewer().catch((error) => {
   statusValue.textContent = 'error';
   snapshotValue.textContent = error.stack ?? error.message;

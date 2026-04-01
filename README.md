@@ -31,7 +31,7 @@ Interest-field strategies that decide which octree nodes to load for a given obs
 
 ### `layers/`
 
-Renderable scene content, each a `ViewerRuntimePart`. `StarFieldLayer` decodes octree payloads into point-cloud geometry and manages progressive loading. `ConstellationArtLayer` renders constellation stick-figure art from a Stellarium-format manifest. `MinimalSceneLayer` provides a fallback starfield for bootstrapping. `scene-orientation.js` builds ICRS↔scene coordinate transforms so a target like Orion can face the camera naturally. `star-field-materials.js` and `highlight-star-field-materials.js` define shader profiles (desktop, VR, cartoon, highlight).
+Renderable scene content, each a `ViewerRuntimePart`. `StarFieldLayer` decodes octree payloads into point-cloud geometry and manages progressive loading. `ConstellationArtLayer` renders constellation stick-figure art from a Stellarium-format manifest. `MinimalSceneLayer` provides a fallback starfield for bootstrapping. `scene-orientation.js` builds ICRS↔scene coordinate transforms so a target like Orion can face the camera naturally. `star-field-materials.js` and `highlight-star-field-materials.js` define shader profiles (default/tuned, VR, cartoon, highlight), with `createDefaultStarFieldMaterialProfile()` + `DEFAULT_STAR_FIELD_STATE` as the baseline for most apps.
 
 ### `constellations/`
 

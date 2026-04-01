@@ -4,8 +4,9 @@ import {
   buildConstellationDirectionResolver,
   createCameraRigController,
   createConstellationArtLayer,
+  createDefaultStarFieldMaterialProfile,
+  DEFAULT_STAR_FIELD_STATE,
   createFoundInSpaceDatasetOptions,
-  createDesktopStarFieldMaterialProfile,
   createObserverShellField,
   loadConstellationArtManifest,
   ORION_CENTER_PC,
@@ -61,10 +62,6 @@ function createViewerCamera() {
 }
 
 const mount = document.querySelector('[data-skykit-viewer-root]');
-const createButton = document.querySelector('[data-action="create"]');
-const disposeButton = document.querySelector('[data-action="dispose"]');
-const refreshButton = document.querySelector('[data-action="refresh"]');
-const warmButton = document.querySelector('[data-action="warm"]');
 const cancelAutoButton = document.querySelector('[data-action="cancel-auto"]');
 const magLimitInput = document.querySelector('[data-mag-limit]');
 const statusValue = document.querySelector('[data-status]');
@@ -237,10 +234,6 @@ function renderSnapshot() {
 
 function syncButtons() {
   const hasViewer = viewer != null;
-  createButton.disabled = hasViewer;
-  disposeButton.disabled = !hasViewer;
-  refreshButton.disabled = !hasViewer;
-  warmButton.disabled = false;
   const autoDisabled = !hasViewer || !cameraController;
   for (const b of FLY_BUTTONS) if (b.el) b.el.disabled = autoDisabled;
   for (const b of LOOK_BUTTONS) if (b.el) b.el.disabled = autoDisabled;
@@ -340,17 +333,15 @@ async function mountViewer() {
       createStarFieldLayer({
         id: 'demo-fly-orbit-star-field-layer',
         positionTransform: ORION_SCENE_TRANSFORM,
-        materialFactory: () => createDesktopStarFieldMaterialProfile({
-          exposure: 80,
-        }),
+        materialFactory: () => createDefaultStarFieldMaterialProfile(),
       }),
       constellationArtLayer,
     ],
     state: {
+      ...DEFAULT_STAR_FIELD_STATE,
       demo: 'fly-orbit',
       observerPc: { x: 0, y: 0, z: 0 },
       mDesired: activeMagLimit,
-      starFieldExposure: 80,
       targetPc: ORION_CENTER_PC,
       fieldStrategy: 'observer-shell',
     },
@@ -362,48 +353,6 @@ async function mountViewer() {
   syncButtons();
   return viewer;
 }
-
-async function disposeViewer() {
-  if (!viewer) {
-    return;
-  }
-
-  cameraController?.cancelAutomation();
-  await viewer.dispose();
-  viewer = null;
-  cameraController = null;
-  constellationArtLayer = null;
-  renderSnapshot();
-  syncButtons();
-}
-
-createButton.addEventListener('click', () => {
-  mountViewer().catch((error) => {
-    statusValue.textContent = 'error';
-    snapshotValue.textContent = error.stack ?? error.message;
-    console.error('[fly-orbit-demo] create failed', error);
-  });
-});
-
-disposeButton.addEventListener('click', () => {
-  disposeViewer().catch((error) => {
-    statusValue.textContent = 'error';
-    snapshotValue.textContent = error.stack ?? error.message;
-    console.error('[fly-orbit-demo] dispose failed', error);
-  });
-});
-
-refreshButton.addEventListener('click', () => {
-  viewer?.refreshSelection?.()
-    .then(() => {
-      renderSnapshot();
-    })
-    .catch((error) => {
-      statusValue.textContent = 'error';
-      snapshotValue.textContent = error.stack ?? error.message;
-      console.error('[fly-orbit-demo] selection refresh failed', error);
-    });
-});
 
 magLimitInput?.addEventListener('change', () => {
   const parsed = Number(magLimitInput.value);
@@ -429,14 +378,6 @@ magLimitInput?.addEventListener('change', () => {
       snapshotValue.textContent = error.stack ?? error.message;
       console.error('[fly-orbit-demo] mag limit update failed', error);
     });
-});
-
-warmButton.addEventListener('click', () => {
-  warmDatasetSession().catch((error) => {
-    statusValue.textContent = 'error';
-    snapshotValue.textContent = error.stack ?? error.message;
-    console.error('[fly-orbit-demo] warm failed', error);
-  });
 });
 
 for (const { el, target, speed } of FLY_BUTTONS) {

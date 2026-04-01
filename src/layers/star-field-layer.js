@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createDesktopStarFieldMaterialProfile } from './star-field-materials.js';
+import { createDefaultStarFieldMaterialProfile } from './star-field-materials.js';
 import { identityIcrsToSceneTransform } from './scene-orientation.js';
 
 function transformPositionsInPlace(positions, transformPoint) {
@@ -88,7 +88,7 @@ export function createStarFieldLayer(options = {}) {
   group.name = options.id ?? 'star-field-layer';
 
   const transformPoint = options.positionTransform ?? identityIcrsToSceneTransform;
-  const materialFactory = options.materialFactory ?? ((context) => createDesktopStarFieldMaterialProfile(context));
+  const materialFactory = options.materialFactory ?? ((context) => createDefaultStarFieldMaterialProfile(context));
   const placeholderMaterial = new THREE.PointsMaterial();
   const points = new THREE.Points(new THREE.BufferGeometry(), placeholderMaterial);
   points.name = `${group.name}-points`;

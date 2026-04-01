@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import {
   createCameraRigController,
+  createVrStarFieldMaterialProfile,
+  DEFAULT_XR_STAR_FIELD_STATE,
   createFoundInSpaceDatasetOptions,
   createObserverShellField,
   createSceneOrientationTransforms,
   createSelectionRefreshController,
   createStarFieldLayer,
   createViewer,
-  createTunedStarFieldMaterialProfile,
   getDatasetSession,
   ORION_CENTER_PC,
   resolveFoundInSpaceDatasetOverrides,
@@ -55,10 +56,6 @@ function summarizeViewer(snapshot) {
 }
 
 const mount = document.querySelector('[data-skykit-viewer-root]');
-const createButton = document.querySelector('[data-action="create"]');
-const disposeButton = document.querySelector('[data-action="dispose"]');
-const refreshButton = document.querySelector('[data-action="refresh"]');
-const warmButton = document.querySelector('[data-action="warm"]');
 const enterXrButton = document.querySelector('[data-action="enter-xr"]');
 const exitXrButton = document.querySelector('[data-action="exit-xr"]');
 const magLimitInput = document.querySelector('[data-mag-limit]');
@@ -125,12 +122,12 @@ function syncButtons() {
   const hasViewer = viewer != null;
   const presenting = viewer?.getSnapshotState?.()?.xr?.presenting === true;
 
-  createButton.disabled = hasViewer;
-  disposeButton.disabled = !hasViewer;
-  refreshButton.disabled = !hasViewer;
-  warmButton.disabled = false;
-  enterXrButton.disabled = !hasViewer || xrSupported !== true || presenting;
-  exitXrButton.disabled = !hasViewer || !presenting;
+  if (enterXrButton) {
+    enterXrButton.disabled = !hasViewer || xrSupported !== true || presenting;
+  }
+  if (exitXrButton) {
+    exitXrButton.disabled = !hasViewer || !presenting;
+  }
 }
 
 async function refreshXrSupport() {
@@ -232,18 +229,16 @@ async function mountViewer() {
       createStarFieldLayer({
         id: 'phase-5b-vr-star-field-layer',
         positionTransform: ORION_SCENE_TRANSFORM,
-        materialFactory: () => createTunedStarFieldMaterialProfile(),
+        materialFactory: () => createVrStarFieldMaterialProfile(),
       }),
     ],
     state: {
+      ...DEFAULT_XR_STAR_FIELD_STATE,
       demo: 'phase-5b-xr-free-roam',
       observerPc: { x: 0, y: 0, z: 0 },
       targetPc: ORION_CENTER_PC,
       fieldStrategy: 'observer-shell',
       mDesired: activeMagLimit,
-      starFieldScale: 1.0,
-      starFieldExtinctionScale: 1.0,
-      starFieldExposure: 0.028,
     },
     clearColor: 0x02040b,
   });
@@ -254,46 +249,7 @@ async function mountViewer() {
   return viewer;
 }
 
-async function disposeViewer() {
-  if (!viewer) {
-    return;
-  }
-
-  await viewer.dispose();
-  viewer = null;
-  renderSnapshot();
-  syncButtons();
-}
-
-createButton.addEventListener('click', () => {
-  mountViewer().catch((error) => {
-    statusValue.textContent = 'error';
-    snapshotValue.textContent = error.stack ?? error.message;
-    console.error('[xr-free-roam-demo] create failed', error);
-  });
-});
-
-disposeButton.addEventListener('click', () => {
-  disposeViewer().catch((error) => {
-    statusValue.textContent = 'error';
-    snapshotValue.textContent = error.stack ?? error.message;
-    console.error('[xr-free-roam-demo] dispose failed', error);
-  });
-});
-
-refreshButton.addEventListener('click', () => {
-  viewer?.refreshSelection?.()
-    .then(() => {
-      renderSnapshot();
-    })
-    .catch((error) => {
-      statusValue.textContent = 'error';
-      snapshotValue.textContent = error.stack ?? error.message;
-      console.error('[xr-free-roam-demo] selection refresh failed', error);
-    });
-});
-
-enterXrButton.addEventListener('click', () => {
+enterXrButton?.addEventListener('click', () => {
   viewer?.enterXR?.({
     mode: 'immersive-vr',
     referenceSpaceType: XR_REFERENCE_SPACE_TYPE,
@@ -314,7 +270,7 @@ enterXrButton.addEventListener('click', () => {
     });
 });
 
-exitXrButton.addEventListener('click', () => {
+exitXrButton?.addEventListener('click', () => {
   viewer?.exitXR?.()
     .then(() => {
       renderSnapshot();
@@ -351,14 +307,6 @@ magLimitInput?.addEventListener('change', () => {
       snapshotValue.textContent = error.stack ?? error.message;
       console.error('[xr-free-roam-demo] mag limit update failed', error);
     });
-});
-
-warmButton.addEventListener('click', () => {
-  warmDatasetSession().catch((error) => {
-    statusValue.textContent = 'error';
-    snapshotValue.textContent = error.stack ?? error.message;
-    console.error('[xr-free-roam-demo] warm failed', error);
-  });
 });
 
 window.addEventListener('beforeunload', () => {

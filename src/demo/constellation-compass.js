@@ -3,7 +3,8 @@ import {
   createCameraRigController,
   createConstellationArtLayer,
   createConstellationCompassController,
-  createDesktopStarFieldMaterialProfile,
+  createDefaultStarFieldMaterialProfile,
+  DEFAULT_STAR_FIELD_STATE,
   createFoundInSpaceDatasetOptions,
   createObserverShellField,
   createSceneOrientationTransforms,
@@ -23,8 +24,6 @@ const {
 const DEFAULT_ART_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stellarium-skycultures-western@0.1.0/dist/manifest.json';
 
 const mount = document.querySelector('[data-skykit-viewer-root]');
-const createButton = document.querySelector('[data-action="create"]');
-const disposeButton = document.querySelector('[data-action="dispose"]');
 const statusValue = document.querySelector('[data-status]');
 const snapshotValue = document.querySelector('[data-snapshot]');
 const hysteresisInput = document.querySelector('[data-hysteresis-secs]');
@@ -118,12 +117,6 @@ function createViewerCamera() {
   return camera;
 }
 
-function syncButtons() {
-  const hasViewer = viewer != null;
-  createButton.disabled = hasViewer;
-  disposeButton.disabled = !hasViewer;
-}
-
 function renderSnapshot() {
   const snapshot = viewer?.getSnapshotState?.() ?? null;
   statusValue.textContent = viewer?.runtime?.running ? 'running' : 'idle';
@@ -199,11 +192,12 @@ async function mountViewer() {
       createStarFieldLayer({
         id: 'constellation-compass-star-layer',
         positionTransform: ORION_SCENE_TRANSFORM,
-        materialFactory: () => createDesktopStarFieldMaterialProfile({ exposure: 80 }),
+        materialFactory: () => createDefaultStarFieldMaterialProfile(),
       }),
       artLayer,
     ],
     state: {
+      ...DEFAULT_STAR_FIELD_STATE,
       demo: 'constellation-compass',
       observerPc: { x: 0, y: 0, z: 0 },
       targetPc: ORION_CENTER_PC,
@@ -213,7 +207,6 @@ async function mountViewer() {
   });
 
   renderSnapshot();
-  syncButtons();
   return viewer;
 }
 
@@ -225,24 +218,7 @@ async function disposeViewer() {
   viewer = null;
   setActiveConstellationPanel(null);
   renderSnapshot();
-  syncButtons();
 }
-
-createButton.addEventListener('click', () => {
-  mountViewer().catch((error) => {
-    statusValue.textContent = 'error';
-    snapshotValue.textContent = error.stack ?? error.message;
-    console.error('[constellation-compass-demo] create failed', error);
-  });
-});
-
-disposeButton.addEventListener('click', () => {
-  disposeViewer().catch((error) => {
-    statusValue.textContent = 'error';
-    snapshotValue.textContent = error.stack ?? error.message;
-    console.error('[constellation-compass-demo] dispose failed', error);
-  });
-});
 
 hysteresisInput?.addEventListener('change', () => {
   if (!viewer) {
@@ -276,7 +252,6 @@ window.addEventListener('beforeunload', () => {
 setActiveConstellationPanel(null);
 snapshotTimer = window.setInterval(renderSnapshot, 500);
 renderSnapshot();
-syncButtons();
 mountViewer().catch((error) => {
   statusValue.textContent = 'error';
   const message = error?.message ?? String(error);

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  createDesktopStarFieldMaterialProfile,
+  createDefaultStarFieldMaterialProfile,
   createTunedStarFieldMaterialProfile,
   createVrStarFieldMaterialProfile,
 } from '../layers/star-field-materials.js';
@@ -83,10 +83,13 @@ function createMaterialProfile(profile, opts) {
   if (profile === 'vr') {
     return createVrStarFieldMaterialProfile(opts);
   }
+  if (profile === 'default') {
+    return createDefaultStarFieldMaterialProfile(opts);
+  }
   if (profile === 'tuned') {
     return createTunedStarFieldMaterialProfile(opts);
   }
-  return createDesktopStarFieldMaterialProfile(opts);
+  return createDefaultStarFieldMaterialProfile(opts);
 }
 
 // --- DOM refs ---
@@ -146,7 +149,7 @@ camera.lookAt(0, 0, -1);
 
 const scene = new THREE.Scene();
 
-let activeProfile = 'tuned';
+let activeProfile = 'default';
 let materialProfile = null;
 let points = null;
 let haloPoints = null;
@@ -275,18 +278,19 @@ function updateInfo() {
   const linScale = 12.0;
   const haloThreshold = 10.0;
 
-  const header = activeProfile === 'tuned'
+  const usingTunedMath = activeProfile !== 'vr';
+  const header = usingTunedMath
     ? 'm       flux       rawR   radius  lum    halo'
     : 'm       flux       I(clamp)  size(magD)';
 
   const lines = starData.mags.map((m) => {
     const flux = Math.pow(10, -0.4 * m);
-    const relFlux = activeProfile === 'tuned'
+    const relFlux = usingTunedMath
       ? Math.pow(10, 0.4 * (limit - m))
       : flux;
     const energy = relFlux * exposure;
 
-    if (activeProfile === 'tuned') {
+    if (usingTunedMath) {
       const rawRadius = Math.sqrt(energy) * linScale;
       let luminance, radius;
       if (rawRadius < sMin) {
@@ -326,8 +330,8 @@ ctrlSizeMax.addEventListener('input', () => { updateReadouts(); syncUniforms(); 
 ctrlFadeRange.addEventListener('input', () => { updateReadouts(); syncUniforms(); updateInfo(); });
 ctrlMagBrightest.addEventListener('input', () => { updateReadouts(); rebuild(); updateInfo(); });
 
-const PROFILE_SIZE_MAX = { desktop: 20, tuned: 256, vr: 64 };
-const PROFILE_SIZE_MIN = { desktop: 1.0, tuned: 2.0, vr: 1.0 };
+const PROFILE_SIZE_MAX = { default: 256, tuned: 256, vr: 64 };
+const PROFILE_SIZE_MIN = { default: 2.0, tuned: 2.0, vr: 1.0 };
 
 profileButtons.forEach((btn) => {
   btn.addEventListener('click', () => {
