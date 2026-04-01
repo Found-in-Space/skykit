@@ -72,7 +72,7 @@ export function readXrAxes(inputSources, options = {}) {
 
 const MOVE_KEYS = [
   'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE',
-  'Space', 'ShiftLeft', 'ShiftRight',
+  'KeyC', 'KeyX',
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
 ];
 const LOOK_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'];
@@ -282,8 +282,8 @@ export function createCameraRigController(options = {}) {
 
     _movement.set(
       keyAxis(pressedKeys, ['ArrowRight'], ['ArrowLeft']),
-      keyAxis(pressedKeys, ['Space'], ['ShiftLeft', 'ShiftRight']),
-      keyAxis(pressedKeys, ['ArrowDown'], ['ArrowUp']),
+      0,
+      keyAxis(pressedKeys, ['ArrowDown', 'KeyX'], ['ArrowUp', 'KeyC']),
     );
 
     if (_movement.lengthSq() > 0) {
@@ -321,7 +321,7 @@ export function createCameraRigController(options = {}) {
     const roll = keyAxis(pressedKeys, ['KeyE'], ['KeyQ']);
     if (roll !== 0) rig.rotateLocal(LOCAL_FORWARD, -roll * rollSpeed * dt);
 
-    const forwardThrustInput = keyAxis(pressedKeys, ['ArrowUp'], ['ArrowDown']);
+    const forwardThrustInput = keyAxis(pressedKeys, ['ArrowUp', 'KeyC'], ['ArrowDown', 'KeyX']);
     if (forwardThrustInput !== 0) {
       _forward.set(0, 0, -1).applyQuaternion(rig.orientation).normalize();
       const accel = forwardThrustInput > 0 ? thrustAcceleration : thrustAcceleration * brakeFactor;

@@ -65,6 +65,30 @@ test('CameraRigController advances observerPc when forward key is pressed', () =
   controller.dispose();
 });
 
+test('CameraRigController KeyC aliases forward (ArrowUp) for movement', () => {
+  const keyboardTarget = new FakeEventTarget();
+  const pointerTarget = new FakeEventTarget();
+  const controller = createCameraRigController({
+    observerPc: { x: 0, y: 0, z: 0 },
+    lookAtPc: { x: 0, y: 0, z: -10 },
+    moveSpeed: 10,
+    pointerTarget,
+    keyboardTarget,
+  });
+  const camera = new THREE.PerspectiveCamera();
+  const state = {};
+  controller.attach({ camera, canvas: pointerTarget, state });
+
+  keyboardTarget.dispatchEvent(createKeyboardEvent('keydown', 'KeyC'));
+  controller.update({ camera, canvas: pointerTarget, state, frame: { deltaSeconds: 0.5 } });
+  keyboardTarget.dispatchEvent(createKeyboardEvent('keyup', 'KeyC'));
+
+  assert.ok(state.observerPc.z < -4.9);
+  assert.ok(state.observerPc.z > -5.1);
+
+  controller.dispose();
+});
+
 test('CameraRigController flyTo moves observer toward target', () => {
   const controller = createCameraRigController({
     observerPc: { x: 0, y: 0, z: 0 },
