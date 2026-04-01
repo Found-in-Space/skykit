@@ -231,6 +231,114 @@ test('CameraRigController lockAt supports custom upIcrs roll alignment', () => {
   controller.dispose();
 });
 
+test('CameraRigController orbitalInsert curves smoothly from approach into orbit', () => {
+  const controller = createCameraRigController({
+    observerPc: { x: 100, y: 0, z: 0 },
+    lookAtPc: { x: 0, y: 0, z: 0 },
+    sceneScale: 1,
+    pointerTarget: new FakeEventTarget(),
+    keyboardTarget: new FakeEventTarget(),
+  });
+  const camera = new THREE.PerspectiveCamera();
+  const state = {};
+  controller.attach({ camera, canvas: new FakeEventTarget(), state });
+
+  const center = { x: 0, y: 0, z: 0 };
+  controller.orbitalInsert(center, {
+    orbitRadius: 10,
+    angularSpeed: 0.2,
+    approachSpeed: 50,
+    deceleration: 2,
+  });
+
+  assert.equal(controller.getStats().movementAutomation, 'orbitalInsert');
+
+  const positions = [];
+  for (let i = 0; i < 600; i += 1) {
+    controller.update({ camera, state, frame: { deltaSeconds: 1 / 60 } });
+    positions.push({ ...state.observerPc });
+    if (controller.getStats().movementAutomation === 'orbit') break;
+  }
+
+  assert.equal(
+    controller.getStats().movementAutomation,
+    'orbit',
+    'should have transitioned to parametric orbit',
+  );
+
+  const finalDist = Math.hypot(
+    state.observerPc.x - center.x,
+    state.observerPc.y - center.y,
+    state.observerPc.z - center.z,
+  );
+  assert.ok(
+    Math.abs(finalDist - 10) < 0.5,
+    `final distance should be ~10, got ${finalDist}`,
+  );
+
+  const midIdx = Math.floor(positions.length / 2);
+  const midDist = Math.hypot(positions[midIdx].x, positions[midIdx].y, positions[midIdx].z);
+  assert.ok(midDist > 10 && midDist < 100, 'mid-flight should be between start and orbit');
+
+  controller.dispose();
+});
+
+test('CameraRigController orbitalInsert skips to orbit when already at orbit radius', () => {
+  const controller = createCameraRigController({
+    observerPc: { x: 10, y: 0, z: 0 },
+    sceneScale: 1,
+    pointerTarget: new FakeEventTarget(),
+    keyboardTarget: new FakeEventTarget(),
+  });
+  const camera = new THREE.PerspectiveCamera();
+  const state = {};
+  controller.attach({ camera, canvas: new FakeEventTarget(), state });
+
+  controller.orbitalInsert({ x: 0, y: 0, z: 0 }, {
+    orbitRadius: 10,
+    angularSpeed: 0.2,
+  });
+
+  assert.equal(
+    controller.getStats().movementAutomation,
+    'orbit',
+    'should jump directly to orbit when at the orbit radius',
+  );
+
+  controller.dispose();
+});
+
+test('CameraRigController orbitalInsert fires onInserted callback', () => {
+  const controller = createCameraRigController({
+    observerPc: { x: 30, y: 0, z: 0 },
+    lookAtPc: { x: 0, y: 0, z: 0 },
+    sceneScale: 1,
+    pointerTarget: new FakeEventTarget(),
+    keyboardTarget: new FakeEventTarget(),
+  });
+  const camera = new THREE.PerspectiveCamera();
+  const state = {};
+  controller.attach({ camera, canvas: new FakeEventTarget(), state });
+
+  let inserted = false;
+  controller.orbitalInsert({ x: 0, y: 0, z: 0 }, {
+    orbitRadius: 5,
+    angularSpeed: 0.3,
+    approachSpeed: 80,
+    deceleration: 3,
+    onInserted: () => { inserted = true; },
+  });
+
+  for (let i = 0; i < 600; i += 1) {
+    controller.update({ camera, state, frame: { deltaSeconds: 1 / 60 } });
+    if (inserted) break;
+  }
+
+  assert.ok(inserted, 'onInserted callback should have fired');
+
+  controller.dispose();
+});
+
 test('CameraRigController orbit changes position without forcing orientation', () => {
   const controller = createCameraRigController({
     observerPc: { x: 0, y: 0, z: 0 },

@@ -15,6 +15,11 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function smoothstep(edge0, edge1, x) {
+  const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
 function normalizeDirectionInput(direction) {
   if (!Array.isArray(direction) || direction.length !== 3) {
     return null;
@@ -464,6 +469,107 @@ export function createCameraRigController(options = {}) {
       return true;
     }
 
+    if (movementAutomation.type === 'orbitalInsert') {
+      const auto = movementAutomation;
+      const {
+        center, orbitRadius, angularSpeed, approachSpeed,
+        deceleration, insertionRadius, normalIcrs,
+      } = auto;
+      const orbitalSpeed = Math.abs(angularSpeed) * orbitRadius;
+
+      const offX = rig.positionPc.x - center.x;
+      const offY = rig.positionPc.y - center.y;
+      const offZ = rig.positionPc.z - center.z;
+      const distance = Math.hypot(offX, offY, offZ);
+      if (distance < 1e-8) {
+        movementAutomation = null;
+        return false;
+      }
+
+      const rX = offX / distance;
+      const rY = offY / distance;
+      const rZ = offZ / distance;
+
+      const nX = normalIcrs.x;
+      const nY = normalIcrs.y;
+      const nZ = normalIcrs.z;
+
+      let tX = rY * nZ - rZ * nY;
+      let tY = rZ * nX - rX * nZ;
+      let tZ = rX * nY - rY * nX;
+      const tLen = Math.hypot(tX, tY, tZ);
+      if (tLen < 1e-10) {
+        movementAutomation = null;
+        return false;
+      }
+      tX /= tLen;
+      tY /= tLen;
+      tZ /= tLen;
+      if (angularSpeed < 0) { tX = -tX; tY = -tY; tZ = -tZ; }
+
+      const t = 1 - smoothstep(orbitRadius, insertionRadius, distance);
+
+      const excessDist = Math.max(0, distance - orbitRadius);
+      const radialSpeed = Math.min(approachSpeed, excessDist * deceleration);
+      const tangentialSpeed = orbitalSpeed * t;
+
+      rig.positionPc.x += (-rX * radialSpeed + tX * tangentialSpeed) * dt;
+      rig.positionPc.y += (-rY * radialSpeed + tY * tangentialSpeed) * dt;
+      rig.positionPc.z += (-rZ * radialSpeed + tZ * tangentialSpeed) * dt;
+
+      if (t > 0) {
+        const pOffX = rig.positionPc.x - center.x;
+        const pOffY = rig.positionPc.y - center.y;
+        const pOffZ = rig.positionPc.z - center.z;
+        const normalDot = pOffX * nX + pOffY * nY + pOffZ * nZ;
+        const planeAlpha = clamp(t * 4 * dt, 0, 1);
+        rig.positionPc.x -= normalDot * nX * planeAlpha;
+        rig.positionPc.y -= normalDot * nY * planeAlpha;
+        rig.positionPc.z -= normalDot * nZ * planeAlpha;
+      }
+
+      const newOffX = rig.positionPc.x - center.x;
+      const newOffY = rig.positionPc.y - center.y;
+      const newOffZ = rig.positionPc.z - center.z;
+      const newDist = Math.hypot(newOffX, newOffY, newOffZ);
+
+      if (newDist <= orbitRadius * 1.002 && newDist > 1e-8) {
+        const [sx, , sz] = rig.icrsToScene(newOffX, newOffY, newOffZ);
+        const angle = Math.atan2(sz, sx);
+
+        const cosA = Math.cos(angle);
+        const sinA = Math.sin(angle);
+        const [ix, iy, iz] = rig.sceneToIcrs(
+          cosA * orbitRadius * rig.sceneScale,
+          0,
+          sinA * orbitRadius * rig.sceneScale,
+        );
+        rig.positionPc.x = center.x + ix / rig.sceneScale;
+        rig.positionPc.y = center.y + iy / rig.sceneScale;
+        rig.positionPc.z = center.z + iz / rig.sceneScale;
+
+        const cb = auto.onInserted;
+        movementAutomation = {
+          type: 'orbit',
+          center,
+          radius: orbitRadius,
+          angularSpeed,
+          angle,
+        };
+        cb?.();
+        return true;
+      }
+
+      if (newDist < orbitRadius && newDist > 1e-8) {
+        const factor = orbitRadius / newDist;
+        rig.positionPc.x = center.x + newOffX * factor;
+        rig.positionPc.y = center.y + newOffY * factor;
+        rig.positionPc.z = center.z + newOffZ * factor;
+      }
+
+      return true;
+    }
+
     return false;
   }
 
@@ -589,6 +695,69 @@ export function createCameraRigController(options = {}) {
         radius: positiveFinite(opts.radius, currentRadius || 1),
         angularSpeed: opts.angularSpeed ?? 0.1,
         angle: opts.initialAngle ?? 0,
+      };
+    },
+
+    orbitalInsert(centerPc, opts = {}) {
+      const center = normalizePoint(centerPc, null);
+      if (!center) return;
+
+      const dx = rig.positionPc.x - center.x;
+      const dy = rig.positionPc.y - center.y;
+      const dz = rig.positionPc.z - center.z;
+      const currentDistance = Math.hypot(dx, dy, dz);
+
+      const orbitRadius = positiveFinite(opts.orbitRadius, currentDistance || 1);
+      const angularSpeed = opts.angularSpeed ?? 0.1;
+      const approachSpeed = positiveFinite(opts.approachSpeed ?? opts.speed, moveSpeed);
+      const deceleration = positiveFinite(opts.deceleration, 2);
+      const onInserted = typeof opts.onInserted === 'function' ? opts.onInserted : null;
+
+      const orbitalSpeed = Math.abs(angularSpeed) * orbitRadius;
+      const decelZone = deceleration > 0
+        ? (approachSpeed - orbitalSpeed) / deceleration
+        : 0;
+      const insertionRadius = positiveFinite(
+        opts.insertionRadius,
+        Math.max(orbitRadius * 3, orbitRadius + decelZone * 1.2),
+      );
+
+      let normalIcrs;
+      const userNormal = normalizeDirectionInput(opts.orbitNormal);
+      if (userNormal) {
+        normalIcrs = { x: userNormal[0], y: userNormal[1], z: userNormal[2] };
+      } else {
+        const [nx, ny, nz] = rig.sceneToIcrs(0, 1, 0);
+        const nLen = Math.hypot(nx, ny, nz);
+        normalIcrs = nLen > 0
+          ? { x: nx / nLen, y: ny / nLen, z: nz / nLen }
+          : { x: 0, y: 1, z: 0 };
+      }
+
+      if (currentDistance <= orbitRadius * 1.01) {
+        const [sx, , sz] = rig.icrsToScene(dx, dy, dz);
+        const angle = Math.atan2(sz, sx);
+        movementAutomation = {
+          type: 'orbit',
+          center,
+          radius: orbitRadius,
+          angularSpeed,
+          angle,
+        };
+        onInserted?.();
+        return;
+      }
+
+      movementAutomation = {
+        type: 'orbitalInsert',
+        center,
+        orbitRadius,
+        angularSpeed,
+        approachSpeed,
+        deceleration,
+        insertionRadius,
+        normalIcrs,
+        onInserted,
       };
     },
 
