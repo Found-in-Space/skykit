@@ -17,6 +17,7 @@ export default defineConfig({
         parallaxDebug: path.resolve(__dirname, 'demos/parallax-debug.html'),
         shaderTuning: path.resolve(__dirname, 'demos/shader-tuning.html'),
         constellationCompass: path.resolve(__dirname, 'demos/constellation-compass.html'),
+        hrDiagram: path.resolve(__dirname, 'demos/hr-diagram.html'),
       },
     },
   },

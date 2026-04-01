@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit: HR Diagram (Volume-Complete)</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      /*
+       * Page layout (two columns):
+       *   [ aside: controls  ] [ main.hr-demo-workspace: stacked views ]
+       *
+       * The "columns" in shared.css are only: sidebar | workspace. Inside the
+       * workspace, sky is above the HR diagram (vertical stack, 50% / 50% height).
+       *
+       * shared.css gives aside + main each min-height: 100vh. The grid row then
+       * grows to the taller column, so a long sidebar stretched the workspace.
+       * We lock body to one viewport height and scroll the sidebar; the workspace
+       * column never exceeds the viewport.
+       */
+      body.hr-diagram-page {
+        height: 100vh;
+        max-height: 100vh;
+        overflow: hidden;
+        grid-template-rows: 1fr;
+        align-items: stretch;
+      }
+
+      body.hr-diagram-page aside {
+        min-height: 0;
+        max-height: 100%;
+        overflow-y: auto;
+      }
+
+      /* Right column only: stacked skyview (row 1) + HR diagram (row 2), equal height */
+      .hr-demo-workspace {
+        min-height: 0;
+        height: 100%;
+        max-height: 100%;
+        overflow: hidden;
+        display: grid;
+        grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 16px;
+        align-content: stretch;
+      }
+
+      .hr-demo-workspace .viewer-shell {
+        height: 100%;
+        max-height: 100%;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .hr-canvas {
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        border: 1px solid var(--panel-border);
+        border-radius: 18px;
+        background: rgba(1, 6, 16, 0.92);
+      }
+
+      .range-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 6px 0 0;
+      }
+
+      .range-row input[type="range"] {
+        flex: 1;
+        accent-color: var(--accent-strong);
+      }
+
+      .range-value {
+        min-width: 50px;
+        text-align: right;
+        color: var(--accent-strong);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .stat-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 3px 0;
+        color: var(--text-muted);
+        font-size: 0.9rem;
+      }
+
+      .stat-row span:last-child {
+        color: var(--accent-strong);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .mode-buttons {
+        display: flex;
+        gap: 8px;
+        margin: 12px 0;
+      }
+
+      .mode-buttons button {
+        flex: 1;
+        font-size: 0.85rem;
+      }
+
+      .mode-buttons button.active {
+        border-color: var(--accent-strong);
+        background: rgba(115, 213, 255, 0.15);
+      }
+
+      @media (max-width: 960px) {
+        /* Sidebar on top, then workspace (still sky above HR inside main) */
+        body.hr-diagram-page {
+          height: auto;
+          max-height: none;
+          overflow: auto;
+          grid-template-rows: auto auto;
+        }
+
+        body.hr-diagram-page aside {
+          max-height: none;
+          overflow-y: visible;
+        }
+
+        .hr-demo-workspace {
+          height: min(70vh, 720px);
+          min-height: 380px;
+          max-height: none;
+          overflow: hidden;
+        }
+
+        .hr-demo-workspace .viewer-shell {
+          min-height: 200px;
+        }
+      }
+    </style>
+  </head>
+  <body class="hr-diagram-page">
+    <aside>
+      <nav class="breadcrumb"><a href="../index.html">SkyKit</a> <span>/ HR Diagram</span></nav>
+      <h1>HR Diagram</h1>
+      <p>
+        Volume-complete HR diagram loader — loads <em>all</em> stars within the
+        chosen radius, regardless of brightness. Fly around and adjust the
+        radius to sample different volumes.
+      </p>
+
+      <p class="aside-section-title">Mode</p>
+      <div class="mode-buttons">
+        <button type="button" data-mode="1" class="active">Volume</button>
+        <button type="button" data-mode="0">Mag-limited</button>
+        <button type="button" data-mode="2">Frustum</button>
+      </div>
+
+      <label for="hr-radius">Volume radius</label>
+      <div class="range-row">
+        <input id="hr-radius" type="range" min="1" max="100" step="1" value="25" data-radius />
+        <span class="range-value" data-radius-value>25 pc</span>
+      </div>
+
+      <label for="mag-limit">Magnitude limit (modes 0 &amp; 2)</label>
+      <input id="mag-limit" type="number" min="0" max="25" step="0.5" value="6.5" data-mag-limit />
+
+      <p class="aside-section-title">Stats</p>
+      <div class="stat-block">
+        <div class="stat-row"><span>Stars (in volume)</span> <span data-stat-stars>—</span></div>
+        <div class="stat-row"><span>Stars (decoded)</span>  <span data-stat-decoded>—</span></div>
+        <div class="stat-row"><span>Nodes</span>            <span data-stat-nodes>—</span></div>
+        <div class="stat-row"><span>Observer</span>          <span data-stat-observer>0, 0, 0</span></div>
+        <div class="stat-row"><span>Phase</span>             <span data-stat-phase>idle</span></div>
+      </div>
+
+      <p class="status">Status: <span data-status>loading…</span></p>
+      <pre class="meta-block" data-summary></pre>
+    </aside>
+    <!-- Right column: skyview (top) + HR diagram (bottom), 50/50 height; stacked, not beside each other -->
+    <main class="hr-demo-workspace">
+      <div class="viewer-shell" data-skykit-viewer-root></div>
+      <canvas class="hr-canvas" data-hr-canvas aria-label="Live HR diagram"></canvas>
+    </main>
+    <script type="module" src="/src/demo/hr-diagram.js"></script>
+  </body>
+</html>

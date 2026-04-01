@@ -22,6 +22,10 @@ export {
 export { createNoopInterestField } from './fields/noop-interest-field.js';
 export { createObserverShellField } from './fields/observer-shell-field.js';
 export { createTargetFrustumField } from './fields/target-frustum-field.js';
+export {
+  aabbDistance,
+  selectOctreeNodes,
+} from './fields/octree-selection.js';
 export { createCameraRig } from './controllers/camera-rig.js';
 export {
   createCameraRigController,
@@ -80,3 +84,5 @@ export {
   formatDistancePc,
   formatSpeedPcPerSec,
 } from './presets/navigation-presets.js';
+export { createVolumeHRLoader } from './hr-diagram/volume-hr-loader.js';
+export { HRDiagramRenderer } from './hr-diagram/hr-diagram-renderer.js';
