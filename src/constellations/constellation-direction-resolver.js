@@ -158,12 +158,12 @@ export function buildConstellationDirectionResolver(manifest) {
       if (currentIau) {
         const sticky = inside.find((entry) => entry.iau === currentIau);
         if (sticky) {
-          return { iau: sticky.iau, id: sticky.id, score: sticky.score };
+          return { iau: sticky.iau, id: sticky.id, name: sticky.name, score: sticky.score };
         }
       }
 
       const winner = inside.reduce((best, entry) => (entry.score > best.score ? entry : best), inside[0]);
-      return { iau: winner.iau, id: winner.id, score: winner.score };
+      return { iau: winner.iau, id: winner.id, name: winner.name, score: winner.score };
     }
 
     const closest = entries.reduce((best, entry) => {
@@ -181,6 +181,7 @@ export function buildConstellationDirectionResolver(manifest) {
     return {
       iau: closest.iau,
       id: closest.id,
+      name: closest.name,
       score: closest.score,
     };
   }

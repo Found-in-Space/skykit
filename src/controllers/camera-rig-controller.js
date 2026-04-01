@@ -61,7 +61,7 @@ const MOVE_KEYS = [
   'Space', 'ShiftLeft', 'ShiftRight',
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
 ];
-const LOOK_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyQ', 'KeyE'];
+const LOOK_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'];
 
 export function createCameraRigController(options = {}) {
   const id = options.id ?? 'camera-rig-controller';
@@ -138,6 +138,59 @@ export function createCameraRigController(options = {}) {
   const _forward = new THREE.Vector3();
   const _right = new THREE.Vector3();
   const _cameraWorldQ = new THREE.Quaternion();
+
+  // --- Universal motion tracking ---
+  const _motionPrevOrientation = new THREE.Quaternion();
+  let _motionPrevPos = rig.clonePosition();
+  let _motionPrevSpeed = 0;
+  let _motionStats = null;
+
+  function updateMotionStats(dt) {
+    const pos = rig.clonePosition();
+    let vx = 0;
+    let vy = 0;
+    let vz = 0;
+    let speed = 0;
+    let accel = 0;
+    let angVel = 0;
+
+    if (dt > 0 && _motionPrevPos) {
+      vx = (pos.x - _motionPrevPos.x) / dt;
+      vy = (pos.y - _motionPrevPos.y) / dt;
+      vz = (pos.z - _motionPrevPos.z) / dt;
+      speed = Math.hypot(vx, vy, vz);
+      accel = (speed - _motionPrevSpeed) / dt;
+      angVel = rig.orientation.angleTo(_motionPrevOrientation) / dt;
+    }
+
+    const fwd = rig.getForward();
+    const fwdX = fwd.x;
+    const fwdY = fwd.y;
+    const fwdZ = fwd.z;
+    const [fx, fy, fz] = rig.sceneToIcrs(fwdX, fwdY, fwdZ);
+    const fLen = Math.hypot(fx, fy, fz);
+
+    _motionPrevPos = pos;
+    _motionPrevSpeed = speed;
+    _motionPrevOrientation.copy(rig.orientation);
+
+    _motionStats = {
+      observerPc: pos,
+      orientationQ: {
+        x: rig.orientation.x,
+        y: rig.orientation.y,
+        z: rig.orientation.z,
+        w: rig.orientation.w,
+      },
+      forwardIcrs: fLen > 0
+        ? { x: fx / fLen, y: fy / fLen, z: fz / fLen }
+        : { x: 0, y: 0, z: -1 },
+      velocityPcPerSec: { x: vx, y: vy, z: vz },
+      speedPcPerSec: speed,
+      angularVelocityRadPerSec: angVel,
+      accelerationPcPerSec2: accel,
+    };
+  }
 
   let stats = {
     observerPc: rig.clonePosition(),
@@ -290,8 +343,8 @@ export function createCameraRigController(options = {}) {
 
     const lookStep = keyboardTurnSpeed * dt;
     if (lookStep > 0) {
-      const yaw = keyAxis(pressedKeys, ['ArrowRight'], ['ArrowLeft']);
-      const pitch = keyAxis(pressedKeys, ['ArrowDown'], ['ArrowUp']);
+      const yaw = keyAxis(pressedKeys, ['KeyD'], ['KeyA']);
+      const pitch = keyAxis(pressedKeys, ['KeyS'], ['KeyW']);
       if (yaw !== 0) rig.rotateLocal(LOCAL_UP, -yaw * lookStep);
       if (pitch !== 0) rig.rotateLocal(LOCAL_RIGHT, pitch * lookStep);
     }
@@ -300,9 +353,9 @@ export function createCameraRigController(options = {}) {
     if (roll !== 0) rig.rotateLocal(LOCAL_FORWARD, -roll * rollSpeed * dt);
 
     _movement.set(
-      keyAxis(pressedKeys, ['KeyD'], ['KeyA']),
+      keyAxis(pressedKeys, ['ArrowRight'], ['ArrowLeft']),
       keyAxis(pressedKeys, ['Space'], ['ShiftLeft', 'ShiftRight']),
-      keyAxis(pressedKeys, ['KeyS'], ['KeyW']),
+      keyAxis(pressedKeys, ['ArrowDown'], ['ArrowUp']),
     );
 
     if (_movement.lengthSq() > 0) {
@@ -331,17 +384,26 @@ export function createCameraRigController(options = {}) {
       return;
     }
 
-    const yaw = keyAxis(pressedKeys, ['KeyD', 'ArrowRight'], ['KeyA', 'ArrowLeft']);
+    const yaw = keyAxis(pressedKeys, ['KeyD'], ['KeyA']);
     if (yaw !== 0) rig.rotateLocal(LOCAL_UP, -yaw * keyboardTurnSpeed * dt);
+
+    const pitch = keyAxis(pressedKeys, ['KeyS'], ['KeyW']);
+    if (pitch !== 0) rig.rotateLocal(LOCAL_RIGHT, pitch * keyboardTurnSpeed * dt);
 
     const roll = keyAxis(pressedKeys, ['KeyE'], ['KeyQ']);
     if (roll !== 0) rig.rotateLocal(LOCAL_FORWARD, -roll * rollSpeed * dt);
 
-    const thrustInput = keyAxis(pressedKeys, ['KeyW', 'ArrowUp'], ['KeyS', 'ArrowDown']);
-    if (thrustInput !== 0) {
+    const forwardThrustInput = keyAxis(pressedKeys, ['ArrowUp'], ['ArrowDown']);
+    if (forwardThrustInput !== 0) {
       _forward.set(0, 0, -1).applyQuaternion(rig.orientation).normalize();
-      const accel = thrustInput > 0 ? thrustAcceleration : thrustAcceleration * brakeFactor;
-      rig.velocity.addScaledVector(_forward, accel * thrustInput * dt);
+      const accel = forwardThrustInput > 0 ? thrustAcceleration : thrustAcceleration * brakeFactor;
+      rig.velocity.addScaledVector(_forward, accel * forwardThrustInput * dt);
+    }
+
+    const strafeThrustInput = keyAxis(pressedKeys, ['ArrowRight'], ['ArrowLeft']);
+    if (strafeThrustInput !== 0) {
+      _right.set(1, 0, 0).applyQuaternion(rig.orientation).normalize();
+      rig.velocity.addScaledVector(_right, thrustAcceleration * strafeThrustInput * dt);
     }
 
     if (dragCoefficient > 0 && rig.velocity.lengthSq() > 0) {
@@ -683,6 +745,17 @@ export function createCameraRigController(options = {}) {
       orientationAutomation = null;
     },
 
+    simulateKeyDown(code) {
+      if (MOVE_KEYS.includes(code)) {
+        pressedKeys.add(code);
+        if (LOOK_KEYS.includes(code)) noteManualLookInput();
+      }
+    },
+
+    simulateKeyUp(code) {
+      pressedKeys.delete(code);
+    },
+
     cancelAutomation() {
       movementAutomation = null;
       orientationAutomation = null;
@@ -723,6 +796,7 @@ export function createCameraRigController(options = {}) {
     getStats() {
       return {
         ...stats,
+        motion: _motionStats ? { ..._motionStats } : null,
         observerPc: clonePoint(stats.observerPc),
         automation: deriveAutomationStat(),
         movementAutomation: movementAutomation?.type ?? null,
@@ -782,32 +856,31 @@ export function createCameraRigController(options = {}) {
 
     update(context) {
       readFromState(context.state);
+      const dt = Math.max(0, context.frame?.deltaSeconds ?? 0);
 
       if (xrEnabled && updateXr(context)) {
-        writeToState(context.state);
-        return;
-      }
-
-      if (isParallaxMode) {
+        // XR: camera managed by WebXR, position via navigationRoot
+      } else if (isParallaxMode) {
         updateParallax(context);
-        writeToState(context.state);
-        return;
-      }
-
-      const isMovementAutomated = updateMovementAutomation(context);
-      if (!isMovementAutomated) {
-        if (integration === 'inertial') {
-          updateInertial(context);
-        } else {
-          updateFreeFly(context);
+      } else {
+        const isMovementAutomated = updateMovementAutomation(context);
+        if (!isMovementAutomated) {
+          if (integration === 'inertial') {
+            updateInertial(context);
+          } else {
+            updateFreeFly(context);
+          }
         }
+
+        updateOrientationAutomation(context);
+        rig.applyToCamera(context.camera);
       }
 
-      updateOrientationAutomation(context);
-      rig.applyToCamera(context.camera);
+      updateMotionStats(dt);
       writeToState(context.state);
       stats = {
         ...stats,
+        motion: _motionStats,
         observerPc: rig.clonePosition(),
         automation: deriveAutomationStat(),
         movementAutomation: movementAutomation?.type ?? null,

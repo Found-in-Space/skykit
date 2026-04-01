@@ -4,7 +4,9 @@ import {
   createDefaultStarFieldMaterialProfile,
   DEFAULT_STAR_FIELD_STATE,
   createFoundInSpaceDatasetOptions,
+  createHud,
   createObserverShellField,
+  loadConstellationArtManifest,
   ORION_CENTER_PC,
   createSceneOrientationTransforms,
   createSelectionRefreshController,
@@ -12,7 +14,13 @@ import {
   createStarFieldLayer,
   createViewer,
   getDatasetSession,
+  SOLAR_ORIGIN_PC,
 } from '../index.js';
+import { createConstellationPreset } from '../presets/constellation-preset.js';
+import { createSpeedReadout, createDistanceReadout, createFlyToAction, createLookAtAction } from '../presets/navigation-presets.js';
+import { createFullscreenPreset } from '../presets/fullscreen-preset.js';
+
+const DEFAULT_ART_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stellarium-skycultures-western@0.1.0/dist/manifest.json';
 
 const {
   icrsToScene: ORION_SCENE_TRANSFORM,
@@ -159,6 +167,24 @@ async function mountViewer() {
 
   await warmDatasetSession();
 
+  const cameraController = createCameraRigController({
+    id: 'phase-5-camera-rig-controller',
+    icrsToSceneTransform: ORION_SCENE_TRANSFORM,
+    sceneToIcrsTransform: ORION_SCENE_TO_ICRS_TRANSFORM,
+    lookAtPc: ORION_CENTER_PC,
+    moveSpeed: 18,
+  });
+
+  const fullscreen = createFullscreenPreset();
+  const manifest = await loadConstellationArtManifest({ manifestUrl: DEFAULT_ART_MANIFEST_URL });
+  const constellation = createConstellationPreset({
+    manifest,
+    manifestUrl: DEFAULT_ART_MANIFEST_URL,
+    sceneToIcrsTransform: ORION_SCENE_TO_ICRS_TRANSFORM,
+    transformDirection: ORION_SCENE_TRANSFORM,
+    position: 'top-right',
+  });
+
   viewer = await createViewer(mount, {
     datasetSession,
     camera: createViewerCamera(),
@@ -168,21 +194,43 @@ async function mountViewer() {
       note: 'Single-view free-fly shell field for the Phase 5 controller sandbox.',
     }),
     controllers: [
-      createCameraRigController({
-        id: 'phase-5-camera-rig-controller',
-        icrsToSceneTransform: ORION_SCENE_TRANSFORM,
-        sceneToIcrsTransform: ORION_SCENE_TO_ICRS_TRANSFORM,
-        lookAtPc: ORION_CENTER_PC,
-        moveSpeed: 18,
-      }),
+      cameraController,
       createSelectionRefreshController({
         id: 'phase-5-selection-refresh-controller',
         observerDistancePc: 12,
         minIntervalMs: 250,
         watchSize: false,
       }),
+      constellation.compassController,
+      fullscreen.controller,
+      createHud({
+        cameraController,
+        controls: [
+          { preset: 'arrows', position: 'bottom-right' },
+          { preset: 'wasd-qe', position: 'bottom-left' },
+          ...constellation.controls,
+          createLookAtAction(cameraController, SOLAR_ORIGIN_PC, {
+            label: '⟳ Sun',
+            title: 'Look at Sun',
+            position: 'top-right',
+          }),
+          createFlyToAction(cameraController, SOLAR_ORIGIN_PC, {
+            label: '→ Sun',
+            title: 'Fly to Sun',
+            speed: 120,
+            position: 'top-right',
+          }),
+          ...fullscreen.controls,
+          createSpeedReadout(cameraController, { position: 'top-left' }),
+          createDistanceReadout(cameraController, SOLAR_ORIGIN_PC, {
+            label: 'Distance to Sun',
+            position: 'top-left',
+          }),
+        ],
+      }),
     ],
     layers: [
+      constellation.artLayer,
       createStarFieldLayer({
         id: 'phase-5-free-fly-star-field-layer',
         positionTransform: ORION_SCENE_TRANSFORM,

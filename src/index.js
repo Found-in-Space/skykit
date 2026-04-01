@@ -50,6 +50,15 @@ export { createTunedStarFieldMaterialProfile } from './layers/star-field-materia
 export { createVrStarFieldMaterialProfile } from './layers/star-field-materials.js';
 export { createHighlightStarFieldMaterialProfile } from './layers/highlight-star-field-materials.js';
 export { createDeviceTiltTracker } from './services/input/device-tilt-tracker.js';
+export { createHud } from './ui/hud.js';
+export {
+  PRESET_ARROWS,
+  PRESET_QE,
+  PRESET_VERTICALS,
+  PRESET_WASD,
+  PRESET_WASD_QE,
+  resolvePreset,
+} from './ui/hud-presets.js';
 export {
   ALCYONE_PC,
   GALACTIC_CENTER_PC,
@@ -58,3 +67,13 @@ export {
   SCENE_TARGETS_PC,
   SOLAR_ORIGIN_PC,
 } from './scene-targets.js';
+export { createConstellationPreset } from './presets/constellation-preset.js';
+export { createFullscreenPreset } from './presets/fullscreen-preset.js';
+export {
+  createDistanceReadout,
+  createFlyToAction,
+  createLookAtAction,
+  createSpeedReadout,
+  formatDistancePc,
+  formatSpeedPcPerSec,
+} from './presets/navigation-presets.js';

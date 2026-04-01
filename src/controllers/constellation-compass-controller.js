@@ -63,6 +63,7 @@ export function createConstellationCompassController(options = {}) {
       onConstellationIn({
         iau: nextResolved.iau,
         id: nextResolved.id ?? null,
+        name: nextResolved.name ?? null,
         raDeg: raDec?.raDeg ?? null,
         raHours: raDec?.raHours ?? null,
         decDeg: raDec?.decDeg ?? null,
@@ -73,6 +74,7 @@ export function createConstellationCompassController(options = {}) {
       ? {
         iau: nextResolved.iau ?? null,
         id: nextResolved.id ?? null,
+        name: nextResolved.name ?? null,
       }
       : null;
     if (state && typeof state === 'object') {

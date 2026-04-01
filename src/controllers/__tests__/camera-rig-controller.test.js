@@ -53,9 +53,9 @@ test('CameraRigController advances observerPc when forward key is pressed', () =
   const state = {};
   controller.attach({ camera, canvas: pointerTarget, state });
 
-  keyboardTarget.dispatchEvent(createKeyboardEvent('keydown', 'KeyW'));
+  keyboardTarget.dispatchEvent(createKeyboardEvent('keydown', 'ArrowUp'));
   controller.update({ camera, canvas: pointerTarget, state, frame: { deltaSeconds: 0.5 } });
-  keyboardTarget.dispatchEvent(createKeyboardEvent('keyup', 'KeyW'));
+  keyboardTarget.dispatchEvent(createKeyboardEvent('keyup', 'ArrowUp'));
 
   assert.ok(state.observerPc.z < -4.9);
   assert.ok(state.observerPc.z > -5.1);
@@ -132,9 +132,9 @@ test('CameraRigController lockAt recenters after dwell delay following manual lo
     controller.update({ camera, state, frame: { deltaSeconds: 1 / 60 } });
   }
 
-  keyboardTarget.dispatchEvent(createKeyboardEvent('keydown', 'ArrowLeft'));
+  keyboardTarget.dispatchEvent(createKeyboardEvent('keydown', 'KeyA'));
   controller.update({ camera, state, frame: { deltaSeconds: 0.1 } });
-  keyboardTarget.dispatchEvent(createKeyboardEvent('keyup', 'ArrowLeft'));
+  keyboardTarget.dispatchEvent(createKeyboardEvent('keyup', 'KeyA'));
 
   const targetQ = controller.rig.computeOrientationToward(target);
   assert.ok(targetQ);
@@ -335,4 +335,171 @@ test('CameraRigController XR mode moves in full 3D when looking up or down', () 
 
   assert.ok(state.observerPc.y < -0.5, 'should move downward when looking down');
   assert.ok(state.observerPc.z < -0.5, 'should still move forward along Z');
+});
+
+test('simulateKeyDown/simulateKeyUp drive movement the same as physical keyboard events', () => {
+  const controller = createCameraRigController({
+    observerPc: { x: 0, y: 0, z: 0 },
+    lookAtPc: { x: 0, y: 0, z: -10 },
+    moveSpeed: 10,
+    pointerTarget: new FakeEventTarget(),
+    keyboardTarget: new FakeEventTarget(),
+  });
+  const camera = new THREE.PerspectiveCamera();
+  const state = {};
+  controller.attach({ camera, canvas: new FakeEventTarget(), state });
+
+  controller.simulateKeyDown('ArrowUp');
+  controller.update({ camera, state, frame: { deltaSeconds: 0.5 } });
+  controller.simulateKeyUp('ArrowUp');
+
+  assert.ok(state.observerPc.z < -4.9);
+  assert.ok(state.observerPc.z > -5.1);
+
+  controller.dispose();
+});
+
+test('simulateKeyDown ignores non-MOVE_KEYS codes', () => {
+  const controller = createCameraRigController({
+    observerPc: { x: 0, y: 0, z: 0 },
+    lookAtPc: { x: 0, y: 0, z: -10 },
+    moveSpeed: 10,
+    pointerTarget: new FakeEventTarget(),
+    keyboardTarget: new FakeEventTarget(),
+  });
+  const camera = new THREE.PerspectiveCamera();
+  const state = {};
+  controller.attach({ camera, canvas: new FakeEventTarget(), state });
+
+  controller.simulateKeyDown('KeyZ');
+  controller.update({ camera, state, frame: { deltaSeconds: 0.5 } });
+  controller.simulateKeyUp('KeyZ');
+
+  assert.deepEqual(state.observerPc, { x: 0, y: 0, z: 0 });
+
+  controller.dispose();
+});
+
+// --- Universal motion stats ---
+
+test('getStats().motion reports position, orientation, and forward direction', () => {
+  const controller = createCameraRigController({
+    observerPc: { x: 5, y: 3, z: -1 },
+    lookAtPc: { x: 0, y: 0, z: -10 },
+    pointerTarget: new FakeEventTarget(),
+    keyboardTarget: new FakeEventTarget(),
+  });
+  const camera = new THREE.PerspectiveCamera();
+  const state = {};
+  controller.attach({ camera, canvas: new FakeEventTarget(), state });
+  controller.update({ camera, state, frame: { deltaSeconds: 1 / 60 } });
+
+  const { motion } = controller.getStats();
+  assert.ok(motion, 'motion stats should be present');
+  assert.ok(motion.observerPc, 'observerPc should be in motion');
+  assert.equal(motion.observerPc.x, 5);
+  assert.ok(motion.orientationQ, 'orientationQ should be in motion');
+  assert.ok(Number.isFinite(motion.orientationQ.w));
+  assert.ok(motion.forwardIcrs, 'forwardIcrs should be in motion');
+  const fLen = Math.hypot(motion.forwardIcrs.x, motion.forwardIcrs.y, motion.forwardIcrs.z);
+  assert.ok(Math.abs(fLen - 1) < 0.01, 'forwardIcrs should be unit length');
+
+  controller.dispose();
+});
+
+test('motion.speedPcPerSec reflects actual movement from arrow keys', () => {
+  const controller = createCameraRigController({
+    observerPc: { x: 0, y: 0, z: 0 },
+    lookAtPc: { x: 0, y: 0, z: -10 },
+    moveSpeed: 20,
+    pointerTarget: new FakeEventTarget(),
+    keyboardTarget: new FakeEventTarget(),
+  });
+  const camera = new THREE.PerspectiveCamera();
+  const state = {};
+  controller.attach({ camera, canvas: new FakeEventTarget(), state });
+
+  controller.update({ camera, state, frame: { deltaSeconds: 0.1 } });
+  assert.ok(controller.getStats().motion.speedPcPerSec < 0.001, 'stationary before keys');
+
+  controller.simulateKeyDown('ArrowUp');
+  controller.update({ camera, state, frame: { deltaSeconds: 0.1 } });
+  controller.simulateKeyUp('ArrowUp');
+
+  const speed = controller.getStats().motion.speedPcPerSec;
+  assert.ok(speed > 15, `speed should be ~20 pc/s, got ${speed}`);
+  assert.ok(speed < 25, `speed should be ~20 pc/s, got ${speed}`);
+
+  controller.dispose();
+});
+
+test('motion.speedPcPerSec reports speed during flyTo automation', () => {
+  const controller = createCameraRigController({
+    observerPc: { x: 0, y: 0, z: 0 },
+    lookAtPc: { x: 0, y: 0, z: -10 },
+    moveSpeed: 50,
+    sceneScale: 1,
+    pointerTarget: new FakeEventTarget(),
+    keyboardTarget: new FakeEventTarget(),
+  });
+  const camera = new THREE.PerspectiveCamera();
+  const state = {};
+  controller.attach({ camera, canvas: new FakeEventTarget(), state });
+
+  controller.update({ camera, state, frame: { deltaSeconds: 0.1 } });
+  controller.flyTo({ x: 0, y: 0, z: -100 }, { speed: 50 });
+  controller.update({ camera, state, frame: { deltaSeconds: 0.1 } });
+
+  const speed = controller.getStats().motion.speedPcPerSec;
+  assert.ok(speed > 10, `should report movement during flyTo, got ${speed}`);
+
+  controller.dispose();
+});
+
+test('motion.velocityPcPerSec has a direction vector consistent with movement', () => {
+  const controller = createCameraRigController({
+    observerPc: { x: 0, y: 0, z: 0 },
+    lookAtPc: { x: 0, y: 0, z: -10 },
+    moveSpeed: 10,
+    pointerTarget: new FakeEventTarget(),
+    keyboardTarget: new FakeEventTarget(),
+  });
+  const camera = new THREE.PerspectiveCamera();
+  const state = {};
+  controller.attach({ camera, canvas: new FakeEventTarget(), state });
+
+  controller.update({ camera, state, frame: { deltaSeconds: 0.1 } });
+  controller.simulateKeyDown('ArrowUp');
+  controller.update({ camera, state, frame: { deltaSeconds: 0.1 } });
+  controller.simulateKeyUp('ArrowUp');
+
+  const v = controller.getStats().motion.velocityPcPerSec;
+  assert.ok(v.z < -5, `velocity z should be negative (forward), got ${v.z}`);
+
+  controller.dispose();
+});
+
+test('motion.angularVelocityRadPerSec reports rotation from yaw keys', () => {
+  const keyboardTarget = new FakeEventTarget();
+  const controller = createCameraRigController({
+    observerPc: { x: 0, y: 0, z: 0 },
+    lookAtPc: { x: 0, y: 0, z: -10 },
+    keyboardTurnSpeed: 2.0,
+    pointerTarget: new FakeEventTarget(),
+    keyboardTarget,
+  });
+  const camera = new THREE.PerspectiveCamera();
+  const state = {};
+  controller.attach({ camera, canvas: new FakeEventTarget(), state });
+
+  controller.update({ camera, state, frame: { deltaSeconds: 0.1 } });
+
+  controller.simulateKeyDown('KeyD');
+  controller.update({ camera, state, frame: { deltaSeconds: 0.1 } });
+  controller.simulateKeyUp('KeyD');
+
+  const angVel = controller.getStats().motion.angularVelocityRadPerSec;
+  assert.ok(angVel > 0.5, `angular velocity should be positive during yaw, got ${angVel}`);
+
+  controller.dispose();
 });
