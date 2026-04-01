@@ -211,6 +211,8 @@ export async function diagnoseObserverShellSelection(options = {}) {
     }
 
     const field = createObserverShellField(fieldOptions);
+
+    const t0 = performance.now();
     const selection = await field.selectNodes({
       datasetSession,
       state: {
@@ -221,6 +223,7 @@ export async function diagnoseObserverShellSelection(options = {}) {
       camera: { aspect: 1 },
       phase: 'diagnostic',
     });
+    const selectionMs = performance.now() - t0;
 
     const nodeSummary = summarizeSelectedPayloadNodes(selection.nodes, {
       payloadMaxGapBytes,
@@ -232,9 +235,12 @@ export async function diagnoseObserverShellSelection(options = {}) {
       totals: { ...nodeSummary.totals },
     };
 
+    let payloadFetchMs = 0;
     if (decodePayloads && nodeSummary.totals.payloadNodeCount > 0) {
       const renderService = datasetSession.getRenderService();
+      const t1 = performance.now();
       const entries = await renderService.fetchNodePayloadBatch(selection.nodes);
+      payloadFetchMs = performance.now() - t1;
       payloadSummary = mergeLevelRows(
         nodeSummary,
         summarizeDecodedPayloadEntries(entries, {
@@ -245,6 +251,7 @@ export async function diagnoseObserverShellSelection(options = {}) {
       );
     }
 
+    const totalMs = selectionMs + payloadFetchMs;
     const datasetDescription = datasetSession.describe();
     return {
       octreeUrl,
@@ -252,6 +259,11 @@ export async function diagnoseObserverShellSelection(options = {}) {
       mDesired,
       maxLevel,
       decodePayloads,
+      timing: {
+        selectionMs: Math.round(selectionMs),
+        payloadFetchMs: Math.round(payloadFetchMs),
+        totalMs: Math.round(totalMs),
+      },
       selectionMeta: selection.meta ?? null,
       payloads: {
         byLevel: payloadSummary.byLevel,

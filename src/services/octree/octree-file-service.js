@@ -36,13 +36,16 @@ function assertRangeResponse(response, url, start, end) {
 }
 
 async function fetchRange(url, start, end) {
+  const t0 = performance.now();
   const response = await fetch(url, {
     headers: {
       Range: `bytes=${start}-${end}`,
     },
   });
   assertRangeResponse(response, url, start, end);
-  return response.arrayBuffer();
+  const buffer = await response.arrayBuffer();
+  const elapsed = performance.now() - t0;
+  return { buffer, elapsed };
 }
 
 async function decompressGzip(compressed) {
@@ -501,6 +504,7 @@ export class OctreeFileService {
       payloadGapBytesRequested: 0,
       rangeRequests: 0,
       bytesRequested: 0,
+      fetchTimeMs: 0,
     };
   }
 
@@ -523,8 +527,9 @@ export class OctreeFileService {
         this.stats.headerFetches += 1;
         this.stats.rangeRequests += 1;
         this.stats.bytesRequested += HEADER_SIZE;
-        const buffer = await fetchRange(this.url, 0, HEADER_SIZE - 1);
-        return parseStarHeader(buffer);
+        const result = await fetchRange(this.url, 0, HEADER_SIZE - 1);
+        this.stats.fetchTimeMs += result.elapsed;
+        return parseStarHeader(result.buffer);
       })());
     }
 
@@ -565,7 +570,9 @@ export class OctreeFileService {
           this.stats.headerFetches += 1;
           this.stats.rangeRequests += 1;
           this.stats.bytesRequested += prefetchBytes;
-          const buffer = await fetchRange(this.url, 0, prefetchBytes - 1);
+          const result = await fetchRange(this.url, 0, prefetchBytes - 1);
+          this.stats.fetchTimeMs += result.elapsed;
+          const buffer = result.buffer;
           const header = parseStarHeader(buffer.slice(0, HEADER_SIZE));
           headerCache.set(headerCacheKey, Promise.resolve(header));
           this.bootstrapPromise = Promise.resolve({
@@ -613,11 +620,13 @@ export class OctreeFileService {
         this.stats.shardFetches += 1;
         this.stats.rangeRequests += 1;
         this.stats.bytesRequested += fetchBytes;
-        const initialBuffer = await fetchRange(
+        const initialResult = await fetchRange(
           this.url,
           shardOffset,
           shardOffset + fetchBytes - 1,
         );
+        this.stats.fetchTimeMs += initialResult.elapsed;
+        const initialBuffer = initialResult.buffer;
 
         let resolved = cacheContiguousShards(cache, this.namespace, initialBuffer, shardOffset);
         if (!resolved) {
@@ -630,8 +639,9 @@ export class OctreeFileService {
             this.stats.shardFetches += 1;
             this.stats.rangeRequests += 1;
             this.stats.bytesRequested += totalSize;
-            const fullBuffer = await fetchRange(this.url, shardOffset, shardOffset + totalSize - 1);
-            resolved = cacheContiguousShards(cache, this.namespace, fullBuffer, shardOffset);
+            const fullResult = await fetchRange(this.url, shardOffset, shardOffset + totalSize - 1);
+            this.stats.fetchTimeMs += fullResult.elapsed;
+            resolved = cacheContiguousShards(cache, this.namespace, fullResult.buffer, shardOffset);
           }
 
           if (!resolved) {
@@ -696,7 +706,9 @@ export class OctreeFileService {
       this.stats.rangeRequests += 1;
       this.stats.bytesRequested += batch.spanBytes;
 
-      const batchBuffer = await fetchRange(this.url, batch.start, batch.end);
+      const batchResult = await fetchRange(this.url, batch.start, batch.end);
+      this.stats.fetchTimeMs += batchResult.elapsed;
+      const batchBuffer = batchResult.buffer;
       const decodedBuffers = new Map();
 
       await Promise.all(batch.nodes.map(async (batchNode) => {
