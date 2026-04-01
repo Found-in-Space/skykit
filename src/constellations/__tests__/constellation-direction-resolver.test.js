@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildConstellationDirectionResolver,
+  icrsDirectionToTargetPc,
   toRaDec,
 } from '../constellation-direction-resolver.js';
 
@@ -113,12 +114,46 @@ test('listConstellations includes all manifest entries and art availability', ()
   assert.equal(list[0].iau, 'Ori');
   assert.equal(list[0].hasArt, true);
   assert.ok(list[0].centroidRaDec);
+  assert.ok(Array.isArray(list[0].imageUpIcrs));
+  assert.ok(list[0].imageUpRaDec);
   assert.ok(Array.isArray(list[0].cornersRaDec));
 
   assert.equal(list[2].iau, 'Vel');
   assert.equal(list[2].hasArt, false);
   assert.equal(list[2].centroidRaDec, null);
+  assert.equal(list[2].imageUpIcrs, null);
+  assert.equal(list[2].imageUpRaDec, null);
   assert.equal(list[2].cornersRaDec, null);
+});
+
+test('icrsDirectionToTargetPc scales a unit direction from the solar origin', () => {
+  const result = icrsDirectionToTargetPc([1, 0, 0], 100);
+  assert.ok(result);
+  assert.ok(Math.abs(result.x - 100) < 1e-9);
+  assert.ok(Math.abs(result.y) < 1e-9);
+  assert.ok(Math.abs(result.z) < 1e-9);
+});
+
+test('icrsDirectionToTargetPc normalises a non-unit direction', () => {
+  const result = icrsDirectionToTargetPc([2, 0, 0], 50);
+  assert.ok(result);
+  assert.ok(Math.abs(result.x - 50) < 1e-9);
+});
+
+test('icrsDirectionToTargetPc offsets from a custom observer position', () => {
+  const observer = { x: 10, y: 20, z: 30 };
+  const result = icrsDirectionToTargetPc([0, 1, 0], 100, observer);
+  assert.ok(result);
+  assert.ok(Math.abs(result.x - 10) < 1e-9);
+  assert.ok(Math.abs(result.y - 120) < 1e-9);
+  assert.ok(Math.abs(result.z - 30) < 1e-9);
+});
+
+test('icrsDirectionToTargetPc returns null for invalid inputs', () => {
+  assert.equal(icrsDirectionToTargetPc(null, 100), null);
+  assert.equal(icrsDirectionToTargetPc([1, 0, 0], -1), null);
+  assert.equal(icrsDirectionToTargetPc([1, 0, 0], 0), null);
+  assert.equal(icrsDirectionToTargetPc([1, 0, 0], NaN), null);
 });
 
 test('getConstellation resolves by iau, id, english name, and native name', () => {

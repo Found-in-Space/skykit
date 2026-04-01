@@ -63,6 +63,8 @@ function createEntry(constellation) {
 
   const corners = [[0, 0], [width, 0], [width, height], [0, height]]
     .map(([u, v]) => normalizeDirection(dirAt(u, v)));
+  const topCenter = normalizeDirection(dirAt(width * 0.5, 0));
+  const bottomCenter = normalizeDirection(dirAt(width * 0.5, height));
 
   const anchorDirections = anchors
     .map((anchor) => resolveAnchorDirection(anchor))
@@ -75,6 +77,15 @@ function createEntry(constellation) {
     (sum, [x, y, z]) => [sum[0] + x, sum[1] + y, sum[2] + z],
     [0, 0, 0],
   ));
+  const imageUpRaw = [
+    topCenter[0] - bottomCenter[0],
+    topCenter[1] - bottomCenter[1],
+    topCenter[2] - bottomCenter[2],
+  ];
+  const imageUpLength = Math.hypot(imageUpRaw[0], imageUpRaw[1], imageUpRaw[2]);
+  const imageUp = imageUpLength > 1e-9
+    ? normalizeDirection(imageUpRaw)
+    : null;
 
   return {
     iau: constellation?.iau ?? null,
@@ -82,6 +93,7 @@ function createEntry(constellation) {
     name: constellation?.common_name ?? null,
     corners,
     centroid,
+    imageUp,
   };
 }
 
@@ -99,8 +111,48 @@ function createSummary(constellation, entry) {
     hasArt: Boolean(entry),
     centroidIcrs: entry?.centroid ?? null,
     centroidRaDec: entry ? toRaDec(entry.centroid) : null,
+    imageUpIcrs: entry?.imageUp ?? null,
+    imageUpRaDec: entry?.imageUp ? toRaDec(entry.imageUp) : null,
     cornersIcrs: entry?.corners ?? null,
     cornersRaDec: entry ? entry.corners.map((direction) => toRaDec(direction)) : null,
+  };
+}
+
+/**
+ * Convert an ICRS unit direction (such as `centroidIcrs` from a constellation
+ * summary) into a parsec-space target point that can be passed directly to
+ * `viewer.setState({ targetPc })`, `cameraController.lookAt()`, or
+ * `cameraController.flyTo()`.
+ *
+ * The direction is an ICRS Cartesian unit vector — the same coordinate frame
+ * used by `targetPc`, `observerPc`, and every parsec-space position in the
+ * viewer. Do **not** pass the direction through an `icrsToScene` transform
+ * before calling this function; `targetPc` is always in ICRS, never in
+ * scene-local space.
+ *
+ * @param {[number, number, number]} icrsDirection  Normalised ICRS direction
+ *   (e.g. `entry.centroidIcrs` from `resolver.listConstellations()`).
+ * @param {number} distancePc  How far along the direction to place the point.
+ * @param {{ x: number, y: number, z: number }} [observerPc]  Observer origin
+ *   in parsecs (defaults to the solar origin `{ x:0, y:0, z:0 }`).
+ * @returns {{ x: number, y: number, z: number } | null}
+ */
+export function icrsDirectionToTargetPc(icrsDirection, distancePc, observerPc = { x: 0, y: 0, z: 0 }) {
+  const direction = normalizeDirectionInput(icrsDirection);
+  if (!direction) {
+    return null;
+  }
+  if (!Number.isFinite(distancePc) || distancePc <= 0) {
+    return null;
+  }
+  const ox = Number.isFinite(observerPc?.x) ? observerPc.x : 0;
+  const oy = Number.isFinite(observerPc?.y) ? observerPc.y : 0;
+  const oz = Number.isFinite(observerPc?.z) ? observerPc.z : 0;
+  const [dx, dy, dz] = direction;
+  return {
+    x: ox + dx * distancePc,
+    y: oy + dy * distancePc,
+    z: oz + dz * distancePc,
   };
 }
 

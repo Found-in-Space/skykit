@@ -16,6 +16,7 @@ export {
 } from './constellations/constellation-art.js';
 export {
   buildConstellationDirectionResolver,
+  icrsDirectionToTargetPc,
   toRaDec,
 } from './constellations/constellation-direction-resolver.js';
 export { createNoopInterestField } from './fields/noop-interest-field.js';
