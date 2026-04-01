@@ -79,8 +79,28 @@ function createEntry(constellation) {
   return {
     iau: constellation?.iau ?? null,
     id: constellation?.id ?? null,
+    name: constellation?.common_name ?? null,
     corners,
     centroid,
+  };
+}
+
+function normalizeLookupKey(value) {
+  return typeof value === 'string' && value.trim()
+    ? value.trim().toLowerCase()
+    : null;
+}
+
+function createSummary(constellation, entry) {
+  return {
+    iau: constellation?.iau ?? null,
+    id: constellation?.id ?? null,
+    name: constellation?.common_name ?? null,
+    hasArt: Boolean(entry),
+    centroidIcrs: entry?.centroid ?? null,
+    centroidRaDec: entry ? toRaDec(entry.centroid) : null,
+    cornersIcrs: entry?.corners ?? null,
+    cornersRaDec: entry ? entry.corners.map((direction) => toRaDec(direction)) : null,
   };
 }
 
@@ -102,9 +122,27 @@ export function toRaDec(icrsDirection) {
 }
 
 export function buildConstellationDirectionResolver(manifest) {
+  const manifestConstellations = Array.isArray(manifest?.constellations) ? manifest.constellations : [];
   const entries = (manifest?.constellations ?? [])
     .map((constellation) => createEntry(constellation))
     .filter(Boolean);
+  const entryByIau = new Map(entries.map((entry) => [entry.iau, entry]));
+  const lookup = new Map();
+
+  for (const constellation of manifestConstellations) {
+    const summary = createSummary(constellation, entryByIau.get(constellation?.iau));
+    const keys = [
+      normalizeLookupKey(constellation?.iau),
+      normalizeLookupKey(constellation?.id),
+      normalizeLookupKey(constellation?.common_name?.english),
+      normalizeLookupKey(constellation?.common_name?.native),
+    ].filter(Boolean);
+    for (const key of keys) {
+      if (!lookup.has(key)) {
+        lookup.set(key, summary);
+      }
+    }
+  }
 
   function resolve(icrsDirection, currentIau = null) {
     const point = normalizeDirectionInput(icrsDirection);
@@ -150,9 +188,22 @@ export function buildConstellationDirectionResolver(manifest) {
   return {
     resolve,
     toRaDec,
+    listConstellations() {
+      return manifestConstellations.map((constellation) => (
+        createSummary(constellation, entryByIau.get(constellation?.iau))
+      ));
+    },
+    getConstellation(nameOrIau) {
+      const key = normalizeLookupKey(nameOrIau);
+      if (!key) {
+        return null;
+      }
+      return lookup.get(key) ?? null;
+    },
     getStats() {
       return {
         constellationCount: entries.length,
+        listedConstellationCount: manifestConstellations.length,
       };
     },
   };

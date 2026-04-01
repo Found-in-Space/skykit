@@ -11,6 +11,7 @@ const SIMPLE_MANIFEST = {
     {
       id: 'ori-id',
       iau: 'Ori',
+      common_name: { english: 'Hunter', native: 'Orion' },
       image: {
         size: [100, 100],
         anchors: [
@@ -23,6 +24,7 @@ const SIMPLE_MANIFEST = {
     {
       id: 'tau-id',
       iau: 'Tau',
+      common_name: { english: 'Bull', native: 'Taurus' },
       image: {
         size: [100, 100],
         anchors: [
@@ -31,6 +33,11 @@ const SIMPLE_MANIFEST = {
           { pos: [0, 100], direction: [-1, 0, 1] },
         ],
       },
+    },
+    {
+      id: 'vel-id',
+      iau: 'Vel',
+      common_name: { english: 'Sails', native: 'Vela' },
     },
   ],
 };
@@ -96,4 +103,31 @@ test('toRaDec converts unit vectors into expected RA/Dec values', () => {
 
   const dec90 = toRaDec([0, 0, 1]);
   assert.ok(Math.abs(dec90.decDeg - 90) < 1e-9);
+});
+
+test('listConstellations includes all manifest entries and art availability', () => {
+  const resolver = buildConstellationDirectionResolver(SIMPLE_MANIFEST);
+  const list = resolver.listConstellations();
+
+  assert.equal(list.length, 3);
+  assert.equal(list[0].iau, 'Ori');
+  assert.equal(list[0].hasArt, true);
+  assert.ok(list[0].centroidRaDec);
+  assert.ok(Array.isArray(list[0].cornersRaDec));
+
+  assert.equal(list[2].iau, 'Vel');
+  assert.equal(list[2].hasArt, false);
+  assert.equal(list[2].centroidRaDec, null);
+  assert.equal(list[2].cornersRaDec, null);
+});
+
+test('getConstellation resolves by iau, id, english name, and native name', () => {
+  const resolver = buildConstellationDirectionResolver(SIMPLE_MANIFEST);
+
+  assert.equal(resolver.getConstellation('Ori')?.id, 'ori-id');
+  assert.equal(resolver.getConstellation('ori')?.id, 'ori-id');
+  assert.equal(resolver.getConstellation('ori-id')?.iau, 'Ori');
+  assert.equal(resolver.getConstellation('Hunter')?.iau, 'Ori');
+  assert.equal(resolver.getConstellation('Orion')?.iau, 'Ori');
+  assert.equal(resolver.getConstellation('unknown'), null);
 });
