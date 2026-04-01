@@ -42,6 +42,7 @@ function createFakeShard({
 export function createEightOctantFixture(options = {}) {
   const worldHalfSize = options.worldHalfSize ?? 100;
   const magLimit = options.magLimit ?? 6.5;
+  const octreeMaxLevel = Number.isFinite(options.maxLevel) ? options.maxLevel : 1;
   const payloadOctants = Array.isArray(options.payloadOctants)
     ? [...options.payloadOctants].sort((left, right) => left - right)
     : [...ALL_OCTANTS];
@@ -101,7 +102,7 @@ export function createEightOctantFixture(options = {}) {
       worldCenterZ: 0,
       worldHalfSize,
       payloadRecordSize: 16,
-      maxLevel: 1,
+      maxLevel: octreeMaxLevel,
       magLimit,
     },
     rootShardOffset: ROOT_SHARD_OFFSET,

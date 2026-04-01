@@ -318,7 +318,6 @@ async function mountViewer() {
     camera: createViewerCamera(),
     interestField: createObserverShellField({
       id: 'demo-fly-orbit-field',
-      maxLevel: 13,
     }),
     controllers: [
       cameraController,

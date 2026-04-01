@@ -206,7 +206,6 @@ async function mountViewer() {
     xrCompatible: true,
     interestField: createObserverShellField({
       id: 'phase-5b-xr-observer-shell-field',
-      maxLevel: 13,
       note: 'Minimal XR observer shell field for 5B headset validation.',
     }),
     controllers: [

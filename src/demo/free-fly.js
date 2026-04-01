@@ -190,7 +190,6 @@ async function mountViewer() {
     camera: createViewerCamera(),
     interestField: createObserverShellField({
       id: 'phase-5-free-fly-field',
-      maxLevel: 13,
       note: 'Single-view free-fly shell field for the Phase 5 controller sandbox.',
     }),
     controllers: [

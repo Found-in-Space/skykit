@@ -175,7 +175,6 @@ async function mountViewer() {
     camera: createViewerCamera(),
     interestField: createObserverShellField({
       id: 'constellation-compass-field',
-      maxLevel: 13,
       note: 'Observer shell field for constellation compass demo.',
     }),
     controllers: [

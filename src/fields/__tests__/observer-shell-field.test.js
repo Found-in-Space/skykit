@@ -37,3 +37,21 @@ test('ObserverShellField expands selection as mDesired increases', async () => {
     'wider magnitude shell should select more payload nodes',
   );
 });
+
+test('ObserverShellField caps traversal at octree header maxLevel by default', async () => {
+  const context = createFieldTestContext({
+    fixture: { maxLevel: 0 },
+    state: {
+      observerPc: { x: 0, y: 60, z: 0 },
+      mDesired: 8.0,
+    },
+  });
+
+  const field = createObserverShellField({
+    observerPc: { x: 0, y: 60, z: 0 },
+  });
+
+  const selection = await field.selectNodes(context);
+
+  assert.equal(selection.meta.selectedNodeCount, 0);
+});

@@ -69,14 +69,12 @@ function createInterestField(strategy, index) {
       overscanDeg: 18,
       targetRadiusPc: 180,
       preloadDistancePc: 0,
-      maxLevel: 13,
       note: 'Phase 5 target-locked field for Orion-style parallax scenes.',
     });
   }
 
   return createObserverShellField({
     id: `phase-5-observer-shell-field-${index + 1}`,
-    maxLevel: 13,
     note: 'Phase 5 shell field using the shared magnitude-shell visibility prune.',
   });
 }
