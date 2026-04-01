@@ -113,6 +113,34 @@ test('CameraRigController lookAt is one-shot and releases after alignment', () =
   controller.dispose();
 });
 
+test('CameraRigController lookAt supports custom upIcrs roll alignment', () => {
+  const controller = createCameraRigController({
+    observerPc: { x: 0, y: 0, z: 0 },
+    lookAtPc: { x: 0, y: 0, z: -10 },
+    pointerTarget: new FakeEventTarget(),
+    keyboardTarget: new FakeEventTarget(),
+  });
+  const camera = new THREE.PerspectiveCamera();
+  const state = {};
+  controller.attach({ camera, canvas: new FakeEventTarget(), state });
+
+  const target = { x: 10, y: 0, z: 0 };
+  const upIcrs = [0, 0, 1];
+  controller.lookAt(target, { blend: 0.1, upIcrs });
+  for (let i = 0; i < 120; i += 1) {
+    controller.update({ camera, state, frame: { deltaSeconds: 1 / 60 } });
+  }
+
+  const withUp = controller.rig.computeOrientationToward(target, upIcrs);
+  const withoutUp = controller.rig.computeOrientationToward(target);
+  assert.ok(withUp);
+  assert.ok(withoutUp);
+  assert.ok(controller.rig.orientation.angleTo(withUp) < 0.01);
+  assert.ok(controller.rig.orientation.angleTo(withoutUp) > 0.1);
+
+  controller.dispose();
+});
+
 test('CameraRigController lockAt recenters after dwell delay following manual look input', () => {
   const keyboardTarget = new FakeEventTarget();
   const pointerTarget = new FakeEventTarget();
@@ -147,6 +175,34 @@ test('CameraRigController lockAt recenters after dwell delay following manual lo
   controller.update({ camera, state, frame: { deltaSeconds: 0.25 } });
   const angleAfterDwell = controller.rig.orientation.angleTo(targetQ);
   assert.ok(angleAfterDwell < angleBeforeDwell);
+
+  controller.dispose();
+});
+
+test('CameraRigController lockAt supports custom upIcrs roll alignment', () => {
+  const controller = createCameraRigController({
+    observerPc: { x: 0, y: 0, z: 0 },
+    lookAtPc: { x: 0, y: 0, z: -10 },
+    pointerTarget: new FakeEventTarget(),
+    keyboardTarget: new FakeEventTarget(),
+  });
+  const camera = new THREE.PerspectiveCamera();
+  const state = {};
+  controller.attach({ camera, canvas: new FakeEventTarget(), state });
+
+  const target = { x: 10, y: 0, z: 0 };
+  const upIcrs = [0, 0, 1];
+  controller.lockAt(target, { dwellMs: 0, recenterSpeed: 0.3, upIcrs });
+  for (let i = 0; i < 90; i += 1) {
+    controller.update({ camera, state, frame: { deltaSeconds: 1 / 60 } });
+  }
+
+  const withUp = controller.rig.computeOrientationToward(target, upIcrs);
+  const withoutUp = controller.rig.computeOrientationToward(target);
+  assert.ok(withUp);
+  assert.ok(withoutUp);
+  assert.ok(controller.rig.orientation.angleTo(withUp) < 0.02);
+  assert.ok(controller.rig.orientation.angleTo(withoutUp) > 0.1);
 
   controller.dispose();
 });

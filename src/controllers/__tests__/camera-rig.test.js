@@ -68,3 +68,17 @@ test('CameraRig.applyLookAtToCamera makes camera face the target', () => {
   const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
   assert.ok(forward.x > 0.99, `camera should face +X, got forward.x=${forward.x}`);
 });
+
+test('CameraRig.computeOrientationToward supports custom upIcrs roll', () => {
+  const rig = createCameraRig({
+    observerPc: { x: 0, y: 0, z: 0 },
+    sceneScale: 1,
+  });
+  const target = { x: 10, y: 0, z: 0 };
+  const defaultQ = rig.computeOrientationToward(target);
+  const customQ = rig.computeOrientationToward(target, [0, 0, 1]);
+
+  assert.ok(defaultQ);
+  assert.ok(customQ);
+  assert.ok(defaultQ.angleTo(customQ) > 0.1, 'custom up should produce a different roll');
+});

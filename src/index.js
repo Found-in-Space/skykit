@@ -70,6 +70,7 @@ export {
 } from './scene-targets.js';
 export { createConstellationPreset } from './presets/constellation-preset.js';
 export { createFullscreenPreset } from './presets/fullscreen-preset.js';
+export { createParallaxPositionController } from './presets/parallax-position-controller.js';
 export {
   createDistanceReadout,
   createFlyToAction,

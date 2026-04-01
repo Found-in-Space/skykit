@@ -16,6 +16,21 @@ function positiveFinite(value, fallback) {
   return Number.isFinite(value) && value > 0 ? Number(value) : fallback;
 }
 
+function normalizeDirectionInput(direction) {
+  if (!Array.isArray(direction) || direction.length !== 3) {
+    return null;
+  }
+  const [x, y, z] = direction;
+  if (![x, y, z].every(Number.isFinite)) {
+    return null;
+  }
+  const length = Math.hypot(x, y, z);
+  if (!(length > 0)) {
+    return null;
+  }
+  return [x / length, y / length, z / length];
+}
+
 const _scratch = new THREE.Object3D();
 _scratch.isCamera = true;
 
@@ -38,7 +53,7 @@ export function createCameraRig(options = {}) {
   const _v = new THREE.Vector3();
   const _q = new THREE.Quaternion();
 
-  function computeOrientationToward(targetPc) {
+  function computeOrientationToward(targetPc, upIcrs = null) {
     const [sx, sy, sz] = icrsToScene(
       (targetPc.x - positionPc.x) * sceneScale,
       (targetPc.y - positionPc.y) * sceneScale,
@@ -48,12 +63,31 @@ export function createCameraRig(options = {}) {
     if (!(len > 0)) return null;
     _scratch.position.set(0, 0, 0);
     _scratch.up.set(0, 1, 0);
+    const upDirection = normalizeDirectionInput(upIcrs);
+    if (upDirection) {
+      const [ux, uy, uz] = icrsToScene(upDirection[0], upDirection[1], upDirection[2]);
+      const upLength = Math.hypot(ux, uy, uz);
+      if (upLength > 0) {
+        const upSceneX = ux / upLength;
+        const upSceneY = uy / upLength;
+        const upSceneZ = uz / upLength;
+        const forwardSceneX = sx / len;
+        const forwardSceneY = sy / len;
+        const forwardSceneZ = sz / len;
+        const alignment = Math.abs(
+          upSceneX * forwardSceneX + upSceneY * forwardSceneY + upSceneZ * forwardSceneZ,
+        );
+        if (alignment < 0.999) {
+          _scratch.up.set(upSceneX, upSceneY, upSceneZ);
+        }
+      }
+    }
     _scratch.lookAt(sx / len, sy / len, sz / len);
     return _scratch.quaternion.clone();
   }
 
-  function orientToward(targetPc) {
-    const q = computeOrientationToward(targetPc);
+  function orientToward(targetPc, upIcrs = null) {
+    const q = computeOrientationToward(targetPc, upIcrs);
     if (q) orientation.copy(q);
   }
 

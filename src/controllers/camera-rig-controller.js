@@ -1,7 +1,6 @@
 import * as THREE from 'three';
-import { normalizePoint, resolvePointSpec } from '../fields/octree-selection.js';
+import { normalizePoint } from '../fields/octree-selection.js';
 import { SCALE } from '../services/octree/scene-scale.js';
-import { createDeviceTiltTracker } from '../services/input/device-tilt-tracker.js';
 import { createCameraRig, LOCAL_RIGHT, LOCAL_UP, LOCAL_FORWARD } from './camera-rig.js';
 
 function clonePoint(p) {
@@ -14,6 +13,21 @@ function positiveFinite(value, fallback) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function normalizeDirectionInput(direction) {
+  if (!Array.isArray(direction) || direction.length !== 3) {
+    return null;
+  }
+  const [x, y, z] = direction;
+  if (![x, y, z].every(Number.isFinite)) {
+    return null;
+  }
+  const length = Math.hypot(x, y, z);
+  if (!(length > 0)) {
+    return null;
+  }
+  return [x / length, y / length, z / length];
 }
 
 function isEditableTarget(target) {
@@ -82,34 +96,13 @@ export function createCameraRigController(options = {}) {
     ? Math.max(0, Number(options.dragCoefficient))
     : 0;
 
-  const isParallaxMode = options.targetLock != null;
-  const targetLockSpec = options.targetLock ?? null;
-  const resolveOffsetPc = (() => {
-    const spec = options.offsetPc ?? options.getOffsetPc;
-    if (typeof spec === 'function') return (ctx) => {
-      const v = spec(ctx);
-      return Number.isFinite(v) ? Number(v) : 0.12;
-    };
-    return () => positiveFinite(spec, 0.12);
-  })();
-  const easing = (() => {
-    const v = options.easing;
-    return Number.isFinite(v) && v > 0 && v <= 1 ? Number(v) : 0.08;
-  })();
-  const pointerOpts = options.pointer && typeof options.pointer === 'object' ? options.pointer : {};
-  const pointerInvertX = pointerOpts.invertX === true;
-  const pointerInvertY = pointerOpts.invertY === true;
-  const motionOpts = options.motion && typeof options.motion === 'object' ? options.motion : {};
-  const onModeChange = typeof options.onModeChange === 'function' ? options.onModeChange : () => {};
-  const onStatus = typeof options.onStatus === 'function' ? options.onStatus : () => {};
-
   const xrEnabled = options.xr === true;
   const xrMoveSpeed = positiveFinite(options.xrMoveSpeed ?? options.moveSpeed, 4);
   const xrDeadzone = positiveFinite(options.xrDeadzone, 0.15);
 
   const rig = createCameraRig({
     observerPc: options.observerPc,
-    lookAtPc: isParallaxMode ? undefined : options.lookAtPc,
+    lookAtPc: options.lookAtPc,
     sceneScale: options.sceneScale,
     icrsToSceneTransform: options.icrsToSceneTransform,
     sceneToIcrsTransform: options.sceneToIcrsTransform,
@@ -122,12 +115,6 @@ export function createCameraRigController(options = {}) {
   let dragLastX = 0;
   let dragLastY = 0;
   let lastObserverPc = rig.clonePosition();
-
-  let targetLockPc = null;
-  let motionEnabled = false;
-  let targetOffset = { x: 0, y: 0 };
-  let currentOffset = { x: 0, y: 0 };
-  let deviceTiltTracker = null;
 
   let movementAutomation = null;
   let orientationAutomation = null;
@@ -224,45 +211,10 @@ export function createCameraRigController(options = {}) {
     };
   }
 
-  function resolveTargetLock(context) {
-    if (!targetLockSpec) return null;
-    const stateTarget = normalizePoint(context?.state?.targetPc, null);
-    return resolvePointSpec(targetLockSpec, context, stateTarget);
-  }
-
-  function setTargetOffset(x, y, mode) {
-    targetOffset = { x: clamp(x, -1, 1), y: clamp(y, -1, 1) };
-    stats = { ...stats, inputMode: mode, targetOffset: { ...targetOffset } };
-    onModeChange(mode);
-  }
-
-  function createDeviceTiltTrackerIfNeeded() {
-    if (deviceTiltTracker || !isParallaxMode) return;
-    deviceTiltTracker = createDeviceTiltTracker({
-      ...motionOpts,
-      onUpdate(state) {
-        if (state.phase === 'calibrated') {
-          targetOffset = { x: 0, y: 0 };
-          currentOffset = { x: 0, y: 0 };
-          onStatus('Motion recalibrated for the current screen orientation.');
-          return;
-        }
-        if (state.phase !== 'update') return;
-        setTargetOffset(state.normalized.x, state.normalized.y, 'device motion');
-      },
-    });
-  }
-
   // --- Pointer handlers ---
 
   function onPointerDown(event) {
     if (event.button !== 0) return;
-
-    if (isParallaxMode) {
-      updatePointerOffset(event);
-      return;
-    }
-
     dragPointerId = event.pointerId;
     dragLastX = event.clientX;
     dragLastY = event.clientY;
@@ -273,11 +225,6 @@ export function createCameraRigController(options = {}) {
   }
 
   function onPointerMove(event) {
-    if (isParallaxMode) {
-      if (!motionEnabled) updatePointerOffset(event);
-      return;
-    }
-
     if (dragPointerId == null || event.pointerId !== dragPointerId) return;
     const dx = event.clientX - dragLastX;
     const dy = event.clientY - dragLastY;
@@ -290,11 +237,6 @@ export function createCameraRigController(options = {}) {
   }
 
   function onPointerEnd(event) {
-    if (isParallaxMode) {
-      if (!motionEnabled) setTargetOffset(0, 0, 'pointer');
-      return;
-    }
-
     if (dragPointerId == null || event.pointerId !== dragPointerId) return;
     if (typeof pointerTarget?.releasePointerCapture === 'function') {
       try { pointerTarget.releasePointerCapture(event.pointerId); } catch (_) { /* non-DOM */ }
@@ -303,31 +245,17 @@ export function createCameraRigController(options = {}) {
     if (pointerTarget?.style) pointerTarget.style.cursor = '';
   }
 
-  function updatePointerOffset(event) {
-    if (!pointerTarget || motionEnabled) return;
-    const bounds = typeof pointerTarget.getBoundingClientRect === 'function'
-      ? pointerTarget.getBoundingClientRect()
-      : null;
-    if (!bounds || !(bounds.width > 0) || !(bounds.height > 0)) return;
-    const nx = ((event.clientX - bounds.left) / bounds.width) * 2 - 1;
-    const ny = ((event.clientY - bounds.top) / bounds.height) * 2 - 1;
-    setTargetOffset(
-      pointerInvertX ? -nx : nx,
-      pointerInvertY ? -ny : ny,
-      'pointer',
-    );
-  }
-
   // --- Keyboard handlers ---
 
   function onKeyDown(event) {
-    if (event.repeat || isEditableTarget(event.target)) return;
+    if (isEditableTarget(event.target)) return;
     if (!MOVE_KEYS.includes(event.code)) return;
+    event.preventDefault();
+    if (event.repeat) return;
     pressedKeys.add(event.code);
     if (LOOK_KEYS.includes(event.code)) {
       noteManualLookInput();
     }
-    event.preventDefault();
   }
 
   function onKeyUp(event) {
@@ -429,35 +357,6 @@ export function createCameraRigController(options = {}) {
       pointerActive: dragPointerId != null,
       moving: currentSpeed > 0.001,
       speedPcPerSecond: currentSpeed,
-    };
-  }
-
-  function updateParallax(context) {
-    targetLockPc = resolveTargetLock(context) ?? targetLockPc;
-    if (!targetLockPc) return;
-
-    currentOffset.x += (targetOffset.x - currentOffset.x) * easing;
-    currentOffset.y += (targetOffset.y - currentOffset.y) * easing;
-
-    const offsetPc = resolveOffsetPc(context);
-    const observerSceneX = currentOffset.x * offsetPc * rig.sceneScale;
-    const observerSceneY = currentOffset.y * offsetPc * rig.sceneScale;
-    const [ix, iy, iz] = rig.sceneToIcrs(observerSceneX, observerSceneY, 0);
-    rig.positionPc.x = ix / rig.sceneScale;
-    rig.positionPc.y = iy / rig.sceneScale;
-    rig.positionPc.z = iz / rig.sceneScale;
-
-    context.state.targetPc = clonePoint(targetLockPc);
-    rig.applyLookAtToCamera(context.camera, targetLockPc);
-
-    stats = {
-      ...stats,
-      observerPc: rig.clonePosition(),
-      targetPc: clonePoint(targetLockPc),
-      motionEnabled,
-      currentOffset: { ...currentOffset },
-      targetOffset: { ...targetOffset },
-      inputMode: stats.inputMode ?? 'pointer',
     };
   }
 
@@ -576,7 +475,10 @@ export function createCameraRigController(options = {}) {
     }
 
     if (orientationAutomation.type === 'lookAt') {
-      const targetQ = rig.computeOrientationToward(orientationAutomation.target);
+      const targetQ = rig.computeOrientationToward(
+        orientationAutomation.target,
+        orientationAutomation.upIcrs,
+      );
       if (!targetQ) {
         orientationAutomation = null;
         return false;
@@ -600,7 +502,10 @@ export function createCameraRigController(options = {}) {
       if (secondsSinceManualLookInput < dwellSecs) {
         return true;
       }
-      const targetQ = rig.computeOrientationToward(orientationAutomation.target);
+      const targetQ = rig.computeOrientationToward(
+        orientationAutomation.target,
+        orientationAutomation.upIcrs,
+      );
       if (!targetQ) {
         return true;
       }
@@ -635,37 +540,21 @@ export function createCameraRigController(options = {}) {
   // --- Event binding helpers ---
 
   function bindEvents() {
-    if (isParallaxMode) {
-      pointerTarget?.addEventListener?.('pointermove', onPointerMove);
-      pointerTarget?.addEventListener?.('pointerdown', onPointerDown);
-      pointerTarget?.addEventListener?.('pointerleave', onPointerEnd);
-      pointerTarget?.addEventListener?.('pointerup', onPointerEnd);
-      pointerTarget?.addEventListener?.('pointercancel', onPointerEnd);
-    } else {
-      pointerTarget?.addEventListener?.('pointerdown', onPointerDown);
-      pointerTarget?.addEventListener?.('pointermove', onPointerMove);
-      pointerTarget?.addEventListener?.('pointerup', onPointerEnd);
-      pointerTarget?.addEventListener?.('pointercancel', onPointerEnd);
-      keyboardTarget?.addEventListener?.('keydown', onKeyDown);
-      keyboardTarget?.addEventListener?.('keyup', onKeyUp);
-    }
+    pointerTarget?.addEventListener?.('pointerdown', onPointerDown);
+    pointerTarget?.addEventListener?.('pointermove', onPointerMove);
+    pointerTarget?.addEventListener?.('pointerup', onPointerEnd);
+    pointerTarget?.addEventListener?.('pointercancel', onPointerEnd);
+    keyboardTarget?.addEventListener?.('keydown', onKeyDown);
+    keyboardTarget?.addEventListener?.('keyup', onKeyUp);
   }
 
   function unbindEvents() {
-    if (isParallaxMode) {
-      pointerTarget?.removeEventListener?.('pointermove', onPointerMove);
-      pointerTarget?.removeEventListener?.('pointerdown', onPointerDown);
-      pointerTarget?.removeEventListener?.('pointerleave', onPointerEnd);
-      pointerTarget?.removeEventListener?.('pointerup', onPointerEnd);
-      pointerTarget?.removeEventListener?.('pointercancel', onPointerEnd);
-    } else {
-      pointerTarget?.removeEventListener?.('pointerdown', onPointerDown);
-      pointerTarget?.removeEventListener?.('pointermove', onPointerMove);
-      pointerTarget?.removeEventListener?.('pointerup', onPointerEnd);
-      pointerTarget?.removeEventListener?.('pointercancel', onPointerEnd);
-      keyboardTarget?.removeEventListener?.('keydown', onKeyDown);
-      keyboardTarget?.removeEventListener?.('keyup', onKeyUp);
-    }
+    pointerTarget?.removeEventListener?.('pointerdown', onPointerDown);
+    pointerTarget?.removeEventListener?.('pointermove', onPointerMove);
+    pointerTarget?.removeEventListener?.('pointerup', onPointerEnd);
+    pointerTarget?.removeEventListener?.('pointercancel', onPointerEnd);
+    keyboardTarget?.removeEventListener?.('keydown', onKeyDown);
+    keyboardTarget?.removeEventListener?.('keyup', onKeyUp);
   }
 
   // --- Controller API ---
@@ -709,6 +598,7 @@ export function createCameraRigController(options = {}) {
       orientationAutomation = {
         type: 'lookAt',
         target,
+        upIcrs: normalizeDirectionInput(opts.upIcrs),
         blend: opts.blend ?? 0.05,
         arrivalThresholdRad: opts.arrivalThresholdRad ?? 0.01,
         onArrive: typeof opts.onArrive === 'function' ? opts.onArrive : null,
@@ -725,6 +615,7 @@ export function createCameraRigController(options = {}) {
       orientationAutomation = {
         type: 'lockAt',
         target,
+        upIcrs: normalizeDirectionInput(resolvedOptions.upIcrs),
         dwellSecs: Math.max(0, Number(resolvedOptions.dwellMs ?? 0)) / 1000,
         recenterSpeed: resolvedOptions.recenterSpeed ?? 0.05,
       };
@@ -761,38 +652,6 @@ export function createCameraRigController(options = {}) {
       orientationAutomation = null;
     },
 
-    isMotionSupported() {
-      createDeviceTiltTrackerIfNeeded();
-      return deviceTiltTracker?.isSupported() ?? false;
-    },
-
-    async enableMotion() {
-      createDeviceTiltTrackerIfNeeded();
-      if (!deviceTiltTracker?.isSupported()) {
-        onStatus('Device motion is not available here, so this controller stays in pointer mode.');
-        return false;
-      }
-      if (!motionEnabled) {
-        const result = await deviceTiltTracker.enable();
-        if (!result.ok) {
-          onStatus('Motion access was not granted. You can still use pointer mode.');
-          return false;
-        }
-        motionEnabled = true;
-        onModeChange('device motion');
-        onStatus('Tilt the device to shift the observer while keeping the target fixed.');
-        return true;
-      }
-      deviceTiltTracker.recenter();
-      onStatus('Motion was recentered. Hold the device in a comfortable neutral position.');
-      return true;
-    },
-
-    recenterMotion() {
-      deviceTiltTracker?.recenter();
-      onStatus('Motion was recentered. Hold the device in a comfortable neutral position.');
-    },
-
     getStats() {
       return {
         ...stats,
@@ -812,8 +671,6 @@ export function createCameraRigController(options = {}) {
         throw new TypeError('CameraRigController requires a mutable runtime state object');
       }
 
-      targetLockPc = resolveTargetLock(context);
-
       if (!context.state.observerPc) {
         writeToState(context.state);
       } else {
@@ -824,18 +681,11 @@ export function createCameraRigController(options = {}) {
         }
       }
 
-      if (!isParallaxMode) {
-        const stateTarget = normalizePoint(context.state?.targetPc, null);
-        const lookTarget = normalizePoint(options.lookAtPc, null) ?? stateTarget;
-        if (lookTarget) rig.orientToward(lookTarget);
-      }
+      const stateTarget = normalizePoint(context.state?.targetPc, null);
+      const lookTarget = normalizePoint(options.lookAtPc, null) ?? stateTarget;
+      if (lookTarget) rig.orientToward(lookTarget);
 
-      if (isParallaxMode && targetLockPc) {
-        context.state.targetPc = clonePoint(targetLockPc);
-        rig.applyLookAtToCamera(context.camera, targetLockPc);
-      } else {
-        rig.applyToCamera(context.camera);
-      }
+      rig.applyToCamera(context.camera);
 
       if (xrEnabled && context.state) {
         if (!Number.isFinite(context.state.starFieldScale) || context.state.starFieldScale <= 0) {
@@ -843,15 +693,12 @@ export function createCameraRigController(options = {}) {
         }
       }
 
+
       bindEvents();
     },
 
     start(context) {
-      if (isParallaxMode) {
-        updateParallax(context);
-      } else {
-        rig.applyToCamera(context.camera);
-      }
+      rig.applyToCamera(context.camera);
     },
 
     update(context) {
@@ -860,8 +707,6 @@ export function createCameraRigController(options = {}) {
 
       if (xrEnabled && updateXr(context)) {
         // XR: camera managed by WebXR, position via navigationRoot
-      } else if (isParallaxMode) {
-        updateParallax(context);
       } else {
         const isMovementAutomated = updateMovementAutomation(context);
         if (!isMovementAutomated) {
@@ -891,14 +736,12 @@ export function createCameraRigController(options = {}) {
     dispose() {
       pressedKeys.clear();
       unbindEvents();
-      deviceTiltTracker?.dispose();
       dragPointerId = null;
       if (pointerTarget?.style) pointerTarget.style.cursor = '';
       pointerTarget = null;
       keyboardTarget = null;
       movementAutomation = null;
       orientationAutomation = null;
-      motionEnabled = false;
       rig.velocity.set(0, 0, 0);
     },
   };
