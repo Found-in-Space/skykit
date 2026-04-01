@@ -1,6 +1,14 @@
 import { SCALE } from './scene-scale.js';
 
 const HEADER_SIZE = 64;
+/** Octree descriptor (ODSC) block size; matches `foundinspace.octree.combine.records.DESCRIPTOR_SIZE`. */
+const DESCRIPTOR_SIZE = 128;
+/** First range fetch: STAR header + descriptor when present (matches Python `read_header`). */
+export const STAR_HEADER_BLOCK_BYTES = HEADER_SIZE + DESCRIPTOR_SIZE;
+const DESCRIPTOR_MAGIC = 0x4353444f; // b"ODSC" as little-endian u32
+const DESCRIPTOR_VERSION = 1;
+const RENDER_DESCRIPTOR_KIND = 1;
+const SIDECAR_DESCRIPTOR_KIND = 2;
 const STAR_MAGIC = 0x52415453;
 const SHARD_MAGIC = 0x5248534f;
 const SHARD_HDR_SIZE = 80;
@@ -78,6 +86,64 @@ async function decompressGzip(compressed) {
   return out.buffer;
 }
 
+function uuidBytesToString(view, byteOffset) {
+  const u8 = new Uint8Array(view.buffer, view.byteOffset + byteOffset, 16);
+  if (u8.every((b) => b === 0)) {
+    return null;
+  }
+
+  const hex = [...u8].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+function descriptorKindName(code) {
+  if (code === RENDER_DESCRIPTOR_KIND) {
+    return 'render';
+  }
+  if (code === SIDECAR_DESCRIPTOR_KIND) {
+    return 'sidecar';
+  }
+  return null;
+}
+
+function tryParseStarDescriptor(dataView) {
+  if (dataView.byteLength < HEADER_SIZE + DESCRIPTOR_SIZE) {
+    return null;
+  }
+
+  const base = HEADER_SIZE;
+  if (dataView.getUint32(base, true) !== DESCRIPTOR_MAGIC) {
+    return null;
+  }
+
+  const version = dataView.getUint16(base + 4, true);
+  if (version !== DESCRIPTOR_VERSION) {
+    return null;
+  }
+
+  const kindCode = dataView.getUint16(base + 6, true);
+  const artifactKind = descriptorKindName(kindCode);
+  if (!artifactKind) {
+    return null;
+  }
+
+  const sidecarKindBytes = new Uint8Array(
+    dataView.buffer,
+    dataView.byteOffset + base + 56,
+    32,
+  );
+  const sidecarKind = new TextDecoder('utf-8', { fatal: false }).decode(sidecarKindBytes)
+    .replace(/\0+$/, '') || null;
+
+  return {
+    artifactKind,
+    datasetUuid: uuidBytesToString(dataView, base + 8),
+    parentDatasetUuid: uuidBytesToString(dataView, base + 24),
+    sidecarUuid: uuidBytesToString(dataView, base + 40),
+    sidecarKind,
+  };
+}
+
 export function parseStarHeader(view) {
   const dataView = view instanceof DataView ? view : new DataView(view);
   const magic = dataView.getUint32(0, true);
@@ -94,7 +160,7 @@ export function parseStarHeader(view) {
     throw new Error(`stars.octree: unsupported STAR version ${version}`);
   }
 
-  return {
+  const header = {
     version,
     indexOffset: Number(dataView.getBigUint64(8, true)),
     indexLength: Number(dataView.getBigUint64(16, true)),
@@ -106,6 +172,13 @@ export function parseStarHeader(view) {
     maxLevel: dataView.getUint16(42, true),
     magLimit: dataView.getFloat32(44, true),
   };
+
+  const descriptor = tryParseStarDescriptor(dataView);
+  if (descriptor) {
+    Object.assign(header, descriptor);
+  }
+
+  return header;
 }
 
 function parseShardHeaderFromBuffer(buffer, shardOffset) {
@@ -526,8 +599,8 @@ export class OctreeFileService {
       cache.set(cacheKey, (async () => {
         this.stats.headerFetches += 1;
         this.stats.rangeRequests += 1;
-        this.stats.bytesRequested += HEADER_SIZE;
-        const result = await fetchRange(this.url, 0, HEADER_SIZE - 1);
+        this.stats.bytesRequested += STAR_HEADER_BLOCK_BYTES;
+        const result = await fetchRange(this.url, 0, STAR_HEADER_BLOCK_BYTES - 1);
         this.stats.fetchTimeMs += result.elapsed;
         return parseStarHeader(result.buffer);
       })());
@@ -566,14 +639,14 @@ export class OctreeFileService {
         let bootstrap = null;
 
         if (!this.bootstrapPromise && !headerCache.has(headerCacheKey)) {
-          const prefetchBytes = Math.max(this.shardPrefetchBytes, HEADER_SIZE);
+          const prefetchBytes = Math.max(this.shardPrefetchBytes, STAR_HEADER_BLOCK_BYTES);
           this.stats.headerFetches += 1;
           this.stats.rangeRequests += 1;
           this.stats.bytesRequested += prefetchBytes;
           const result = await fetchRange(this.url, 0, prefetchBytes - 1);
           this.stats.fetchTimeMs += result.elapsed;
           const buffer = result.buffer;
-          const header = parseStarHeader(buffer.slice(0, HEADER_SIZE));
+          const header = parseStarHeader(buffer);
           headerCache.set(headerCacheKey, Promise.resolve(header));
           this.bootstrapPromise = Promise.resolve({
             header,
@@ -588,6 +661,16 @@ export class OctreeFileService {
               shardCache,
               this.namespace,
               buffer.slice(HEADER_SIZE),
+              header.indexOffset,
+            );
+          } else if (
+            header.indexOffset === STAR_HEADER_BLOCK_BYTES
+            && buffer.byteLength > STAR_HEADER_BLOCK_BYTES
+          ) {
+            cacheContiguousShards(
+              shardCache,
+              this.namespace,
+              buffer.slice(STAR_HEADER_BLOCK_BYTES),
               header.indexOffset,
             );
           }

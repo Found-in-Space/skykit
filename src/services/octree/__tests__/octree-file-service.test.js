@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
 import {
   OctreeFileService,
+  parseStarHeader,
   planPayloadRangeBatches,
 } from '../octree-file-service.js';
+import { deriveRenderDatasetUuid } from '../../dataset-identity.js';
 
 const HEADER_SIZE = 64;
+const DESCRIPTOR_SIZE = 128;
 const STAR_MAGIC = 0x52415453;
 const SHARD_MAGIC = 0x5248534f;
 const SHARD_HDR_SIZE = 80;
@@ -76,6 +79,32 @@ function createMockFetch(fileBytes, requests) {
   };
 }
 
+function uuidStringToBytes(uuid) {
+  const hex = uuid.replace(/-/g, '');
+  const out = new Uint8Array(16);
+  for (let i = 0; i < 16; i += 1) {
+    out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
+function createOdscDescriptorBytes({
+  datasetUuid,
+  parentUuid = '00000000-0000-0000-0000-000000000000',
+  sidecarUuid = '00000000-0000-0000-0000-000000000000',
+  artifactKind = 'render',
+} = {}) {
+  const buf = new Uint8Array(DESCRIPTOR_SIZE);
+  const view = new DataView(buf.buffer);
+  buf.set(new TextEncoder().encode('ODSC'), 0);
+  view.setUint16(4, 1, true);
+  view.setUint16(6, artifactKind === 'sidecar' ? 2 : 1, true);
+  buf.set(uuidStringToBytes(datasetUuid), 8);
+  buf.set(uuidStringToBytes(parentUuid), 24);
+  buf.set(uuidStringToBytes(sidecarUuid), 40);
+  return buf;
+}
+
 function createStarHeaderBytes({
   indexOffset,
   indexLength,
@@ -127,6 +156,35 @@ function createRootShardBytes() {
 
   return new Uint8Array(buffer);
 }
+
+test('parseStarHeader reads dataset UUID from ODSC descriptor', () => {
+  const datasetUuid = 'c56103e6-ad4c-41f9-be06-048b48ec632b';
+  const fileBytes = concatBytes([
+    createStarHeaderBytes({
+      indexOffset: HEADER_SIZE + DESCRIPTOR_SIZE,
+      indexLength: 100,
+    }),
+    createOdscDescriptorBytes({ datasetUuid }),
+  ]);
+  assert.equal(fileBytes.length, HEADER_SIZE + DESCRIPTOR_SIZE);
+  const header = parseStarHeader(toArrayBuffer(fileBytes));
+  assert.equal(header.datasetUuid, datasetUuid);
+  assert.equal(header.artifactKind, 'render');
+});
+
+test('deriveRenderDatasetUuid prefers octree descriptor UUID over URL hash', () => {
+  const datasetUuid = 'c56103e6-ad4c-41f9-be06-048b48ec632b';
+  const header = {
+    indexOffset: 192,
+    datasetUuid,
+  };
+  const id = deriveRenderDatasetUuid({
+    octreeUrl: 'https://example.com/any/stars.octree',
+    header,
+  });
+  assert.equal(id.datasetUuid, datasetUuid);
+  assert.equal(id.datasetIdentitySource, 'octree-descriptor');
+});
 
 test('planPayloadRangeBatches merges nearby payload nodes within the configured gap', () => {
   const batches = planPayloadRangeBatches([

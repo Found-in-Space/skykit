@@ -39,6 +39,16 @@ export function deriveRenderDatasetUuid(options = {}) {
     };
   }
 
+  const headerUuid = typeof options.header?.datasetUuid === 'string'
+    ? options.header.datasetUuid.trim()
+    : '';
+  if (headerUuid) {
+    return {
+      datasetUuid: headerUuid,
+      datasetIdentitySource: 'octree-descriptor',
+    };
+  }
+
   const basis = [
     'render-dataset',
     options.manifestUrl ?? '',
