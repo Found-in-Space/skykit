@@ -191,9 +191,17 @@ export function createParallaxPositionController(options = {}) {
       currentOffset.y += (targetOffset.y - currentOffset.y) * easing;
 
       const offsetPc = resolveOffsetPc(context);
-      const observerSceneX = currentOffset.x * offsetPc * rig.sceneScale;
-      const observerSceneY = currentOffset.y * offsetPc * rig.sceneScale;
-      const [ix, iy, iz] = rig.sceneToIcrs(observerSceneX, observerSceneY, 0);
+      const scale = offsetPc * rig.sceneScale;
+
+      const right = rig.getRight();
+      const rx = right.x, ry = right.y, rz = right.z;
+      const up = rig.getUp();
+
+      const sceneX = (currentOffset.x * rx + currentOffset.y * up.x) * scale;
+      const sceneY = (currentOffset.x * ry + currentOffset.y * up.y) * scale;
+      const sceneZ = (currentOffset.x * rz + currentOffset.y * up.z) * scale;
+
+      const [ix, iy, iz] = rig.sceneToIcrs(sceneX, sceneY, sceneZ);
       rig.positionPc.x = ix / rig.sceneScale;
       rig.positionPc.y = iy / rig.sceneScale;
       rig.positionPc.z = iz / rig.sceneScale;
