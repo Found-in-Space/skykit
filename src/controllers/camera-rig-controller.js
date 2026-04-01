@@ -61,6 +61,7 @@ const MOVE_KEYS = [
   'Space', 'ShiftLeft', 'ShiftRight',
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
 ];
+const LOOK_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyQ', 'KeyE'];
 
 export function createCameraRigController(options = {}) {
   const id = options.id ?? 'camera-rig-controller';
@@ -128,7 +129,9 @@ export function createCameraRigController(options = {}) {
   let currentOffset = { x: 0, y: 0 };
   let deviceTiltTracker = null;
 
-  let automation = null;
+  let movementAutomation = null;
+  let orientationAutomation = null;
+  let secondsSinceManualLookInput = Number.POSITIVE_INFINITY;
 
   const _movement = new THREE.Vector3();
   const _worldMovement = new THREE.Vector3();
@@ -141,7 +144,32 @@ export function createCameraRigController(options = {}) {
     pointerActive: false,
     moving: false,
     automation: null,
+    movementAutomation: null,
+    orientationAutomation: null,
   };
+
+  function deriveAutomationStat() {
+    return movementAutomation?.type ?? orientationAutomation?.type ?? null;
+  }
+
+  function noteManualLookInput() {
+    secondsSinceManualLookInput = 0;
+  }
+
+  function resolveCurrentLookTarget(distancePc = 1) {
+    const forwardScene = rig.getForward();
+    const [ix, iy, iz] = rig.sceneToIcrs(forwardScene.x, forwardScene.y, forwardScene.z);
+    const length = Math.hypot(ix, iy, iz);
+    if (!(length > 0)) {
+      return null;
+    }
+    const distance = positiveFinite(distancePc, 1);
+    return {
+      x: rig.positionPc.x + (ix / length) * distance,
+      y: rig.positionPc.y + (iy / length) * distance,
+      z: rig.positionPc.z + (iz / length) * distance,
+    };
+  }
 
   function resolveTargetLock(context) {
     if (!targetLockSpec) return null;
@@ -203,6 +231,7 @@ export function createCameraRigController(options = {}) {
     dragLastX = event.clientX;
     dragLastY = event.clientY;
 
+    noteManualLookInput();
     rig.rotateLocal(LOCAL_UP, -dx * lookSensitivity);
     rig.rotateLocal(LOCAL_RIGHT, -dy * lookSensitivity);
   }
@@ -242,6 +271,9 @@ export function createCameraRigController(options = {}) {
     if (event.repeat || isEditableTarget(event.target)) return;
     if (!MOVE_KEYS.includes(event.code)) return;
     pressedKeys.add(event.code);
+    if (LOOK_KEYS.includes(event.code)) {
+      noteManualLookInput();
+    }
     event.preventDefault();
   }
 
@@ -285,7 +317,6 @@ export function createCameraRigController(options = {}) {
       rig.moveInSceneDirection(_forward, forwardSpeedPcPerSec * dt);
     }
 
-    rig.applyToCamera(context.camera);
     stats = {
       ...stats,
       observerPc: rig.clonePosition(),
@@ -297,7 +328,6 @@ export function createCameraRigController(options = {}) {
   function updateInertial(context) {
     const dt = Math.max(0, context.frame?.deltaSeconds ?? 0);
     if (!(dt > 0)) {
-      rig.applyToCamera(context.camera);
       return;
     }
 
@@ -331,7 +361,6 @@ export function createCameraRigController(options = {}) {
       rig.moveInSceneDirection(_worldMovement, currentSpeed * dt);
     }
 
-    rig.applyToCamera(context.camera);
     stats = {
       ...stats,
       observerPc: rig.clonePosition(),
@@ -430,48 +459,39 @@ export function createCameraRigController(options = {}) {
 
   // --- Automation ---
 
-  function updateAutomation(context) {
-    if (!automation) return false;
+  function updateMovementAutomation(context) {
+    if (!movementAutomation) return false;
     const dt = Math.max(0, context.frame?.deltaSeconds ?? 0);
     if (!(dt > 0)) return true;
 
-    if (automation.type === 'flyTo') {
-      const t = automation.target;
+    if (movementAutomation.type === 'flyTo') {
+      const t = movementAutomation.target;
       const dx = t.x - rig.positionPc.x;
       const dy = t.y - rig.positionPc.y;
       const dz = t.z - rig.positionPc.z;
       const distance = Math.hypot(dx, dy, dz);
 
-      if (distance < (automation.arrivalThreshold ?? 0.01)) {
+      if (distance < (movementAutomation.arrivalThreshold ?? 0.01)) {
         rig.setPosition(t);
-        const cb = automation.onArrive;
-        automation = null;
+        const cb = movementAutomation.onArrive;
+        movementAutomation = null;
         cb?.();
         return false;
       }
 
-      const speed = Math.min(automation.speed, distance * (automation.deceleration ?? 2));
+      const speed = Math.min(movementAutomation.speed, distance * (movementAutomation.deceleration ?? 2));
       const step = Math.min(speed * dt, distance);
       rig.positionPc.x += (dx / distance) * step;
       rig.positionPc.y += (dy / distance) * step;
       rig.positionPc.z += (dz / distance) * step;
-
-      if (automation.orient !== false) {
-        const orientTarget = automation.orientToward ?? t;
-        const targetQ = rig.computeOrientationToward(orientTarget);
-        if (targetQ) {
-          const alpha = 1 - (1 - (automation.turnBlend ?? 0.05)) ** (dt * 60);
-          rig.slerpToward(targetQ, alpha);
-        }
-      }
       return true;
     }
 
-    if (automation.type === 'orbit') {
-      automation.angle += (automation.angularSpeed ?? 0.1) * dt;
-      const { center, radius } = automation;
-      const cosA = Math.cos(automation.angle);
-      const sinA = Math.sin(automation.angle);
+    if (movementAutomation.type === 'orbit') {
+      movementAutomation.angle += (movementAutomation.angularSpeed ?? 0.1) * dt;
+      const { center, radius } = movementAutomation;
+      const cosA = Math.cos(movementAutomation.angle);
+      const sinA = Math.sin(movementAutomation.angle);
       const [ix, iy, iz] = rig.sceneToIcrs(
         cosA * radius * rig.sceneScale,
         0,
@@ -480,16 +500,50 @@ export function createCameraRigController(options = {}) {
       rig.positionPc.x = center.x + ix / rig.sceneScale;
       rig.positionPc.y = center.y + iy / rig.sceneScale;
       rig.positionPc.z = center.z + iz / rig.sceneScale;
-      rig.orientToward(center);
       return true;
     }
 
-    if (automation.type === 'lookAt') {
-      const targetQ = rig.computeOrientationToward(automation.target);
-      if (targetQ) {
-        const alpha = 1 - (1 - (automation.blend ?? 0.05)) ** (dt * 60);
-        rig.slerpToward(targetQ, alpha);
+    return false;
+  }
+
+  function updateOrientationAutomation(context) {
+    if (!orientationAutomation) return false;
+    const dt = Math.max(0, context.frame?.deltaSeconds ?? 0);
+    if (Number.isFinite(dt) && dt > 0 && Number.isFinite(secondsSinceManualLookInput)) {
+      secondsSinceManualLookInput += dt;
+    }
+
+    if (orientationAutomation.type === 'lookAt') {
+      const targetQ = rig.computeOrientationToward(orientationAutomation.target);
+      if (!targetQ) {
+        orientationAutomation = null;
+        return false;
       }
+      const alpha = 1 - (1 - (orientationAutomation.blend ?? 0.05)) ** (Math.max(0, dt) * 60);
+      rig.slerpToward(targetQ, alpha);
+
+      const threshold = positiveFinite(orientationAutomation.arrivalThresholdRad, 0.01);
+      if (rig.orientation.angleTo(targetQ) <= threshold) {
+        rig.orientation.copy(targetQ);
+        const cb = orientationAutomation.onArrive;
+        orientationAutomation = null;
+        cb?.();
+        return false;
+      }
+      return true;
+    }
+
+    if (orientationAutomation.type === 'lockAt') {
+      const dwellSecs = Math.max(0, Number(orientationAutomation.dwellSecs ?? 0));
+      if (secondsSinceManualLookInput < dwellSecs) {
+        return true;
+      }
+      const targetQ = rig.computeOrientationToward(orientationAutomation.target);
+      if (!targetQ) {
+        return true;
+      }
+      const alpha = 1 - (1 - (orientationAutomation.recenterSpeed ?? 0.05)) ** (Math.max(0, dt) * 60);
+      rig.slerpToward(targetQ, alpha);
       return true;
     }
 
@@ -561,16 +615,12 @@ export function createCameraRigController(options = {}) {
     flyTo(targetPc, opts = {}) {
       const target = normalizePoint(targetPc, null);
       if (!target) return;
-      const orientToward = normalizePoint(opts.orientToward, null);
-      automation = {
+      movementAutomation = {
         type: 'flyTo',
         target,
         speed: positiveFinite(opts.speed, moveSpeed),
         deceleration: positiveFinite(opts.deceleration, 2),
         arrivalThreshold: positiveFinite(opts.arrivalThreshold, 0.01),
-        turnBlend: opts.turnBlend ?? 0.05,
-        orient: opts.orient,
-        orientToward,
         onArrive: typeof opts.onArrive === 'function' ? opts.onArrive : null,
       };
     },
@@ -582,7 +632,7 @@ export function createCameraRigController(options = {}) {
       const dy = rig.positionPc.y - center.y;
       const dz = rig.positionPc.z - center.z;
       const currentRadius = Math.hypot(dx, dy, dz);
-      automation = {
+      movementAutomation = {
         type: 'orbit',
         center,
         radius: positiveFinite(opts.radius, currentRadius || 1),
@@ -594,15 +644,48 @@ export function createCameraRigController(options = {}) {
     lookAt(targetPc, opts = {}) {
       const target = normalizePoint(targetPc, null);
       if (!target) return;
-      automation = {
+      orientationAutomation = {
         type: 'lookAt',
         target,
         blend: opts.blend ?? 0.05,
+        arrivalThresholdRad: opts.arrivalThresholdRad ?? 0.01,
+        onArrive: typeof opts.onArrive === 'function' ? opts.onArrive : null,
       };
+      secondsSinceManualLookInput = Number.POSITIVE_INFINITY;
+    },
+
+    lockAt(targetPcOrOptions, opts = {}) {
+      const hasTargetCandidate = normalizePoint(targetPcOrOptions, null) != null;
+      const resolvedOptions = hasTargetCandidate ? opts : targetPcOrOptions ?? {};
+      const target = normalizePoint(targetPcOrOptions, null)
+        ?? resolveCurrentLookTarget(resolvedOptions.lockDistancePc);
+      if (!target) return;
+      orientationAutomation = {
+        type: 'lockAt',
+        target,
+        dwellSecs: Math.max(0, Number(resolvedOptions.dwellMs ?? 0)) / 1000,
+        recenterSpeed: resolvedOptions.recenterSpeed ?? 0.05,
+      };
+      secondsSinceManualLookInput = Number.POSITIVE_INFINITY;
+    },
+
+    unlockAt() {
+      if (orientationAutomation?.type === 'lockAt') {
+        orientationAutomation = null;
+      }
+    },
+
+    cancelMovement() {
+      movementAutomation = null;
+    },
+
+    cancelOrientation() {
+      orientationAutomation = null;
     },
 
     cancelAutomation() {
-      automation = null;
+      movementAutomation = null;
+      orientationAutomation = null;
     },
 
     isMotionSupported() {
@@ -641,7 +724,9 @@ export function createCameraRigController(options = {}) {
       return {
         ...stats,
         observerPc: clonePoint(stats.observerPc),
-        automation: automation ? automation.type : null,
+        automation: deriveAutomationStat(),
+        movementAutomation: movementAutomation?.type ?? null,
+        orientationAutomation: orientationAutomation?.type ?? null,
       };
     },
 
@@ -703,25 +788,31 @@ export function createCameraRigController(options = {}) {
         return;
       }
 
-      if (updateAutomation(context)) {
-        rig.applyToCamera(context.camera);
-        writeToState(context.state);
-        stats = { ...stats, observerPc: rig.clonePosition(), automation: automation?.type ?? null };
-        return;
-      }
-
       if (isParallaxMode) {
         updateParallax(context);
         writeToState(context.state);
         return;
       }
 
-      if (integration === 'inertial') {
-        updateInertial(context);
-      } else {
-        updateFreeFly(context);
+      const isMovementAutomated = updateMovementAutomation(context);
+      if (!isMovementAutomated) {
+        if (integration === 'inertial') {
+          updateInertial(context);
+        } else {
+          updateFreeFly(context);
+        }
       }
+
+      updateOrientationAutomation(context);
+      rig.applyToCamera(context.camera);
       writeToState(context.state);
+      stats = {
+        ...stats,
+        observerPc: rig.clonePosition(),
+        automation: deriveAutomationStat(),
+        movementAutomation: movementAutomation?.type ?? null,
+        orientationAutomation: orientationAutomation?.type ?? null,
+      };
     },
 
     dispose() {
@@ -732,7 +823,8 @@ export function createCameraRigController(options = {}) {
       if (pointerTarget?.style) pointerTarget.style.cursor = '';
       pointerTarget = null;
       keyboardTarget = null;
-      automation = null;
+      movementAutomation = null;
+      orientationAutomation = null;
       motionEnabled = false;
       rig.velocity.set(0, 0, 0);
     },

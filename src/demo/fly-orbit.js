@@ -1,10 +1,13 @@
 import * as THREE from 'three';
 import {
   ALCYONE_PC,
+  buildConstellationDirectionResolver,
   createCameraRigController,
+  createConstellationArtLayer,
   createFoundInSpaceDatasetOptions,
   createDesktopStarFieldMaterialProfile,
   createObserverShellField,
+  loadConstellationArtManifest,
   ORION_CENTER_PC,
   ORION_NEBULA_PC,
   SOLAR_ORIGIN_PC,
@@ -15,6 +18,9 @@ import {
   createViewer,
   getDatasetSession,
 } from '../index.js';
+
+const DEFAULT_ART_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stellarium-skycultures-western@0.1.0/dist/manifest.json';
+const CONSTELLATION_LOOK_DISTANCE_PC = 120;
 
 const {
   icrsToScene: ORION_SCENE_TRANSFORM,
@@ -64,6 +70,8 @@ const magLimitInput = document.querySelector('[data-mag-limit]');
 const statusValue = document.querySelector('[data-status]');
 const summaryValue = document.querySelector('[data-summary]');
 const snapshotValue = document.querySelector('[data-snapshot]');
+const lookConstellationSelect = document.querySelector('[data-look-constellation]');
+const showConstellationArtToggle = document.querySelector('[data-show-constellation-art]');
 
 const FLY_BUTTONS = [
   { el: document.querySelector('[data-action="fly-sun"]'), target: SOLAR_ORIGIN_PC, speed: 120 },
@@ -78,6 +86,7 @@ const LOOK_BUTTONS = [
 ];
 
 const ORBIT_BUTTONS = [
+  { el: document.querySelector('[data-action="orbit-sun"]'), center: SOLAR_ORIGIN_PC, radius: 8, angularSpeed: 0.26 },
   { el: document.querySelector('[data-action="orbit-pleiades"]'), center: ALCYONE_PC, radius: 30, angularSpeed: 0.18 },
   { el: document.querySelector('[data-action="orbit-orion-nebula"]'), center: ORION_NEBULA_PC, radius: 100, angularSpeed: 0.10 },
 ];
@@ -100,6 +109,102 @@ let warmState = {
   rootShard: 'idle',
   meta: 'idle',
 };
+let constellationResolver = null;
+let constellationList = [];
+let constellationArtLayer = null;
+let selectedConstellationIau = null;
+
+function getObserverPc() {
+  const observerPc = viewer?.getSnapshotState?.()?.state?.observerPc;
+  if (
+    Number.isFinite(observerPc?.x)
+    && Number.isFinite(observerPc?.y)
+    && Number.isFinite(observerPc?.z)
+  ) {
+    return observerPc;
+  }
+  return { x: 0, y: 0, z: 0 };
+}
+
+function centroidToLookTarget(centroidIcrs, distancePc = CONSTELLATION_LOOK_DISTANCE_PC) {
+  if (!Array.isArray(centroidIcrs) || centroidIcrs.length !== 3) {
+    return null;
+  }
+  const [dx, dy, dz] = centroidIcrs;
+  if (![dx, dy, dz].every(Number.isFinite)) {
+    return null;
+  }
+  const observer = getObserverPc();
+  return {
+    x: observer.x + dx * distancePc,
+    y: observer.y + dy * distancePc,
+    z: observer.z + dz * distancePc,
+  };
+}
+
+function constellationOptionLabel(constellation) {
+  const iau = constellation?.iau ?? '?';
+  const native = constellation?.name?.native ?? null;
+  const english = constellation?.name?.english ?? null;
+  const displayName = native ?? english ?? iau;
+  const details = [];
+  if (native && english && native !== english) {
+    details.push(english);
+  }
+  details.push(iau);
+  return `${displayName} (${details.join(' • ')})`;
+}
+
+function populateConstellationSelect() {
+  if (!lookConstellationSelect) {
+    return;
+  }
+  lookConstellationSelect.innerHTML = '';
+
+  if (!Array.isArray(constellationList) || constellationList.length === 0) {
+    lookConstellationSelect.append(new Option('No constellations available', ''));
+    return;
+  }
+
+  lookConstellationSelect.append(new Option('Select constellation…', ''));
+  for (const constellation of constellationList) {
+    lookConstellationSelect.append(
+      new Option(constellationOptionLabel(constellation), constellation.iau ?? ''),
+    );
+  }
+}
+
+function syncConstellationArtVisibility() {
+  if (!constellationArtLayer) {
+    return;
+  }
+
+  if (showConstellationArtToggle?.checked && selectedConstellationIau) {
+    constellationArtLayer.hideAll();
+    constellationArtLayer.show(selectedConstellationIau);
+    return;
+  }
+
+  constellationArtLayer.hideAll();
+}
+
+async function loadConstellationDirectory() {
+  try {
+    const manifest = await loadConstellationArtManifest({ manifestUrl: DEFAULT_ART_MANIFEST_URL });
+    constellationResolver = buildConstellationDirectionResolver(manifest);
+    constellationList = constellationResolver
+      .listConstellations()
+      .filter((entry) => entry?.hasArt && Array.isArray(entry?.centroidIcrs))
+      .sort((a, b) => constellationOptionLabel(a).localeCompare(constellationOptionLabel(b)));
+  } catch (error) {
+    constellationResolver = null;
+    constellationList = [];
+    console.error('[fly-orbit-demo] failed to load constellation directory', error);
+  } finally {
+    populateConstellationSelect();
+    syncButtons();
+  }
+}
 
 function renderSummary(snapshot, datasetDescription) {
   if (!summaryValue) {
@@ -140,6 +245,9 @@ function syncButtons() {
   for (const b of FLY_BUTTONS) if (b.el) b.el.disabled = autoDisabled;
   for (const b of LOOK_BUTTONS) if (b.el) b.el.disabled = autoDisabled;
   for (const b of ORBIT_BUTTONS) if (b.el) b.el.disabled = autoDisabled;
+  const constellationDisabled = autoDisabled || constellationList.length === 0;
+  if (lookConstellationSelect) lookConstellationSelect.disabled = constellationDisabled;
+  if (showConstellationArtToggle) showConstellationArtToggle.disabled = constellationDisabled;
   if (cancelAutoButton) cancelAutoButton.disabled = autoDisabled;
 }
 
@@ -204,6 +312,13 @@ async function mountViewer() {
     lookAtPc: ALCYONE_PC,
     moveSpeed: 18,
   });
+  constellationArtLayer = createConstellationArtLayer({
+    id: 'demo-fly-orbit-constellation-art-layer',
+    transformDirection: ORION_SCENE_TRANSFORM,
+    manifestUrl: DEFAULT_ART_MANIFEST_URL,
+    fadeDurationSecs: 0.7,
+    opacity: 0.25,
+  });
 
   viewer = await createViewer(mount, {
     datasetSession,
@@ -229,6 +344,7 @@ async function mountViewer() {
           exposure: 80,
         }),
       }),
+      constellationArtLayer,
     ],
     state: {
       demo: 'fly-orbit',
@@ -242,6 +358,7 @@ async function mountViewer() {
   });
 
   renderSnapshot();
+  syncConstellationArtVisibility();
   syncButtons();
   return viewer;
 }
@@ -255,6 +372,7 @@ async function disposeViewer() {
   await viewer.dispose();
   viewer = null;
   cameraController = null;
+  constellationArtLayer = null;
   renderSnapshot();
   syncButtons();
 }
@@ -325,6 +443,10 @@ for (const { el, target, speed } of FLY_BUTTONS) {
   el?.addEventListener('click', () => {
     if (!cameraController) return;
     cameraController.cancelAutomation();
+    cameraController.lockAt(target, {
+      dwellMs: 5_000,
+      recenterSpeed: 0.06,
+    });
     cameraController.flyTo(target, {
       speed,
       deceleration: 2.2,
@@ -337,11 +459,39 @@ for (const { el, target, speed } of FLY_BUTTONS) {
 for (const { el, target } of LOOK_BUTTONS) {
   el?.addEventListener('click', () => {
     if (!cameraController) return;
-    cameraController.cancelAutomation();
     cameraController.lookAt(target, { blend: 0.06 });
     renderSnapshot();
   });
 }
+
+lookConstellationSelect?.addEventListener('change', () => {
+  if (!cameraController || !lookConstellationSelect || !constellationResolver) return;
+  const key = lookConstellationSelect.value;
+  selectedConstellationIau = key || null;
+  if (!key) {
+    syncConstellationArtVisibility();
+    return;
+  }
+
+  const constellation = constellationResolver.getConstellation(key);
+  const target = centroidToLookTarget(constellation?.centroidIcrs);
+  if (!target) {
+    syncConstellationArtVisibility();
+    return;
+  }
+
+  if (showConstellationArtToggle) {
+    showConstellationArtToggle.checked = true;
+  }
+  syncConstellationArtVisibility();
+  cameraController.lookAt(target, { blend: 0.06 });
+  renderSnapshot();
+});
+
+showConstellationArtToggle?.addEventListener('change', () => {
+  syncConstellationArtVisibility();
+  renderSnapshot();
+});
 
 function orbitEntryPoint(center, radius) {
   const scale = cameraController.rig.sceneScale;
@@ -357,13 +507,15 @@ for (const { el, center, radius, angularSpeed } of ORBIT_BUTTONS) {
   el?.addEventListener('click', () => {
     if (!cameraController) return;
     cameraController.cancelAutomation();
+    cameraController.lockAt(center, {
+      dwellMs: 5_000,
+      recenterSpeed: 0.06,
+    });
 
     const entryPc = orbitEntryPoint(center, radius);
     cameraController.flyTo(entryPc, {
       speed: 140,
       deceleration: 2.5,
-      orientToward: center,
-      turnBlend: 0.04,
       onArrive: () => {
         cameraController.orbit(center, { radius, angularSpeed, initialAngle: 0 });
       },
@@ -393,6 +545,7 @@ window.addEventListener('beforeunload', () => {
 snapshotTimer = window.setInterval(renderSnapshot, 500);
 renderSnapshot();
 syncButtons();
+loadConstellationDirectory();
 mountViewer().catch((error) => {
   statusValue.textContent = 'error';
   snapshotValue.textContent = error.stack ?? error.message;

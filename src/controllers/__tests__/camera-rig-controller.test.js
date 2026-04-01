@@ -87,6 +87,92 @@ test('CameraRigController flyTo moves observer toward target', () => {
   controller.dispose();
 });
 
+test('CameraRigController lookAt is one-shot and releases after alignment', () => {
+  const controller = createCameraRigController({
+    observerPc: { x: 0, y: 0, z: 0 },
+    lookAtPc: { x: 0, y: 0, z: -10 },
+    pointerTarget: new FakeEventTarget(),
+    keyboardTarget: new FakeEventTarget(),
+  });
+  const camera = new THREE.PerspectiveCamera();
+  const state = {};
+  controller.attach({ camera, canvas: new FakeEventTarget(), state });
+
+  const target = { x: 10, y: 0, z: 0 };
+  controller.lookAt(target, { blend: 0.1 });
+
+  for (let i = 0; i < 120; i += 1) {
+    controller.update({ camera, state, frame: { deltaSeconds: 1 / 60 } });
+  }
+
+  const targetQ = controller.rig.computeOrientationToward(target);
+  assert.ok(targetQ);
+  assert.ok(controller.rig.orientation.angleTo(targetQ) < 0.01);
+  assert.equal(controller.getStats().orientationAutomation, null);
+
+  controller.dispose();
+});
+
+test('CameraRigController lockAt recenters after dwell delay following manual look input', () => {
+  const keyboardTarget = new FakeEventTarget();
+  const pointerTarget = new FakeEventTarget();
+  const controller = createCameraRigController({
+    observerPc: { x: 0, y: 0, z: 0 },
+    lookAtPc: { x: 0, y: 0, z: -10 },
+    pointerTarget,
+    keyboardTarget,
+  });
+  const camera = new THREE.PerspectiveCamera();
+  const state = {};
+  controller.attach({ camera, canvas: pointerTarget, state });
+
+  const target = { x: 10, y: 0, z: 0 };
+  controller.lockAt(target, { dwellMs: 300, recenterSpeed: 0.3 });
+  for (let i = 0; i < 30; i += 1) {
+    controller.update({ camera, state, frame: { deltaSeconds: 1 / 60 } });
+  }
+
+  keyboardTarget.dispatchEvent(createKeyboardEvent('keydown', 'ArrowLeft'));
+  controller.update({ camera, state, frame: { deltaSeconds: 0.1 } });
+  keyboardTarget.dispatchEvent(createKeyboardEvent('keyup', 'ArrowLeft'));
+
+  const targetQ = controller.rig.computeOrientationToward(target);
+  assert.ok(targetQ);
+  const angleAfterInput = controller.rig.orientation.angleTo(targetQ);
+
+  controller.update({ camera, state, frame: { deltaSeconds: 0.1 } });
+  const angleBeforeDwell = controller.rig.orientation.angleTo(targetQ);
+  assert.ok(angleBeforeDwell >= angleAfterInput - 1e-6);
+
+  controller.update({ camera, state, frame: { deltaSeconds: 0.25 } });
+  const angleAfterDwell = controller.rig.orientation.angleTo(targetQ);
+  assert.ok(angleAfterDwell < angleBeforeDwell);
+
+  controller.dispose();
+});
+
+test('CameraRigController orbit changes position without forcing orientation', () => {
+  const controller = createCameraRigController({
+    observerPc: { x: 0, y: 0, z: 0 },
+    lookAtPc: { x: 0, y: 0, z: -10 },
+    sceneScale: 1,
+    pointerTarget: new FakeEventTarget(),
+    keyboardTarget: new FakeEventTarget(),
+  });
+  const camera = new THREE.PerspectiveCamera();
+  const state = {};
+  controller.attach({ camera, canvas: new FakeEventTarget(), state });
+
+  const before = controller.rig.orientation.clone();
+  controller.orbit({ x: 10, y: 0, z: 0 }, { radius: 3, angularSpeed: 0.5 });
+  controller.update({ camera, state, frame: { deltaSeconds: 1 } });
+
+  assert.ok(state.observerPc.x > 0.1);
+  assert.ok(controller.rig.orientation.angleTo(before) < 1e-6);
+
+  controller.dispose();
+});
+
 test('readXrAxes prefers the stick with the strongest active motion', () => {
   const axes = readXrAxes([
     { handedness: 'left', gamepad: { axes: [0, 0, 0.2, -0.4] } },

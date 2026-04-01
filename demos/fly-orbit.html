@@ -35,8 +35,17 @@
         <button type="button" data-action="look-alcyone">Alcyone</button>
         <button type="button" data-action="look-orion-nebula">Orion Nebula</button>
       </div>
+      <label for="look-constellation">Look at constellation</label>
+      <select id="look-constellation" data-look-constellation>
+        <option value="">Loading constellations...</option>
+      </select>
+      <label for="show-constellation-art">
+        <input id="show-constellation-art" type="checkbox" data-show-constellation-art />
+        Show constellation art
+      </label>
       <p class="aside-section-title">Orbit</p>
       <div class="controls">
+        <button type="button" data-action="orbit-sun">Sun</button>
         <button type="button" data-action="orbit-pleiades">Pleiades</button>
         <button type="button" data-action="orbit-orion-nebula">Orion Nebula</button>
         <button type="button" data-action="cancel-auto">Cancel automation</button>
