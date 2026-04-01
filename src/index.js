@@ -13,7 +13,11 @@ export {
   createConstellationArtGroup,
   disposeConstellationArtGroup,
   loadConstellationArtManifest,
-} from './constellations/stellarium-constellation-art.js';
+} from './constellations/constellation-art.js';
+export {
+  buildConstellationDirectionResolver,
+  toRaDec,
+} from './constellations/constellation-direction-resolver.js';
 export { createNoopInterestField } from './fields/noop-interest-field.js';
 export { createObserverShellField } from './fields/observer-shell-field.js';
 export { createTargetFrustumField } from './fields/target-frustum-field.js';
@@ -22,6 +26,7 @@ export {
   createCameraRigController,
   readXrAxes,
 } from './controllers/camera-rig-controller.js';
+export { createConstellationCompassController } from './controllers/constellation-compass-controller.js';
 export {
   captureSelectionRefreshSnapshot,
   createSelectionRefreshController,

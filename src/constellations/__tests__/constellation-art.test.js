@@ -3,7 +3,7 @@ import test from 'node:test';
 import {
   createConstellationArtGroup,
   loadConstellationArtManifest,
-} from '../stellarium-constellation-art.js';
+} from '../constellation-art.js';
 
 const SAMPLE_MANIFEST = {
   id: 'western',
@@ -106,6 +106,7 @@ test('createConstellationArtGroup prefers explicit image URLs such as data URLs'
   try {
     assert.equal(group.children.length, 1);
     assert.deepEqual(requests, ['data:image/webp;base64,AAA=']);
+    assert.equal(group.children[0].userData.iau, 'Ori');
   } finally {
     group.userData.constellationArt.dispose();
   }

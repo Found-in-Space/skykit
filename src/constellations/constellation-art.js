@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import {
+  normalizeDirection,
+  solveAffineMap,
+} from './constellation-math.js';
 
 const CONSTELLATION_VERTEX = `
   varying vec2 vUv;
@@ -30,78 +34,12 @@ function normalizeNonEmptyString(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-function invert3(matrix) {
-  const [[a, b, c], [d, e, f], [g, h, i]] = matrix;
-  const determinant = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
-  if (Math.abs(determinant) < 1e-10) {
-    return null;
-  }
-
-  return [
-    [(e * i - f * h) / determinant, (c * h - b * i) / determinant, (b * f - c * e) / determinant],
-    [(f * g - d * i) / determinant, (a * i - c * g) / determinant, (c * d - a * f) / determinant],
-    [(d * h - e * g) / determinant, (b * g - a * h) / determinant, (a * e - b * d) / determinant],
-  ];
-}
-
-function multiplyMatrixVector(matrix, values) {
-  return [
-    matrix[0][0] * values[0] + matrix[0][1] * values[1] + matrix[0][2] * values[2],
-    matrix[1][0] * values[0] + matrix[1][1] * values[1] + matrix[1][2] * values[2],
-    matrix[2][0] * values[0] + matrix[2][1] * values[1] + matrix[2][2] * values[2],
-  ];
-}
-
-function normalizeDirection([x, y, z]) {
-  const radius = Math.hypot(x, y, z) || 1;
-  return [x / radius, y / radius, z / radius];
-}
-
-function resolveAnchorDirection(anchor) {
-  const direction = Array.isArray(anchor?.direction) ? anchor.direction : null;
-  return direction && direction.length === 3 ? direction : null;
-}
-
-function solveAffineMap(anchors, transformDirection) {
-  const matrix = [
-    [1, anchors[0].pos[0], anchors[0].pos[1]],
-    [1, anchors[1].pos[0], anchors[1].pos[1]],
-    [1, anchors[2].pos[0], anchors[2].pos[1]],
-  ];
-  const directions = anchors.map((anchor) => {
-    const direction = resolveAnchorDirection(anchor);
-    if (!direction) {
-      return null;
-    }
-    return transformDirection(direction[0], direction[1], direction[2]);
-  });
-  if (directions.some((direction) => direction == null)) {
-    return null;
-  }
-
-  const inverse = invert3(matrix);
-  if (!inverse) {
-    return null;
-  }
-
-  const coefficients = [
-    multiplyMatrixVector(inverse, directions.map((direction) => direction[0])),
-    multiplyMatrixVector(inverse, directions.map((direction) => direction[1])),
-    multiplyMatrixVector(inverse, directions.map((direction) => direction[2])),
-  ];
-
-  return (u, v) => [
-    coefficients[0][0] + coefficients[0][1] * u + coefficients[0][2] * v,
-    coefficients[1][0] + coefficients[1][1] * u + coefficients[1][2] * v,
-    coefficients[2][0] + coefficients[2][1] * u + coefficients[2][2] * v,
-  ];
-}
-
 function loadTexture(loader, url) {
   return new Promise((resolve, reject) => {
     loader.load(url, resolve, undefined, reject);
   });
 }
+
 
 function matchesFilter(constellation, options) {
   if (typeof options.filter === 'function') {
@@ -208,6 +146,7 @@ function buildConstellationMesh(constellation, texture, options) {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.renderOrder = -1;
   mesh.name = `constellation-art-${constellation.iau ?? constellation.id ?? options.index}`;
+  mesh.userData.iau = constellation.iau ?? constellation.id ?? null;
   return mesh;
 }
 
@@ -233,6 +172,8 @@ export async function loadConstellationArtManifest(options = {}) {
 export async function createConstellationArtGroup(options = {}) {
   const textureLoader = options.textureLoader ?? new THREE.TextureLoader();
   const transformDirection = options.transformDirection ?? ((x, y, z) => [x, y, z]);
+  const skipTextureErrors = options.skipTextureErrors === true;
+  const onTextureError = typeof options.onTextureError === 'function' ? options.onTextureError : null;
   const manifest = await loadConstellationArtManifest(options);
   const assetBaseUrl = resolveAssetBaseUrl(options, manifest);
 
@@ -244,23 +185,47 @@ export async function createConstellationArtGroup(options = {}) {
     .filter((constellation) => matchesFilter(constellation, options));
 
   const textureUrls = constellations.map((constellation) => resolveImageUrl(constellation, assetBaseUrl));
-  const textures = await Promise.all(
-    constellations.map((constellation, index) => {
+  const textureResults = await Promise.all(
+    constellations.map(async (constellation, index) => {
       if (!textureUrls[index]) {
         throw new Error(`Constellation "${constellation.id ?? constellation.iau ?? index}" has no image URL`);
       }
-      return loadTexture(textureLoader, textureUrls[index]);
+      try {
+        const texture = await loadTexture(textureLoader, textureUrls[index]);
+        return {
+          ok: true,
+          texture,
+        };
+      } catch (error) {
+        if (!skipTextureErrors) {
+          throw error;
+        }
+        onTextureError?.({
+          constellation,
+          textureUrl: textureUrls[index],
+          error,
+        });
+        return {
+          ok: false,
+          texture: null,
+        };
+      }
     }),
   );
 
   const meshes = constellations
-    .map((constellation, index) => buildConstellationMesh(constellation, textures[index], {
+    .map((constellation, index) => {
+      if (!textureResults[index]?.ok || !textureResults[index]?.texture) {
+        return null;
+      }
+      return buildConstellationMesh(constellation, textureResults[index].texture, {
       transformDirection,
       radius: options.radius ?? 8,
       opacity: options.opacity ?? 0.22,
       cutoff: options.cutoff ?? 0.08,
       index,
-    }))
+      });
+    })
     .filter(Boolean);
 
   const group = new THREE.Group();
