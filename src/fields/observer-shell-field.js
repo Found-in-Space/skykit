@@ -1,3 +1,4 @@
+import { DEFAULT_MAG_LIMIT } from '../layers/star-field-materials.js';
 import {
   createEmptySelectionStats,
   evaluateMagnitudeShell,
@@ -61,26 +62,7 @@ export function createObserverShellField(options = {}) {
       ) ?? normalizePoint(DEFAULT_OBSERVER_PC);
       const requestedMDesired = Number.isFinite(context.state?.mDesired)
         ? Number(context.state.mDesired)
-        : null;
-
-      if (requestedMDesired == null) {
-        lastStats = {
-          strategy: id,
-          observerPc: normalizePoint(observerPc),
-          mDesired: null,
-          mIndex: null,
-          ...createEmptySelectionStats(),
-        };
-        return {
-          strategy: id,
-          nodes: [],
-          meta: {
-            note: 'ObserverShellField requires a finite state.mDesired value.',
-            observerPc: normalizePoint(observerPc),
-            mDesired: null,
-          },
-        };
-      }
+        : DEFAULT_MAG_LIMIT;
 
       const result = await selectOctreeNodes(context, {
         maxLevel: options.maxLevel,

@@ -1,3 +1,4 @@
+import { DEFAULT_MAG_LIMIT } from '../layers/star-field-materials.js';
 import { normalizePoint } from '../fields/octree-selection.js';
 
 const DEFAULT_OBSERVER_DISTANCE_PC = 12;
@@ -28,7 +29,7 @@ export function captureSelectionRefreshSnapshot(context) {
   return {
     observerPc: normalizePoint(context.state?.observerPc, null),
     targetPc: normalizePoint(context.state?.targetPc, null),
-    mDesired: normalizeFiniteNumber(context.state?.mDesired, null),
+    mDesired: normalizeFiniteNumber(context.state?.mDesired, DEFAULT_MAG_LIMIT),
     width: normalizeFiniteNumber(context.size?.width, null),
     height: normalizeFiniteNumber(context.size?.height, null),
   };

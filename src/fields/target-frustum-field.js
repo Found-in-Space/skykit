@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { DEFAULT_MAG_LIMIT } from '../layers/star-field-materials.js';
 import {
   createEmptySelectionStats,
   evaluateMagnitudeShell,
@@ -133,7 +134,7 @@ export function createTargetFrustumField(options = {}) {
       );
       const requestedMDesired = Number.isFinite(context.state?.mDesired)
         ? Number(context.state.mDesired)
-        : null;
+        : DEFAULT_MAG_LIMIT;
       const overscanDeg = Math.max(
         0,
         resolveNumberSpec(options.overscanDeg, context, DEFAULT_OVERSCAN_DEG) ?? DEFAULT_OVERSCAN_DEG,
@@ -161,30 +162,6 @@ export function createTargetFrustumField(options = {}) {
             : context.camera?.aspect ?? 1,
         ) ?? 1,
       );
-
-      if (requestedMDesired == null) {
-        lastStats = {
-          strategy: id,
-          observerPc: normalizePoint(observerPc),
-          targetPc: normalizePoint(targetPc),
-          mDesired: null,
-          mIndex: null,
-          verticalFovDeg,
-          overscanDeg,
-          farPc: null,
-          ...createEmptySelectionStats(),
-        };
-        return {
-          strategy: id,
-          nodes: [],
-          meta: {
-            note: 'TargetFrustumField requires a finite state.mDesired value.',
-            observerPc: normalizePoint(observerPc),
-            targetPc: normalizePoint(targetPc),
-            mDesired: null,
-          },
-        };
-      }
 
       observerVector.set(observerPc.x, observerPc.y, observerPc.z);
       targetVector.set(targetPc.x, targetPc.y, targetPc.z);

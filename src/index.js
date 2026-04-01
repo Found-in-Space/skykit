@@ -44,6 +44,7 @@ export {
 export { createCartoonStarFieldMaterialProfile } from './layers/star-field-materials.js';
 export {
   createDefaultStarFieldMaterialProfile,
+  DEFAULT_MAG_LIMIT,
   DEFAULT_XR_STAR_FIELD_STATE,
   DEFAULT_STAR_FIELD_STATE,
 } from './layers/star-field-materials.js';

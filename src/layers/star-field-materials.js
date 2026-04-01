@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { SCALE } from '../services/octree/scene-scale.js';
 
-const DEFAULT_MAG_LIMIT = 6.5;
+export const DEFAULT_MAG_LIMIT = 6.5;
 const DEFAULT_MAG_LIMIT_NEAR = 25.0;
 const DEFAULT_MAG_FADE_RANGE = 3.0;
 const DEFAULT_CARTOON_COLOR = 0xe7c26a;
@@ -242,12 +242,14 @@ export const DEFAULT_STAR_FIELD_STATE = Object.freeze({
   starFieldScale: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.scale,
   starFieldExtinctionScale: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.extinctionScale,
   starFieldExposure: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.exposure,
+  mDesired: DEFAULT_MAG_LIMIT,
 });
 
 export const DEFAULT_XR_STAR_FIELD_STATE = Object.freeze({
   starFieldScale: SCALE,
   starFieldExtinctionScale: 1.0,
   starFieldExposure: DEFAULT_VR_EXPOSURE,
+  mDesired: DEFAULT_MAG_LIMIT,
 });
 
 function createBigHaloTexture() {
