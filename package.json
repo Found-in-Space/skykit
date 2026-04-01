@@ -25,7 +25,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "diag:observer-shell": "node ./scripts/observer-shell-diagnostic.mjs",
+    "diag:observer-shell": "node ./scripts/observer-shell-diagnostic.js",
     "test": "node --test",
     "test:watch": "node --test --watch"
   },
