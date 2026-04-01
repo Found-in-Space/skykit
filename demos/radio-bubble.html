@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit: Radio Bubble</title>
+    <link rel="stylesheet" href="./shared.css" />
+  </head>
+  <body>
+    <aside>
+      <nav class="breadcrumb"><a href="../index.html">SkyKit</a> <span>/ Radio Bubble</span></nav>
+      <h1>Radio Bubble</h1>
+      <p>
+        How far have Earth's earliest radio transmissions travelled into space?
+        The sphere marks the wavefront expanding at the speed of light since
+        Marconi-era broadcasts (~1895).
+      </p>
+      <p class="aside-section-title">Shell facts</p>
+      <ul>
+        <li>Epoch: <strong>1895</strong></li>
+        <li>Radius: <strong>131 light-years</strong></li>
+        <li>Radius: <strong>~40.2 parsecs</strong></li>
+      </ul>
+      <p class="aside-section-title">Navigation</p>
+      <ul>
+        <li>Drag to look around.</li>
+        <li>WASD / arrow keys to move.</li>
+        <li>Q / E to move up and down.</li>
+        <li>Use <em>Fly to Sun</em> to return inside the bubble.</li>
+      </ul>
+      <label for="mag-limit">Magnitude Limit</label>
+      <input id="mag-limit" type="number" min="0" max="25" step="0.5" value="6.5" data-mag-limit />
+      <p class="status">Status: <span data-status>idle</span></p>
+    </aside>
+    <main>
+      <div class="viewer-shell" data-skykit-viewer-root></div>
+    </main>
+    <script type="module" src="/src/demo/radio-bubble.js"></script>
+  </body>
+</html>
