@@ -93,3 +93,4 @@ export {
   pickStar,
 } from './services/star-picker.js';
 export { createPickController } from './controllers/pick-controller.js';
+export { DEFAULT_METERS_PER_PARSEC, SCALE } from './services/octree/scene-scale.js';

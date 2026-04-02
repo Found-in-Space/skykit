@@ -15,9 +15,10 @@ import {
   formatDistancePc,
 } from '../index.js';
 import { createPickController } from '../controllers/pick-controller.js';
-import { SCALE } from '../services/octree/scene-scale.js';
+import { DEFAULT_METERS_PER_PARSEC, SCALE } from '../services/octree/scene-scale.js';
 
 const XR_REFERENCE_SPACE_TYPE = 'local-floor';
+// WebXR depth planes are in meters (nominal scene units). OK when `starFieldScale` ≈ 1 m/pc.
 const XR_NEAR_PLANE = 0.25;
 const XR_FAR_PLANE = 10000;
 const {
@@ -265,7 +266,7 @@ async function mountViewer() {
     getStarData: () => starFieldLayer.getStarData(),
     toleranceDeg: 1.0,
     xrToleranceDeg: 1.5,
-    scale: SCALE,
+    scale: DEFAULT_METERS_PER_PARSEC,
     onPick(result, _event, stats) {
       if (result) {
         result._pickTimeMs = stats?.pickTimeMs ?? null;

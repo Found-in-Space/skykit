@@ -152,9 +152,13 @@ export function createPickController(options = {}) {
       ? THREE.MathUtils.degToRad(latestCamera.fov)
       : undefined;
 
+    const pickScale = Number.isFinite(latestState?.starFieldScale) && latestState.starFieldScale > 0
+      ? latestState.starFieldScale
+      : scale;
+
     const t0 = performance.now();
     const result = pickStar(ray, starData, {
-      scale,
+      scale: pickScale,
       toleranceDeg: effectiveTolerance,
       fovRad,
       viewportHeight: latestSize?.height ?? 800,

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SCALE } from '../services/octree/scene-scale.js';
+import { DEFAULT_METERS_PER_PARSEC, SCALE } from '../services/octree/scene-scale.js';
 
 export const DEFAULT_MAG_LIMIT = 6.5;
 const DEFAULT_MAG_LIMIT_NEAR = 25.0;
@@ -45,7 +45,7 @@ export function createVrStarFieldMaterialProfile(options = {}) {
     uniforms: {
       uSizeMin: { value: options.sizeMin ?? DEFAULT_SIZE_MIN },
       uSizeMax: { value: options.sizeMax ?? DEFAULT_VR_SIZE_MAX },
-      uScale: { value: options.scale ?? SCALE },
+      uScale: { value: options.scale ?? DEFAULT_METERS_PER_PARSEC },
       uMagLimit: { value: options.magLimit ?? DEFAULT_MAG_LIMIT },
       uMagLimitNear: { value: options.magLimitNear ?? DEFAULT_MAG_LIMIT_NEAR },
       uNearDistanceLo: { value: options.nearDistanceLo ?? DEFAULT_NEAR_DISTANCE_LO },
@@ -198,7 +198,7 @@ export function createVrStarFieldMaterialProfile(options = {}) {
 
       material.uniforms.uScale.value = Number.isFinite(state.starFieldScale)
         ? state.starFieldScale
-        : options.scale ?? SCALE;
+        : options.scale ?? DEFAULT_METERS_PER_PARSEC;
       material.uniforms.uExtinctionScale.value = Number.isFinite(state.starFieldExtinctionScale)
         ? state.starFieldExtinctionScale
         : options.extinctionScale ?? 1.0;
@@ -246,7 +246,7 @@ export const DEFAULT_STAR_FIELD_STATE = Object.freeze({
 });
 
 export const DEFAULT_XR_STAR_FIELD_STATE = Object.freeze({
-  starFieldScale: SCALE,
+  starFieldScale: DEFAULT_METERS_PER_PARSEC,
   starFieldExtinctionScale: 1.0,
   starFieldExposure: DEFAULT_VR_EXPOSURE,
   mDesired: DEFAULT_MAG_LIMIT,
