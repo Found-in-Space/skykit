@@ -339,12 +339,17 @@ export function createStarFieldLayer(options = {}) {
         return null;
       }
 
+      const pickMeta = Array.isArray(points.userData.pickMeta)
+        ? points.userData.pickMeta
+        : [];
+
       return {
         positions: positions.array,
         teffLog8: teffLog8.array,
         magAbs: magAbs.array,
         starCount: stats.starCount,
         loadGeneration: stats.loadGeneration,
+        pickMeta,
       };
     },
     async attach(context) {

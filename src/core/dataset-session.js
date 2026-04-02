@@ -220,6 +220,25 @@ export class DatasetSession {
     return service.resolvePrimaryName(pickMeta);
   }
 
+  /**
+   * @returns {Promise<{
+   *   properName: string,
+   *   bayer: string,
+   *   hd: string,
+   *   hip: string,
+   *   gaia: string,
+   *   primaryLabel: string
+   * } | null>}
+   */
+  async resolveSidecarMetaFields(name, pickMeta) {
+    const service = this.getSidecarService(name);
+    if (!service || typeof service.resolveMetaEntryFields !== 'function') {
+      return null;
+    }
+
+    return service.resolveMetaEntryFields(pickMeta);
+  }
+
   describe() {
     const sidecars = {};
     for (const [name, descriptor] of Object.entries(this.sidecars)) {

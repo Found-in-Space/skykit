@@ -41,32 +41,105 @@ function readRuntimeNode(header, shard, nodeIndex) {
   };
 }
 
-function formatMetaEntryLabel(entry) {
+function normalizeMetaString(value) {
+  if (value == null) {
+    return '';
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+  return String(value).trim();
+}
+
+function bayerAlreadyEndsWithConstellation(bayer, constellation) {
+  const b = normalizeMetaString(bayer);
+  const c = normalizeMetaString(constellation);
+  if (!b || !c) {
+    return false;
+  }
+  const bl = b.toLowerCase();
+  const cl = c.toLowerCase();
+  if (!bl.endsWith(cl)) {
+    return false;
+  }
+  if (bl.length === cl.length) {
+    return true;
+  }
+  const sep = b[b.length - c.length - 1];
+  return sep === ' ' || sep === '-';
+}
+
+/**
+ * Bayer letter (or full designation) plus constellation when needed.
+ * Skips appending `constellation` if `bayer` already ends with it (e.g. "gamma Ara" + Ara).
+ */
+export function formatBayerDesignation(entry) {
   if (!entry || typeof entry !== 'object') {
     return '';
   }
+  const bayer = normalizeMetaString(entry.bayer);
+  if (!bayer) {
+    return '';
+  }
+  const constellation = normalizeMetaString(entry.constellation);
+  if (!constellation || bayerAlreadyEndsWithConstellation(bayer, constellation)) {
+    return bayer;
+  }
+  return `${bayer} ${constellation}`;
+}
 
-  if (entry.proper_name) {
-    return String(entry.proper_name);
+/**
+ * Normalized catalog strings for UI (empty string when absent).
+ */
+export function metaEntryDisplayFields(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return {
+      properName: '',
+      bayer: '',
+      hd: '',
+      hip: '',
+      gaia: '',
+    };
   }
-  if (entry.bayer) {
-    const constellationSuffix = entry.constellation ? ` ${entry.constellation}` : '';
-    return `${entry.bayer}${constellationSuffix}`;
+
+  const source = normalizeMetaString(entry.source).toLowerCase();
+  const sourceId = normalizeMetaString(entry.source_id);
+
+  return {
+    properName: normalizeMetaString(entry.proper_name),
+    bayer: formatBayerDesignation(entry),
+    hd: normalizeMetaString(entry.hd),
+    hip: normalizeMetaString(entry.hip_id)
+      || (source === 'hip' && sourceId ? sourceId : ''),
+    gaia: normalizeMetaString(entry.gaia_source_id)
+      || (source === 'gaia' && sourceId ? sourceId : ''),
+  };
+}
+
+function primaryLabelFromDisplayFields(fields, entry) {
+  if (fields.properName) {
+    return fields.properName;
   }
-  if (entry.hd != null && entry.hd !== '') {
-    return `HD ${entry.hd}`;
+  if (fields.bayer) {
+    return fields.bayer;
   }
-  if (entry.hip_id != null && entry.hip_id !== '') {
-    return `HIP ${entry.hip_id}`;
+  if (fields.hd) {
+    return `HD ${fields.hd}`;
   }
-  if (entry.gaia_source_id != null && entry.gaia_source_id !== '') {
-    return `Gaia ${entry.gaia_source_id}`;
+  if (fields.hip) {
+    return `HIP ${fields.hip}`;
   }
-  if (entry.source != null && entry.source_id != null) {
+  if (fields.gaia) {
+    return `Gaia ${fields.gaia}`;
+  }
+  if (entry && typeof entry === 'object' && entry.source != null && entry.source_id != null) {
     return `${entry.source} ${entry.source_id}`;
   }
-
   return '';
+}
+
+function formatMetaEntryLabel(entry) {
+  return primaryLabelFromDisplayFields(metaEntryDisplayFields(entry), entry);
 }
 
 function headersMatchGeometry(renderHeader, sidecarHeader) {
@@ -246,7 +319,20 @@ export class MetaSidecarService {
           pickMeta.level,
         );
 
-        if (!node?.payloadLength) {
+        if (!node) {
+          console.warn('[MetaSidecar] node not found in meta tree', {
+            level: pickMeta.level,
+            center: [pickMeta.centerX, pickMeta.centerY, pickMeta.centerZ],
+            nodeKey: pickMeta.nodeKey,
+          });
+          return null;
+        }
+
+        if (!node.payloadLength) {
+          console.warn('[MetaSidecar] node found but payload empty', {
+            level: node.level,
+            nodeKey: pickMeta.nodeKey,
+          });
           return null;
         }
 
@@ -255,11 +341,25 @@ export class MetaSidecarService {
         let parsed;
         try {
           parsed = JSON.parse(text);
-        } catch {
+        } catch (err) {
+          console.warn('[MetaSidecar] JSON parse failed', {
+            nodeKey: pickMeta.nodeKey,
+            byteLength: buffer?.byteLength,
+            preview: text?.slice(0, 200),
+            error: err.message,
+          });
           return null;
         }
 
-        return Array.isArray(parsed) ? parsed : null;
+        if (!Array.isArray(parsed)) {
+          console.warn('[MetaSidecar] payload not an array', {
+            nodeKey: pickMeta.nodeKey,
+            type: typeof parsed,
+          });
+          return null;
+        }
+
+        return parsed;
       })());
     }
 
@@ -289,6 +389,51 @@ export class MetaSidecarService {
     }
 
     return formatMetaEntryLabel(entries[pickMeta.ordinal]);
+  }
+
+  async resolveMetaEntryFields(pickMeta) {
+    if (
+      !pickMeta
+      || typeof pickMeta !== 'object'
+      || typeof pickMeta.nodeKey !== 'string'
+      || !Number.isFinite(pickMeta.level)
+      || !Number.isFinite(pickMeta.centerX)
+      || !Number.isFinite(pickMeta.centerY)
+      || !Number.isFinite(pickMeta.centerZ)
+      || !Number.isFinite(pickMeta.ordinal)
+    ) {
+      return null;
+    }
+
+    const { entries } = await this.readCellEntries(pickMeta);
+    if (!entries) {
+      console.warn('[MetaSidecar] no entries for', pickMeta.nodeKey);
+      return null;
+    }
+    if (pickMeta.ordinal < 0 || pickMeta.ordinal >= entries.length) {
+      console.warn('[MetaSidecar] ordinal out of range', {
+        ordinal: pickMeta.ordinal,
+        entriesLength: entries.length,
+        nodeKey: pickMeta.nodeKey,
+      });
+      return null;
+    }
+
+    const entry = entries[pickMeta.ordinal];
+    const fields = metaEntryDisplayFields(entry);
+
+    if (!fields.properName && !fields.bayer && !fields.hd && !fields.hip && !fields.gaia) {
+      console.warn('[MetaSidecar] entry found but all identifier fields empty', {
+        nodeKey: pickMeta.nodeKey,
+        ordinal: pickMeta.ordinal,
+        rawEntry: entry,
+      });
+    }
+
+    return {
+      ...fields,
+      primaryLabel: primaryLabelFromDisplayFields(fields, entry),
+    };
   }
 
   describe() {

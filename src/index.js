@@ -101,6 +101,11 @@ export {
   decodeTemperatureK,
   pickStar,
 } from './services/star-picker.js';
+export {
+  formatBayerDesignation,
+  metaEntryDisplayFields,
+} from './services/sidecars/meta-sidecar-service.js';
+export { buildSimbadBasicSearch } from './services/simbad-link.js';
 export { createPickController } from './controllers/pick-controller.js';
 export { createXrPickController } from './controllers/xr-pick-controller.js';
 export { projectToHud } from './controllers/xr-hud.js';
