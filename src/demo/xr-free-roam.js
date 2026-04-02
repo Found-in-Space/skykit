@@ -12,7 +12,10 @@ import {
   getDatasetSession,
   ORION_CENTER_PC,
   resolveFoundInSpaceDatasetOverrides,
+  formatDistancePc,
 } from '../index.js';
+import { createPickController } from '../controllers/pick-controller.js';
+import { SCALE } from '../services/octree/scene-scale.js';
 
 const XR_REFERENCE_SPACE_TYPE = 'local-floor';
 const XR_NEAR_PLANE = 0.25;
@@ -62,6 +65,7 @@ const magLimitInput = document.querySelector('[data-mag-limit]');
 const statusValue = document.querySelector('[data-status]');
 const summaryValue = document.querySelector('[data-summary]');
 const snapshotValue = document.querySelector('[data-snapshot]');
+const pickInfoEl = document.querySelector('[data-pick-info]');
 
 const datasetSession = getDatasetSession(createFoundInSpaceDatasetOptions({
   id: 'phase-5b-xr-dataset',
@@ -72,15 +76,65 @@ const datasetSession = getDatasetSession(createFoundInSpaceDatasetOptions({
   },
 }));
 
+let starFieldLayer = null;
 let viewer = null;
 let snapshotTimer = null;
 let xrSupported = null;
 let activeMagLimit = Number.isFinite(Number(magLimitInput?.value)) ? Number(magLimitInput.value) : 7.5;
+let lastPickResult = null;
 let warmState = {
   bootstrap: 'idle',
   rootShard: 'idle',
   meta: 'idle',
 };
+
+function sceneToIcrsPc(pos) {
+  const [ix, iy, iz] = ORION_SCENE_TO_ICRS_TRANSFORM(pos.x, pos.y, pos.z);
+  return { x: ix / SCALE, y: iy / SCALE, z: iz / SCALE };
+}
+
+function fmt(n, decimals = 2) {
+  return Number.isFinite(n) ? n.toFixed(decimals) : '—';
+}
+
+function renderPickInfo(result) {
+  if (!pickInfoEl) return;
+  if (!result) {
+    pickInfoEl.textContent = 'No star selected — use trigger to pick';
+    return;
+  }
+
+  const icrsPc = sceneToIcrsPc(result.position);
+  const observerPc = viewer?.getSnapshotState?.()?.state?.observerPc ?? { x: 0, y: 0, z: 0 };
+  const distFromObserver = Math.hypot(
+    icrsPc.x - observerPc.x,
+    icrsPc.y - observerPc.y,
+    icrsPc.z - observerPc.z,
+  );
+
+  const tempStr = Number.isFinite(result.temperatureK)
+    ? `${Math.round(result.temperatureK).toLocaleString()} K`
+    : '—';
+
+  const lines = [
+    `Position: (${fmt(icrsPc.x, 1)}, ${fmt(icrsPc.y, 1)}, ${fmt(icrsPc.z, 1)}) pc`,
+    `Distance: ${formatDistancePc(distFromObserver)}`,
+    `Abs mag: ${fmt(result.absoluteMagnitude)}  App mag: ${fmt(result.apparentMagnitude)}`,
+    `Temperature: ${tempStr}`,
+    `Score: ${fmt(result.score, 3)}  Offset: ${fmt(result.angularDistanceDeg, 3)}°`,
+  ];
+
+  if (Number.isFinite(result._pickTimeMs)) {
+    lines.push(`Pick: ${fmt(result._pickTimeMs, 1)} ms / ${result._starCount ?? '?'} stars`);
+  }
+
+  pickInfoEl.textContent = lines.join('\n');
+}
+
+function handlePick(result) {
+  lastPickResult = result;
+  renderPickInfo(result);
+}
 
 function renderSummary(snapshot, datasetDescription) {
   if (!summaryValue) {
@@ -200,6 +254,27 @@ async function mountViewer() {
 
   await warmDatasetSession();
 
+  starFieldLayer = createStarFieldLayer({
+    id: 'phase-5b-vr-star-field-layer',
+    positionTransform: ORION_SCENE_TRANSFORM,
+    materialFactory: () => createVrStarFieldMaterialProfile(),
+  });
+
+  const pickController = createPickController({
+    id: 'phase-5b-xr-pick-controller',
+    getStarData: () => starFieldLayer.getStarData(),
+    toleranceDeg: 1.0,
+    xrToleranceDeg: 1.5,
+    scale: SCALE,
+    onPick(result, _event, stats) {
+      if (result) {
+        result._pickTimeMs = stats?.pickTimeMs ?? null;
+        result._starCount = stats?.starCount ?? null;
+      }
+      handlePick(result);
+    },
+  });
+
   viewer = await createViewer(mount, {
     datasetSession,
     camera: createViewerCamera(),
@@ -223,14 +298,9 @@ async function mountViewer() {
         minIntervalMs: 300,
         watchSize: false,
       }),
+      pickController,
     ],
-    layers: [
-      createStarFieldLayer({
-        id: 'phase-5b-vr-star-field-layer',
-        positionTransform: ORION_SCENE_TRANSFORM,
-        materialFactory: () => createVrStarFieldMaterialProfile(),
-      }),
-    ],
+    layers: [starFieldLayer],
     state: {
       ...DEFAULT_XR_STAR_FIELD_STATE,
       demo: 'phase-5b-xr-free-roam',
