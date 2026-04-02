@@ -140,12 +140,37 @@ XR controllers are accessed through `session.inputSources`. Each source provides
 - `gripSpace` — the physical hand position (used for attached UI)
 - `gamepad` — thumbstick axes and button states
 
-The XR pick controller (`xr-pick-controller.js`) creates a laser `Line` and a ring `Sprite` **parented to `cameraMount` (xrOrigin)**, not to the scene root. On each frame it:
+The XR pick controller (`xr-pick-controller.js`) creates a laser `Line` and a ring `Sprite` **parented to `cameraMount` (xrOrigin)**, not to the scene root. It uses the **right** controller (`handedness = 'right'`). On each frame it:
 
-1. Gets the controller ray from `targetRaySpace`
-2. Updates the laser visual
-3. On trigger press, runs the star picker against the ray
-4. Updates the selection ring at a comfortable HUD distance along the pick direction
+1. Gets the right controller ray from `targetRaySpace`
+2. Queries `getLaserOverride()` — if the tablet controller reports a hit, the laser is shortened to the panel surface and star picking is suppressed
+3. Updates the laser visual (full length or shortened)
+4. On trigger press (when not blocked by the tablet), runs the star picker against the ray
+5. Updates the selection ring at a comfortable HUD distance along the pick direction
+
+### Tablet (Hand Menu)
+
+The XR tablet controller (`xr-tablet-controller.js`) renders a canvas-texture panel attached to the **left** controller's grip space. The right controller's laser pointer interacts with it.
+
+The panel is a `THREE.Mesh` with `PlaneGeometry` (0.20m × 0.28m), using `depthTest: false` and high `renderOrder` to render above the star field. The canvas texture is only redrawn when hover/press state changes.
+
+On each frame:
+
+1. Read the left controller's `gripSpace` pose and position the panel mesh
+2. Read the right controller's `targetRaySpace` ray and intersect it with the panel plane
+3. Convert the intersection to UV coordinates and map to a button/toggle item
+4. On right trigger press over a hovered item, fire the item's action via `onChange(id, value)`
+
+The tablet controller runs **before** the pick controller in the update loop. It exposes `getHit()` which returns `{ length, blocked: true }` when the pointer ray hits the panel, or `null` otherwise. The pick controller calls this via `getLaserOverride` to shorten its laser and suppress star picks.
+
+Items are plain config objects:
+
+```js
+{ id: 'constellations', label: 'Constellations', type: 'toggle', value: false }
+{ id: 'fly-home', label: 'Fly Home', type: 'button' }
+```
+
+Supported types: `toggle` (boolean flip) and `button` (momentary action).
 
 ### Locomotion
 
@@ -166,6 +191,7 @@ Desktop and XR input handling are in **completely separate files** with no share
 |---|---|---|
 | Navigation | `camera-rig-controller.js` | `xr-locomotion-controller.js` |
 | Star picking | `pick-controller.js` | `xr-pick-controller.js` |
+| Hand menu | — | `xr-tablet-controller.js` |
 
 Both sides share `camera-rig.js` for pure quaternion math and position tracking, but never import each other. A change to the desktop controller cannot affect XR, and vice versa.
 
@@ -190,7 +216,9 @@ The current XR implementation is deliberately minimal:
 
 - Spaceship as invisible reference frame with orientation and velocity
 - Head tracking (camera pose from WebXR)
-- Two controllers with laser pointer and star picking
+- Two controllers with assigned handedness (right = laser/pick, left = tablet)
+- Right-hand laser pointer and star picking, with tablet-aware laser shortening
+- Left-hand tablet (hand menu) with canvas-texture UI, toggle and button items
 - Thumbstick locomotion
 - Tunable star-field scale
 - Controller-attached UI (panels parented to grip space)

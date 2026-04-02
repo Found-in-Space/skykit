@@ -5,6 +5,7 @@ import { SCALE } from '../services/octree/scene-scale.js';
 const DEFAULT_LASER_LENGTH = 500;
 const LASER_COLOR = 0x44ff66;
 const RING_ANGULAR_SCALE = 0.032; // ~1.8° angular diameter
+const DEFAULT_HANDEDNESS = 'right';
 
 const _rayOrigin = new THREE.Vector3();
 const _rayDirection = new THREE.Vector3();
@@ -55,13 +56,14 @@ function createRingSprite() {
   return { sprite, texture };
 }
 
-function getControllerRay(xr) {
+function getControllerRay(xr, handedness) {
   const xrFrame = xr?.frame;
   const refSpace = xr?.referenceSpace;
   const session = xr?.session;
   if (!xrFrame || !refSpace || !session) return null;
 
   for (const source of session.inputSources) {
+    if (handedness && source.handedness !== handedness) continue;
     if (!source.targetRaySpace) continue;
     const pose = xrFrame.getPose(source.targetRaySpace, refSpace);
     if (!pose) continue;
@@ -76,10 +78,11 @@ function getControllerRay(xr) {
   return null;
 }
 
-function isSelectPressed(xr) {
+function isSelectPressed(xr, handedness) {
   const session = xr?.session;
   if (!session) return false;
   for (const source of session.inputSources) {
+    if (handedness && source.handedness !== handedness) continue;
     const btn = source.gamepad?.buttons?.[0];
     if (btn?.pressed) return true;
   }
@@ -105,6 +108,8 @@ export function createXrPickController(options = {}) {
     getStarData,
     onPick,
     toleranceDeg = 1.5,
+    handedness = DEFAULT_HANDEDNESS,
+    getLaserOverride,
   } = options;
 
   let latestCamera = null;
@@ -166,13 +171,14 @@ export function createXrPickController(options = {}) {
     }
   }
 
-  function updateLaser(controllerRay) {
+  function updateLaser(controllerRay, length) {
     if (!laserLine) return;
+    const len = length ?? DEFAULT_LASER_LENGTH;
     const posAttr = laserLine.geometry.getAttribute('position');
     posAttr.setXYZ(0, controllerRay.origin.x, controllerRay.origin.y, controllerRay.origin.z);
-    const endX = controllerRay.origin.x + controllerRay.direction.x * DEFAULT_LASER_LENGTH;
-    const endY = controllerRay.origin.y + controllerRay.direction.y * DEFAULT_LASER_LENGTH;
-    const endZ = controllerRay.origin.z + controllerRay.direction.z * DEFAULT_LASER_LENGTH;
+    const endX = controllerRay.origin.x + controllerRay.direction.x * len;
+    const endY = controllerRay.origin.y + controllerRay.direction.y * len;
+    const endZ = controllerRay.origin.z + controllerRay.direction.z * len;
     posAttr.setXYZ(1, endX, endY, endZ);
     posAttr.needsUpdate = true;
     laserLine.visible = true;
@@ -234,12 +240,15 @@ export function createXrPickController(options = {}) {
 
       ensureVisuals(context.cameraMount, context.contentRoot);
 
-      const controllerRay = getControllerRay(context.xr);
+      const controllerRay = getControllerRay(context.xr, handedness);
       if (controllerRay) {
-        updateLaser(controllerRay);
+        const laserOverride = typeof getLaserOverride === 'function'
+          ? getLaserOverride(controllerRay)
+          : null;
+        updateLaser(controllerRay, laserOverride?.length ?? null);
 
-        const pressed = isSelectPressed(context.xr);
-        if (pressed && !triggerWasPressed) {
+        const pressed = isSelectPressed(context.xr, handedness);
+        if (pressed && !triggerWasPressed && !laserOverride?.blocked) {
           context.cameraMount.updateWorldMatrix(true, false);
           context.contentRoot.updateWorldMatrix(true, false);
 

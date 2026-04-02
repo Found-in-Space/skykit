@@ -17,6 +17,7 @@ import {
 } from '../index.js';
 import { createXrLocomotionController } from '../controllers/xr-locomotion-controller.js';
 import { createXrPickController } from '../controllers/xr-pick-controller.js';
+import { createXrTabletController } from '../controllers/xr-tablet-controller.js';
 import { DEFAULT_METERS_PER_PARSEC, SCALE } from '../services/octree/scene-scale.js';
 
 const XR_REFERENCE_SPACE_TYPE = 'local-floor';
@@ -79,6 +80,8 @@ const datasetSession = getDatasetSession(createFoundInSpaceDatasetOptions({
 
 let starFieldLayer = null;
 let viewer = null;
+let tabletRef = null;
+let pickControllerRef = null;
 let snapshotTimer = null;
 let pickGeneration = 0;
 let xrSupported = null;
@@ -175,6 +178,38 @@ function renderPickInfo(result) {
   ui.obs.textContent = lines.join('\n');
 }
 
+function updateTabletStarInfo(result) {
+  if (!tabletRef) return;
+  if (!result) {
+    tabletRef.setDisplay('star-info', []);
+    return;
+  }
+
+  const f = result.sidecarFields;
+
+  const icrsPc = sceneToIcrsPc(result.position);
+  const observerPc = viewer?.getSnapshotState?.()?.state?.observerPc ?? { x: 0, y: 0, z: 0 };
+  const dist = Math.hypot(
+    icrsPc.x - observerPc.x,
+    icrsPc.y - observerPc.y,
+    icrsPc.z - observerPc.z,
+  );
+
+  const lines = [];
+  if (f?.primaryLabel) {
+    lines.push(f.primaryLabel);
+  }
+  if (f?.properName && f.bayer) {
+    lines.push(f.bayer);
+  }
+  lines.push(`Distance: ${formatDistancePc(dist)}`);
+  lines.push(`Mag: ${fmt(result.apparentMagnitude)} app / ${fmt(result.absoluteMagnitude)} abs`);
+  if (Number.isFinite(result.temperatureK)) {
+    lines.push(`Temp: ${Math.round(result.temperatureK).toLocaleString()} K`);
+  }
+  tabletRef.setDisplay('star-info', lines);
+}
+
 function handlePick(result) {
   pickGeneration += 1;
   const gen = pickGeneration;
@@ -182,6 +217,7 @@ function handlePick(result) {
     delete result.sidecarFields;
   }
   renderPickInfo(result);
+  updateTabletStarInfo(result);
 
   if (!result) return;
 
@@ -196,6 +232,7 @@ function handlePick(result) {
       if (fields) {
         result.sidecarFields = fields;
         renderPickInfo(result);
+        updateTabletStarInfo(result);
       }
     } catch {
       /* sidecar unavailable or incompatible */
@@ -329,10 +366,25 @@ async function mountViewer() {
     includePickMeta: true,
   });
 
+  const xrTabletController = createXrTabletController({
+    id: 'xr-tablet-controller',
+    items: [
+      { id: 'star-info', label: 'Selected Star', type: 'display', lines: [], dismissible: true },
+    ],
+    onChange(id) {
+      if (id === 'star-info') {
+        pickControllerRef?.clearSelection();
+        handlePick(null);
+      }
+    },
+  });
+  tabletRef = xrTabletController;
+
   const xrPickController = createXrPickController({
     id: 'xr-pick-controller',
     getStarData: () => starFieldLayer.getStarData(),
     toleranceDeg: 1.5,
+    getLaserOverride: () => xrTabletController.getHit(),
     onPick(result, _event, stats) {
       if (result) {
         result._pickTimeMs = stats?.pickTimeMs ?? null;
@@ -341,6 +393,7 @@ async function mountViewer() {
       handlePick(result);
     },
   });
+  pickControllerRef = xrPickController;
 
   viewer = await createViewer(mount, {
     datasetSession,
@@ -364,6 +417,7 @@ async function mountViewer() {
         minIntervalMs: 300,
         watchSize: false,
       }),
+      xrTabletController,
       xrPickController,
     ],
     layers: [starFieldLayer],
