@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit: Star Pick</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .pick-section {
+        margin: 18px 0 0;
+      }
+      .pick-placeholder {
+        margin: 10px 0;
+        color: var(--text-muted);
+        font-style: italic;
+      }
+      .pick-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.88rem;
+        margin: 8px 0;
+      }
+      .pick-table th {
+        text-align: left;
+        padding: 4px 8px 4px 0;
+        color: var(--text-muted);
+        font-weight: 500;
+        white-space: nowrap;
+        vertical-align: top;
+        width: 40%;
+      }
+      .pick-table td {
+        padding: 4px 0;
+        color: var(--text-main);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.82rem;
+        word-break: break-all;
+      }
+      .pick-score {
+        display: inline-block;
+        padding: 1px 8px;
+        border-radius: 8px;
+        font-size: 0.78rem;
+        font-weight: 600;
+      }
+      .pick-score.inside { background: rgba(115, 213, 255, 0.22); color: #9fe9ff; }
+      .pick-score.near   { background: rgba(255, 200, 80, 0.18);  color: #ffd080; }
+      .pick-score.edge   { background: rgba(255, 120, 80, 0.15);  color: #ffaa80; }
+      .pick-timing {
+        margin: 6px 0 0;
+        font-size: 0.78rem;
+        color: var(--text-muted);
+      }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <nav class="breadcrumb"><a href="../index.html">SkyKit</a> <span>/ Star Pick</span></nav>
+      <h1>Star Pick</h1>
+      <p>
+        Click any star to inspect it. Uses angular-cone filtering with
+        magnitude-weighted scoring — bright stars get larger click targets
+        matching their visual size.
+      </p>
+      <label for="mag-limit">Magnitude Limit</label>
+      <input id="mag-limit" type="number" min="0" max="25" step="0.5" value="6.5" data-mag-limit />
+      <label for="tolerance">Pick Tolerance (°)</label>
+      <input id="tolerance" type="number" min="0.1" max="5" step="0.1" value="1.0" data-tolerance />
+      <div class="pick-section" data-pick-info>
+        <p class="aside-section-title">Selected Star</p>
+        <p class="pick-placeholder">Click a star to inspect it</p>
+      </div>
+      <p class="status">Status: <span data-status>idle</span></p>
+      <pre class="meta-block" data-summary></pre>
+    </aside>
+    <main>
+      <div class="viewer-shell" data-skykit-viewer-root></div>
+    </main>
+    <script type="module" src="/src/demo/star-pick.js"></script>
+  </body>
+</html>

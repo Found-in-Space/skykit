@@ -19,6 +19,7 @@ export default defineConfig({
         constellationCompass: path.resolve(__dirname, 'demos/constellation-compass.html'),
         hrDiagram: path.resolve(__dirname, 'demos/hr-diagram.html'),
         radioBubble: path.resolve(__dirname, 'demos/radio-bubble.html'),
+        starPick: path.resolve(__dirname, 'demos/star-pick.html'),
       },
     },
   },

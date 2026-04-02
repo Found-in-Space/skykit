@@ -86,3 +86,9 @@ export {
 } from './presets/navigation-presets.js';
 export { createVolumeHRLoader } from './hr-diagram/volume-hr-loader.js';
 export { HRDiagramRenderer } from './hr-diagram/hr-diagram-renderer.js';
+export {
+  computeVisualRadiusPx,
+  decodeTemperatureK,
+  pickStar,
+} from './services/star-picker.js';
+export { createPickController } from './controllers/pick-controller.js';
