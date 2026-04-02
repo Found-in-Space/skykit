@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit: Data Shape</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .range-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 6px 0 14px;
+      }
+
+      .range-row input[type="range"] {
+        flex: 1;
+        accent-color: var(--accent-strong);
+      }
+
+      .range-val {
+        min-width: 3.4em;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        color: var(--accent-strong);
+        font-size: 0.95rem;
+      }
+
+      .stat-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 6px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        font-size: 0.9rem;
+      }
+
+      .stat-label {
+        color: var(--text-muted);
+      }
+
+      .stat-value {
+        color: var(--accent-strong);
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <nav class="breadcrumb">
+        <a href="../index.html">SkyKit</a>
+        <span>/ Data Shape</span>
+      </nav>
+      <h1>Data Shape</h1>
+      <p>
+        Density field rendering of the star catalog. Each star is a uniform
+        additive splat — dense regions glow brighter, revealing the shape of
+        the dataset and galactic structure. Drag to orbit, scroll to zoom.
+      </p>
+
+      <label for="max-level">Octree level (0 = brightest)</label>
+      <div class="range-row">
+        <input id="max-level" type="range" min="0" max="9" step="1" value="8" data-max-level />
+        <span class="range-val" data-max-level-value>8</span>
+      </div>
+
+      <label for="point-size">Point size</label>
+      <div class="range-row">
+        <input id="point-size" type="range" min="0.5" max="8" step="0.5" value="2.5" data-point-size />
+        <span class="range-val" data-point-size-value>2.5</span>
+      </div>
+
+      <label for="alpha">Opacity</label>
+      <div class="range-row">
+        <input id="alpha" type="range" min="0.005" max="0.5" step="0.005" value="0.5" data-alpha />
+        <span class="range-val" data-alpha-value>0.500</span>
+      </div>
+
+      <p class="aside-section-title">Stats</p>
+      <div class="stat-row">
+        <span class="stat-label">Stars loaded</span>
+        <span class="stat-value" data-star-count>—</span>
+      </div>
+
+      <p class="status">Status: <span data-status>loading…</span></p>
+    </aside>
+    <main>
+      <div class="viewer-shell" data-skykit-viewer-root></div>
+    </main>
+    <script type="module" src="/src/demo/data-shape.js"></script>
+  </body>
+</html>

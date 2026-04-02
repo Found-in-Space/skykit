@@ -54,6 +54,7 @@ export {
 } from './layers/star-field-materials.js';
 export { createTunedStarFieldMaterialProfile } from './layers/star-field-materials.js';
 export { createVrStarFieldMaterialProfile } from './layers/star-field-materials.js';
+export { createDensityFieldMaterialProfile } from './layers/density-field-materials.js';
 export { createHighlightStarFieldMaterialProfile } from './layers/highlight-star-field-materials.js';
 export { createDeviceTiltTracker } from './services/input/device-tilt-tracker.js';
 export { createHud } from './ui/hud.js';
