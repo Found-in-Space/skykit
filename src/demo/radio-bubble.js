@@ -22,17 +22,7 @@ import {
   createSpeedReadout,
 } from '../presets/navigation-presets.js';
 import { createFullscreenPreset } from '../presets/fullscreen-preset.js';
-
-// 1 parsec = 0.001 Three.js world units (see src/services/octree/scene-scale.js)
-const SCENE_SCALE = 0.001;
-
-// Radio epoch and derived shell geometry
-const EPOCH_YEAR = 1895;
-const CURRENT_YEAR = 2026;
-const LY_PER_PC = 3.2615637775591093;
-const RADIO_RADIUS_LY = CURRENT_YEAR - EPOCH_YEAR; // 131 ly
-const RADIO_RADIUS_PC = RADIO_RADIUS_LY / LY_PER_PC; // ~40.2 pc
-const RADIO_RADIUS_SCENE = RADIO_RADIUS_PC * SCENE_SCALE; // ~0.0402 world units
+import { createRadioBubbleMeshes } from '../layers/radio-bubble-meshes.js';
 
 const {
   icrsToScene: ORION_SCENE_TRANSFORM,
@@ -46,37 +36,6 @@ function createViewerCamera() {
   return camera;
 }
 
-/**
- * Builds the radio-bubble mesh group: a semi-transparent fill sphere plus a
- * sparser wireframe on top so the shell edge reads clearly from any distance.
- * Both meshes are centred on the solar system origin (0,0,0 in parsec space).
- */
-function createRadioBubbleMeshes() {
-  const group = new THREE.Group();
-  group.name = 'radio-bubble';
-
-  const fillGeo = new THREE.SphereGeometry(RADIO_RADIUS_SCENE, 64, 32);
-  const fillMat = new THREE.MeshBasicMaterial({
-    color: 0x2299ff,
-    transparent: true,
-    opacity: 0.05,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  group.add(new THREE.Mesh(fillGeo, fillMat));
-
-  const wireGeo = new THREE.SphereGeometry(RADIO_RADIUS_SCENE, 36, 18);
-  const wireMat = new THREE.MeshBasicMaterial({
-    color: 0x55ccff,
-    transparent: true,
-    opacity: 0.22,
-    depthWrite: false,
-    wireframe: true,
-  });
-  group.add(new THREE.Mesh(wireGeo, wireMat));
-
-  return group;
-}
 
 const mount = document.querySelector('[data-skykit-viewer-root]');
 const magLimitInput = document.querySelector('[data-mag-limit]');
@@ -180,7 +139,8 @@ async function mountViewer() {
     clearColor: 0x02040b,
   });
 
-  viewer.contentRoot.add(createRadioBubbleMeshes());
+  const { group: bubbleGroup } = createRadioBubbleMeshes();
+  viewer.contentRoot.add(bubbleGroup);
 
   if (statusValue) {
     statusValue.textContent = 'running';
