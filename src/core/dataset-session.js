@@ -106,7 +106,7 @@ export class DatasetSession {
       ...cloneRecord(options.capabilities),
     };
     this.sidecars = normalizeSidecars(options);
-    this.persistentCache = options.persistentCache ?? 'off';
+    this.persistentCache = options.persistentCache ?? 'on';
     this.disposed = false;
     this.datasetUuid = typeof options.datasetUuid === 'string' && options.datasetUuid.trim()
       ? options.datasetUuid.trim()

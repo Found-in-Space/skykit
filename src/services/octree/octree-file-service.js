@@ -22,6 +22,12 @@ export const DEFAULT_PAYLOAD_MAX_GAP_BYTES = 131072;
 export const DEFAULT_PAYLOAD_MAX_BATCH_BYTES = 512000;
 const DEFAULT_MAX_INFLIGHT_PAYLOAD_BATCHES = 8;
 const DEFAULT_SHARD_PREFETCH_BYTES = DEFAULT_PAYLOAD_MAX_BATCH_BYTES;
+const PERSISTENT_CACHE_NAME = 'skykit-octree-v1';
+
+function rangeCacheUrl(url, start, end) {
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}_r=${start}-${end}`;
+}
 
 function createCacheKey(namespace, kind, ...parts) {
   return [namespace, kind, ...parts].join(':');
@@ -547,6 +553,7 @@ export class OctreeFileService {
     this.namespace = options.namespace ?? 'octree';
     this.bootstrapPromise = null;
     this.bootstrapAndRootPromise = null;
+    this._persistentCachePromise = null;
     this.payloadMaxGapBytes = normalizePositiveInteger(
       options.payloadMaxGapBytes,
       DEFAULT_PAYLOAD_MAX_GAP_BYTES,
@@ -578,6 +585,7 @@ export class OctreeFileService {
       rangeRequests: 0,
       bytesRequested: 0,
       fetchTimeMs: 0,
+      persistentCacheHits: 0,
     };
   }
 
@@ -586,6 +594,41 @@ export class OctreeFileService {
     if (!this.url) {
       throw new Error(`${this.namespace} service requires a URL`);
     }
+  }
+
+  _openPersistentCache() {
+    if (this.session.persistentCache === 'off' || typeof caches === 'undefined') {
+      return Promise.resolve(null);
+    }
+    if (!this._persistentCachePromise) {
+      this._persistentCachePromise = caches.open(PERSISTENT_CACHE_NAME).catch(() => null);
+    }
+    return this._persistentCachePromise;
+  }
+
+  async _fetchRange(start, end) {
+    const cache = await this._openPersistentCache();
+    if (cache) {
+      const cacheUrl = rangeCacheUrl(this.url, start, end);
+      try {
+        const cached = await cache.match(cacheUrl);
+        if (cached) {
+          this.stats.persistentCacheHits += 1;
+          return { buffer: await cached.arrayBuffer(), elapsed: 0 };
+        }
+      } catch {
+        // Fall through to network on cache read failure
+      }
+    }
+
+    const result = await fetchRange(this.url, start, end);
+
+    if (cache) {
+      const cacheUrl = rangeCacheUrl(this.url, start, end);
+      cache.put(new Request(cacheUrl), new Response(result.buffer.slice(0))).catch(() => {});
+    }
+
+    return result;
   }
 
   async loadHeader() {
@@ -600,7 +643,7 @@ export class OctreeFileService {
         this.stats.headerFetches += 1;
         this.stats.rangeRequests += 1;
         this.stats.bytesRequested += STAR_HEADER_BLOCK_BYTES;
-        const result = await fetchRange(this.url, 0, STAR_HEADER_BLOCK_BYTES - 1);
+        const result = await this._fetchRange(0, STAR_HEADER_BLOCK_BYTES - 1);
         this.stats.fetchTimeMs += result.elapsed;
         return parseStarHeader(result.buffer);
       })());
@@ -643,7 +686,7 @@ export class OctreeFileService {
           this.stats.headerFetches += 1;
           this.stats.rangeRequests += 1;
           this.stats.bytesRequested += prefetchBytes;
-          const result = await fetchRange(this.url, 0, prefetchBytes - 1);
+          const result = await this._fetchRange(0, prefetchBytes - 1);
           this.stats.fetchTimeMs += result.elapsed;
           const buffer = result.buffer;
           const header = parseStarHeader(buffer);
@@ -703,11 +746,7 @@ export class OctreeFileService {
         this.stats.shardFetches += 1;
         this.stats.rangeRequests += 1;
         this.stats.bytesRequested += fetchBytes;
-        const initialResult = await fetchRange(
-          this.url,
-          shardOffset,
-          shardOffset + fetchBytes - 1,
-        );
+        const initialResult = await this._fetchRange(shardOffset, shardOffset + fetchBytes - 1);
         this.stats.fetchTimeMs += initialResult.elapsed;
         const initialBuffer = initialResult.buffer;
 
@@ -722,7 +761,7 @@ export class OctreeFileService {
             this.stats.shardFetches += 1;
             this.stats.rangeRequests += 1;
             this.stats.bytesRequested += totalSize;
-            const fullResult = await fetchRange(this.url, shardOffset, shardOffset + totalSize - 1);
+            const fullResult = await this._fetchRange(shardOffset, shardOffset + totalSize - 1);
             this.stats.fetchTimeMs += fullResult.elapsed;
             resolved = cacheContiguousShards(cache, this.namespace, fullResult.buffer, shardOffset);
           }
@@ -789,7 +828,7 @@ export class OctreeFileService {
       this.stats.rangeRequests += 1;
       this.stats.bytesRequested += batch.spanBytes;
 
-      const batchResult = await fetchRange(this.url, batch.start, batch.end);
+      const batchResult = await this._fetchRange(batch.start, batch.end);
       this.stats.fetchTimeMs += batchResult.elapsed;
       const batchBuffer = batchResult.buffer;
       const decodedBuffers = new Map();
@@ -880,4 +919,5 @@ export {
   HAS_PAYLOAD,
   IS_FRONTIER,
   PAYLOAD_RECORD_SIZE,
+  PERSISTENT_CACHE_NAME,
 };
