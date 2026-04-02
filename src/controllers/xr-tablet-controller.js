@@ -320,10 +320,12 @@ function roundRect(ctx, x, y, w, h, r) {
  */
 export function createXrTabletController(options = {}) {
   const {
-    items = [],
+    items: initialItems = [],
     onChange,
     handedness = DEFAULT_HANDEDNESS,
   } = options;
+
+  let activeItems = initialItems;
 
   const pointerHand = handedness === 'left' ? 'right' : 'left';
 
@@ -354,7 +356,7 @@ export function createXrTabletController(options = {}) {
   let currentHit = null;
 
   function redraw() {
-    drawPanel(ctx, items, hoveredId, pressedId);
+    drawPanel(ctx, activeItems, hoveredId, pressedId);
     texture.needsUpdate = true;
     needsRedraw = false;
   }
@@ -420,7 +422,7 @@ export function createXrTabletController(options = {}) {
     currentHit = hit;
 
     if (hit) {
-      const item = itemAtUV(items, hit.u, hit.v);
+      const item = itemAtUV(activeItems, hit.u, hit.v);
       setHovered(item?.id ?? null);
     } else {
       setHovered(null);
@@ -430,7 +432,7 @@ export function createXrTabletController(options = {}) {
   function handleTrigger(xr) {
     const pressed = isTriggerPressed(xr, pointerHand);
     if (pressed && !triggerWasPressed && hoveredId != null) {
-      const item = items.find((i) => i.id === hoveredId);
+      const item = activeItems.find((i) => i.id === hoveredId);
       pressedId = hoveredId;
       needsRedraw = true;
       activateItem(item);
@@ -474,7 +476,7 @@ export function createXrTabletController(options = {}) {
     },
 
     setItemValue(id, value) {
-      const item = items.find((i) => i.id === id);
+      const item = activeItems.find((i) => i.id === id);
       if (item) {
         item.value = value;
         needsRedraw = true;
@@ -482,11 +484,18 @@ export function createXrTabletController(options = {}) {
     },
 
     setDisplay(id, lines) {
-      const item = items.find((i) => i.id === id && i.type === 'display');
+      const item = activeItems.find((i) => i.id === id && i.type === 'display');
       if (item) {
         item.lines = lines;
         needsRedraw = true;
       }
+    },
+
+    setItems(newItems) {
+      activeItems = newItems;
+      hoveredId = null;
+      pressedId = null;
+      needsRedraw = true;
     },
 
     dispose() {

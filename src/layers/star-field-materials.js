@@ -2,22 +2,19 @@ import * as THREE from 'three';
 import { DEFAULT_METERS_PER_PARSEC, SCALE } from '../services/octree/scene-scale.js';
 
 export const DEFAULT_MAG_LIMIT = 6.5;
-const DEFAULT_MAG_LIMIT_NEAR = 25.0;
 const DEFAULT_MAG_FADE_RANGE = 3.0;
 const DEFAULT_CARTOON_COLOR = 0xe7c26a;
 const DEFAULT_CARTOON_CORE_COLOR = 0xfff3c7;
 const DEFAULT_CARTOON_OUTLINE_COLOR = 0x6d4f1f;
 const DEFAULT_CARTOON_SIZE_MIN = 2.2;
 const DEFAULT_CARTOON_SIZE_MAX = 18.0;
-const DEFAULT_NEAR_DISTANCE_LO = 4.0;
-const DEFAULT_NEAR_DISTANCE_HI = 15.0;
-const DEFAULT_SAFE_MIN_SIZE = 4.0;
-const DEFAULT_SIZE_MIN = 1.0;
-const DEFAULT_VR_EXPOSURE = 1e5;
-const DEFAULT_VR_SIZE_MAX = 8.0;
-const DEFAULT_VR_HYPERLOCAL_SIZE_MAX = 64.0;
-const DEFAULT_VR_NEARFIELD_RADIUS_PC = 5.0;
-const DEFAULT_VR_NEARFIELD_MIN_INTENSITY = 0.15;
+
+const DEFAULT_VR_EXPOSURE = 1.0;
+const DEFAULT_VR_SIZE_MIN = 2.0;
+const DEFAULT_VR_SIZE_MAX = 24.0;
+const DEFAULT_VR_LINEAR_SCALE = 2.0;
+const DEFAULT_VR_SIZE_GROWTH = 1.5;
+const DEFAULT_VR_LUMINANCE_GAMMA = 0.5;
 
 function createCircleTexture() {
   const canvas = document.createElement('canvas');
@@ -38,142 +35,119 @@ function createCircleTexture() {
   return texture;
 }
 
-export function createVrStarFieldMaterialProfile(options = {}) {
+const VR_SHARED_VERTEX_HEADER = `
+  attribute float teff_log8;
+  attribute float magAbs;
+
+  uniform float uScale;
+  uniform float uMagLimit;
+  uniform float uExtinctionScale;
+  uniform float uExposure;
+  uniform vec3 uCameraPosition;
+
+  float decodeTemperature(float log8) {
+    if (log8 >= 0.996) return 5800.0;
+    return 2000.0 * pow(25.0, log8);
+  }
+
+  vec3 blackbodyToRGB(float temp) {
+    float t = clamp(temp, 1000.0, 40000.0) / 100.0;
+    vec3 c;
+    if (t <= 66.0) c.r = 255.0;
+    else c.r = 329.698727446 * pow(t - 60.0, -0.1332047592);
+    if (t <= 66.0) c.g = 99.4708025861 * log(t) - 161.119568166;
+    else c.g = 288.1221695283 * pow(t - 60.0, -0.0755148492);
+    if (t >= 66.0) c.b = 255.0;
+    else if (t <= 19.0) c.b = 0.0;
+    else c.b = 138.5177312231 * log(t - 10.0) - 305.0447927307;
+    return clamp(c / 255.0, 0.0, 1.0);
+  }
+
+  void computeStarVr(out float mApp, out float energy, out vec3 color) {
+    vec3 worldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+    float d = length(worldPos - uCameraPosition);
+    float dPc = max(d / uScale, 0.001);
+    mApp = magAbs + uExtinctionScale * (5.0 * log(dPc) / log(10.0) - 5.0);
+    float relativeFlux = pow(10.0, 0.4 * (uMagLimit - mApp));
+    energy = relativeFlux * uExposure;
+    color = blackbodyToRGB(decodeTemperature(teff_log8));
+  }
+`;
+
+function createVrCoreMaterial(options) {
   const texture = options.texture ?? createCircleTexture();
-  const ownsTexture = options.texture == null;
-  const material = new THREE.ShaderMaterial({
+  return new THREE.ShaderMaterial({
     uniforms: {
-      uSizeMin: { value: options.sizeMin ?? DEFAULT_SIZE_MIN },
+      uSizeMin: { value: options.sizeMin ?? DEFAULT_VR_SIZE_MIN },
       uSizeMax: { value: options.sizeMax ?? DEFAULT_VR_SIZE_MAX },
+      uLinearScale: { value: options.linearScale ?? DEFAULT_VR_LINEAR_SCALE },
+      uSizeGrowth: { value: options.sizeGrowth ?? DEFAULT_VR_SIZE_GROWTH },
+      uLuminanceGamma: { value: options.luminanceGamma ?? DEFAULT_VR_LUMINANCE_GAMMA },
       uScale: { value: options.scale ?? DEFAULT_METERS_PER_PARSEC },
       uMagLimit: { value: options.magLimit ?? DEFAULT_MAG_LIMIT },
-      uMagLimitNear: { value: options.magLimitNear ?? DEFAULT_MAG_LIMIT_NEAR },
-      uNearDistanceLo: { value: options.nearDistanceLo ?? DEFAULT_NEAR_DISTANCE_LO },
-      uNearDistanceHi: { value: options.nearDistanceHi ?? DEFAULT_NEAR_DISTANCE_HI },
-      uCameraPosition: { value: new THREE.Vector3(0, 0, 0) },
-      uClipMargin: { value: options.clipMargin ?? 1.0 },
-      uExposure: { value: options.exposure ?? DEFAULT_VR_EXPOSURE },
-      uSafeMinSize: { value: options.safeMinSize ?? DEFAULT_SAFE_MIN_SIZE },
-      uMagFadeRange: { value: options.magFadeRange ?? DEFAULT_MAG_FADE_RANGE },
       uExtinctionScale: { value: options.extinctionScale ?? 1.0 },
-      uTime: { value: 0.0 },
-      uHyperlocalSizeMax: { value: options.hyperlocalSizeMax ?? DEFAULT_VR_HYPERLOCAL_SIZE_MAX },
-      uNearfieldRadiusPc: { value: options.nearfieldRadiusPc ?? DEFAULT_VR_NEARFIELD_RADIUS_PC },
-      uNearfieldMinIntensity: { value: options.nearfieldMinIntensity ?? DEFAULT_VR_NEARFIELD_MIN_INTENSITY },
+      uExposure: { value: options.exposure ?? DEFAULT_VR_EXPOSURE },
+      uCameraPosition: { value: new THREE.Vector3(0, 0, 0) },
       map: { value: texture },
     },
-    vertexShader: `
-      attribute float teff_log8;
-      attribute float magAbs;
-
+    vertexShader: VR_SHARED_VERTEX_HEADER + `
       varying vec3 vColor;
-      varying float vIntensity;
-      varying float vCoronaStrength;
+      varying float vLuminance;
 
       uniform float uSizeMin;
       uniform float uSizeMax;
-      uniform float uScale;
-      uniform float uMagLimit;
-      uniform float uMagLimitNear;
-      uniform float uNearDistanceLo;
-      uniform float uNearDistanceHi;
-      uniform vec3 uCameraPosition;
-      uniform float uClipMargin;
-      uniform float uExposure;
-      uniform float uSafeMinSize;
-      uniform float uMagFadeRange;
-      uniform float uExtinctionScale;
-      uniform float uNearfieldRadiusPc;
-      uniform float uNearfieldMinIntensity;
-      uniform float uHyperlocalSizeMax;
-
-      float decodeTemperature(float log8) {
-        if (log8 >= 0.996) return 5800.0;
-        return 2000.0 * pow(25.0, log8);
-      }
-
-      vec3 blackbodyToRGB(float temp) {
-        float t = clamp(temp, 1000.0, 40000.0) / 100.0;
-        vec3 c;
-        if (t <= 66.0) c.r = 255.0;
-        else c.r = 329.698727446 * pow(t - 60.0, -0.1332047592);
-        if (t <= 66.0) c.g = 99.4708025861 * log(t) - 161.119568166;
-        else c.g = 288.1221695283 * pow(t - 60.0, -0.0755148492);
-        if (t >= 66.0) c.b = 255.0;
-        else if (t <= 19.0) c.b = 0.0;
-        else c.b = 138.5177312231 * log(t - 10.0) - 305.0447927307;
-        return clamp(c / 255.0, 0.0, 1.0);
-      }
+      uniform float uLinearScale;
+      uniform float uSizeGrowth;
+      uniform float uLuminanceGamma;
 
       void main() {
-        vec3 worldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-        float d = length(worldPos - uCameraPosition);
-        float dPc = max(d / uScale, 0.001);
-        float mApp = magAbs + uExtinctionScale * (5.0 * log(dPc) / log(10.0) - 5.0);
+        float mApp, energy;
+        vec3 starColor;
+        computeStarVr(mApp, energy, starColor);
+        vColor = starColor;
 
-        float tempK = decodeTemperature(teff_log8);
-        vColor = blackbodyToRGB(tempK);
+        float rawRadius = sqrt(energy) * uLinearScale;
 
-        float t = smoothstep(uNearDistanceLo, uNearDistanceHi, dPc);
-        float effectiveMagLimit = mix(uMagLimitNear, uMagLimit, t);
-        float magDiff = effectiveMagLimit - mApp;
-        float baseSize = pow(max(magDiff, 0.0), 1.2);
-
-        float flux = pow(10.0, -0.4 * mApp);
-        float rawEnergy = flux * uExposure;
-        vIntensity = clamp(rawEnergy, 0.05, 1.0);
-
-        float targetSize = baseSize + (flux * 0.5);
-        float renderedSize = max(targetSize, uSafeMinSize);
-        if (targetSize < uSafeMinSize) {
-          float areaRatio = (targetSize * targetSize) / (uSafeMinSize * uSafeMinSize);
-          vIntensity *= areaRatio;
+        float luminance;
+        float radius;
+        if (rawRadius < uSizeMin) {
+          luminance = (rawRadius * rawRadius * rawRadius) /
+                      (uSizeMin * uSizeMin * uSizeMin);
+          radius = uSizeMin;
+          if (luminance < 0.02) {
+            luminance = 0.0;
+            radius = 0.0;
+          }
+        } else {
+          luminance = pow(rawRadius / uSizeMin, uLuminanceGamma);
+          radius = uSizeMin + uSizeGrowth * log2(rawRadius / uSizeMin + 1.0);
         }
 
-        float hyperlocalFade = 1.0 - smoothstep(0.5, 2.0, dPc);
-        float inverseDistBoost = min(1.0 / max(dPc, 0.01), 8.0);
-        renderedSize *= mix(1.0, inverseDistBoost, hyperlocalFade);
-        float effectiveSizeMax = mix(uSizeMax, uHyperlocalSizeMax, hyperlocalFade);
+        gl_PointSize = clamp(radius, 0.0, uSizeMax);
+        vLuminance = luminance;
 
-        float closeFade = 1.0 - smoothstep(1.0, 3.0, dPc);
-        renderedSize *= 1.0 + closeFade;
-        gl_PointSize = min(renderedSize, effectiveSizeMax);
-        vCoronaStrength = max(hyperlocalFade, closeFade * max(0.5, smoothstep(1000.0, 50000.0, rawEnergy)));
-
-        float nearfieldFade = 1.0 - smoothstep(0.0, uNearfieldRadiusPc, dPc);
-        vIntensity = max(vIntensity, uNearfieldMinIntensity * nearfieldFade);
-
-        float edgeFade = 1.0 - smoothstep(effectiveMagLimit - uMagFadeRange, effectiveMagLimit, mApp);
-        vIntensity *= edgeFade;
-
-        vec4 clipPos = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        clipPos.xy *= uClipMargin;
-        gl_Position = clipPos;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
     fragmentShader: `
       uniform sampler2D map;
-      uniform float uTime;
       varying vec3 vColor;
-      varying float vIntensity;
-      varying float vCoronaStrength;
+      varying float vLuminance;
 
       void main() {
-        if (vIntensity <= 0.0) discard;
+        if (vLuminance <= 0.0) discard;
 
         float dist = distance(gl_PointCoord, vec2(0.5));
         if (dist > 0.5) discard;
 
         vec4 texColor = texture2D(map, gl_PointCoord);
-        float core = exp(-dist * 8.0);
+        float core = exp(-dist * 12.0);
         float halo = texColor.a;
 
         vec3 finalColor = mix(vColor, vec3(1.0), core);
-        float wispyCorona = vCoronaStrength * 0.6 * exp(-2.0 * dist) * (1.0 - smoothstep(0.05, 0.6, dist));
-        wispyCorona *= (0.9 + 0.1 * sin(uTime * 2.0 + dist * 8.0));
-        finalColor += vColor * wispyCorona;
+        float starAlpha = (halo + core) * vLuminance;
+        if (starAlpha < 0.01) discard;
 
-        float starAlpha = min(halo + core + wispyCorona, 1.0) * vIntensity;
         gl_FragColor = vec4(finalColor, starAlpha);
       }
     `,
@@ -182,38 +156,210 @@ export function createVrStarFieldMaterialProfile(options = {}) {
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   });
+}
+
+function createVrHaloMaterial(options, layerConfig) {
+  const texture = layerConfig.texture ?? createBigHaloTexture();
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uScale: { value: options.scale ?? DEFAULT_METERS_PER_PARSEC },
+      uMagLimit: { value: options.magLimit ?? DEFAULT_MAG_LIMIT },
+      uExtinctionScale: { value: options.extinctionScale ?? 1.0 },
+      uExposure: { value: options.exposure ?? DEFAULT_VR_EXPOSURE },
+      uCameraPosition: { value: new THREE.Vector3(0, 0, 0) },
+      uMagThreshold: { value: layerConfig.magThreshold },
+      uHaloSize: { value: layerConfig.size },
+      uHaloIntensity: { value: layerConfig.intensity },
+      uFalloff: { value: layerConfig.falloff },
+      map: { value: texture },
+    },
+    vertexShader: VR_SHARED_VERTEX_HEADER + `
+      varying vec3 vColor;
+      varying float vHaloAlpha;
+
+      uniform float uMagThreshold;
+      uniform float uHaloSize;
+      uniform float uHaloIntensity;
+
+      void main() {
+        float mApp, energy;
+        vec3 starColor;
+        computeStarVr(mApp, energy, starColor);
+        vColor = starColor;
+
+        float brightness = uMagThreshold - mApp;
+        if (brightness <= 0.0) {
+          gl_PointSize = 0.0;
+          vHaloAlpha = 0.0;
+        } else {
+          vHaloAlpha = smoothstep(0.0, 2.0, brightness) * uHaloIntensity;
+          gl_PointSize = uHaloSize * (1.0 + 0.3 * min(brightness, 10.0));
+        }
+
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D map;
+      uniform float uFalloff;
+      varying vec3 vColor;
+      varying float vHaloAlpha;
+
+      void main() {
+        if (vHaloAlpha <= 0.0) discard;
+
+        float dist = distance(gl_PointCoord, vec2(0.5));
+        if (dist > 0.5) discard;
+
+        float glow = exp(-dist * uFalloff);
+        float alpha = glow * vHaloAlpha;
+        if (alpha < 0.003) discard;
+
+        gl_FragColor = vec4(vColor * alpha, alpha);
+      }
+    `,
+    transparent: true,
+    alphaTest: 0.003,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+}
+
+function createVrDiffractionMaterial(options, layerConfig) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uScale: { value: options.scale ?? DEFAULT_METERS_PER_PARSEC },
+      uMagLimit: { value: options.magLimit ?? DEFAULT_MAG_LIMIT },
+      uExtinctionScale: { value: options.extinctionScale ?? 1.0 },
+      uExposure: { value: options.exposure ?? DEFAULT_VR_EXPOSURE },
+      uCameraPosition: { value: new THREE.Vector3(0, 0, 0) },
+      uMagThreshold: { value: layerConfig.magThreshold },
+      uSpikeSize: { value: layerConfig.size },
+      uSpikeIntensity: { value: layerConfig.intensity },
+      uSpikeWidth: { value: layerConfig.spikeWidth },
+    },
+    vertexShader: VR_SHARED_VERTEX_HEADER + `
+      varying vec3 vColor;
+      varying float vSpikeAlpha;
+
+      uniform float uMagThreshold;
+      uniform float uSpikeSize;
+      uniform float uSpikeIntensity;
+
+      void main() {
+        float mApp, energy;
+        vec3 starColor;
+        computeStarVr(mApp, energy, starColor);
+        vColor = starColor;
+
+        float brightness = uMagThreshold - mApp;
+        if (brightness <= 0.0) {
+          gl_PointSize = 0.0;
+          vSpikeAlpha = 0.0;
+        } else {
+          vSpikeAlpha = smoothstep(0.0, 3.0, brightness) * uSpikeIntensity;
+          gl_PointSize = uSpikeSize * (1.0 + 0.2 * min(brightness, 12.0));
+        }
+
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uSpikeWidth;
+      varying vec3 vColor;
+      varying float vSpikeAlpha;
+
+      void main() {
+        if (vSpikeAlpha <= 0.0) discard;
+
+        vec2 centered = (gl_PointCoord - vec2(0.5)) * 2.0;
+        float dist = length(centered);
+        if (dist > 1.0) discard;
+
+        float spikeX = exp(-abs(centered.y) * uSpikeWidth) * exp(-dist * 1.5);
+        float spikeY = exp(-abs(centered.x) * uSpikeWidth) * exp(-dist * 1.5);
+        float spike = max(spikeX, spikeY);
+
+        float alpha = spike * vSpikeAlpha;
+        if (alpha < 0.003) discard;
+
+        vec3 color = mix(vColor, vec3(1.0), spike * 0.3);
+        gl_FragColor = vec4(color * alpha, alpha);
+      }
+    `,
+    transparent: true,
+    alphaTest: 0.003,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+}
+
+const VR_HALO_LAYERS = [
+  { magThreshold: 2.0, size: 40.0, intensity: 0.15, falloff: 4.0 },
+  { magThreshold: -3.0, size: 100.0, intensity: 0.08, falloff: 3.0 },
+  { magThreshold: -8.0, size: 200.0, intensity: 0.04, falloff: 2.5 },
+];
+
+const VR_DIFFRACTION_LAYER = {
+  magThreshold: -5.0, size: 120.0, intensity: 0.12, spikeWidth: 8.0,
+};
+
+export function createVrStarFieldMaterialProfile(options = {}) {
+  const coreTexture = options.texture ?? createCircleTexture();
+  const haloTexture = options.haloTexture ?? createBigHaloTexture();
+  const ownsTextures = options.texture == null;
+
+  const coreMaterial = createVrCoreMaterial({ ...options, texture: coreTexture });
+
+  const haloMaterials = VR_HALO_LAYERS.map((layer) =>
+    createVrHaloMaterial(options, { ...layer, texture: haloTexture }),
+  );
+
+  const diffractionMaterial = createVrDiffractionMaterial(options, VR_DIFFRACTION_LAYER);
+  haloMaterials.push(diffractionMaterial);
+
+  const allMaterials = [coreMaterial, ...haloMaterials];
+
+  function syncUniforms(state) {
+    const scale = Number.isFinite(state.starFieldScale)
+      ? state.starFieldScale
+      : options.scale ?? DEFAULT_METERS_PER_PARSEC;
+    const extinction = Number.isFinite(state.starFieldExtinctionScale)
+      ? state.starFieldExtinctionScale
+      : options.extinctionScale ?? 1.0;
+    const magLimit = Number.isFinite(state.mDesired)
+      ? state.mDesired
+      : options.magLimit ?? DEFAULT_MAG_LIMIT;
+    const exposure = Number.isFinite(state.starFieldExposure)
+      ? state.starFieldExposure
+      : options.exposure ?? DEFAULT_VR_EXPOSURE;
+
+    for (const mat of allMaterials) {
+      mat.uniforms.uScale.value = scale;
+      mat.uniforms.uExtinctionScale.value = extinction;
+      mat.uniforms.uMagLimit.value = magLimit;
+      mat.uniforms.uExposure.value = exposure;
+    }
+  }
 
   return {
-    material,
+    material: coreMaterial,
+    haloMaterials,
+    get haloMaterial() { return haloMaterials[0] ?? null; },
     updateUniforms(context = {}) {
-      const {
-        cameraWorldPosition = null,
-        frame = null,
-        state = {},
-      } = context;
-
+      const { cameraWorldPosition = null, state = {} } = context;
       if (cameraWorldPosition) {
-        material.uniforms.uCameraPosition.value.copy(cameraWorldPosition);
+        for (const mat of allMaterials) {
+          mat.uniforms.uCameraPosition.value.copy(cameraWorldPosition);
+        }
       }
-
-      material.uniforms.uScale.value = Number.isFinite(state.starFieldScale)
-        ? state.starFieldScale
-        : options.scale ?? DEFAULT_METERS_PER_PARSEC;
-      material.uniforms.uExtinctionScale.value = Number.isFinite(state.starFieldExtinctionScale)
-        ? state.starFieldExtinctionScale
-        : options.extinctionScale ?? 1.0;
-      material.uniforms.uMagLimit.value = Number.isFinite(state.mDesired)
-        ? state.mDesired
-        : options.magLimit ?? DEFAULT_MAG_LIMIT;
-      material.uniforms.uExposure.value = Number.isFinite(state.starFieldExposure)
-        ? state.starFieldExposure
-        : options.exposure ?? DEFAULT_VR_EXPOSURE;
-      material.uniforms.uTime.value = frame?.elapsedSeconds ?? 0;
+      syncUniforms(state);
     },
     dispose() {
-      material.dispose();
-      if (ownsTexture) {
-        texture.dispose();
+      for (const mat of allMaterials) mat.dispose();
+      if (ownsTextures) {
+        coreTexture.dispose();
+        haloTexture.dispose();
       }
     },
   };
@@ -248,7 +394,7 @@ export const DEFAULT_STAR_FIELD_STATE = Object.freeze({
 export const DEFAULT_XR_STAR_FIELD_STATE = Object.freeze({
   starFieldScale: DEFAULT_METERS_PER_PARSEC,
   starFieldExtinctionScale: 1.0,
-  starFieldExposure: DEFAULT_VR_EXPOSURE,
+  starFieldExposure: 1.0,
   mDesired: DEFAULT_MAG_LIMIT,
 });
 

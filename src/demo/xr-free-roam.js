@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import {
   createVrStarFieldMaterialProfile,
+  createTunedStarFieldMaterialProfile,
   DEFAULT_XR_STAR_FIELD_STATE,
+  DEFAULT_TUNED_EXPOSURE,
   createFoundInSpaceDatasetOptions,
   createObserverShellField,
   createSceneOrientationTransforms,
@@ -19,6 +21,33 @@ import { createXrLocomotionController } from '../controllers/xr-locomotion-contr
 import { createXrPickController } from '../controllers/xr-pick-controller.js';
 import { createXrTabletController } from '../controllers/xr-tablet-controller.js';
 import { DEFAULT_METERS_PER_PARSEC, SCALE } from '../services/octree/scene-scale.js';
+
+// Approximate ICRS positions (parsecs) for waypoint targets.
+// Computed from Hipparcos/Gaia RA, Dec, and parallax.
+const PROXIMA_CEN_PC = { x: -0.47, y: -0.36, z: -1.16 };
+const SIRIUS_PC = { x: -0.49, y: 2.48, z: -0.76 };
+const BETELGEUSE_PC = { x: 4.2, y: 198.3, z: 25.8 };
+
+function offsetFromStar(starPc, distancePc) {
+  const dx = -starPc.x, dy = -starPc.y, dz = -starPc.z;
+  const len = Math.hypot(dx, dy, dz);
+  if (len < 1e-6) return { x: distancePc, y: 0, z: 0 };
+  const f = distancePc / len;
+  return {
+    x: starPc.x + dx * f,
+    y: starPc.y + dy * f,
+    z: starPc.z + dz * f,
+  };
+}
+
+const WAYPOINTS = [
+  { label: 'At Sol', observerPc: { x: 0, y: 0, z: 0 } },
+  { label: 'Sol from 10 pc', observerPc: { x: 10, y: 0, z: 0 } },
+  { label: 'Proxima 0.1 pc', observerPc: offsetFromStar(PROXIMA_CEN_PC, 0.1) },
+  { label: 'Sirius 0.1 pc', observerPc: offsetFromStar(SIRIUS_PC, 0.1) },
+  { label: 'Betelgeuse 5 pc', observerPc: offsetFromStar(BETELGEUSE_PC, 5) },
+  { label: 'Betelgeuse 0.1 pc', observerPc: offsetFromStar(BETELGEUSE_PC, 0.1) },
+];
 
 const XR_REFERENCE_SPACE_TYPE = 'local-floor';
 const XR_NEAR_PLANE = 0.25;
@@ -366,15 +395,57 @@ async function mountViewer() {
     includePickMeta: true,
   });
 
+  const vrProfile = createVrStarFieldMaterialProfile();
+  const tunedProfile = createTunedStarFieldMaterialProfile({
+    scale: DEFAULT_METERS_PER_PARSEC,
+  });
+
+  function nonDisposable(profile) {
+    return { ...profile, dispose() {} };
+  }
+
+  const mainMenuItems = [
+    { id: 'star-info', label: 'Selected Star', type: 'display', lines: [], dismissible: true },
+    { id: 'tuned-shader', label: 'Desktop Shader', type: 'toggle', value: false },
+    { id: 'show-waypoints', label: '\u25B8 Waypoints', type: 'button' },
+  ];
+
+  const waypointMenuItems = [
+    { id: 'wp-back', label: '\u25C2 Back', type: 'button' },
+    ...WAYPOINTS.map((wp, i) => ({ id: `wp-${i}`, label: wp.label, type: 'button' })),
+  ];
+
   const xrTabletController = createXrTabletController({
     id: 'xr-tablet-controller',
-    items: [
-      { id: 'star-info', label: 'Selected Star', type: 'display', lines: [], dismissible: true },
-    ],
-    onChange(id) {
+    items: mainMenuItems,
+    onChange(id, value) {
       if (id === 'star-info') {
         pickControllerRef?.clearSelection();
         handlePick(null);
+      }
+      if (id === 'tuned-shader') {
+        if (value) {
+          starFieldLayer.setMaterialProfile(nonDisposable(tunedProfile));
+          viewer?.setState({ starFieldExposure: DEFAULT_TUNED_EXPOSURE });
+        } else {
+          starFieldLayer.setMaterialProfile(nonDisposable(vrProfile));
+          viewer?.setState({ starFieldExposure: DEFAULT_XR_STAR_FIELD_STATE.starFieldExposure });
+        }
+      }
+      if (id === 'show-waypoints') {
+        xrTabletController.setItems(waypointMenuItems);
+      }
+      if (id === 'wp-back') {
+        xrTabletController.setItems(mainMenuItems);
+      }
+      const wpMatch = id.match(/^wp-(\d+)$/);
+      if (wpMatch) {
+        const wp = WAYPOINTS[parseInt(wpMatch[1])];
+        if (wp && viewer) {
+          viewer.setState({ observerPc: { ...wp.observerPc } });
+          viewer.refreshSelection().catch(console.error);
+        }
+        xrTabletController.setItems(mainMenuItems);
       }
     },
   });

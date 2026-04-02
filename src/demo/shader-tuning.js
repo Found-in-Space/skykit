@@ -246,15 +246,15 @@ function syncUniforms() {
   u.uMagLimit.value = getMagLimit();
   if (u.uSizeMin) u.uSizeMin.value = getSizeMin();
   if (u.uSizeMax) u.uSizeMax.value = getSizeMax();
-  u.uMagFadeRange.value = getFadeRange();
+  if (u.uMagFadeRange) u.uMagFadeRange.value = getFadeRange();
   u.uCameraPosition.value.set(0, 0, 0);
 
   if (materialProfile.haloMaterial) {
     const h = materialProfile.haloMaterial.uniforms;
-    h.uExposure.value = getExposure();
-    h.uMagLimit.value = getMagLimit();
-    h.uMagFadeRange.value = getFadeRange();
-    h.uCameraPosition.value.set(0, 0, 0);
+    if (h.uExposure) h.uExposure.value = getExposure();
+    if (h.uMagLimit) h.uMagLimit.value = getMagLimit();
+    if (h.uMagFadeRange) h.uMagFadeRange.value = getFadeRange();
+    if (h.uCameraPosition) h.uCameraPosition.value.set(0, 0, 0);
   }
 }
 

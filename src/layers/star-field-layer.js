@@ -25,7 +25,8 @@ function normalizeMaterialProfile(profile) {
   if (profile instanceof THREE.Material) {
     return {
       material: profile,
-      haloMaterial: null,
+      haloMaterials: [],
+      get haloMaterial() { return null; },
       updateUniforms: null,
       dispose() {
         profile.dispose();
@@ -37,19 +38,25 @@ function normalizeMaterialProfile(profile) {
     throw new TypeError('StarFieldLayer materialFactory must return a Material or { material } profile');
   }
 
-  const haloMat = profile.haloMaterial instanceof THREE.Material
-    ? profile.haloMaterial
-    : null;
+  const haloMaterials = [];
+  if (Array.isArray(profile.haloMaterials)) {
+    for (const mat of profile.haloMaterials) {
+      if (mat instanceof THREE.Material) haloMaterials.push(mat);
+    }
+  } else if (profile.haloMaterial instanceof THREE.Material) {
+    haloMaterials.push(profile.haloMaterial);
+  }
 
   return {
     material: profile.material,
-    haloMaterial: haloMat,
+    haloMaterials,
+    get haloMaterial() { return haloMaterials[0] ?? null; },
     updateUniforms: typeof profile.updateUniforms === 'function' ? profile.updateUniforms : null,
     dispose: typeof profile.dispose === 'function'
       ? profile.dispose.bind(profile)
       : () => {
         profile.material.dispose();
-        if (haloMat) haloMat.dispose();
+        for (const m of haloMaterials) m.dispose();
       },
   };
 }
@@ -65,16 +72,14 @@ function createNodeRenderKey(node) {
   return node?.nodeKey ?? `${node?.payloadOffset ?? 'none'}:${node?.payloadLength ?? 0}`;
 }
 
-function clearGeometry(mesh, haloMesh) {
+function clearGeometry(mesh, haloMeshes) {
   if (mesh.geometry) {
     mesh.geometry.dispose();
   }
   const empty = new THREE.BufferGeometry();
   mesh.geometry = empty;
   mesh.userData.pickMeta = [];
-  if (haloMesh) {
-    haloMesh.geometry = empty;
-  }
+  for (const h of haloMeshes) h.geometry = empty;
 }
 
 function notifyCommit(options, payload) {
@@ -95,7 +100,25 @@ export function createStarFieldLayer(options = {}) {
   points.frustumCulled = false;
   group.add(points);
 
-  let haloPoints = null;
+  let haloPointsArr = [];
+
+  function syncHaloMeshes() {
+    const mats = materialProfile?.haloMaterials ?? [];
+    while (haloPointsArr.length > mats.length) {
+      group.remove(haloPointsArr.pop());
+    }
+    for (let i = 0; i < mats.length; i++) {
+      if (i < haloPointsArr.length) {
+        haloPointsArr[i].material = mats[i];
+      } else {
+        const hp = new THREE.Points(points.geometry, mats[i]);
+        hp.name = `${group.name}-halo-${i}`;
+        hp.frustumCulled = false;
+        group.add(hp);
+        haloPointsArr.push(hp);
+      }
+    }
+  }
 
   const cameraWorldPosition = new THREE.Vector3();
   let materialProfile = null;
@@ -126,13 +149,7 @@ export function createStarFieldLayer(options = {}) {
       placeholderMaterial.dispose();
     }
     points.material = materialProfile.material;
-
-    if (materialProfile.haloMaterial && !haloPoints) {
-      haloPoints = new THREE.Points(points.geometry, materialProfile.haloMaterial);
-      haloPoints.name = `${group.name}-halo`;
-      haloPoints.frustumCulled = false;
-      group.add(haloPoints);
-    }
+    syncHaloMeshes();
 
     return materialProfile;
   }
@@ -225,9 +242,7 @@ export function createStarFieldLayer(options = {}) {
       points.geometry.dispose();
     }
     points.geometry = geometry;
-    if (haloPoints) {
-      haloPoints.geometry = geometry;
-    }
+    for (const hp of haloPointsArr) hp.geometry = geometry;
     points.userData.pickMeta = pickMeta;
     stats = {
       nodeCount: segments.length,
@@ -261,7 +276,7 @@ export function createStarFieldLayer(options = {}) {
 
     if (!datasetSession) {
       stats = { nodeCount: 0, starCount: 0, loadGeneration: generation };
-      clearGeometry(points, haloPoints);
+      clearGeometry(points, haloPointsArr);
       return null;
     }
 
@@ -270,7 +285,7 @@ export function createStarFieldLayer(options = {}) {
       : [];
     if (nodes.length === 0) {
       stats = { nodeCount: 0, starCount: 0, loadGeneration: generation };
-      clearGeometry(points, haloPoints);
+      clearGeometry(points, haloPointsArr);
       return null;
     }
 
@@ -329,6 +344,16 @@ export function createStarFieldLayer(options = {}) {
     getStats() {
       return { ...stats };
     },
+    setMaterialProfile(newProfile) {
+      const normalized = normalizeMaterialProfile(newProfile);
+
+      if (materialProfile) {
+        materialProfile.dispose();
+      }
+      materialProfile = normalized;
+      points.material = normalized.material;
+      syncHaloMeshes();
+    },
     getStarData() {
       const geometry = points.geometry;
       const positions = geometry?.getAttribute?.('position');
@@ -385,7 +410,8 @@ export function createStarFieldLayer(options = {}) {
       } else if (points.material === placeholderMaterial) {
         placeholderMaterial.dispose();
       }
-      haloPoints = null;
+      for (const hp of haloPointsArr) group.remove(hp);
+      haloPointsArr = [];
     },
   };
 
