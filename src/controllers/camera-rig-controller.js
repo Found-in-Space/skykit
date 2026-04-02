@@ -364,10 +364,30 @@ export function createCameraRigController(options = {}) {
     }
 
     if (movementAutomation.type === 'orbit') {
-      movementAutomation.angle += (movementAutomation.angularSpeed ?? 0.1) * dt;
-      const { center, radius } = movementAutomation;
-      const cosA = Math.cos(movementAutomation.angle);
-      const sinA = Math.sin(movementAutomation.angle);
+      const auto = movementAutomation;
+
+      if (auto.targetRadius != null) {
+        const diff = auto.targetRadius - auto.radius;
+        const absDiff = Math.abs(diff);
+        const speed = Math.min(
+          auto.radiusSpeed ?? 60,
+          absDiff * (auto.radiusDecel ?? 2.5),
+        );
+        const step = speed * dt;
+        if (absDiff <= step || absDiff < 0.01) {
+          auto.radius = auto.targetRadius;
+          auto.targetRadius = undefined;
+          auto.radiusSpeed = undefined;
+          auto.radiusDecel = undefined;
+        } else {
+          auto.radius += Math.sign(diff) * step;
+        }
+      }
+
+      auto.angle += (auto.angularSpeed ?? 0.1) * dt;
+      const { center, radius } = auto;
+      const cosA = Math.cos(auto.angle);
+      const sinA = Math.sin(auto.angle);
       const [ix, iy, iz] = rig.sceneToIcrs(
         cosA * radius * rig.sceneScale,
         0,
@@ -647,13 +667,29 @@ export function createCameraRigController(options = {}) {
       if (currentDistance <= orbitRadius * 1.01) {
         const [sx, , sz] = rig.icrsToScene(dx, dy, dz);
         const angle = Math.atan2(sz, sx);
-        movementAutomation = {
-          type: 'orbit',
-          center,
-          radius: orbitRadius,
-          angularSpeed,
-          angle,
-        };
+        const radiusDelta = Math.abs(currentDistance - orbitRadius);
+
+        if (radiusDelta < orbitRadius * 0.03) {
+          movementAutomation = {
+            type: 'orbit',
+            center,
+            radius: orbitRadius,
+            angularSpeed,
+            angle,
+          };
+        } else {
+          movementAutomation = {
+            type: 'orbit',
+            center,
+            radius: currentDistance,
+            angularSpeed,
+            angle,
+            targetRadius: orbitRadius,
+            radiusSpeed: approachSpeed,
+            radiusDecel: deceleration,
+          };
+        }
+
         onInserted?.();
         return;
       }

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { DEFAULT_TUNED_EXPOSURE } from '../layers/star-field-materials.js';
 import { pickStar } from '../services/star-picker.js';
 import { SCALE } from '../services/octree/scene-scale.js';
 
@@ -61,7 +62,7 @@ export function createPickController(options = {}) {
       fovRad,
       viewportHeight: latestSize?.height ?? 800,
       magLimit: latestState?.mDesired ?? 6.5,
-      exposure: latestState?.starFieldExposure ?? 0.028,
+      exposure: latestState?.starFieldExposure ?? DEFAULT_TUNED_EXPOSURE,
       extinctionScale: latestState?.starFieldExtinctionScale ?? 1.0,
     });
     const pickTimeMs = performance.now() - t0;

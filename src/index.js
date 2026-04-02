@@ -51,8 +51,9 @@ export { createCartoonStarFieldMaterialProfile } from './layers/star-field-mater
 export {
   createDefaultStarFieldMaterialProfile,
   DEFAULT_MAG_LIMIT,
-  DEFAULT_XR_STAR_FIELD_STATE,
   DEFAULT_STAR_FIELD_STATE,
+  DEFAULT_TUNED_EXPOSURE,
+  DEFAULT_XR_STAR_FIELD_STATE,
 } from './layers/star-field-materials.js';
 export { createTunedStarFieldMaterialProfile } from './layers/star-field-materials.js';
 export { createVrStarFieldMaterialProfile } from './layers/star-field-materials.js';
@@ -71,11 +72,17 @@ export {
 export {
   ALCYONE_PC,
   GALACTIC_CENTER_PC,
+  HYADES_CENTER_PC,
+  OMEGA_CEN_CENTER_PC,
   ORION_CENTER_PC,
   ORION_NEBULA_PC,
+  PLEIADES_CENTER_PC,
   SCENE_TARGETS_PC,
   SOLAR_ORIGIN_PC,
+  UPPER_SCO_CENTER_PC,
 } from './scene-targets.js';
+export { SCALE as SCENE_SCALE } from './services/octree/scene-scale.js';
+export { createRadioBubbleMeshes } from './layers/radio-bubble-meshes.js';
 export { createConstellationPreset } from './presets/constellation-preset.js';
 export { createFullscreenPreset } from './presets/fullscreen-preset.js';
 export { createParallaxPositionController } from './presets/parallax-position-controller.js';

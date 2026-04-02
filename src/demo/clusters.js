@@ -10,9 +10,13 @@ import {
   createViewer,
   DEFAULT_STAR_FIELD_STATE,
   getDatasetSession,
+  HYADES_CENTER_PC,
+  OMEGA_CEN_CENTER_PC,
   ORION_CENTER_PC,
   ORION_NEBULA_PC,
+  PLEIADES_CENTER_PC,
   SOLAR_ORIGIN_PC,
+  UPPER_SCO_CENTER_PC,
   resolveFoundInSpaceDatasetOverrides,
 } from '../index.js';
 
@@ -35,8 +39,7 @@ const CLUSTER_PRESETS = [
   {
     id: 'upper-sco',
     label: 'Upper Scorpius',
-    // ICRS xyz derived from RA≈243°, Dec≈−23°, d≈145 pc
-    center: { x: -60.596, y: -118.925, z: -56.656 },
+    center: UPPER_SCO_CENTER_PC,
     orbitRadius: 50,
     angularSpeed: 0.15,
     flySpeed: 160,
@@ -44,8 +47,7 @@ const CLUSTER_PRESETS = [
   {
     id: 'pleiades',
     label: 'Pleiades (M45)',
-    // ICRS xyz from RA=03h47m24s, Dec=+24°07′, d≈135 pc
-    center: { x: 67.379, y: 103.162, z: 55.161 },
+    center: PLEIADES_CENTER_PC,
     orbitRadius: 25,
     angularSpeed: 0.18,
     flySpeed: 150,
@@ -53,8 +55,7 @@ const CLUSTER_PRESETS = [
   {
     id: 'hyades',
     label: 'Hyades',
-    // ICRS xyz from RA=04h29m47.3s, Dec=+16°56′53″, d≈47.9 pc
-    center: { x: 17.574, y: 42.316, z: 13.963 },
+    center: HYADES_CENTER_PC,
     orbitRadius: 15,
     angularSpeed: 0.22,
     flySpeed: 100,
@@ -62,8 +63,7 @@ const CLUSTER_PRESETS = [
   {
     id: 'omega-cen',
     label: 'Omega Centauri',
-    // ICRS xyz from RA=13h26m47.24s, Dec=−47°28′46.5″, d≈5240 pc
-    center: { x: -3290.566, y: -1309.263, z: -3862.073 },
+    center: OMEGA_CEN_CENTER_PC,
     orbitRadius: 200,
     angularSpeed: 0.08,
     flySpeed: 600,

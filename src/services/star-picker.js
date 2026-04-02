@@ -1,10 +1,11 @@
+import { DEFAULT_TUNED_EXPOSURE } from '../layers/star-field-materials.js';
 import { SCALE } from './octree/scene-scale.js';
 
 const DEG_TO_RAD = Math.PI / 180;
 const RAD_TO_DEG = 180 / Math.PI;
 
 const TUNED_DEFAULTS = Object.freeze({
-  exposure: 0.028,
+  exposure: DEFAULT_TUNED_EXPOSURE,
   linearScale: 12.0,
   magLimit: 6.5,
   sizeMin: 2.0,

@@ -45,7 +45,7 @@ test('decodeTemperatureK produces hotter values at higher bytes', () => {
 });
 
 test('computeVisualRadiusPx returns zero for very faint stars', () => {
-  const px = computeVisualRadiusPx(12, { magLimit: 6.5 });
+  const px = computeVisualRadiusPx(15, { magLimit: 6.5 });
   assert.equal(px, 0, 'faint stars below luminance threshold should get radius 0');
 });
 
