@@ -279,8 +279,8 @@ export function createStarFieldLayer(options = {}) {
       bootstrap = await datasetSession.ensureRenderBootstrap();
       await ensureMaterialProfile(context);
 
-      const hasVisibleGeometry = stats.starCount > 0;
-      if (!hasVisibleGeometry && typeof renderService.fetchNodePayloadBatchProgressive === 'function') {
+      const useProgressive = options.progressive === true || stats.starCount === 0;
+      if (useProgressive && typeof renderService.fetchNodePayloadBatchProgressive === 'function') {
         const decodedByNodeKey = new Map();
         await renderService.fetchNodePayloadBatchProgressive(nodes, {
           onBatch: (entries) => {

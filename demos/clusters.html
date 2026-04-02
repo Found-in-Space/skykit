@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit: Cluster Explorer</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .cluster-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin: 16px 0;
+      }
+
+      .cluster-card {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 3px;
+        min-height: auto;
+        padding: 12px 16px;
+        border-radius: 16px;
+        text-align: left;
+        width: 100%;
+        transition: border-color 0.15s, background 0.15s;
+      }
+
+      .cluster-card:not(:disabled):hover {
+        border-color: var(--accent-strong);
+        background: rgba(115, 213, 255, 0.07);
+      }
+
+      .cluster-card.active {
+        border-color: var(--accent-strong);
+        background: rgba(115, 213, 255, 0.13);
+      }
+
+      .cluster-name {
+        font-weight: 600;
+        color: var(--text-main);
+        font-size: 1rem;
+        line-height: 1.2;
+      }
+
+      .cluster-sub {
+        font-size: 0.78rem;
+        color: var(--text-muted);
+        line-height: 1.3;
+        font-weight: 400;
+      }
+
+      .action-row {
+        display: flex;
+        gap: 10px;
+        margin-top: 4px;
+      }
+
+      .action-row button {
+        flex: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <nav class="breadcrumb">
+        <a href="../index.html">SkyKit</a>
+        <span>/ Cluster Explorer</span>
+      </nav>
+      <h1>Cluster Explorer</h1>
+      <p>
+        Click a cluster to fly there and enter orbit. Manual WASD / pointer
+        controls still work — any input cancels the automation.
+      </p>
+
+      <label for="mag-limit">Magnitude limit</label>
+      <input id="mag-limit" type="number" min="0" max="25" step="0.5" value="6.5" data-mag-limit />
+
+      <p class="aside-section-title">Clusters</p>
+      <div class="cluster-list">
+        <button type="button" class="cluster-card" data-cluster-id="orion-nebula" disabled>
+          <span class="cluster-name">Orion Nebula</span>
+          <span class="cluster-sub">Star-forming region · ~400 pc · &lt;2 Myr</span>
+        </button>
+
+        <button type="button" class="cluster-card" data-cluster-id="upper-sco" disabled>
+          <span class="cluster-name">Upper Scorpius</span>
+          <span class="cluster-sub">Young OB association · ~145 pc · ~10 Myr</span>
+        </button>
+
+        <button type="button" class="cluster-card" data-cluster-id="pleiades" disabled>
+          <span class="cluster-name">Pleiades (M45)</span>
+          <span class="cluster-sub">Young open cluster · ~135 pc · ~100 Myr</span>
+        </button>
+
+        <button type="button" class="cluster-card" data-cluster-id="hyades" disabled>
+          <span class="cluster-name">Hyades</span>
+          <span class="cluster-sub">Older open cluster · ~48 pc · ~680 Myr</span>
+        </button>
+
+        <button type="button" class="cluster-card" data-cluster-id="omega-cen" disabled>
+          <span class="cluster-name">Omega Centauri</span>
+          <span class="cluster-sub">Massive globular · ~5.2 kpc · ~10 Gyr</span>
+        </button>
+      </div>
+
+      <div class="action-row">
+        <button type="button" data-action="home" disabled>↩ Home (Sun)</button>
+        <button type="button" data-action="cancel" disabled>✕ Cancel</button>
+      </div>
+
+      <p class="status">Status: <span data-status>loading…</span></p>
+    </aside>
+    <main>
+      <div class="viewer-shell" data-skykit-viewer-root></div>
+    </main>
+    <script type="module" src="/src/demo/clusters.js"></script>
+  </body>
+</html>

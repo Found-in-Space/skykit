@@ -20,6 +20,8 @@ export default defineConfig({
         hrDiagram: path.resolve(__dirname, 'demos/hr-diagram.html'),
         radioBubble: path.resolve(__dirname, 'demos/radio-bubble.html'),
         starPick: path.resolve(__dirname, 'demos/star-pick.html'),
+        clusters: path.resolve(__dirname, 'demos/clusters.html'),
+        dataShape: path.resolve(__dirname, 'demos/data-shape.html'),
       },
     },
   },
