@@ -13,6 +13,7 @@ import {
   ORION_CENTER_PC,
   resolveFoundInSpaceDatasetOverrides,
   formatDistancePc,
+  buildSimbadBasicSearch,
 } from '../index.js';
 import { createXrLocomotionController } from '../controllers/xr-locomotion-controller.js';
 import { createXrPickController } from '../controllers/xr-pick-controller.js';
@@ -79,6 +80,7 @@ const datasetSession = getDatasetSession(createFoundInSpaceDatasetOptions({
 let starFieldLayer = null;
 let viewer = null;
 let snapshotTimer = null;
+let pickGeneration = 0;
 let xrSupported = null;
 let activeMagLimit = Number.isFinite(Number(magLimitInput?.value)) ? Number(magLimitInput.value) : 7.5;
 let warmState = {
@@ -96,11 +98,54 @@ function fmt(n, decimals = 2) {
   return Number.isFinite(n) ? n.toFixed(decimals) : '—';
 }
 
+let xrPickUi = null;
+function bindXrPickUi() {
+  if (xrPickUi || !pickInfoEl) {
+    return xrPickUi;
+  }
+  xrPickUi = {
+    empty: pickInfoEl.querySelector('[data-pick-empty]'),
+    detail: pickInfoEl.querySelector('[data-pick-detail]'),
+    catalog: pickInfoEl.querySelector('[data-pick-catalog]'),
+    obs: pickInfoEl.querySelector('[data-pick-obs]'),
+  };
+  return xrPickUi;
+}
+
 function renderPickInfo(result) {
-  if (!pickInfoEl) return;
+  const ui = bindXrPickUi();
+  if (!ui?.empty || !ui.detail || !ui.catalog || !ui.obs) return;
+
   if (!result) {
-    pickInfoEl.textContent = 'No star selected — use trigger to pick';
+    ui.empty.hidden = false;
+    ui.detail.hidden = true;
     return;
+  }
+
+  ui.empty.hidden = true;
+  ui.detail.hidden = false;
+
+  const f = result.sidecarFields;
+  ui.catalog.textContent = [
+    `Proper name: ${f?.properName || '—'}`,
+    `Bayer: ${f?.bayer || '—'}`,
+    `HD: ${f?.hd || '—'}`,
+    `HIP: ${f?.hip || '—'}`,
+    `Gaia: ${f?.gaia || '—'}`,
+  ].join('\n');
+
+  const simbad = buildSimbadBasicSearch(f);
+  if (ui.simbadLink && ui.simbadEmpty) {
+    if (simbad) {
+      ui.simbadLink.href = simbad.url;
+      ui.simbadLink.textContent = `SIMBAD (${simbad.label})`;
+      ui.simbadLink.hidden = false;
+      ui.simbadEmpty.hidden = true;
+    } else {
+      ui.simbadLink.removeAttribute('href');
+      ui.simbadLink.hidden = true;
+      ui.simbadEmpty.hidden = false;
+    }
   }
 
   const icrsPc = sceneToIcrsPc(result.position);
@@ -127,11 +172,35 @@ function renderPickInfo(result) {
     lines.push(`Pick: ${fmt(result._pickTimeMs, 1)} ms / ${result._starCount ?? '?'} stars`);
   }
 
-  pickInfoEl.textContent = lines.join('\n');
+  ui.obs.textContent = lines.join('\n');
 }
 
 function handlePick(result) {
+  pickGeneration += 1;
+  const gen = pickGeneration;
+  if (result) {
+    delete result.sidecarFields;
+  }
   renderPickInfo(result);
+
+  if (!result) return;
+
+  const starData = starFieldLayer.getStarData();
+  const pickMeta = starData?.pickMeta?.[result.index];
+  if (!pickMeta || !datasetSession.getSidecarService('meta')) return;
+
+  void (async () => {
+    try {
+      const fields = await datasetSession.resolveSidecarMetaFields('meta', pickMeta);
+      if (gen !== pickGeneration) return;
+      if (fields) {
+        result.sidecarFields = fields;
+        renderPickInfo(result);
+      }
+    } catch {
+      /* sidecar unavailable or incompatible */
+    }
+  })();
 }
 
 function renderSummary(snapshot, datasetDescription) {
@@ -257,6 +326,7 @@ async function mountViewer() {
     id: 'xr-star-field-layer',
     positionTransform: ORION_SCENE_TRANSFORM,
     materialFactory: () => createVrStarFieldMaterialProfile(),
+    includePickMeta: true,
   });
 
   const xrPickController = createXrPickController({

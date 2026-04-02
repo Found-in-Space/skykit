@@ -9,10 +9,24 @@
       .pick-section {
         margin: 18px 0 0;
       }
+      .pick-detail[hidden] {
+        display: none !important;
+      }
+      .pick-subtitle {
+        margin: 14px 0 6px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+      }
       .pick-placeholder {
         margin: 10px 0;
         color: var(--text-muted);
         font-style: italic;
+      }
+      .pick-placeholder[hidden] {
+        display: none !important;
       }
       .pick-table {
         width: 100%;
@@ -51,6 +65,14 @@
         font-size: 0.78rem;
         color: var(--text-muted);
       }
+      .pick-simbad-link {
+        color: #9fe9ff;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      .pick-simbad-link:hover {
+        color: #c8f4ff;
+      }
     </style>
   </head>
   <body>
@@ -68,7 +90,34 @@
       <input id="tolerance" type="number" min="0.1" max="5" step="0.1" value="1.0" data-tolerance />
       <div class="pick-section" data-pick-info>
         <p class="aside-section-title">Selected Star</p>
-        <p class="pick-placeholder">Click a star to inspect it</p>
+        <p class="pick-placeholder" data-pick-empty>Click a star to inspect it</p>
+        <div class="pick-detail" data-pick-detail hidden>
+          <p class="pick-subtitle">Catalog</p>
+          <table class="pick-table pick-table-meta">
+            <tr><th>Proper name</th><td data-pick-meta="proper">—</td></tr>
+            <tr><th>Bayer</th><td data-pick-meta="bayer">—</td></tr>
+            <tr><th>HD</th><td data-pick-meta="hd">—</td></tr>
+            <tr><th>HIP</th><td data-pick-meta="hip">—</td></tr>
+            <tr><th>Gaia</th><td data-pick-meta="gaia">—</td></tr>
+            <tr><th>SIMBAD</th><td data-pick-simbad-cell>
+              <span data-pick-simbad-empty>—</span>
+              <a class="pick-simbad-link" data-pick-simbad-link href="#" target="_blank" rel="noopener noreferrer" hidden>View in SIMBAD</a>
+            </td></tr>
+          </table>
+          <p class="pick-subtitle">Observation</p>
+          <table class="pick-table">
+            <tr><th>ICRS position</th><td data-pick-obs="icrs">—</td></tr>
+            <tr><th>Distance</th><td data-pick-obs="distance">—</td></tr>
+            <tr><th>Abs. magnitude</th><td data-pick-obs="absMag">—</td></tr>
+            <tr><th>App. magnitude</th><td data-pick-obs="appMag">—</td></tr>
+            <tr><th>Temperature</th><td data-pick-obs="temp">—</td></tr>
+            <tr><th>Visual radius</th><td data-pick-obs="visualPx">—</td></tr>
+            <tr><th>Pick score</th><td data-pick-obs="score">—</td></tr>
+            <tr><th>Angular offset</th><td data-pick-obs="offset">—</td></tr>
+            <tr><th>Buffer index</th><td data-pick-obs="bufferIndex">—</td></tr>
+          </table>
+          <p class="pick-timing" data-pick-timing hidden></p>
+        </div>
       </div>
       <p class="status">Status: <span data-status>idle</span></p>
       <pre class="meta-block" data-summary></pre>

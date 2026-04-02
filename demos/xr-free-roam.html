@@ -5,6 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SkyKit: XR Free Roam</title>
     <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .pick-panel .pick-detail[hidden] {
+        display: none !important;
+      }
+      .pick-panel .pick-placeholder[hidden] {
+        display: none !important;
+      }
+      .pick-panel .pick-subtitle {
+        margin: 12px 0 6px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+      }
+      .pick-simbad-row {
+        margin: 8px 0 0;
+        font-size: 0.88rem;
+      }
+      .pick-simbad-link {
+        color: #9fe9ff;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      .pick-simbad-link:hover {
+        color: #c8f4ff;
+      }
+    </style>
   </head>
   <body>
     <aside>
@@ -26,8 +54,24 @@
         <button type="button" data-action="enter-xr">Enter VR</button>
         <button type="button" data-action="exit-xr">Exit VR</button>
       </div>
-      <p class="aside-section-title">Selected Star</p>
-      <pre class="meta-block" data-pick-info>No star selected — use trigger to pick</pre>
+      <div class="pick-panel" data-pick-info>
+        <p class="aside-section-title">Selected Star</p>
+        <p class="pick-placeholder" data-pick-empty>No star selected — use trigger to pick</p>
+        <div class="pick-detail" data-pick-detail hidden>
+          <p class="pick-subtitle">Catalog</p>
+          <pre class="meta-block" data-pick-catalog>Proper name: —
+Bayer: —
+HD: —
+HIP: —
+Gaia: —</pre>
+          <p class="pick-simbad-row" data-pick-simbad-row>
+            <span data-pick-simbad-empty>SIMBAD: —</span>
+            <a class="pick-simbad-link" data-pick-simbad-link href="#" target="_blank" rel="noopener noreferrer" hidden>View in SIMBAD</a>
+          </p>
+          <p class="pick-subtitle">Observation</p>
+          <pre class="meta-block" data-pick-obs>—</pre>
+        </div>
+      </div>
       <p class="status">Status: <span data-status>idle</span></p>
       <pre class="meta-block" data-summary></pre>
       <pre data-snapshot></pre>
