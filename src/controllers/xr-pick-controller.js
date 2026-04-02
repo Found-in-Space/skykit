@@ -1,16 +1,14 @@
 import * as THREE from 'three';
 import { pickStar } from '../services/star-picker.js';
 import { SCALE } from '../services/octree/scene-scale.js';
-import { projectToHud } from './xr-hud.js';
 
-const DEFAULT_HUD_DISTANCE = 2.5;
 const DEFAULT_LASER_LENGTH = 500;
 const LASER_COLOR = 0x44ff66;
+const RING_ANGULAR_SCALE = 0.032; // ~1.8° angular diameter
 
 const _rayOrigin = new THREE.Vector3();
 const _rayDirection = new THREE.Vector3();
 const _tmpQuat = new THREE.Quaternion();
-const _hudDir = new THREE.Vector3();
 const _xformMat = new THREE.Matrix4();
 const _v3a = new THREE.Vector3();
 const _v3b = new THREE.Vector3();
@@ -54,7 +52,6 @@ function createRingSprite() {
   const sprite = new THREE.Sprite(material);
   sprite.visible = false;
   sprite.renderOrder = 1000;
-  sprite.scale.setScalar(0.08);
   return { sprite, texture };
 }
 
@@ -95,22 +92,27 @@ function isSelectPressed(xr) {
  * The laser is parented to `cameraMount` (xrOrigin) so it stays
  * attached to the spaceship and moves correctly during locomotion.
  *
- * The selection ring is parented to the **camera** and positioned via
- * `projectToHud` so it appears at a comfortable focal distance while
- * visually overlapping the picked star.  This gives correct stereo
- * convergence — each eye sees the ring at a genuinely different angle.
+ * The selection ring is parented to `contentRoot` (the universe) and
+ * placed at the star's exact position in content space.  THREE.Sprite
+ * billboards automatically, so no camera parenting is needed.  Scale
+ * is updated each frame proportional to camera distance so the ring
+ * subtends a constant angle.  Parenting to content space means the XR
+ * compositor's ATW correction warps the ring identically to the stars,
+ * eliminating the wobble that camera-parenting caused.
  */
 export function createXrPickController(options = {}) {
   const {
     getStarData,
     onPick,
-    hudDistance = DEFAULT_HUD_DISTANCE,
     toleranceDeg = 1.5,
   } = options;
 
   let latestCamera = null;
   let latestState = null;
-  let pickedWorldPos = null;
+
+  // contentRoot-local position of the picked star; valid only when hasPick is true.
+  const pickedContentPos = new THREE.Vector3();
+  let hasPick = false;
 
   let laserLine = null;
   let ringSprite = null;
@@ -145,8 +147,8 @@ export function createXrPickController(options = {}) {
     return result;
   }
 
-  function ensureVisuals(cameraMount, camera) {
-    if (laserParent === cameraMount && ringParent === camera) return;
+  function ensureVisuals(cameraMount, contentRoot) {
+    if (laserParent === cameraMount && ringParent === contentRoot) return;
     removeVisuals();
 
     laserLine = createLaserLine();
@@ -156,8 +158,12 @@ export function createXrPickController(options = {}) {
     const ring = createRingSprite();
     ringSprite = ring.sprite;
     ringTexture = ring.texture;
-    camera.add(ringSprite);
-    ringParent = camera;
+    contentRoot.add(ringSprite);
+    ringParent = contentRoot;
+
+    if (hasPick) {
+      ringSprite.position.copy(pickedContentPos);
+    }
   }
 
   function updateLaser(controllerRay) {
@@ -173,13 +179,16 @@ export function createXrPickController(options = {}) {
   }
 
   function updateRing(camera) {
-    if (!ringSprite || !pickedWorldPos) {
+    if (!ringSprite || !hasPick) {
       if (ringSprite) ringSprite.visible = false;
       return;
     }
 
-    _hudDir.set(pickedWorldPos.x, pickedWorldPos.y, pickedWorldPos.z);
-    projectToHud(_hudDir, camera, hudDistance, ringSprite.position);
+    // Transform pickedContentPos to world space, then compute distance from camera.
+    _v3b.copy(pickedContentPos).applyMatrix4(ringParent.matrixWorld);
+    const dist = camera.getWorldPosition(_v3a).distanceTo(_v3b);
+    const contentScale = ringParent.matrixWorld.getMaxScaleOnAxis();
+    ringSprite.scale.setScalar(dist * RING_ANGULAR_SCALE / contentScale);
     ringSprite.visible = true;
   }
 
@@ -223,7 +232,7 @@ export function createXrPickController(options = {}) {
         return;
       }
 
-      ensureVisuals(context.cameraMount, context.camera);
+      ensureVisuals(context.cameraMount, context.contentRoot);
 
       const controllerRay = getControllerRay(context.xr);
       if (controllerRay) {
@@ -247,11 +256,13 @@ export function createXrPickController(options = {}) {
           );
 
           if (result?.position) {
-            _v3a.set(result.position.x, result.position.y, result.position.z)
-              .applyMatrix4(context.contentRoot.matrixWorld);
-            pickedWorldPos = { x: _v3a.x, y: _v3a.y, z: _v3a.z };
+            pickedContentPos.set(result.position.x, result.position.y, result.position.z);
+            hasPick = true;
+            if (ringSprite) {
+              ringSprite.position.copy(pickedContentPos);
+            }
           } else {
-            pickedWorldPos = null;
+            hasPick = false;
           }
         }
         triggerWasPressed = pressed;
@@ -263,7 +274,7 @@ export function createXrPickController(options = {}) {
     },
 
     clearSelection() {
-      pickedWorldPos = null;
+      hasPick = false;
       if (ringSprite) ringSprite.visible = false;
     },
 
@@ -271,7 +282,7 @@ export function createXrPickController(options = {}) {
       removeVisuals();
       latestCamera = null;
       latestState = null;
-      pickedWorldPos = null;
+      hasPick = false;
       triggerWasPressed = false;
     },
   };
