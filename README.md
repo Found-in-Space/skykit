@@ -7,6 +7,8 @@ SkyKit is the reusable runtime for building interactive 3D sky experiences. It p
 - a standalone viewer runtime for desktop or XR demos
 - a source-level library for custom visualizations, experiences, or games
 
+If you are reading this README on GitHub, you can open **[SkyKit experiments](https://foundin.space/skykit/)** on the Found in Space site to try the latest interactive demos in the browser—development sandboxes that exercise new ideas in the runtime before they settle into stable APIs.
+
 ## Install
 
 ```bash
