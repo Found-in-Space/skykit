@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import {
-  createCameraRigController,
   createVrStarFieldMaterialProfile,
   DEFAULT_XR_STAR_FIELD_STATE,
   createFoundInSpaceDatasetOptions,
@@ -9,16 +8,17 @@ import {
   createSelectionRefreshController,
   createStarFieldLayer,
   createViewer,
+  createXrRig,
   getDatasetSession,
   ORION_CENTER_PC,
   resolveFoundInSpaceDatasetOverrides,
   formatDistancePc,
 } from '../index.js';
-import { createPickController } from '../controllers/pick-controller.js';
+import { createXrLocomotionController } from '../controllers/xr-locomotion-controller.js';
+import { createXrPickController } from '../controllers/xr-pick-controller.js';
 import { DEFAULT_METERS_PER_PARSEC, SCALE } from '../services/octree/scene-scale.js';
 
 const XR_REFERENCE_SPACE_TYPE = 'local-floor';
-// WebXR depth planes are in meters (nominal scene units). OK when `starFieldScale` ≈ 1 m/pc.
 const XR_NEAR_PLANE = 0.25;
 const XR_FAR_PLANE = 10000;
 const {
@@ -38,19 +38,18 @@ function createViewerCamera() {
 }
 
 function summarizeViewer(snapshot) {
-  if (!snapshot) {
-    return null;
-  }
+  if (!snapshot) return null;
 
   const starLayerPart = snapshot.parts.find((part) => part.kind === 'layer' && part.stats?.starCount != null);
-  const xrPart = snapshot.parts.find((part) => part.id === 'phase-5b-xr-camera-rig-controller');
-  const refreshPart = snapshot.parts.find((part) => part.id === 'phase-5b-selection-refresh-controller');
+  const xrPart = snapshot.parts.find((part) => part.id === 'xr-locomotion-controller');
+  const refreshPart = snapshot.parts.find((part) => part.id === 'xr-selection-refresh-controller');
 
   return {
     observerPc: clonePoint(snapshot.state?.observerPc),
     mDesired: snapshot.selection?.meta?.mDesired ?? null,
     xr: snapshot.xr ?? null,
     rig: snapshot.rig ?? null,
+    rigType: snapshot.rigType ?? null,
     selectedNodes: snapshot.selection?.meta?.selectedNodeCount ?? snapshot.selection?.nodes?.length ?? null,
     renderedNodes: starLayerPart?.stats?.nodeCount ?? null,
     renderedStars: starLayerPart?.stats?.starCount ?? null,
@@ -69,11 +68,11 @@ const snapshotValue = document.querySelector('[data-snapshot]');
 const pickInfoEl = document.querySelector('[data-pick-info]');
 
 const datasetSession = getDatasetSession(createFoundInSpaceDatasetOptions({
-  id: 'phase-5b-xr-dataset',
+  id: 'xr-dataset',
   ...resolveFoundInSpaceDatasetOverrides(),
   capabilities: {
     sharedCaches: true,
-    bootstrapLoading: 'phase-5b-xr-free-roam',
+    bootstrapLoading: 'xr-free-roam',
   },
 }));
 
@@ -82,7 +81,6 @@ let viewer = null;
 let snapshotTimer = null;
 let xrSupported = null;
 let activeMagLimit = Number.isFinite(Number(magLimitInput?.value)) ? Number(magLimitInput.value) : 7.5;
-let lastPickResult = null;
 let warmState = {
   bootstrap: 'idle',
   rootShard: 'idle',
@@ -133,17 +131,14 @@ function renderPickInfo(result) {
 }
 
 function handlePick(result) {
-  lastPickResult = result;
   renderPickInfo(result);
 }
 
 function renderSummary(snapshot, datasetDescription) {
-  if (!summaryValue) {
-    return;
-  }
+  if (!summaryValue) return;
 
   summaryValue.textContent = JSON.stringify({
-    demo: 'phase-5b-xr-free-roam',
+    demo: 'xr-free-roam',
     xrSupported,
     mDesired: activeMagLimit,
     sharedDatasetSession: datasetDescription?.id ?? null,
@@ -194,7 +189,7 @@ async function refreshXrSupport() {
     }
   } catch (error) {
     xrSupported = false;
-    console.error('[xr-free-roam-demo] XR support check failed', error);
+    console.error('[xr-free-roam] XR support check failed', error);
   }
 
   syncButtons();
@@ -249,24 +244,25 @@ async function warmDatasetSession() {
 }
 
 async function mountViewer() {
-  if (viewer) {
-    return viewer;
-  }
+  if (viewer) return viewer;
 
   await warmDatasetSession();
 
+  const camera = createViewerCamera();
+  const xrRig = createXrRig(camera, {
+    starFieldScale: DEFAULT_METERS_PER_PARSEC,
+  });
+
   starFieldLayer = createStarFieldLayer({
-    id: 'phase-5b-vr-star-field-layer',
+    id: 'xr-star-field-layer',
     positionTransform: ORION_SCENE_TRANSFORM,
     materialFactory: () => createVrStarFieldMaterialProfile(),
   });
 
-  const pickController = createPickController({
-    id: 'phase-5b-xr-pick-controller',
+  const xrPickController = createXrPickController({
+    id: 'xr-pick-controller',
     getStarData: () => starFieldLayer.getStarData(),
-    toleranceDeg: 1.0,
-    xrToleranceDeg: 1.5,
-    scale: DEFAULT_METERS_PER_PARSEC,
+    toleranceDeg: 1.5,
     onPick(result, _event, stats) {
       if (result) {
         result._pickTimeMs = stats?.pickTimeMs ?? null;
@@ -278,33 +274,32 @@ async function mountViewer() {
 
   viewer = await createViewer(mount, {
     datasetSession,
-    camera: createViewerCamera(),
+    camera,
+    rig: xrRig,
     xrCompatible: true,
     interestField: createObserverShellField({
-      id: 'phase-5b-xr-observer-shell-field',
-      note: 'Minimal XR observer shell field for 5B headset validation.',
+      id: 'xr-observer-shell-field',
     }),
     controllers: [
-      createCameraRigController({
-        id: 'phase-5b-xr-camera-rig-controller',
-        xr: true,
+      createXrLocomotionController({
+        id: 'xr-locomotion-controller',
         icrsToSceneTransform: ORION_SCENE_TRANSFORM,
         sceneToIcrsTransform: ORION_SCENE_TO_ICRS_TRANSFORM,
         sceneScale: 1.0,
         moveSpeed: 4.0,
       }),
       createSelectionRefreshController({
-        id: 'phase-5b-selection-refresh-controller',
+        id: 'xr-selection-refresh-controller',
         observerDistancePc: 8,
         minIntervalMs: 300,
         watchSize: false,
       }),
-      pickController,
+      xrPickController,
     ],
     layers: [starFieldLayer],
     state: {
       ...DEFAULT_XR_STAR_FIELD_STATE,
-      demo: 'phase-5b-xr-free-roam',
+      demo: 'xr-free-roam',
       observerPc: { x: 0, y: 0, z: 0 },
       targetPc: ORION_CENTER_PC,
       fieldStrategy: 'observer-shell',
@@ -336,7 +331,7 @@ enterXrButton?.addEventListener('click', () => {
     .catch((error) => {
       statusValue.textContent = 'error';
       snapshotValue.textContent = error.stack ?? error.message;
-      console.error('[xr-free-roam-demo] enterXR failed', error);
+      console.error('[xr-free-roam] enterXR failed', error);
     });
 });
 
@@ -349,7 +344,7 @@ exitXrButton?.addEventListener('click', () => {
     .catch((error) => {
       statusValue.textContent = 'error';
       snapshotValue.textContent = error.stack ?? error.message;
-      console.error('[xr-free-roam-demo] exitXR failed', error);
+      console.error('[xr-free-roam] exitXR failed', error);
     });
 });
 
@@ -375,7 +370,7 @@ magLimitInput?.addEventListener('change', () => {
     .catch((error) => {
       statusValue.textContent = 'error';
       snapshotValue.textContent = error.stack ?? error.message;
-      console.error('[xr-free-roam-demo] mag limit update failed', error);
+      console.error('[xr-free-roam] mag limit update failed', error);
     });
 });
 
@@ -383,10 +378,9 @@ window.addEventListener('beforeunload', () => {
   if (snapshotTimer != null) {
     window.clearInterval(snapshotTimer);
   }
-
   if (viewer) {
     viewer.dispose().catch((error) => {
-      console.error('[xr-free-roam-demo] cleanup failed', error);
+      console.error('[xr-free-roam] cleanup failed', error);
     });
   }
 });
@@ -399,10 +393,10 @@ snapshotTimer = window.setInterval(() => {
 renderSnapshot();
 syncButtons();
 refreshXrSupport().catch((error) => {
-  console.error('[xr-free-roam-demo] initial XR support check failed', error);
+  console.error('[xr-free-roam] initial XR support check failed', error);
 });
 mountViewer().catch((error) => {
   statusValue.textContent = 'error';
   snapshotValue.textContent = error.stack ?? error.message;
-  console.error('[xr-free-roam-demo] initial mount failed', error);
+  console.error('[xr-free-roam] initial mount failed', error);
 });

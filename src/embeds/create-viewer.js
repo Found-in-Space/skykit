@@ -35,6 +35,8 @@ function createViewerHandle(runtime) {
     navigationRoot: runtime.navigationRoot,
     cameraMount: runtime.cameraMount,
     attachmentRoot: runtime.attachmentRoot,
+    deck: runtime.deck,
+    rigType: runtime.rigType,
     start: () => runtime.start(),
     stop: () => runtime.stop(),
     isXrModeSupported: (mode) => runtime.isXrModeSupported(mode),

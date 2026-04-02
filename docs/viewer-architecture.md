@@ -1,26 +1,10 @@
 # SkyKit Architecture
 
-Historical note:
+## Overview
 
-- this document started as the migration architecture for the "next runtime" developed beside the older VR-specific app
-- references to the "next runtime" should now be read as the current SkyKit runtime
-- references to `src/next/` should now be read as `src/`
+SkyKit is a viewer platform for interactive 3D star-field exploration across desktop, VR, and (eventually) AR. It is designed as a reusable library, not a single-purpose app.
 
-## Status
-
-- Accepted as the working migration architecture
-- Phase 1 runtime skeleton is implemented under `src/`
-- Phase 2 shared data services are now implemented under `src/services/`
-- Phase 3 core layers are now implemented under `src/layers/`
-- Phase 5 and Phase 5B controller, rig, and scene-composition decisions are now absorbed into this document
-- The migration from the earlier VR-specific app has now landed in the current `src/` runtime.
-- The older prototype remains historical reference material only.
-
-## Why This Exists
-
-The original VR viewer was a successful experiment for WebXR starfield exploration, but it was shaped like an app rather than a reusable platform.
-
-That matters because the project now has a wider set of use cases:
+Target use cases:
 
 1. free travel through space
 2. constellation change as the observer moves
@@ -30,168 +14,80 @@ That matters because the project now has a wider set of use cases:
 6. VR free roam
 7. AR "galaxy in your palm" views
 
-Those experiences do not all want the same camera model, loading strategy, overlays, or even dataset shape. The architecture therefore needs to separate the durable services from the experience-specific shells.
+These experiences do not all want the same camera model, loading strategy, overlays, or even dataset shape. The architecture separates durable services from experience-specific shells.
 
 ## Goals
 
-- Treat this repository as a viewer platform, not only as a VR app.
-- Support JavaScript-first reusable modules that can be wrapped for web components, React, Astro, and other hosts.
-- Keep VR, desktop, and AR as modes or adapters, not as separate products by default.
+- Viewer platform, not a single app.
+- JavaScript-first reusable modules that can be wrapped for web components, React, Astro, and other hosts.
+- Desktop, VR, and AR as separate viewer products that share data services and reusable modules — not a single runtime that switches modes.
+- Changes to desktop should not break XR, and changes to XR should not break desktop.
 - Separate node selection, data loading, rendering, input, and UI concerns.
 - Support more than one spatial loading strategy.
-- Allow multiple viewers on one page to share dataset state where possible.
-- Preserve a low-risk path from the current code to the new code.
+- Allow multiple viewers on one page to share dataset state.
 
 ## Non-goals
 
-- Rewriting the legacy viewer in place.
-- Preserving the current module boundaries forever.
 - Forcing all experiences to use the same star dataset or the same layer set.
-- Shipping all seven target experiences before the new runtime becomes useful.
+- Shipping all target experiences before the runtime becomes useful.
 
 ## Design Principles
 
-- Build new services beside the legacy code, then cut over.
-- One loader and cache layer, many experiences.
+- One data pipeline, many viewer products. Share data services (`DatasetSession`, octree loading, sidecar caches); do not share rig structure, camera control, or rendering assumptions.
 - Separate interest selection from fetch and render.
-- Treat experiences as composition, not forks.
+- Treat experiences as composition, not forks — but keep desktop and XR compositions independent so that changes in one do not break the other.
 - Keep the public embedding API smaller than the internal architecture.
 - Keep the generic library service-first; let website journeys sit on top as optional presets or apps.
 
-## Phase 0 Decisions
+## Standing Design Decisions
 
-The following Phase 0 decisions are accepted as the working plan for the runtime.
-
-### D1. Migration Model
-
-- Build the new runtime beside the legacy code.
-- Do not try to "fix" the current experimental app in place.
-- Cut over only when the new runtime has earned it.
-
-### D2. Source Layout For New Work
-
-- Runtime work now lives under `src/`.
-- The old split between `src/` and `src/next/` is no longer part of the current structure.
-- Do not create churn by moving legacy files before the new structure starts paying for itself.
-
-### D3. Legacy Policy
-
-- The legacy path remains the reference implementation and fallback while migration is in progress.
-- Legacy code should receive bug fixes and essential maintenance only.
-- Major new capabilities should not land only in the legacy path.
-
-### D4. Core Library Contract
+### Core Library Contract
 
 - Direct service composition is the primary contract for the generic library.
 - `SceneDefinition` is optional and exists mainly for reusable preset families such as website journeys, deep links, and saved states.
 - `ExperienceApp` is a first-order deliverable for games, learning experiences, and other authored applications.
 
-### D5. Interest Field Naming
+### Renderer Scope
 
-- The current onion concept becomes the conceptual `ObserverShellField`.
-- Legacy class names do not need to change immediately.
-- New docs and new code should use the `ObserverShellField` terminology.
+- Three.js is the rendering backend.
+- No generic renderer abstraction unless a concrete second backend becomes necessary.
 
-### D6. Renderer Scope
+### Desktop And XR Split
 
-- Three.js remains the rendering backend for the runtime.
-- Do not introduce a generic renderer abstraction in Phase 0.
-- Revisit renderer abstraction only if a concrete second backend becomes necessary later.
+- Desktop and XR are **separate viewer instances**, not modes of the same viewer.
+- A desktop viewer and an XR viewer may run on the same page, but they are not expected to transition seamlessly between each other. There is no requirement to "enter VR" from a running desktop canvas or to "exit VR" back to a desktop view.
+- They may share a `DatasetSession` (data caching and fetch infrastructure). This is genuine sharing — the same object serves both viewers.
+- They use the same _types_ of reusable modules (interest fields, layers, controllers, scene orientation, star picker), but each viewer creates its own instances. No runtime object is shared between a desktop viewer and an XR viewer except `DatasetSession`.
+- They differ in rig topology, camera control, input handling, and scale conventions.
+- The desktop rig and XR rig are structurally different scene graphs, each built at viewer creation time — not a single rig that restructures at runtime.
+- A change to the desktop rig, desktop controller path, or desktop demo should never require a corresponding change to XR code, and vice versa. If a shared module change would break one side, that module needs a cleaner interface boundary.
+- XR-specific architecture is documented separately in [xr-architecture.md](xr-architecture.md).
+- AR is not yet in scope but remains a future adapter.
 
-### D7. First Proof Deliverables
-
-The first proof set for the new runtime should be:
-
-- free travel
-- constellation changes
-- device parallax
-- one non-website-style app, such as a spaceship game, to prove the generic library is not coupled to journey presets
-
-### D8. Initial Cutover Scope
-
-- Desktop and VR are in scope for the first cutover.
-- AR is explicitly not required for the first cutover.
-- AR remains an important later adapter, not a blocker for the initial migration.
-
-### D9. Evaluation Metrics
-
-When comparing old and new loading strategies or runtime behaviour, track at least:
-
-- nodes selected
-- nodes fetched
-- stars rendered
-- startup time
-- memory footprint
-- path overfetch
-
-### D10. Minimum Cutover Bar
-
-The initial cutover bar is accepted as:
-
-- stable desktop rendering
-- shared dataset caching
-- `ObserverShellField`
-- a target-locked field for Orion-style parallax scenes, currently `TargetFrustumField`
-- three real experiences
-- one reusable embedding surface
-- one authored app that uses direct service composition rather than depending on scene presets
-- a VR path if VR remains part of the immediate public offer
-
-## Phase 1 Clarifications
-
-The following Phase 1 implementation decisions are accepted as clarifications to the working architecture.
-
-### D11. Scope Boundary For Phase 1
-
-- Phase 1 is about runtime structure, lifecycle, and host surface only.
-- Shared octree bootstrap, payload loading, and metadata services were intentionally deferred to Phase 2.
-- Placeholder fields and layers are acceptable in Phase 1 when they exist only to prove boot, resize, snapshot, and disposal behaviour.
-
-### D12. Runtime Part Lifecycle
+### Runtime Part Lifecycle
 
 - Runtime-managed parts may implement `attach`, `start`, `update`, `resize`, and `dispose`.
 - `ViewerRuntime` owns hook order, including reverse-order disposal.
 - `InterestField` keeps its separate `selectNodes(context)` contract.
 
-### D13. Interest Field Wiring
+### Interest Field Wiring
 
 - The runtime currently accepts one active `interestField`.
 - If several strategies need to be combined later, that composition should live inside a field rather than in the runtime itself.
 - The runtime should remain agnostic to how a field produces its selection.
 
-### D14. Initial Embed Surface
+### Dataset Identity
 
-- `createViewer(host, options)` is the first generic embedding entry point.
-- The returned handle currently supports `start`, `stop`, `resize`, `refreshSelection`, `setState`, `getSnapshotState`, and `dispose`.
-- The public embedding API may grow later, but it should remain smaller than the internal runtime API.
-
-### D15. Parallel Demo Entry
-
-- The runtime should keep separate HTML demo entries from older prototypes while migration and validation are still useful.
-- `index.html` now hosts the current free-roam demo.
-- Additional demo pages are acceptable when they keep one milestone proof isolated from another.
-- Multi-entry build tooling is acceptable while historical prototype demos and current runtime demos coexist.
-
-## Phase 2 Working Assumptions
-
-The following assumptions are accepted as the current working plan for shared data services.
-
-### D16. Canonical Dataset Identity
-
-- Each octree header should carry a dataset UUID.
-- That UUID is the canonical identity for dataset compatibility, cache safety, and same-page sharing.
-- `DatasetSession` may still expose a derived `versionKey`, but it should ultimately come from the dataset UUID rather than from URLs alone.
+- Each octree header should carry a dataset UUID as the canonical identity for compatibility, cache safety, and sharing.
+- Until headers expose UUIDs, `DatasetSession` derives identity from the render URL plus a header fingerprint.
 - File-format versions and manifest-format versions remain separate concerns from dataset identity.
 
-### D17. Multi-Sidecar Model
+### Multi-Sidecar Model
 
 - A dataset may expose more than one named sidecar at the same time.
-- Sidecars should be addressed by stable names or capability keys, not by a single hard-coded `meta` slot.
-- Each sidecar should declare both a `parentDatasetUuid` and a `sidecarUuid`.
-- `parentDatasetUuid` binds the sidecar to the render octree whose star order it matches.
-- `sidecarUuid` identifies one concrete version of that sidecar for caching and invalidation.
-- `DatasetSession` should own the sidecar registry and the per-sidecar caches.
-- The foundational Stage 2 `identifiers/order` artifact belongs to the base dataset package, not to the optional named sidecar registry.
+- Sidecars are addressed by stable names or capability keys, not by a single hard-coded slot.
+- Each sidecar declares both a `parentDatasetUuid` and a `sidecarUuid`.
+- `DatasetSession` owns the sidecar registry and per-sidecar caches.
 
 Examples of likely sidecars:
 
@@ -199,39 +95,15 @@ Examples of likely sidecars:
 - `stellarParameters`
 - `curatedRoutes`
 
-## Phase 2 Implementation Clarifications
+### Evaluation Metrics
 
-The following Phase 2 implementation decisions are accepted as clarifications to the working architecture.
+When comparing loading strategies or runtime behaviour, track at least:
 
-### D18. Phase 2 Source Boundary
-
-- Shared data services now live under `src/services/`.
-- The current runtime should not depend on imports from the older prototype path.
-- The older prototype remains a reference implementation only and should be removable without breaking the runtime.
-
-### D19. Current Shared Render Service
-
-- `DatasetSession` now owns a session-scoped render octree service.
-- That service owns render bootstrap loading, root-shard warmup, shard reads, and payload fetch/decode.
-- Bootstrap, shard, and payload caches are CPU-side session caches and are shareable across viewer instances.
-
-### D20. Current Shared Sidecar Service
-
-- The current `meta` sidecar is implemented as the first concrete runtime sidecar service.
-- Metadata cell lookup and parsed cell caches now live on the session rather than on individual viewer instances.
-- The broader named sidecar model remains the target architecture, but the current implementation proof is the existing `meta` family.
-
-### D21. Temporary Dataset Identity Fallback
-
-- Until octree headers expose canonical dataset UUIDs, `DatasetSession` derives dataset identity from the render URL plus a header fingerprint.
-- The current `meta` sidecar service similarly derives `sidecarUuid` when no explicit UUID is available.
-- This derived identity model is a temporary compatibility bridge and should be replaced when real header UUIDs arrive.
-
-### D22. Phase 2 Demo Proof
-
-- `index-shared.html` now proves shared session behavior with two viewer instances on one page.
-- The demo warms render bootstrap and root-shard state once per shared `DatasetSession`.
-- The same demo also validates the current `meta` sidecar through the session-owned service path.
+- nodes selected / fetched / rendered
+- stars rendered
+- startup time
+- memory footprint
+- path overfetch
 
 ## Core Concepts
 
@@ -275,11 +147,11 @@ Responsibilities:
 Non-responsibilities:
 
 - no direct knowledge of Astro or React
-- no hard-coded VR-only controls
+- no hard-coded VR or desktop assumptions — the runtime is rig-agnostic and receives its rig at construction time
 - no dataset fetch policy beyond calling the active services
 - no requirement that consumers use website-oriented scene presets
 
-Phase 1 runtime-part contract:
+Runtime-part contract:
 
 ```ts
 interface ViewerRuntimePart {
@@ -303,17 +175,17 @@ interface InterestField {
 }
 ```
 
-The current onion concept should be renamed conceptually to `ObserverShellField` so it reads as one strategy among several rather than the whole loading model.
+The observer-shell concept is named `ObserverShellField` to read as one strategy among several rather than the whole loading model.
 
-Phase 4 working assumption:
+Magnitude handling:
 
-- limiting magnitude is a viewer-level runtime setting such as `state.mDesired`
+- limiting magnitude is a viewer-level runtime setting: `state.mDesired`
 - dataset `header.magLimit` is indexing metadata (`mIndex`) for shell-style node pruning, not a user-facing visibility default
 - fields consume that setting for node selection
 - render layers consume that same setting for star visibility
 - dataset and cache services stay agnostic to it
 
-Current Phase 4 working fields:
+Current fields:
 
 - `ObserverShellField`
 - `TargetFrustumField`
@@ -356,34 +228,74 @@ Current constellation-art packaging assumptions:
 
 `Controller` is a pluggable source of navigation or interaction state.
 
-Examples:
+Desktop controllers:
 
-- `FreeFlyController`
-- `ParallaxController`
-- `DeviceOrientationController`
-- `XRLocomotionController`
-- `ARPlacementController`
-- `GuidedPathController`
+- `CameraRigController` — keyboard/mouse free-fly, inertial flight, and automation (flyTo, orbit, lookAt, lockAt). Desktop-only — no XR code.
+- `PickController` — star selection via 2D pointer click with CSS highlight overlay. Desktop-only — no XR code.
 
-Controllers should update runtime state. They should not decide what gets loaded by themselves.
+XR controllers:
 
-Accepted controller ownership model:
+- `XrLocomotionController` — thumbstick-driven movement, viewer pose for direction, moves the spaceship through the stationary universe. XR-only — no desktop code.
+- `XrPickController` — laser pointer and trigger-based star picking, visuals parented to `cameraMount` (xrOrigin). XR-only — no desktop code.
+
+Shared controllers:
+
+- `SelectionRefreshController` — shared policy for when node reselection runs, driven by observer movement thresholds rather than raw input frequency. Usable by both desktop and XR viewers.
+
+Future controllers:
+
+- `ParallaxController` — target-locked website effect with transient rig offsets
+- `GuidedPathController` — authored travel routes
+- `DeviceOrientationController` — mobile tilt input
+- `ARPlacementController` — AR surface placement
+
+Controller ownership model:
 
 - use a two-layer model: serializable semantic state in `runtime.state`, plus transient view-rig transforms for immediate rendering
 - controllers should not call dataset services directly
 - controllers should not decide which octree nodes get loaded
 - controllers may update rig nodes directly when low-latency motion matters, but they should publish canonical semantic state whenever the motion has meaning beyond one frame
 
-Useful runtime rig parts:
+### Runtime Rig
 
-- `navigationRoot`: the authored or locomoted viewer position
-- `cameraMount`: the node the camera sits under
-- `attachmentRoot`: user-local attachments such as controller rays, pointers, or a ship shell
-- `contentRoot`: stars, constellation art, and other scene content
+The runtime provides a scene-graph rig with named groups for different concerns. Desktop and XR viewers use **different rig topologies**, each built by a dedicated factory at viewer creation time. The `ViewerRuntime` accepts a `rig` option — desktop viewers omit it (uses `createDesktopRig` by default), XR viewers pass the result of `createXrRig`.
+
+**Desktop rig** (`createDesktopRig(camera)` in `src/core/runtime-rig.js`):
+
+```
+scene
+  ├── contentRoot          ← stars, constellation art, scene content
+  └── navigationRoot       ← viewer position in scene space
+        ├── cameraMount    ← holds the camera
+        └── attachmentRoot ← overlays, compass, etc.
+```
+
+- `navigationRoot`: the viewer position in scene space, driven by controller locomotion
+- `cameraMount`: sits under `navigationRoot`, holds the camera
+- `contentRoot`: stars, constellation art, and other scene content — sibling of `navigationRoot` under the scene
+
+**XR rig** (`createXrRig(camera, options)` in `src/core/runtime-rig.js`):
+
+XR viewers are created with the spaceship scene graph from the start. The rig uses the same **sibling topology** as the desktop rig — `contentRoot` and `navigationRoot` are independent trees. See [xr-architecture.md](xr-architecture.md) for the full scene graph, rationale, and agent rules.
+
+```
+scene
+  ├── universe (contentRoot)         ← stays at scene origin, scaled by starFieldScale / SCALE
+  └── spaceship (navigationRoot)     ← MOVES to represent the observer's position
+        └── deck                     ← shifts observer DOWN and BACK, set once at creation
+              ├── xrOrigin (cameraMount) → camera
+              └── attachmentRoot     ← deck-fixed UI
+```
+
+- `contentRoot` (universe) stays at the scene origin, scaled by `starFieldScale / SCALE`
+- `navigationRoot` (spaceship) is moved by `XrLocomotionController` to the observer's scene-space position — the camera (and everything attached to the spaceship) moves relative to the stationary stars
+- `deck` provides a structural offset `(0, -eyeLevel, +forwardOffset)` that shifts the observer DOWN and BACK so the Sun appears at eye level and slightly in front
+- `cameraMount` (xrOrigin) sits under `deck` and is where WebXR places the camera and controllers
+- Controller visuals (laser, ring) are children of xrOrigin, ensuring they move with the spaceship
 
 Important split:
 
-- semantic navigation state belongs in `runtime.state`
+- semantic navigation state belongs in `runtime.state` (e.g. `observerPc`, `starFieldScale`)
 - transient head pose, drag deltas, parallax jiggle, and controller ray pose belong in the rig
 
 ### Canonical Runtime State
@@ -438,17 +350,21 @@ Current policy expectations:
 - guided scenes may refresh as route progress, target changes, field changes, or `mDesired` changes advance
 - parallax should keep ordinary pointer or tilt jiggle cheap and stable; it should only reselection when the base observer, target, FoV, aspect ratio, or other field-defining inputs change materially
 
-### Current Controller Roles
+### CameraRigController Modes
 
-- `FreeFlyController`: desktop free roam; updates `observerPc`; usually pairs with `ObserverShellField`
-- `XRLocomotionController`: XR input path for the same observer-centered model; locomotion moves the user, while scale changes the rendered model and is not a substitute for locomotion
-- `ParallaxController`: target-locked website effect; preserves a stable base `observerPc` and `targetPc` while applying small transient rig offsets, usually with `TargetFrustumField`
-- `GuidedPathController`: authored travel toward, around, or between points of interest; updates `observerPc`, `targetPc`, `routeSegmentIndex`, and `routeSegmentT`, and may hand off from target-locked travel into local exploration
+`CameraRigController` is desktop-only and supports multiple movement modes through options:
 
-The initial guided-route vocabulary only needs:
+- **Direct free-fly** (default): keyboard/mouse desktop navigation; updates `observerPc`; usually pairs with `ObserverShellField`
+- **Inertial flight**: thrust-based acceleration with drag; `integration: 'inertial'`
+- **Automation**: programmatic movement via `flyTo()`, `orbit()`, `orbitalInsert()`, `lookAt()`, and `lockAt()`
+
+### XrLocomotionController
+
+`XrLocomotionController` is XR-only and handles thumbstick-driven movement relative to head orientation. It moves the spaceship (`navigationRoot`) to the observer's scene-space position while the universe stays at the origin — the camera perceives motion because it moves relative to the stationary stars. Only used by XR viewer instances with the spaceship rig.
+
+Future additions to the guided-route vocabulary:
 
 - `travelTo`
-- `lookAt`
 - `orbitAround`
 - `hold`
 
@@ -655,23 +571,35 @@ A composite field that merges two or more strategies while keeping the runtime i
 
 ## Scene Preset Matrix
 
-This matrix describes useful preset families for the current Found in Space use cases.
+This matrix describes useful preset families for the current Found in Space use cases. Desktop and XR rows are separate viewer instances with different rig topologies — they share `DatasetSession` but nothing else at runtime.
 
 It is not intended to constrain the generic library.
 
-| Use case | Primary field | Likely layers | Likely controllers |
+**Desktop viewer presets:**
+
+| Use case | Primary field | Likely layers | Controller config |
 |---|---|---|---|
-| Free travel | `ObserverShellField` | `StarFieldLayer`, `LabelsLayer` | `FreeFlyController` |
-| Constellation changes | `TargetFrustumField` | `StarFieldLayer`, `ConstellationProjectionLayer`, `ConstellationArtLayer` | `GuidedPathController` or `ParallaxController` |
+| Free travel | `ObserverShellField` | `StarFieldLayer`, `LabelsLayer` | `CameraRigController` (direct) |
+| Constellation changes | `TargetFrustumField` | `StarFieldLayer`, `ConstellationProjectionLayer`, `ConstellationArtLayer` | `CameraRigController` (automation / guided) |
 | Device parallax | `TargetFrustumField` | `StarFieldLayer`, `ConstellationProjectionLayer` | `ParallaxController`, `DeviceOrientationController` |
-| Invisible nearby stars | `ObserverShellField` | `StarFieldLayer`, `NearbyDwarfsLayer`, `LabelsLayer` | `FreeFlyController` |
-| Exoplanet explorer | `ObserverShellField` first; later semantic field if needed | `StarFieldLayer`, `ExoplanetHostsLayer`, `LabelsLayer` | `GuidedPathController`, `FreeFlyController` |
-| VR free roam | `ObserverShellField` | `StarFieldLayer`, `LabelsLayer`, optional `ConstellationArtLayer` | `XRLocomotionController` |
-| AR galaxy in your palm | likely a separate galaxy-scale field or none | `GalaxyArmsLayer`, optional bright-star layer | `ARPlacementController` |
+| Invisible nearby stars | `ObserverShellField` | `StarFieldLayer`, `NearbyDwarfsLayer`, `LabelsLayer` | `CameraRigController` (direct) |
+| Exoplanet explorer | `ObserverShellField`; later semantic field | `StarFieldLayer`, `ExoplanetHostsLayer`, `LabelsLayer` | `CameraRigController` (direct + automation) |
+
+**XR viewer presets (separate viewer instance, spaceship rig):**
+
+| Use case | Primary field | Likely layers | Controller config |
+|---|---|---|---|
+| VR free roam | `ObserverShellField` | `StarFieldLayer`, optional `ConstellationArtLayer` | `CameraRigController` (xr: true) |
+
+**Future (separate viewer instance):**
+
+| Use case | Primary field | Likely layers | Controller config |
+|---|---|---|---|
+| AR galaxy in your palm | likely a separate galaxy-scale field | `GalaxyArmsLayer`, optional bright-star layer | `ARPlacementController` |
 
 ## Data And Caching
 
-The new architecture should share CPU-side state aggressively.
+`DatasetSession` is the correct boundary for sharing between viewer instances. It owns CPU-side data caches that are independent of any particular rig, scene graph, or rendering mode. A desktop viewer and an XR viewer on the same page can share one `DatasetSession` safely because it has no knowledge of cameras, rigs, or scene nodes.
 
 Recommended shared caches inside `DatasetSession`:
 
@@ -690,7 +618,7 @@ Recommended constraints:
 - optional persistent storage lives in IndexedDB
 - the runtime can opt into prefetch based on the active experience
 
-Multiple viewers on the same page should ideally share a single `DatasetSession`.
+Multiple viewers on the same page (including a desktop viewer and an XR viewer) should ideally share a single `DatasetSession`. This is safe because `DatasetSession` has no rendering, rig, or camera dependencies.
 
 ### Payload Streaming
 
@@ -754,10 +682,10 @@ const viewer = await createViewer(element, {
 
 Note:
 
-- `getDatasetSession()` is currently synchronous in Phase 1 because it creates the shared dataset shell rather than performing bootstrap I/O up front
-- Phase 2 now resolves render bootstrap behind that shared boundary while keeping `getDatasetSession()` itself synchronous
-- the Stage 2 `identifiers/order` artifact should be modeled as part of the base dataset package rather than as an ordinary named sidecar family
-- the current implementation still supports a legacy-style `metaUrl` fallback for convenience, but the intended architecture is a named `sidecars` map backed by dataset UUID, `parentDatasetUuid`, and `sidecarUuid` validation
+- `getDatasetSession()` is synchronous — it creates the shared dataset shell rather than performing bootstrap I/O up front
+- render bootstrap is resolved behind the shared boundary while keeping `getDatasetSession()` itself synchronous
+- the `identifiers/order` artifact is part of the base dataset package, not an ordinary named sidecar
+- the current implementation supports a `metaUrl` fallback for convenience, but the intended architecture is a named `sidecars` map with UUID validation
 
 Optional convenience layer:
 
@@ -768,7 +696,7 @@ const viewer = await createViewerFromScene(element, {
 });
 ```
 
-Useful viewer methods:
+Viewer methods:
 
 - `start()`
 - `stop()`
@@ -778,10 +706,15 @@ Useful viewer methods:
 - `dispose()`
 - `getSnapshotState()`
 
+XR-specific viewer methods (used by XR viewer instances, not desktop viewers):
+
+- `enterXR(options)` — start an immersive VR session
+- `exitXR()` — end the active XR session
+- `isXrModeSupported(mode)` — check hardware/browser support
+
 Likely later additions:
 
 - `setScene()`
-- `enterXR()`
 
 Useful host-level patterns:
 
@@ -791,52 +724,34 @@ Useful host-level patterns:
 - mount authored apps that use the same underlying services
 - publish browser-friendly bundles that can carry their own static assets without depending on a Found in Space origin
 
-## Suggested Source Layout
-
-The immediate goal is not a monorepo or a package split. The immediate goal is to create parallel structure inside the current repository.
-
-One workable near-term layout:
+## Source Layout
 
 ```text
 src/
-  ...legacy files remain in place for now
-  next/
-    core/
-    demo/
-    embeds/
-    fields/
-    layers/
-    services/
+  core/           # ViewerRuntime, runtime-rig (createDesktopRig, createXrRig), contracts
+  controllers/    # Desktop: CameraRigController, PickController
+                  # XR: XrLocomotionController, XrPickController
+                  # Shared: camera-rig (pure math), SelectionRefreshController
+  demo/           # Demo entry points (main, xr-free-roam, fly-orbit, etc.)
+  fields/         # ObserverShellField, TargetFrustumField, octree selection
+  layers/         # StarFieldLayer, ConstellationArtLayer, materials
+  services/       # DatasetSession, render octree service, sidecar services
+  index.js        # Package entry point — public API exports
 ```
 
-`services/` now exists as part of Phase 2. Additional directories such as `controllers/`, `scenes/`, and `apps/` are still expected as later phases land.
+Demo HTML lives in `demos/`. Each demo page has a corresponding entry in `src/demo/` and is registered in `vite.config.js`.
 
-A future `src/legacy/` move remains optional. It should only happen if it starts reducing confusion rather than creating churn.
+Desktop demos and XR demos are separate pages with separate entry points. An XR demo creates a viewer with the XR rig; a desktop demo creates a viewer with the desktop rig. They do not share a canvas or transition between modes.
 
-If the repository later needs a package workspace, this structure can be promoted without changing the conceptual model.
+## Anti-Patterns
 
-## Migration Strategy
-
-Do not "fix" the legacy app in place.
-
-Instead:
-
-1. Freeze the current runtime as the legacy reference.
-2. Build new services and runtime code beside it.
-3. Reuse pieces from legacy code only through deliberate adapters or copied logic where that is genuinely helpful.
-4. Stand up a separate demo entry point for the current runtime.
-5. Port scenes and apps one by one.
-6. Swap the default entry point only when the new runtime has earned it.
-
-This is a strangler-style migration. It keeps risk low, preserves momentum, and gives the new architecture room to become coherent before it has to carry the whole product.
-
-## Immediate Priorities
-
-- create the new core service boundaries
-- make the current onion logic one `InterestField` strategy
-- ship a target-locked field for Orion-style parallax scenes
-- prove same-page dataset sharing
-- ship two or three flagship scenes or apps before full cutover
+- Do not hard-code new experience logic into the runtime core.
+- Do not couple website framework decisions to viewer internals.
+- Do not make `SceneDefinition` mandatory for generic library consumers.
+- Do not make VR the organizing principle for all viewer code.
+- Do not add experience-specific behaviour to the generic runtime when it belongs in a controller, layer, or app.
+- Do not make a desktop change that requires a corresponding XR change, or vice versa. If a shared module needs branching on `xr.presenting`, the module boundary is in the wrong place — split the concern into desktop-specific and XR-specific code behind a clean interface.
+- Do not share rig nodes, controllers, or visual objects between desktop and XR viewers. Share `DatasetSession` and reusable pure-logic modules; keep everything tied to a scene graph separate.
 
 ## Open Questions
 
@@ -844,4 +759,11 @@ This is a strangler-style migration. It keeps risk low, preserves momentum, and 
 - Does the runtime stay in this repo as direct source, or become a package workspace later?
 - Which sidecar descriptors belong in the first manifest version beyond required dataset UUID matching?
 - How should deep links encode experience state for the website?
-- Which scenes or apps are required before the new runtime becomes the default?
+
+## Backlog
+
+- Replace the current derived dataset-identity fallback with canonical header UUIDs when the octree format exposes them.
+
+## Related Documents
+
+- [xr-architecture.md](xr-architecture.md) — WebXR spaceship rig, scale conventions, input handling, and XR-specific agent rules

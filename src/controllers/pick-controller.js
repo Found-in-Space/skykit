@@ -3,118 +3,28 @@ import { pickStar } from '../services/star-picker.js';
 import { SCALE } from '../services/octree/scene-scale.js';
 
 const MAX_DRAG_DISTANCE_SQ = 25;
-const DEFAULT_HUD_DISTANCE = 2.5;
-const DEFAULT_LASER_LENGTH = 500;
-const LASER_COLOR = 0x44ff66;
-const RING_COLOR = 0x44ff66;
 
 const _cameraPos = new THREE.Vector3();
 const _hudDir = new THREE.Vector3();
 const _hudPoint = new THREE.Vector3();
-const _rayOrigin = new THREE.Vector3();
-const _rayDirection = new THREE.Vector3();
-const _tmpQuat = new THREE.Quaternion();
 const _projVec = new THREE.Vector3();
 
-function createLaserLine() {
-  const positions = new Float32Array(6);
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  const material = new THREE.LineBasicMaterial({
-    color: LASER_COLOR,
-    transparent: true,
-    opacity: 0.6,
-    depthTest: false,
-  });
-  const line = new THREE.Line(geometry, material);
-  line.frustumCulled = false;
-  line.visible = false;
-  line.renderOrder = 999;
-  return line;
-}
-
-function createRingSprite() {
-  const size = 64;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  ctx.strokeStyle = '#44ff66';
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  ctx.arc(size / 2, size / 2, size / 2 - 3, 0, Math.PI * 2);
-  ctx.stroke();
-
-  const texture = new THREE.CanvasTexture(canvas);
-  const material = new THREE.SpriteMaterial({
-    map: texture,
-    transparent: true,
-    opacity: 0.85,
-    depthTest: false,
-  });
-  const sprite = new THREE.Sprite(material);
-  sprite.visible = false;
-  sprite.renderOrder = 1000;
-  sprite.scale.setScalar(0.08);
-  return { sprite, texture };
-}
-
-function getControllerRay(xr) {
-  const xrFrame = xr?.frame;
-  const refSpace = xr?.referenceSpace;
-  const session = xr?.session;
-  if (!xrFrame || !refSpace || !session) return null;
-
-  for (const source of session.inputSources) {
-    if (!source.targetRaySpace) continue;
-    const pose = xrFrame.getPose(source.targetRaySpace, refSpace);
-    if (!pose) continue;
-
-    const p = pose.transform.position;
-    const o = pose.transform.orientation;
-    _rayOrigin.set(p.x, p.y, p.z);
-    _rayDirection.set(0, 0, -1).applyQuaternion(_tmpQuat.set(o.x, o.y, o.z, o.w));
-    return { origin: _rayOrigin, direction: _rayDirection, source };
-  }
-
-  return null;
-}
-
-function isSelectPressed(xr) {
-  const session = xr?.session;
-  if (!session) return false;
-  for (const source of session.inputSources) {
-    const btn = source.gamepad?.buttons?.[0];
-    if (btn?.pressed) return true;
-  }
-  return false;
-}
-
 /**
- * Controller that wires pointer (2D) and XR controller input to the
- * star-picker algorithm.
- *
- * 2D: click on the canvas → pick → CSS highlight overlay (direction-projected
- * for stability at extreme distances).
- *
- * XR: green laser from controller, trigger to pick, HUD-distance ring sprite
- * locked to the star's direction at a fixed comfortable depth.
+ * Desktop pick controller — pointer click-based star picking with a CSS
+ * highlight overlay projected to the star's direction for stability at
+ * extreme distances.
  *
  * @param {Object} options
  * @param {Function} options.getStarData   () => starData from a StarFieldLayer.
  * @param {Function} [options.onPick]      Called with (result, event, stats).
- * @param {number}   [options.toleranceDeg]  Angular search half-angle (default 1.0; XR auto-widens to 1.5).
- * @param {number}   [options.xrToleranceDeg]  Override tolerance for XR (default 1.5).
+ * @param {number}   [options.toleranceDeg]  Angular search half-angle (default 1.0).
  * @param {number}   [options.scale]         Scene scale override.
- * @param {number}   [options.hudDistance]    Distance in world units for XR ring (default 2.5).
  */
 export function createPickController(options = {}) {
   const {
     getStarData,
     onPick,
     scale = SCALE,
-    hudDistance = DEFAULT_HUD_DISTANCE,
-    xrToleranceDeg = 1.5,
   } = options;
 
   let toleranceDeg = options.toleranceDeg ?? 1.0;
@@ -122,27 +32,15 @@ export function createPickController(options = {}) {
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
 
-  // 2D state
   let highlightEl = null;
   let canvas = null;
   let pointerDownPos = null;
   let cleanupListeners = null;
 
-  // Shared state
   let latestCamera = null;
   let latestSize = null;
   let latestState = null;
   let pickedPosition = null;
-
-  // XR state
-  let laserLine = null;
-  let ringSprite = null;
-  let ringTexture = null;
-  let sceneRef = null;
-  let xrSelectHandler = null;
-  let xrSessionRef = null;
-  let wasPresenting = false;
-  let triggerWasPressed = false;
 
   function runPick(ray, effectiveTolerance, event) {
     const starData = typeof getStarData === 'function' ? getStarData() : null;
@@ -223,92 +121,6 @@ export function createPickController(options = {}) {
     highlightEl.style.top = `${sy}px`;
   }
 
-  // --- XR laser + ring ---
-
-  function ensureXrObjects(scene) {
-    if (!laserLine) {
-      laserLine = createLaserLine();
-      scene.add(laserLine);
-    }
-    if (!ringSprite) {
-      const ring = createRingSprite();
-      ringSprite = ring.sprite;
-      ringTexture = ring.texture;
-      scene.add(ringSprite);
-    }
-    sceneRef = scene;
-  }
-
-  function updateLaser(controllerRay) {
-    if (!laserLine) return;
-
-    const posAttr = laserLine.geometry.getAttribute('position');
-    posAttr.setXYZ(0, controllerRay.origin.x, controllerRay.origin.y, controllerRay.origin.z);
-    const endX = controllerRay.origin.x + controllerRay.direction.x * DEFAULT_LASER_LENGTH;
-    const endY = controllerRay.origin.y + controllerRay.direction.y * DEFAULT_LASER_LENGTH;
-    const endZ = controllerRay.origin.z + controllerRay.direction.z * DEFAULT_LASER_LENGTH;
-    posAttr.setXYZ(1, endX, endY, endZ);
-    posAttr.needsUpdate = true;
-    laserLine.visible = true;
-  }
-
-  function updateXrRing(xr) {
-    if (!ringSprite || !pickedPosition) {
-      if (ringSprite) ringSprite.visible = false;
-      return;
-    }
-
-    const xrFrame = xr?.frame;
-    const refSpace = xr?.referenceSpace;
-    if (xrFrame && refSpace) {
-      const viewerPose = xrFrame.getViewerPose(refSpace);
-      if (viewerPose) {
-        const p = viewerPose.transform.position;
-        _cameraPos.set(p.x, p.y, p.z);
-      }
-    }
-
-    _hudDir.set(pickedPosition.x, pickedPosition.y, pickedPosition.z)
-      .sub(_cameraPos).normalize();
-    ringSprite.position.copy(_cameraPos).addScaledVector(_hudDir, hudDistance);
-    ringSprite.visible = true;
-  }
-
-  function hideXrObjects() {
-    if (laserLine) laserLine.visible = false;
-    if (ringSprite) ringSprite.visible = false;
-  }
-
-  function removeXrObjects() {
-    if (laserLine) {
-      sceneRef?.remove(laserLine);
-      laserLine.geometry.dispose();
-      laserLine.material.dispose();
-      laserLine = null;
-    }
-    if (ringSprite) {
-      sceneRef?.remove(ringSprite);
-      ringSprite.material.dispose();
-      ringTexture?.dispose();
-      ringSprite = null;
-      ringTexture = null;
-    }
-    sceneRef = null;
-  }
-
-  function bindXrSession(session) {
-    if (xrSessionRef === session) return;
-    unbindXrSession();
-    xrSessionRef = session;
-  }
-
-  function unbindXrSession() {
-    xrSessionRef = null;
-    triggerWasPressed = false;
-  }
-
-  // --- Controller API ---
-
   return {
     id: options.id ?? 'pick-controller',
 
@@ -348,44 +160,7 @@ export function createPickController(options = {}) {
       latestCamera = context.camera;
       latestSize = context.size;
       latestState = context.state;
-
-      const presenting = context.xr?.presenting === true;
-
-      if (presenting) {
-        if (!wasPresenting) {
-          bindXrSession(context.xr.session);
-          if (highlightEl) highlightEl.style.display = 'none';
-        }
-
-        ensureXrObjects(context.scene);
-
-        const controllerRay = getControllerRay(context.xr);
-        if (controllerRay) {
-          updateLaser(controllerRay);
-
-          const pressed = isSelectPressed(context.xr);
-          if (pressed && !triggerWasPressed) {
-            runPick(
-              { origin: controllerRay.origin.clone(), direction: controllerRay.direction.clone() },
-              xrToleranceDeg,
-              null,
-            );
-          }
-          triggerWasPressed = pressed;
-        } else {
-          if (laserLine) laserLine.visible = false;
-        }
-
-        updateXrRing(context.xr);
-      } else {
-        if (wasPresenting) {
-          unbindXrSession();
-          hideXrObjects();
-        }
-        update2dHighlight(context.camera, context.size);
-      }
-
-      wasPresenting = presenting;
+      update2dHighlight(context.camera, context.size);
     },
 
     setToleranceDeg(deg) {
@@ -406,8 +181,6 @@ export function createPickController(options = {}) {
       if (highlightEl?.parentNode) {
         highlightEl.parentNode.removeChild(highlightEl);
       }
-      unbindXrSession();
-      removeXrObjects();
       highlightEl = null;
       canvas = null;
       pickedPosition = null;

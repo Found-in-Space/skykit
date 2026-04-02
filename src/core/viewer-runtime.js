@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RUNTIME_LIFECYCLE_METHODS } from './contracts.js';
-import { createViewerRuntimeRig } from './runtime-rig.js';
+import { createDesktopRig } from './runtime-rig.js';
 
 const DEFAULT_SIZE = Object.freeze({ width: 1, height: 1 });
 const DEFAULT_SELECTION = Object.freeze({
@@ -237,14 +237,21 @@ export class ViewerRuntime {
     this.size = resolveSize(this.hostElement, this.canvas);
     this.scene = options.scene ?? new THREE.Scene();
     this.camera = options.camera ?? createPerspectiveCamera(this.size);
-    const rig = createViewerRuntimeRig(this.camera);
+    const rig = options.rig ?? createDesktopRig(this.camera);
+    this.rigType = rig.type ?? 'desktop';
     this.navigationRoot = rig.navigationRoot;
     this.cameraMount = rig.cameraMount;
-    this.attachmentRoot = rig.attachmentRoot;
+    this.attachmentRoot = rig.attachmentRoot ?? null;
+    this.deck = rig.deck ?? null;
     this.contentRoot = rig.contentRoot;
     this.mount = rig.mount;
-    this.scene.add(this.contentRoot);
-    this.scene.add(this.navigationRoot);
+
+    if (!this.navigationRoot.parent) {
+      this.scene.add(this.navigationRoot);
+    }
+    if (!this.contentRoot.parent) {
+      this.scene.add(this.contentRoot);
+    }
 
     this.partEntries = this.createPartEntries();
     this.updateEntries = this.createUpdateEntries();
@@ -339,6 +346,8 @@ export class ViewerRuntime {
       navigationRoot: this.navigationRoot,
       cameraMount: this.cameraMount,
       attachmentRoot: this.attachmentRoot,
+      deck: this.deck,
+      rigType: this.rigType,
       host: this.hostElement,
       canvas: this.canvas,
       size: { ...this.size },
@@ -688,6 +697,7 @@ export class ViewerRuntime {
         sessionMode: xrState.sessionMode,
         referenceSpaceType: xrState.referenceSpaceType,
       },
+      rigType: this.rigType,
       rig: {
         navigationRoot: {
           position: this.navigationRoot.position.toArray(),
@@ -695,9 +705,8 @@ export class ViewerRuntime {
         cameraMount: {
           position: this.cameraMount.position.toArray(),
         },
-        attachmentRoot: {
-          position: this.attachmentRoot.position.toArray(),
-        },
+        ...(this.deck ? { deck: { position: this.deck.position.toArray() } } : {}),
+        ...(this.attachmentRoot ? { attachmentRoot: { position: this.attachmentRoot.position.toArray() } } : {}),
       },
       parts: this.partEntries.map((entry) => ({
         kind: entry.kind,

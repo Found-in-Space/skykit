@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { normalizePoint } from '../fields/octree-selection.js';
-import { SCALE } from '../services/octree/scene-scale.js';
 import { createCameraRig, LOCAL_RIGHT, LOCAL_UP, LOCAL_FORWARD } from './camera-rig.js';
 
 function clonePoint(p) {
@@ -49,32 +48,6 @@ function keyAxis(pressed, positive, negative) {
   return value;
 }
 
-export function readXrAxes(inputSources, options = {}) {
-  const deadzone = positiveFinite(options.deadzone, 0.15);
-  let bestMagnitude = 0;
-  let bestAxes = { x: 0, y: 0, activeHand: null };
-
-  for (const source of Array.from(inputSources ?? [])) {
-    const gamepad = source?.gamepad;
-    if (!gamepad || gamepad.axes.length < 2) continue;
-    const xi = gamepad.axes.length >= 4 ? 2 : 0;
-    const yi = gamepad.axes.length >= 4 ? 3 : 1;
-    const rawX = Math.abs(gamepad.axes[xi] ?? 0) < deadzone ? 0 : Number(gamepad.axes[xi] ?? 0);
-    const rawY = Math.abs(gamepad.axes[yi] ?? 0) < deadzone ? 0 : Number(gamepad.axes[yi] ?? 0);
-    const magnitude = Math.hypot(rawX, rawY);
-    if (magnitude > bestMagnitude) {
-      bestMagnitude = magnitude;
-      bestAxes = {
-        x: rawX,
-        y: rawY,
-        activeHand: typeof source.handedness === 'string' ? source.handedness : null,
-      };
-    }
-  }
-
-  return bestAxes;
-}
-
 const MOVE_KEYS = [
   'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE',
   'KeyC', 'KeyX',
@@ -101,10 +74,6 @@ export function createCameraRigController(options = {}) {
     ? Math.max(0, Number(options.dragCoefficient))
     : 0;
 
-  const xrEnabled = options.xr === true;
-  const xrMoveSpeed = positiveFinite(options.xrMoveSpeed ?? options.moveSpeed, 4);
-  const xrDeadzone = positiveFinite(options.xrDeadzone, 0.15);
-
   const rig = createCameraRig({
     observerPc: options.observerPc,
     lookAtPc: options.lookAtPc,
@@ -129,7 +98,6 @@ export function createCameraRigController(options = {}) {
   const _worldMovement = new THREE.Vector3();
   const _forward = new THREE.Vector3();
   const _right = new THREE.Vector3();
-  const _cameraWorldQ = new THREE.Quaternion();
 
   // --- Universal motion tracking ---
   const _motionPrevOrientation = new THREE.Quaternion();
@@ -363,64 +331,6 @@ export function createCameraRigController(options = {}) {
       moving: currentSpeed > 0.001,
       speedPcPerSecond: currentSpeed,
     };
-  }
-
-  function updateXr(context) {
-    if (context.xr?.presenting !== true) return false;
-
-    const axes = readXrAxes(context.xr?.session?.inputSources ?? [], { deadzone: xrDeadzone });
-    stats = {
-      ...stats,
-      activeHand: axes.activeHand,
-      locomotionAxes: { x: axes.x, y: axes.y },
-    };
-
-    if (axes.x !== 0 || axes.y !== 0) {
-      let gotPose = false;
-      const xrFrame = context.xr.frame;
-      const refSpace = context.xr.referenceSpace;
-      if (xrFrame && refSpace) {
-        const pose = xrFrame.getViewerPose(refSpace);
-        if (pose) {
-          const o = pose.transform.orientation;
-          _cameraWorldQ.set(o.x, o.y, o.z, o.w);
-          gotPose = true;
-        }
-      }
-      if (!gotPose) {
-        context.camera.updateMatrixWorld();
-        context.camera.getWorldQuaternion(_cameraWorldQ);
-      }
-      _forward.set(0, 0, -1).applyQuaternion(_cameraWorldQ);
-      _right.set(1, 0, 0).applyQuaternion(_cameraWorldQ);
-
-      _movement.copy(_right).multiplyScalar(axes.x).addScaledVector(_forward, -axes.y);
-      const strength = _movement.length();
-      if (strength > 0) {
-        const sceneScale = positiveFinite(context.state?.starFieldScale, rig.sceneScale);
-        rig.moveInSceneDirection(
-          _movement.normalize(),
-          (xrMoveSpeed * strength * Math.max(0, context.frame?.deltaSeconds ?? 0)) / sceneScale,
-        );
-      }
-    }
-
-    const sceneScale = positiveFinite(context.state?.starFieldScale, rig.sceneScale);
-    const [sx, sy, sz] = rig.icrsToScene(
-      rig.positionPc.x * sceneScale,
-      rig.positionPc.y * sceneScale,
-      rig.positionPc.z * sceneScale,
-    );
-    context.navigationRoot.position.set(sx, sy, sz);
-    context.contentRoot.scale.setScalar(sceneScale / SCALE);
-
-    stats = {
-      ...stats,
-      observerPc: rig.clonePosition(),
-      sceneScale,
-      presenting: true,
-    };
-    return true;
   }
 
   // --- Automation ---
@@ -856,13 +766,6 @@ export function createCameraRigController(options = {}) {
 
       rig.applyToCamera(context.camera);
 
-      if (xrEnabled && context.state) {
-        if (!Number.isFinite(context.state.starFieldScale) || context.state.starFieldScale <= 0) {
-          context.state.starFieldScale = rig.sceneScale;
-        }
-      }
-
-
       bindEvents();
     },
 
@@ -874,21 +777,17 @@ export function createCameraRigController(options = {}) {
       readFromState(context.state);
       const dt = Math.max(0, context.frame?.deltaSeconds ?? 0);
 
-      if (xrEnabled && updateXr(context)) {
-        // XR: camera managed by WebXR, position via navigationRoot
-      } else {
-        const isMovementAutomated = updateMovementAutomation(context);
-        if (!isMovementAutomated) {
-          if (integration === 'inertial') {
-            updateInertial(context);
-          } else {
-            updateFreeFly(context);
-          }
+      const isMovementAutomated = updateMovementAutomation(context);
+      if (!isMovementAutomated) {
+        if (integration === 'inertial') {
+          updateInertial(context);
+        } else {
+          updateFreeFly(context);
         }
-
-        updateOrientationAutomation(context);
-        rig.applyToCamera(context.camera);
       }
+
+      updateOrientationAutomation(context);
+      rig.applyToCamera(context.camera);
 
       updateMotionStats(dt);
       writeToState(context.state);

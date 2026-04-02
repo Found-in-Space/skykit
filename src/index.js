@@ -1,5 +1,6 @@
 export { RUNTIME_LIFECYCLE_METHODS } from './core/contracts.js';
 export { DatasetSession, getDatasetSession } from './core/dataset-session.js';
+export { createDesktopRig, createXrRig } from './core/runtime-rig.js';
 export { ViewerRuntime } from './core/viewer-runtime.js';
 export { createViewer } from './embeds/create-viewer.js';
 export {
@@ -27,10 +28,11 @@ export {
   selectOctreeNodes,
 } from './fields/octree-selection.js';
 export { createCameraRig } from './controllers/camera-rig.js';
+export { createCameraRigController } from './controllers/camera-rig-controller.js';
 export {
-  createCameraRigController,
+  createXrLocomotionController,
   readXrAxes,
-} from './controllers/camera-rig-controller.js';
+} from './controllers/xr-locomotion-controller.js';
 export { createConstellationCompassController } from './controllers/constellation-compass-controller.js';
 export {
   captureSelectionRefreshSnapshot,
@@ -93,4 +95,11 @@ export {
   pickStar,
 } from './services/star-picker.js';
 export { createPickController } from './controllers/pick-controller.js';
-export { DEFAULT_METERS_PER_PARSEC, SCALE } from './services/octree/scene-scale.js';
+export { createXrPickController } from './controllers/xr-pick-controller.js';
+export { projectToHud } from './controllers/xr-hud.js';
+export {
+  DEFAULT_METERS_PER_PARSEC,
+  SCALE,
+  XR_SUN_EYE_LEVEL_M,
+  XR_SUN_FORWARD_OFFSET_M,
+} from './services/octree/scene-scale.js';
