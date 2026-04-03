@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit: Dust Roam</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .dust-controls {
+        margin-top: 12px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .dust-controls label {
+        display: block;
+        margin-top: 10px;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+      }
+      .range-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 4px 0 8px;
+      }
+      .range-row input[type="range"] {
+        flex: 1;
+        accent-color: var(--accent-strong);
+      }
+      .range-val {
+        min-width: 3.4em;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        color: var(--accent-strong);
+        font-size: 0.9rem;
+      }
+      select {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--text-main, #eee);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 0.9rem;
+        margin: 4px 0 8px;
+        width: 100%;
+      }
+      .stat-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 4px 0;
+        font-size: 0.85rem;
+      }
+      .stat-label { color: var(--text-muted); }
+      .stat-value {
+        color: var(--accent-strong);
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <nav class="breadcrumb"><a href="../index.html">SkyKit</a> <span>/ Dust Roam</span></nav>
+      <h1>Dust Roam</h1>
+      <p>
+        Free-roam star field with volumetric interstellar dust from
+        Rezaei&nbsp;Kh.&nbsp;et&nbsp;al.&nbsp;2024. Emissive (glow),
+        optical-depth τ (column integral matching star extinction), or
+        absorptive (reddening on stars).
+      </p>
+      <ul>
+        <li>Drag in the viewer to look around.</li>
+        <li>WASD/QE or arrows to fly.</li>
+      </ul>
+
+      <label for="mag-limit">Magnitude Limit</label>
+      <input id="mag-limit" type="number" min="0" max="25" step="0.5" value="6.5" data-mag-limit />
+
+      <div class="dust-controls">
+        <strong style="font-size:0.9rem; color: var(--text-main, #eee);">Dust volume</strong>
+
+        <label for="render-mode">Mode</label>
+        <select id="render-mode" data-render-mode>
+          <option value="emissive" selected>Emissive (glow)</option>
+          <option value="optical-depth">Optical depth τ (column, matches stars)</option>
+          <option value="absorptive">Absorptive (extinction)</option>
+        </select>
+
+        <label for="kappa">Kappa (opacity scale)</label>
+        <div class="range-row">
+          <input id="kappa" type="range" min="0.0001" max="0.05" step="0.0001" value="0.005" data-kappa />
+          <span class="range-val" data-kappa-value>0.0050</span>
+        </div>
+
+        <label for="brightness">Brightness</label>
+        <div class="range-row">
+          <input id="brightness" type="range" min="0.1" max="10" step="0.1" value="1.0" data-brightness />
+          <span class="range-val" data-brightness-value>1.0</span>
+        </div>
+
+        <label style="display:flex; align-items:center; gap:8px; margin-top:12px;">
+          <input type="checkbox" data-show-galactic-plane />
+          <span>Show galactic plane guide</span>
+        </label>
+
+        <div class="stat-row">
+          <span class="stat-label">Voxel grid</span>
+          <span class="stat-value" data-grid-info>—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Dust extents (pc, Gal.)</span>
+          <span class="stat-value" data-grid-extents>—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Stars rendered</span>
+          <span class="stat-value" data-star-count>—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Star ICRS span (pc)</span>
+          <span class="stat-value" data-star-icrs-span>—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Star ICRS min (pc)</span>
+          <span class="stat-value" data-star-icrs-min>—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Star ICRS max (pc)</span>
+          <span class="stat-value" data-star-icrs-max>—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Cell size (pc)</span>
+          <span class="stat-value" data-cell-size>—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Dust info</span>
+          <span class="stat-value" data-dust-scale>—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Max density (cm⁻³)</span>
+          <span class="stat-value" data-density-max>—</span>
+        </div>
+      </div>
+
+      <p class="status">Status: <span data-status>idle</span></p>
+      <pre class="meta-block" data-summary></pre>
+      <pre data-snapshot></pre>
+    </aside>
+    <main>
+      <div class="viewer-shell" data-skykit-viewer-root></div>
+    </main>
+    <script type="module" src="/src/demo/dust-roam.js"></script>
+  </body>
+</html>

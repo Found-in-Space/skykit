@@ -22,6 +22,8 @@ export default defineConfig({
         starPick: path.resolve(__dirname, 'demos/star-pick.html'),
         clusters: path.resolve(__dirname, 'demos/clusters.html'),
         dataShape: path.resolve(__dirname, 'demos/data-shape.html'),
+        dustMap: path.resolve(__dirname, 'demos/dust-map.html'),
+        dustRoam: path.resolve(__dirname, 'demos/dust-roam.html'),
       },
     },
   },
