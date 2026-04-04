@@ -25,11 +25,16 @@ const LAYOUT = {
   padding: 20,
   titleHeight: 50,
   itemHeight: 60,
+  rangeItemHeight: 72,
   itemGap: 8,
   itemPaddingX: 16,
   itemRadius: 8,
   toggleWidth: 44,
   toggleHeight: 24,
+  rangeTrackHeight: 8,
+  rangeTrackRadius: 4,
+  rangeTrackInsetY: 18,
+  rangeKnobRadius: 11,
   fontSize: 20,
   titleFontSize: 22,
   displayLineHeight: 24,
@@ -38,6 +43,7 @@ const LAYOUT = {
   displayLabelFontSize: 13,
   displayActionHeight: 34,
   displayActionGap: 10,
+  rangeValueFontSize: 17,
 };
 
 function getItemHeight(item) {
@@ -51,7 +57,28 @@ function getItemHeight(item) {
       + (contentLines + labelLines) * LAYOUT.displayLineHeight
       + actionHeight;
   }
+  if (item.type === 'range') {
+    return LAYOUT.rangeItemHeight;
+  }
   return LAYOUT.itemHeight;
+}
+
+function walkItemRects(items, callback) {
+  let y = LAYOUT.padding + LAYOUT.titleHeight;
+  for (const item of items) {
+    const rect = {
+      x: LAYOUT.padding,
+      y,
+      w: CANVAS_WIDTH - LAYOUT.padding * 2,
+      h: getItemHeight(item),
+    };
+    const result = callback(item, rect);
+    if (result !== undefined) {
+      return result;
+    }
+    y += rect.h + LAYOUT.itemGap;
+  }
+  return null;
 }
 
 const _plane = new THREE.Plane();
@@ -138,23 +165,85 @@ function getDisplayActionRect(item, y, h) {
   };
 }
 
+function getRangeTrackRect(rect) {
+  return {
+    x: rect.x + LAYOUT.itemPaddingX,
+    y: rect.y + rect.h - LAYOUT.rangeTrackInsetY - LAYOUT.rangeTrackHeight,
+    w: rect.w - LAYOUT.itemPaddingX * 2,
+    h: LAYOUT.rangeTrackHeight,
+  };
+}
+
+function getRangeBounds(item) {
+  const min = Number.isFinite(item.min) ? Number(item.min) : 0;
+  const max = Number.isFinite(item.max) ? Number(item.max) : 1;
+  return {
+    min: Math.min(min, max),
+    max: Math.max(min, max),
+  };
+}
+
+function clamp01(value) {
+  return Math.min(Math.max(value, 0), 1);
+}
+
+function countFractionDigits(value) {
+  if (!Number.isFinite(value)) return 0;
+  const text = String(value);
+  const dot = text.indexOf('.');
+  return dot >= 0 ? text.length - dot - 1 : 0;
+}
+
+function normalizeRangeValue(item, value) {
+  const numeric = Number(value);
+  const { min, max } = getRangeBounds(item);
+  const clamped = Math.min(Math.max(Number.isFinite(numeric) ? numeric : min, min), max);
+  const step = Number.isFinite(item.step) && item.step > 0 ? Number(item.step) : 0;
+  if (!(step > 0)) {
+    return clamped;
+  }
+  const stepped = min + Math.round((clamped - min) / step) * step;
+  const digits = countFractionDigits(step);
+  return Number(stepped.toFixed(digits));
+}
+
+function formatRangeValue(item) {
+  if (typeof item.formatValue === 'function') {
+    return item.formatValue(item.value);
+  }
+  const step = Number.isFinite(item.step) && item.step > 0 ? Number(item.step) : 1;
+  const digits = countFractionDigits(step);
+  return Number(item.value ?? 0).toFixed(digits);
+}
+
+function resolveRangeValueAtUv(items, targetItem, u) {
+  const px = u * CANVAS_WIDTH;
+  return walkItemRects(items, (item, rect) => {
+    if (item !== targetItem) {
+      return undefined;
+    }
+    const track = getRangeTrackRect(rect);
+    const t = clamp01((px - track.x) / Math.max(track.w, 1));
+    const { min, max } = getRangeBounds(item);
+    return normalizeRangeValue(item, min + (max - min) * t);
+  });
+}
+
 function itemAtUV(items, u, v) {
   const px = u * CANVAS_WIDTH;
   const py = (1 - v) * CANVAS_HEIGHT;
 
-  let y = LAYOUT.padding + LAYOUT.titleHeight;
-  for (const item of items) {
-    const h = getItemHeight(item);
-    const rectRight = CANVAS_WIDTH - LAYOUT.padding;
+  return walkItemRects(items, (item, rect) => {
+    const rectRight = rect.x + rect.w;
     if (item.type === 'display') {
       if (item.dismissible && item.lines?.length > 0) {
         const bx = rectRight - DISMISS_MARGIN - DISMISS_SIZE;
-        const by = y + DISMISS_MARGIN;
+        const by = rect.y + DISMISS_MARGIN;
         if (px >= bx && px <= bx + DISMISS_SIZE && py >= by && py <= by + DISMISS_SIZE) {
           return item;
         }
       }
-      const actionRect = getDisplayActionRect(item, y, h);
+      const actionRect = getDisplayActionRect(item, rect.y, rect.h);
       if (actionRect
         && px >= actionRect.x
         && px <= actionRect.x + actionRect.w
@@ -167,14 +256,13 @@ function itemAtUV(items, u, v) {
         };
       }
     } else if (
-      px >= LAYOUT.padding && px <= rectRight &&
-      py >= y && py <= y + h
+      px >= rect.x && px <= rectRight &&
+      py >= rect.y && py <= rect.y + rect.h
     ) {
       return item;
     }
-    y += h + LAYOUT.itemGap;
-  }
-  return null;
+    return undefined;
+  });
 }
 
 function drawPanel(ctx, items, hoveredId, pressedId) {
@@ -194,16 +282,7 @@ function drawPanel(ctx, items, hoveredId, pressedId) {
   ctx.textBaseline = 'middle';
   ctx.fillText('SkyKit', LAYOUT.padding, LAYOUT.padding + LAYOUT.titleHeight / 2);
 
-  let y = LAYOUT.padding + LAYOUT.titleHeight;
-  for (const item of items) {
-    const h = getItemHeight(item);
-    const rect = {
-      x: LAYOUT.padding,
-      y,
-      w: CANVAS_WIDTH - LAYOUT.padding * 2,
-      h,
-    };
-
+  walkItemRects(items, (item, rect) => {
     if (item.type === 'display') {
       drawDisplay(ctx, rect, item, {
         dismissHovered: item.id === hoveredId,
@@ -237,6 +316,8 @@ function drawPanel(ctx, items, hoveredId, pressedId) {
           LAYOUT.toggleHeight,
           item.value,
         );
+      } else if (item.type === 'range') {
+        drawRange(ctx, rect, item);
       } else {
         const textWidth = ctx.measureText(item.label).width;
         ctx.fillText(
@@ -246,9 +327,8 @@ function drawPanel(ctx, items, hoveredId, pressedId) {
         );
       }
     }
-
-    y += h + LAYOUT.itemGap;
-  }
+    return undefined;
+  });
 }
 
 function drawDisplay(ctx, rect, item, states) {
@@ -356,6 +436,45 @@ function drawToggle(ctx, x, y, w, h, on) {
   ctx.fill();
 }
 
+function drawRange(ctx, rect, item) {
+  const track = getRangeTrackRect(rect);
+  const { min, max } = getRangeBounds(item);
+  const value = normalizeRangeValue(item, item.value);
+  const t = max > min ? clamp01((value - min) / (max - min)) : 0;
+
+  ctx.fillStyle = COLORS.text;
+  ctx.font = `${LAYOUT.fontSize}px sans-serif`;
+  ctx.textBaseline = 'top';
+  ctx.fillText(item.label, rect.x + LAYOUT.itemPaddingX, rect.y + 12);
+
+  const valueText = formatRangeValue({ ...item, value });
+  ctx.font = `${LAYOUT.rangeValueFontSize}px sans-serif`;
+  const valueWidth = ctx.measureText(valueText).width;
+  ctx.fillText(
+    valueText,
+    rect.x + rect.w - LAYOUT.itemPaddingX - valueWidth,
+    rect.y + 14,
+  );
+
+  ctx.fillStyle = COLORS.toggleOff;
+  roundRect(ctx, track.x, track.y, track.w, track.h, LAYOUT.rangeTrackRadius);
+  ctx.fill();
+
+  ctx.fillStyle = COLORS.toggleOn;
+  roundRect(ctx, track.x, track.y, track.w * t, track.h, LAYOUT.rangeTrackRadius);
+  ctx.fill();
+
+  const knobX = track.x + track.w * t;
+  const knobY = track.y + track.h / 2;
+  ctx.fillStyle = COLORS.toggleKnob;
+  ctx.beginPath();
+  ctx.arc(knobX, knobY, LAYOUT.rangeKnobRadius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = COLORS.border;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -377,7 +496,8 @@ function roundRect(ctx, x, y, w, h, r) {
  *
  * Items are plain config objects: `{ id, label, type, value }`.
  * Supported types: 'toggle' (boolean), 'button' (momentary),
- * and 'display' (non-interactive multi-line text, updated via setDisplay).
+ * 'range' (numeric slider), and 'display' (non-interactive
+ * multi-line text, updated via setDisplay).
  *
  * The controller exposes `getHit()` so the pick controller can
  * shorten its laser and suppress star picks when the pointer is
@@ -433,15 +553,46 @@ export function createXrTabletController(options = {}) {
     }
   }
 
+  function emitChange(item) {
+    if (typeof onChange === 'function') {
+      onChange(item.id, item.value);
+    }
+  }
+
+  function updateRangeValue(item, nextValue) {
+    if (!item || item.type !== 'range') {
+      return;
+    }
+    const normalized = normalizeRangeValue(item, nextValue);
+    if (item.value === normalized) {
+      return;
+    }
+    item.value = normalized;
+    needsRedraw = true;
+    emitChange(item);
+  }
+
+  function updateRangeValueFromHit(item, hit) {
+    if (!item || item.type !== 'range' || !hit) {
+      return;
+    }
+    const nextValue = resolveRangeValueAtUv(items, item, hit.u);
+    updateRangeValue(item, nextValue);
+  }
+
   function activateItem(item) {
     if (!item) return;
     if (item.type === 'toggle') {
       item.value = !item.value;
       needsRedraw = true;
+      emitChange(item);
+      return;
     }
-    if (typeof onChange === 'function') {
-      onChange(item.id, item.value);
+    if (item.type === 'range') {
+      updateRangeValueFromHit(item, currentHit);
+      return;
     }
+    emitChange(item);
   }
 
   function ensureParented(cameraMount) {
@@ -502,6 +653,11 @@ export function createXrTabletController(options = {}) {
       pressedId = hoveredId;
       needsRedraw = true;
       activateItem(item);
+    } else if (pressed && pressedId != null) {
+      const item = items.find((entry) => entry.id === pressedId);
+      if (item?.type === 'range') {
+        updateRangeValueFromHit(item, currentHit);
+      }
     }
     if (!pressed && pressedId != null) {
       pressedId = null;
@@ -545,7 +701,9 @@ export function createXrTabletController(options = {}) {
     setItemValue(id, value) {
       const item = items.find((i) => i.id === id);
       if (item) {
-        item.value = value;
+        item.value = item.type === 'range'
+          ? normalizeRangeValue(item, value)
+          : value;
         needsRedraw = true;
       }
     },
