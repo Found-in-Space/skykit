@@ -141,7 +141,12 @@ export function createXrPickController(options = {}) {
       fovRad,
       viewportHeight: 800,
       magLimit: latestState?.mDesired ?? 6.5,
+      magFadeRange: latestState?.starFieldMagFadeRange,
       exposure: latestState?.starFieldExposure ?? 0.028,
+      baseSize: latestState?.starFieldBaseSize ?? latestState?.starFieldSizeMin,
+      sizeScale: latestState?.starFieldSizeScale ?? latestState?.starFieldLinearScale,
+      sizePower: latestState?.starFieldSizePower,
+      sizeMax: latestState?.starFieldSizeMax,
       extinctionScale: latestState?.starFieldExtinctionScale ?? 1.0,
     });
     const pickTimeMs = performance.now() - t0;

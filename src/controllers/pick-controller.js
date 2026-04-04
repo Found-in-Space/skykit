@@ -62,7 +62,12 @@ export function createPickController(options = {}) {
       fovRad,
       viewportHeight: latestSize?.height ?? 800,
       magLimit: latestState?.mDesired ?? 6.5,
+      magFadeRange: latestState?.starFieldMagFadeRange,
       exposure: latestState?.starFieldExposure ?? DEFAULT_TUNED_EXPOSURE,
+      baseSize: latestState?.starFieldBaseSize ?? latestState?.starFieldSizeMin,
+      sizeScale: latestState?.starFieldSizeScale ?? latestState?.starFieldLinearScale,
+      sizePower: latestState?.starFieldSizePower,
+      sizeMax: latestState?.starFieldSizeMax,
       extinctionScale: latestState?.starFieldExtinctionScale ?? 1.0,
     });
     const pickTimeMs = performance.now() - t0;

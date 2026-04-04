@@ -311,13 +311,13 @@
         <summary>Star Shader</summary>
         <div class="accordion__content">
           <p class="accordion__copy">
-            These sliders feed the live tuned star-field uniforms so you can move through the scene and judge changes in context.
+            These sliders shape the apparent-magnitude response live, so you can judge faint stars, bright stars, and close approaches in context.
           </p>
 
           <div class="control-row">
             <label for="ctrl-exposure">Exposure</label>
-            <input id="ctrl-exposure" type="range" min="-4" max="4" step="0.01" value="0" data-star-exposure />
-            <span class="value-readout" data-readout="exposure">1.000</span>
+            <input id="ctrl-exposure" type="range" min="4" max="11.5" step="0.01" value="7.82" data-star-exposure />
+            <span class="value-readout" data-readout="exposure">2500</span>
           </div>
           <div class="control-row">
             <label for="ctrl-extinction">Extinction</label>
@@ -330,29 +330,29 @@
             <span class="value-readout" data-readout="fade-range">3.0</span>
           </div>
           <div class="control-row">
-            <label for="ctrl-size-min">Size min</label>
-            <input id="ctrl-size-min" type="range" min="0.5" max="8" step="0.1" value="2" data-star-size-min />
-            <span class="value-readout" data-readout="size-min">2.0</span>
+            <label for="ctrl-base-size">Base size</label>
+            <input id="ctrl-base-size" type="range" min="0.25" max="4" step="0.05" value="0.9" data-star-base-size />
+            <span class="value-readout" data-readout="base-size">0.90</span>
           </div>
           <div class="control-row">
-            <label for="ctrl-size-max">Size max</label>
-            <input id="ctrl-size-max" type="range" min="8" max="256" step="1" value="256" data-star-size-max />
-            <span class="value-readout" data-readout="size-max">256</span>
+            <label for="ctrl-size-scale">Size scale</label>
+            <input id="ctrl-size-scale" type="range" min="0" max="8" step="0.05" value="3" data-star-size-scale />
+            <span class="value-readout" data-readout="size-scale">3.00</span>
           </div>
           <div class="control-row">
-            <label for="ctrl-linear-scale">Linear scale</label>
-            <input id="ctrl-linear-scale" type="range" min="2" max="24" step="0.1" value="12" data-star-linear-scale />
-            <span class="value-readout" data-readout="linear-scale">12.0</span>
+            <label for="ctrl-size-power">Size power</label>
+            <input id="ctrl-size-power" type="range" min="0.05" max="0.75" step="0.01" value="0.32" data-star-size-power />
+            <span class="value-readout" data-readout="size-power">0.32</span>
           </div>
           <div class="control-row">
-            <label for="ctrl-halo-threshold">Halo threshold</label>
-            <input id="ctrl-halo-threshold" type="range" min="0" max="40" step="0.5" value="10" data-star-halo-threshold />
-            <span class="value-readout" data-readout="halo-threshold">10.0</span>
+            <label for="ctrl-glow-scale">Glow scale</label>
+            <input id="ctrl-glow-scale" type="range" min="0" max="4" step="0.05" value="1.5" data-star-glow-scale />
+            <span class="value-readout" data-readout="glow-scale">1.50</span>
           </div>
           <div class="control-row">
-            <label for="ctrl-halo-size">Halo size</label>
-            <input id="ctrl-halo-size" type="range" min="8" max="160" step="1" value="80" data-star-halo-size />
-            <span class="value-readout" data-readout="halo-size">80</span>
+            <label for="ctrl-glow-power">Glow power</label>
+            <input id="ctrl-glow-power" type="range" min="0.05" max="0.75" step="0.01" value="0.22" data-star-glow-power />
+            <span class="value-readout" data-readout="glow-power">0.22</span>
           </div>
         </div>
       </details>

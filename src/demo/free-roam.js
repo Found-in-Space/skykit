@@ -128,11 +128,11 @@ const artOpacityInput = document.querySelector('[data-art-opacity]');
 const exposureInput = document.querySelector('[data-star-exposure]');
 const extinctionInput = document.querySelector('[data-star-extinction-scale]');
 const fadeRangeInput = document.querySelector('[data-star-fade-range]');
-const sizeMinInput = document.querySelector('[data-star-size-min]');
-const sizeMaxInput = document.querySelector('[data-star-size-max]');
-const linearScaleInput = document.querySelector('[data-star-linear-scale]');
-const haloThresholdInput = document.querySelector('[data-star-halo-threshold]');
-const haloSizeInput = document.querySelector('[data-star-halo-size]');
+const baseSizeInput = document.querySelector('[data-star-base-size]');
+const sizeScaleInput = document.querySelector('[data-star-size-scale]');
+const sizePowerInput = document.querySelector('[data-star-size-power]');
+const glowScaleInput = document.querySelector('[data-star-glow-scale]');
+const glowPowerInput = document.querySelector('[data-star-glow-power]');
 const toleranceInput = document.querySelector('[data-pick-tolerance]');
 const pickInfoEl = document.querySelector('[data-pick-info]');
 const constellationIauValue = document.querySelector('[data-constellation-iau]');
@@ -181,21 +181,22 @@ let activeStarFieldState = {
   starFieldMagFadeRange: Number.isFinite(Number(fadeRangeInput?.value))
     ? Number(fadeRangeInput.value)
     : DEFAULT_STAR_FIELD_STATE.starFieldMagFadeRange,
-  starFieldSizeMin: Number.isFinite(Number(sizeMinInput?.value))
-    ? Number(sizeMinInput.value)
-    : DEFAULT_STAR_FIELD_STATE.starFieldSizeMin,
-  starFieldSizeMax: Number.isFinite(Number(sizeMaxInput?.value))
-    ? Number(sizeMaxInput.value)
-    : DEFAULT_STAR_FIELD_STATE.starFieldSizeMax,
-  starFieldLinearScale: Number.isFinite(Number(linearScaleInput?.value))
-    ? Number(linearScaleInput.value)
-    : DEFAULT_STAR_FIELD_STATE.starFieldLinearScale,
-  starFieldHaloThreshold: Number.isFinite(Number(haloThresholdInput?.value))
-    ? Number(haloThresholdInput.value)
-    : DEFAULT_STAR_FIELD_STATE.starFieldHaloThreshold,
-  starFieldHaloSize: Number.isFinite(Number(haloSizeInput?.value))
-    ? Number(haloSizeInput.value)
-    : DEFAULT_STAR_FIELD_STATE.starFieldHaloSize,
+  starFieldBaseSize: Number.isFinite(Number(baseSizeInput?.value))
+    ? Number(baseSizeInput.value)
+    : DEFAULT_STAR_FIELD_STATE.starFieldBaseSize,
+  starFieldSizeScale: Number.isFinite(Number(sizeScaleInput?.value))
+    ? Number(sizeScaleInput.value)
+    : DEFAULT_STAR_FIELD_STATE.starFieldSizeScale,
+  starFieldSizePower: Number.isFinite(Number(sizePowerInput?.value))
+    ? Number(sizePowerInput.value)
+    : DEFAULT_STAR_FIELD_STATE.starFieldSizePower,
+  starFieldGlowScale: Number.isFinite(Number(glowScaleInput?.value))
+    ? Number(glowScaleInput.value)
+    : DEFAULT_STAR_FIELD_STATE.starFieldGlowScale,
+  starFieldGlowPower: Number.isFinite(Number(glowPowerInput?.value))
+    ? Number(glowPowerInput.value)
+    : DEFAULT_STAR_FIELD_STATE.starFieldGlowPower,
+  starFieldSizeMax: DEFAULT_STAR_FIELD_STATE.starFieldSizeMax,
 };
 let activeTolerance = DEFAULT_PICK_TOLERANCE_DEG;
 let warmState = {
@@ -203,6 +204,19 @@ let warmState = {
   rootShard: 'idle',
   meta: 'idle',
 };
+
+function formatExposureReadout(value) {
+  if (!Number.isFinite(value)) {
+    return '—';
+  }
+  if (value >= 100) {
+    return value.toFixed(0);
+  }
+  if (value >= 10) {
+    return value.toFixed(1);
+  }
+  return value.toFixed(3);
+}
 
 function setReadout(name, value) {
   const el = document.querySelector(`[data-readout="${name}"]`);
@@ -672,14 +686,14 @@ setReadout('fov', `${activeFovDeg.toFixed(0)}°`);
 setReadout('hysteresis', `${activeHysteresisSecs.toFixed(2)}s`);
 setReadout('art-fade', `${activeArtFadeSecs.toFixed(2)}s`);
 setReadout('art-opacity', activeArtOpacity.toFixed(2));
-setReadout('exposure', activeStarFieldState.starFieldExposure.toFixed(3));
+setReadout('exposure', formatExposureReadout(activeStarFieldState.starFieldExposure));
 setReadout('extinction', activeStarFieldState.starFieldExtinctionScale.toFixed(2));
 setReadout('fade-range', activeStarFieldState.starFieldMagFadeRange.toFixed(1));
-setReadout('size-min', activeStarFieldState.starFieldSizeMin.toFixed(1));
-setReadout('size-max', activeStarFieldState.starFieldSizeMax.toFixed(0));
-setReadout('linear-scale', activeStarFieldState.starFieldLinearScale.toFixed(1));
-setReadout('halo-threshold', activeStarFieldState.starFieldHaloThreshold.toFixed(1));
-setReadout('halo-size', activeStarFieldState.starFieldHaloSize.toFixed(0));
+setReadout('base-size', activeStarFieldState.starFieldBaseSize.toFixed(2));
+setReadout('size-scale', activeStarFieldState.starFieldSizeScale.toFixed(2));
+setReadout('size-power', activeStarFieldState.starFieldSizePower.toFixed(2));
+setReadout('glow-scale', activeStarFieldState.starFieldGlowScale.toFixed(2));
+setReadout('glow-power', activeStarFieldState.starFieldGlowPower.toFixed(2));
 setReadout('pick-tolerance', `${activeTolerance.toFixed(1)}°`);
 toleranceInput?.setAttribute('value', String(activeTolerance));
 if (toleranceInput) {
@@ -795,7 +809,7 @@ exposureInput?.addEventListener('input', () => {
     return;
   }
   const exposure = Math.exp(sliderValue);
-  setReadout('exposure', exposure.toFixed(3));
+  setReadout('exposure', formatExposureReadout(exposure));
   updateStarFieldState({ starFieldExposure: exposure });
 });
 
@@ -817,49 +831,49 @@ fadeRangeInput?.addEventListener('input', () => {
   updateStarFieldState({ starFieldMagFadeRange: parsed });
 });
 
-sizeMinInput?.addEventListener('input', () => {
-  const parsed = Number(sizeMinInput.value);
+baseSizeInput?.addEventListener('input', () => {
+  const parsed = Number(baseSizeInput.value);
   if (!Number.isFinite(parsed) || parsed < 0) {
     return;
   }
-  setReadout('size-min', parsed.toFixed(1));
-  updateStarFieldState({ starFieldSizeMin: parsed });
+  setReadout('base-size', parsed.toFixed(2));
+  updateStarFieldState({ starFieldBaseSize: parsed });
 });
 
-sizeMaxInput?.addEventListener('input', () => {
-  const parsed = Number(sizeMaxInput.value);
+sizeScaleInput?.addEventListener('input', () => {
+  const parsed = Number(sizeScaleInput.value);
   if (!Number.isFinite(parsed) || parsed < 0) {
     return;
   }
-  setReadout('size-max', parsed.toFixed(0));
-  updateStarFieldState({ starFieldSizeMax: parsed });
+  setReadout('size-scale', parsed.toFixed(2));
+  updateStarFieldState({ starFieldSizeScale: parsed });
 });
 
-linearScaleInput?.addEventListener('input', () => {
-  const parsed = Number(linearScaleInput.value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
+sizePowerInput?.addEventListener('input', () => {
+  const parsed = Number(sizePowerInput.value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
     return;
   }
-  setReadout('linear-scale', parsed.toFixed(1));
-  updateStarFieldState({ starFieldLinearScale: parsed });
+  setReadout('size-power', parsed.toFixed(2));
+  updateStarFieldState({ starFieldSizePower: parsed });
 });
 
-haloThresholdInput?.addEventListener('input', () => {
-  const parsed = Number(haloThresholdInput.value);
+glowScaleInput?.addEventListener('input', () => {
+  const parsed = Number(glowScaleInput.value);
   if (!Number.isFinite(parsed) || parsed < 0) {
     return;
   }
-  setReadout('halo-threshold', parsed.toFixed(1));
-  updateStarFieldState({ starFieldHaloThreshold: parsed });
+  setReadout('glow-scale', parsed.toFixed(2));
+  updateStarFieldState({ starFieldGlowScale: parsed });
 });
 
-haloSizeInput?.addEventListener('input', () => {
-  const parsed = Number(haloSizeInput.value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
+glowPowerInput?.addEventListener('input', () => {
+  const parsed = Number(glowPowerInput.value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
     return;
   }
-  setReadout('halo-size', parsed.toFixed(0));
-  updateStarFieldState({ starFieldHaloSize: parsed });
+  setReadout('glow-power', parsed.toFixed(2));
+  updateStarFieldState({ starFieldGlowPower: parsed });
 });
 
 toleranceInput?.addEventListener('input', () => {

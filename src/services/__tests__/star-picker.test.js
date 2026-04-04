@@ -44,9 +44,9 @@ test('decodeTemperatureK produces hotter values at higher bytes', () => {
   assert.ok(hot > cool, `hot (${hot}) should exceed cool (${cool})`);
 });
 
-test('computeVisualRadiusPx returns zero for very faint stars', () => {
+test('computeVisualRadiusPx returns zero for stars beyond the magnitude fade', () => {
   const px = computeVisualRadiusPx(15, { magLimit: 6.5 });
-  assert.equal(px, 0, 'faint stars below luminance threshold should get radius 0');
+  assert.equal(px, 0, 'stars beyond the magnitude limit should get radius 0');
 });
 
 test('computeVisualRadiusPx returns larger radius for brighter stars', () => {
@@ -55,9 +55,15 @@ test('computeVisualRadiusPx returns larger radius for brighter stars', () => {
   assert.ok(bright > dim, `bright (${bright}) should be larger than dim (${dim})`);
 });
 
+test('computeVisualRadiusPx keeps separating very bright stars', () => {
+  const bright = computeVisualRadiusPx(0, { magLimit: 6.5 });
+  const extreme = computeVisualRadiusPx(-5, { magLimit: 6.5 });
+  assert.ok(extreme > bright, `extreme (${extreme}) should be larger than bright (${bright})`);
+});
+
 test('computeVisualRadiusPx never exceeds sizeMax', () => {
-  const px = computeVisualRadiusPx(-5, { magLimit: 6.5, sizeMax: 100 });
-  assert.ok(px <= 100, `radius ${px} should not exceed sizeMax 100`);
+  const px = computeVisualRadiusPx(-5, { magLimit: 6.5, sizeMax: 40 });
+  assert.ok(px <= 40, `radius ${px} should not exceed sizeMax 40`);
 });
 
 test('pickStar returns null for empty star data', () => {

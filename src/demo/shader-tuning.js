@@ -5,6 +5,7 @@ import {
   createVrStarFieldMaterialProfile,
 } from '../layers/star-field-materials.js';
 import { SCALE } from '../services/octree/scene-scale.js';
+import { computeVisualRadiusPx } from '../services/star-picker.js';
 
 const DISTANCE_PC = 10;
 const DISTANCE_WORLD = DISTANCE_PC * SCALE;
@@ -100,9 +101,12 @@ const infoBlock = document.querySelector('[data-info]');
 
 const ctrlExposure = document.getElementById('ctrl-exposure');
 const ctrlMagLimit = document.getElementById('ctrl-mag-limit');
-const ctrlSizeMin = document.getElementById('ctrl-size-min');
-const ctrlSizeMax = document.getElementById('ctrl-size-max');
 const ctrlFadeRange = document.getElementById('ctrl-fade-range');
+const ctrlBaseSize = document.getElementById('ctrl-base-size');
+const ctrlSizeScale = document.getElementById('ctrl-size-scale');
+const ctrlSizePower = document.getElementById('ctrl-size-power');
+const ctrlGlowScale = document.getElementById('ctrl-glow-scale');
+const ctrlGlowPower = document.getElementById('ctrl-glow-power');
 const ctrlMagBrightest = document.getElementById('ctrl-mag-brightest');
 const profileButtons = document.querySelectorAll('[data-profile]');
 
@@ -120,20 +124,54 @@ function getMagLimit() {
   return Number(ctrlMagLimit.value);
 }
 
-function getSizeMin() {
-  return Number(ctrlSizeMin.value);
-}
-
-function getSizeMax() {
-  return Number(ctrlSizeMax.value);
-}
-
 function getFadeRange() {
   return Number(ctrlFadeRange.value);
 }
 
+function getBaseSize() {
+  return Number(ctrlBaseSize.value);
+}
+
+function getSizeScale() {
+  return Number(ctrlSizeScale.value);
+}
+
+function getSizePower() {
+  return Number(ctrlSizePower.value);
+}
+
+function getGlowScale() {
+  return Number(ctrlGlowScale.value);
+}
+
+function getGlowPower() {
+  return Number(ctrlGlowPower.value);
+}
+
 function getMagBrightest() {
   return Number(ctrlMagBrightest.value);
+}
+
+function getProfileSizeMax() {
+  return activeProfile === 'vr' ? 64 : 384;
+}
+
+function formatExposureReadout(value) {
+  if (value >= 100) return value.toFixed(0);
+  if (value >= 10) return value.toFixed(1);
+  return value.toFixed(3);
+}
+
+function apparentFluxFromMagnitude(mApp) {
+  return Math.pow(10, -0.4 * mApp);
+}
+
+function computeMagnitudeFade(mApp, magLimit, fadeRange) {
+  if (!(fadeRange > 0)) {
+    return mApp <= magLimit ? 1 : 0;
+  }
+  const t = THREE.MathUtils.clamp((mApp - (magLimit - fadeRange)) / fadeRange, 0, 1);
+  return 1 - t * t * (3 - 2 * t);
 }
 
 // --- Scene setup ---
@@ -172,9 +210,14 @@ function rebuild() {
   materialProfile = createMaterialProfile(activeProfile, {
     exposure: getExposure(),
     magLimit: getMagLimit(),
-    sizeMin: getSizeMin(),
-    sizeMax: getSizeMax(),
     magFadeRange: getFadeRange(),
+    baseSize: getBaseSize(),
+    sizeScale: getSizeScale(),
+    sizePower: getSizePower(),
+    glowScale: getGlowScale(),
+    glowPower: getGlowPower(),
+    sizeMin: getBaseSize(),
+    sizeMax: getProfileSizeMax(),
     scale: SCALE,
   });
 
@@ -241,30 +284,34 @@ function updateLabels() {
 function syncUniforms() {
   if (!materialProfile) return;
 
-  const u = materialProfile.material.uniforms;
-  u.uExposure.value = getExposure();
-  u.uMagLimit.value = getMagLimit();
-  if (u.uSizeMin) u.uSizeMin.value = getSizeMin();
-  if (u.uSizeMax) u.uSizeMax.value = getSizeMax();
-  u.uMagFadeRange.value = getFadeRange();
-  u.uCameraPosition.value.set(0, 0, 0);
+  const apply = (uniforms) => {
+    if (!uniforms) return;
+    if (uniforms.uExposure) uniforms.uExposure.value = getExposure();
+    if (uniforms.uMagLimit) uniforms.uMagLimit.value = getMagLimit();
+    if (uniforms.uMagFadeRange) uniforms.uMagFadeRange.value = getFadeRange();
+    if (uniforms.uBaseSize) uniforms.uBaseSize.value = getBaseSize();
+    if (uniforms.uSizeScale) uniforms.uSizeScale.value = getSizeScale();
+    if (uniforms.uSizePower) uniforms.uSizePower.value = getSizePower();
+    if (uniforms.uGlowScale) uniforms.uGlowScale.value = getGlowScale();
+    if (uniforms.uGlowPower) uniforms.uGlowPower.value = getGlowPower();
+    if (uniforms.uSizeMin) uniforms.uSizeMin.value = getBaseSize();
+    if (uniforms.uSizeMax) uniforms.uSizeMax.value = getProfileSizeMax();
+    if (uniforms.uCameraPosition) uniforms.uCameraPosition.value.set(0, 0, 0);
+  };
 
-  if (materialProfile.haloMaterial) {
-    const h = materialProfile.haloMaterial.uniforms;
-    h.uExposure.value = getExposure();
-    h.uMagLimit.value = getMagLimit();
-    h.uMagFadeRange.value = getFadeRange();
-    h.uCameraPosition.value.set(0, 0, 0);
-  }
+  apply(materialProfile.material.uniforms);
+  apply(materialProfile.haloMaterial?.uniforms);
 }
 
 function updateReadouts() {
-  const exp = getExposure();
-  readout('exposure', exp >= 1 ? exp.toFixed(0) : exp.toFixed(3));
+  readout('exposure', formatExposureReadout(getExposure()));
   readout('mag-limit', getMagLimit().toFixed(1));
-  readout('size-min', getSizeMin().toFixed(1));
-  readout('size-max', getSizeMax().toFixed(0));
   readout('fade-range', getFadeRange().toFixed(1));
+  readout('base-size', getBaseSize().toFixed(2));
+  readout('size-scale', getSizeScale().toFixed(2));
+  readout('size-power', getSizePower().toFixed(2));
+  readout('glow-scale', getGlowScale().toFixed(2));
+  readout('glow-power', getGlowPower().toFixed(2));
   readout('mag-brightest', getMagBrightest().toFixed(0));
 }
 
@@ -273,49 +320,32 @@ function updateInfo() {
 
   const exposure = getExposure();
   const limit = getMagLimit();
-  const sMin = getSizeMin();
-  const sMax = getSizeMax();
-  const linScale = 12.0;
-  const haloThreshold = 10.0;
+  const fadeRange = getFadeRange();
+  const baseSize = getBaseSize();
+  const sizeScale = getSizeScale();
+  const sizePower = getSizePower();
+  const glowScale = getGlowScale();
+  const glowPower = getGlowPower();
+  const sizeMax = getProfileSizeMax();
 
-  const usingTunedMath = activeProfile !== 'vr';
-  const header = usingTunedMath
-    ? 'm       flux       rawR   radius  lum    halo'
-    : 'm       flux       I(clamp)  size(magD)';
+  const header = 'm       flux       fade   radius  glow';
 
   const lines = starData.mags.map((m) => {
     const flux = Math.pow(10, -0.4 * m);
-    const relFlux = usingTunedMath
-      ? Math.pow(10, 0.4 * (limit - m))
-      : flux;
-    const energy = relFlux * exposure;
-
-    if (usingTunedMath) {
-      const rawRadius = Math.sqrt(energy) * linScale;
-      let luminance, radius;
-      if (rawRadius < sMin) {
-        luminance = Math.pow(rawRadius, 3) / Math.pow(sMin, 3);
-        radius = luminance < 0.03 ? 0 : sMin;
-        if (luminance < 0.03) luminance = 0;
-      } else {
-        luminance = 1.0;
-        const maxLin = 8.0;
-        radius = rawRadius > maxLin
-          ? maxLin + Math.sqrt(1 + rawRadius - maxLin) - 1
-          : rawRadius;
-      }
-      radius = Math.min(radius, sMax);
-      const excess = rawRadius - haloThreshold;
-      const haloAlpha = Math.max(0, Math.min(excess / 30, 1));
-      const haloFlag = haloAlpha > 0.001 ? `${(haloAlpha * 100).toFixed(0)}%` : '  -';
-      return `m=${String(m).padStart(4)}  flux=${flux.toExponential(1).padStart(9)}  rawR=${rawRadius.toFixed(1).padStart(6)}  r=${radius.toFixed(1).padStart(5)}px  L=${luminance.toFixed(3)}  halo=${haloFlag}`;
-    }
-
-    const intensity = Math.min(Math.max(energy, 0.02), 1.0);
-    const magDiff = limit - m;
-    const size = Math.min(Math.max(sMin + Math.pow(Math.max(magDiff, 0), 1.15) * 1.4, sMin), sMax);
-    const clamped = intensity >= 1.0 ? ' CLAMPED' : '';
-    return `m=${String(m).padStart(4)}  flux=${flux.toExponential(1).padStart(9)}  I=${intensity.toFixed(3)}${clamped}  size=${size.toFixed(1)}px`;
+    const fade = computeMagnitudeFade(m, limit, fadeRange);
+    const radius = computeVisualRadiusPx(m, {
+      magLimit: limit,
+      magFadeRange: fadeRange,
+      exposure,
+      baseSize,
+      sizeScale,
+      sizePower,
+      sizeMax,
+    });
+    const displayFlux = apparentFluxFromMagnitude(m) * exposure;
+    const glowSignal = Math.max(Math.pow(1 + Math.max(displayFlux, 0), glowPower) - 1, 0);
+    const glowAlpha = fade * (1 - Math.exp(-0.9 * glowScale * glowSignal));
+    return `m=${String(m).padStart(4)}  flux=${flux.toExponential(1).padStart(9)}  fade=${fade.toFixed(2)}  r=${radius.toFixed(1).padStart(5)}px  glow=${(glowAlpha * 100).toFixed(0).padStart(3)}%`;
   });
 
   infoBlock.textContent = header + '\n' + lines.join('\n');
@@ -325,24 +355,19 @@ function updateInfo() {
 
 ctrlExposure.addEventListener('input', () => { updateReadouts(); syncUniforms(); updateInfo(); });
 ctrlMagLimit.addEventListener('input', () => { updateReadouts(); syncUniforms(); updateInfo(); });
-ctrlSizeMin.addEventListener('input', () => { updateReadouts(); syncUniforms(); updateInfo(); });
-ctrlSizeMax.addEventListener('input', () => { updateReadouts(); syncUniforms(); updateInfo(); });
 ctrlFadeRange.addEventListener('input', () => { updateReadouts(); syncUniforms(); updateInfo(); });
+ctrlBaseSize.addEventListener('input', () => { updateReadouts(); syncUniforms(); updateInfo(); });
+ctrlSizeScale.addEventListener('input', () => { updateReadouts(); syncUniforms(); updateInfo(); });
+ctrlSizePower.addEventListener('input', () => { updateReadouts(); syncUniforms(); updateInfo(); });
+ctrlGlowScale.addEventListener('input', () => { updateReadouts(); syncUniforms(); updateInfo(); });
+ctrlGlowPower.addEventListener('input', () => { updateReadouts(); syncUniforms(); updateInfo(); });
 ctrlMagBrightest.addEventListener('input', () => { updateReadouts(); rebuild(); updateInfo(); });
-
-const PROFILE_SIZE_MAX = { default: 256, tuned: 256, vr: 64 };
-const PROFILE_SIZE_MIN = { default: 2.0, tuned: 2.0, vr: 1.0 };
 
 profileButtons.forEach((btn) => {
   btn.addEventListener('click', () => {
     profileButtons.forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     activeProfile = btn.dataset.profile;
-
-    const defaultMax = PROFILE_SIZE_MAX[activeProfile] ?? 20;
-    const defaultMin = PROFILE_SIZE_MIN[activeProfile] ?? 1.0;
-    ctrlSizeMax.value = String(defaultMax);
-    ctrlSizeMin.value = String(defaultMin);
 
     updateReadouts();
     rebuild();
@@ -385,6 +410,13 @@ function animate() {
         starFieldExposure: getExposure(),
         mDesired: getMagLimit(),
         starFieldExtinctionScale: 1.0,
+        starFieldMagFadeRange: getFadeRange(),
+        starFieldBaseSize: getBaseSize(),
+        starFieldSizeScale: getSizeScale(),
+        starFieldSizePower: getSizePower(),
+        starFieldGlowScale: getGlowScale(),
+        starFieldGlowPower: getGlowPower(),
+        starFieldSizeMax: getProfileSizeMax(),
       },
     });
   }

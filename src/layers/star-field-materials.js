@@ -219,21 +219,23 @@ export function createVrStarFieldMaterialProfile(options = {}) {
   };
 }
 
-const DEFAULT_TUNED_POINT_SIZE_MIN = 2.0;
-const DEFAULT_TUNED_POINT_SIZE_MAX = 256.0;
-const DEFAULT_TUNED_LINEAR_SCALE = 12.0;
-export const DEFAULT_TUNED_EXPOSURE = 1;
-const DEFAULT_TUNED_HALO_THRESHOLD = 10.0;
-const DEFAULT_TUNED_HALO_SIZE = 80.0;
+const DEFAULT_TUNED_BASE_SIZE = 0.9;
+const DEFAULT_TUNED_POINT_SIZE_MAX = 384.0;
+const DEFAULT_TUNED_SIZE_SCALE = 3.0;
+const DEFAULT_TUNED_SIZE_POWER = 0.32;
+export const DEFAULT_TUNED_EXPOSURE = 2500.0;
+const DEFAULT_TUNED_GLOW_SCALE = 1.5;
+const DEFAULT_TUNED_GLOW_POWER = 0.22;
 const DEFAULT_STAR_FIELD_PROFILE_SETTINGS = Object.freeze({
   magLimit: DEFAULT_MAG_LIMIT,
   magFadeRange: DEFAULT_MAG_FADE_RANGE,
-  sizeMin: DEFAULT_TUNED_POINT_SIZE_MIN,
+  baseSize: DEFAULT_TUNED_BASE_SIZE,
   sizeMax: DEFAULT_TUNED_POINT_SIZE_MAX,
-  linearScale: DEFAULT_TUNED_LINEAR_SCALE,
+  sizeScale: DEFAULT_TUNED_SIZE_SCALE,
+  sizePower: DEFAULT_TUNED_SIZE_POWER,
   exposure: DEFAULT_TUNED_EXPOSURE,
-  haloThreshold: DEFAULT_TUNED_HALO_THRESHOLD,
-  haloSize: DEFAULT_TUNED_HALO_SIZE,
+  glowScale: DEFAULT_TUNED_GLOW_SCALE,
+  glowPower: DEFAULT_TUNED_GLOW_POWER,
   extinctionScale: 1.0,
   scale: SCALE,
 });
@@ -243,11 +245,12 @@ export const DEFAULT_STAR_FIELD_STATE = Object.freeze({
   starFieldExtinctionScale: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.extinctionScale,
   starFieldExposure: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.exposure,
   starFieldMagFadeRange: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.magFadeRange,
-  starFieldSizeMin: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.sizeMin,
+  starFieldBaseSize: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.baseSize,
   starFieldSizeMax: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.sizeMax,
-  starFieldLinearScale: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.linearScale,
-  starFieldHaloThreshold: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.haloThreshold,
-  starFieldHaloSize: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.haloSize,
+  starFieldSizeScale: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.sizeScale,
+  starFieldSizePower: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.sizePower,
+  starFieldGlowScale: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.glowScale,
+  starFieldGlowPower: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.glowPower,
   mDesired: DEFAULT_MAG_LIMIT,
 });
 
@@ -307,15 +310,21 @@ const TUNED_SHARED_VERTEX_HEADER = `
     return clamp(c / 255.0, 0.0, 1.0);
   }
 
-  void computeStarBase(out float mApp, out float energy, out vec3 color) {
+  float apparentFluxFromMagnitude(float mApp) {
+    return pow(10.0, -0.4 * mApp);
+  }
+
+  float magnitudeFade(float mApp) {
+    return 1.0 - smoothstep(uMagLimit - uMagFadeRange, uMagLimit, mApp);
+  }
+
+  void computeStarBase(out float mApp, out float displayFlux, out float fade, out vec3 color) {
     vec3 worldPos = (modelMatrix * vec4(position, 1.0)).xyz;
     float d = length(worldPos - uCameraPosition);
     float dPc = max(d / uScale, 0.001);
     mApp = magAbs + uExtinctionScale * (5.0 * log(dPc) / log(10.0) - 5.0);
-    // Flux relative to the detection limit: a star AT the mag limit has
-    // relativeFlux = 1.0; brighter stars scale up from there.
-    float relativeFlux = pow(10.0, 0.4 * (uMagLimit - mApp));
-    energy = relativeFlux * uExposure;
+    displayFlux = apparentFluxFromMagnitude(mApp) * uExposure;
+    fade = magnitudeFade(mApp);
     color = blackbodyToRGB(decodeTemperature(teff_log8));
   }
 `;
@@ -327,9 +336,10 @@ export function createTunedStarFieldMaterialProfile(options = {}) {
 
   const pointMaterial = new THREE.ShaderMaterial({
     uniforms: {
-      uSizeMin: { value: options.sizeMin ?? DEFAULT_TUNED_POINT_SIZE_MIN },
+      uBaseSize: { value: options.baseSize ?? options.sizeMin ?? DEFAULT_TUNED_BASE_SIZE },
       uSizeMax: { value: options.sizeMax ?? DEFAULT_TUNED_POINT_SIZE_MAX },
-      uLinearScale: { value: options.linearScale ?? DEFAULT_TUNED_LINEAR_SCALE },
+      uSizeScale: { value: options.sizeScale ?? options.linearScale ?? DEFAULT_TUNED_SIZE_SCALE },
+      uSizePower: { value: options.sizePower ?? DEFAULT_TUNED_SIZE_POWER },
       uScale: { value: options.scale ?? SCALE },
       uMagLimit: { value: options.magLimit ?? DEFAULT_MAG_LIMIT },
       uMagFadeRange: { value: options.magFadeRange ?? DEFAULT_MAG_FADE_RANGE },
@@ -340,46 +350,27 @@ export function createTunedStarFieldMaterialProfile(options = {}) {
     },
     vertexShader: TUNED_SHARED_VERTEX_HEADER + `
       varying vec3 vColor;
-      varying float vLuminance;
+      varying float vAlpha;
+      varying float vWhiteMix;
 
-      uniform float uSizeMin;
+      uniform float uBaseSize;
       uniform float uSizeMax;
-      uniform float uLinearScale;
+      uniform float uSizeScale;
+      uniform float uSizePower;
 
       void main() {
-        float mApp, energy;
+        float mApp, displayFlux, fade;
         vec3 starColor;
-        computeStarBase(mApp, energy, starColor);
+        computeStarBase(mApp, displayFlux, fade, starColor);
         vColor = starColor;
 
-        // Stellarium-style computeRCMag: energy → radius + luminance
-        float rawRadius = sqrt(energy) * uLinearScale;
+        float sizeSignal = max(pow(1.0 + max(displayFlux, 0.0), uSizePower) - 1.0, 0.0);
+        float radius = uBaseSize + uSizeScale * sizeSignal;
+        gl_PointSize = clamp(radius, 0.0, uSizeMax);
 
-        float luminance;
-        float radius;
-        if (rawRadius < uSizeMin) {
-          // Faint star: fix at minimum size, dim with cube law
-          luminance = (rawRadius * rawRadius * rawRadius) /
-                      (uSizeMin * uSizeMin * uSizeMin);
-          radius = uSizeMin;
-          if (luminance < 0.03) {
-            luminance = 0.0;
-            radius = 0.0;
-          }
-        } else {
-          luminance = 1.0;
-          float maxLinear = 8.0;
-          if (rawRadius > maxLinear) {
-            radius = maxLinear + sqrt(1.0 + rawRadius - maxLinear) - 1.0;
-          } else {
-            radius = rawRadius;
-          }
-        }
-
-        gl_PointSize = clamp(radius, uSizeMin, uSizeMax);
-
-        float edgeFade = 1.0 - smoothstep(uMagLimit - uMagFadeRange, uMagLimit, mApp);
-        vLuminance = luminance * edgeFade;
+        float alphaSignal = 1.0 - exp(-1.4 * sizeSignal);
+        vAlpha = fade * mix(0.18, 1.0, alphaSignal);
+        vWhiteMix = clamp(0.2 + 0.6 * alphaSignal, 0.0, 0.9);
 
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
@@ -387,27 +378,28 @@ export function createTunedStarFieldMaterialProfile(options = {}) {
     fragmentShader: `
       uniform sampler2D map;
       varying vec3 vColor;
-      varying float vLuminance;
+      varying float vAlpha;
+      varying float vWhiteMix;
 
       void main() {
-        if (vLuminance <= 0.0) discard;
+        if (vAlpha <= 0.0) discard;
 
         float dist = distance(gl_PointCoord, vec2(0.5));
         if (dist > 0.5) discard;
 
         vec4 texColor = texture2D(map, gl_PointCoord);
-        float core = exp(-dist * 14.0);
+        float core = exp(-dist * 18.0);
         float halo = texColor.a;
 
-        vec3 finalColor = mix(vColor, vec3(1.0), core);
-        float starAlpha = min(halo + core, 1.0) * vLuminance;
-        if (starAlpha < 0.01) discard;
+        vec3 finalColor = mix(vColor, vec3(1.0), core * vWhiteMix);
+        float starAlpha = min(halo + core, 1.0) * vAlpha;
+        if (starAlpha < 0.003) discard;
 
         gl_FragColor = vec4(finalColor, starAlpha);
       }
     `,
     transparent: true,
-    alphaTest: 0.01,
+    alphaTest: 0.003,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   });
@@ -420,34 +412,38 @@ export function createTunedStarFieldMaterialProfile(options = {}) {
       uExtinctionScale: { value: options.extinctionScale ?? 1.0 },
       uExposure: { value: options.exposure ?? DEFAULT_TUNED_EXPOSURE },
       uCameraPosition: { value: new THREE.Vector3(0, 0, 0) },
-      uLinearScale: { value: options.linearScale ?? DEFAULT_TUNED_LINEAR_SCALE },
-      uHaloThreshold: { value: options.haloThreshold ?? DEFAULT_TUNED_HALO_THRESHOLD },
-      uHaloSize: { value: options.haloSize ?? DEFAULT_TUNED_HALO_SIZE },
+      uBaseSize: { value: options.baseSize ?? options.sizeMin ?? DEFAULT_TUNED_BASE_SIZE },
+      uSizeScale: { value: options.sizeScale ?? options.linearScale ?? DEFAULT_TUNED_SIZE_SCALE },
+      uSizePower: { value: options.sizePower ?? DEFAULT_TUNED_SIZE_POWER },
+      uGlowScale: { value: options.glowScale ?? DEFAULT_TUNED_GLOW_SCALE },
+      uGlowPower: { value: options.glowPower ?? DEFAULT_TUNED_GLOW_POWER },
+      uSizeMax: { value: options.sizeMax ?? DEFAULT_TUNED_POINT_SIZE_MAX },
       map: { value: haloTexture },
     },
     vertexShader: TUNED_SHARED_VERTEX_HEADER + `
       varying vec3 vColor;
       varying float vHaloAlpha;
 
-      uniform float uLinearScale;
-      uniform float uHaloThreshold;
-      uniform float uHaloSize;
+      uniform float uBaseSize;
+      uniform float uSizeScale;
+      uniform float uSizePower;
+      uniform float uGlowScale;
+      uniform float uGlowPower;
+      uniform float uSizeMax;
 
       void main() {
-        float mApp, energy;
+        float mApp, displayFlux, fade;
         vec3 starColor;
-        computeStarBase(mApp, energy, starColor);
+        computeStarBase(mApp, displayFlux, fade, starColor);
         vColor = starColor;
 
-        float rawRadius = sqrt(energy) * uLinearScale;
+        float sizeSignal = max(pow(1.0 + max(displayFlux, 0.0), uSizePower) - 1.0, 0.0);
+        float coreSize = uBaseSize + uSizeScale * sizeSignal;
+        float glowSignal = max(pow(1.0 + max(displayFlux, 0.0), uGlowPower) - 1.0, 0.0);
+        float haloSize = coreSize * (1.0 + uGlowScale * glowSignal);
 
-        float edgeFade = 1.0 - smoothstep(uMagLimit - uMagFadeRange, uMagLimit, mApp);
-
-        // Only visible for stars whose rawRadius exceeds the threshold
-        float excess = rawRadius - uHaloThreshold;
-        vHaloAlpha = clamp(excess / 30.0, 0.0, 1.0) * edgeFade;
-
-        gl_PointSize = vHaloAlpha > 0.001 ? uHaloSize : 0.0;
+        vHaloAlpha = fade * (1.0 - exp(-0.9 * uGlowScale * glowSignal));
+        gl_PointSize = vHaloAlpha > 0.001 ? clamp(haloSize, 0.0, uSizeMax) : 0.0;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
@@ -492,30 +488,39 @@ export function createTunedStarFieldMaterialProfile(options = {}) {
       ? state.starFieldExposure
       : options.exposure ?? DEFAULT_TUNED_EXPOSURE;
 
-    if (mat.uniforms.uSizeMin) {
-      mat.uniforms.uSizeMin.value = Number.isFinite(state.starFieldSizeMin)
-        ? state.starFieldSizeMin
-        : options.sizeMin ?? DEFAULT_TUNED_POINT_SIZE_MIN;
+    if (mat.uniforms.uBaseSize) {
+      mat.uniforms.uBaseSize.value = Number.isFinite(state.starFieldBaseSize)
+        ? state.starFieldBaseSize
+        : Number.isFinite(state.starFieldSizeMin)
+          ? state.starFieldSizeMin
+          : options.baseSize ?? options.sizeMin ?? DEFAULT_TUNED_BASE_SIZE;
     }
     if (mat.uniforms.uSizeMax) {
       mat.uniforms.uSizeMax.value = Number.isFinite(state.starFieldSizeMax)
         ? state.starFieldSizeMax
         : options.sizeMax ?? DEFAULT_TUNED_POINT_SIZE_MAX;
     }
-    if (mat.uniforms.uLinearScale) {
-      mat.uniforms.uLinearScale.value = Number.isFinite(state.starFieldLinearScale)
-        ? state.starFieldLinearScale
-        : options.linearScale ?? DEFAULT_TUNED_LINEAR_SCALE;
+    if (mat.uniforms.uSizeScale) {
+      mat.uniforms.uSizeScale.value = Number.isFinite(state.starFieldSizeScale)
+        ? state.starFieldSizeScale
+        : Number.isFinite(state.starFieldLinearScale)
+          ? state.starFieldLinearScale
+          : options.sizeScale ?? options.linearScale ?? DEFAULT_TUNED_SIZE_SCALE;
     }
-    if (mat.uniforms.uHaloThreshold) {
-      mat.uniforms.uHaloThreshold.value = Number.isFinite(state.starFieldHaloThreshold)
-        ? state.starFieldHaloThreshold
-        : options.haloThreshold ?? DEFAULT_TUNED_HALO_THRESHOLD;
+    if (mat.uniforms.uSizePower) {
+      mat.uniforms.uSizePower.value = Number.isFinite(state.starFieldSizePower)
+        ? state.starFieldSizePower
+        : options.sizePower ?? DEFAULT_TUNED_SIZE_POWER;
     }
-    if (mat.uniforms.uHaloSize) {
-      mat.uniforms.uHaloSize.value = Number.isFinite(state.starFieldHaloSize)
-        ? state.starFieldHaloSize
-        : options.haloSize ?? DEFAULT_TUNED_HALO_SIZE;
+    if (mat.uniforms.uGlowScale) {
+      mat.uniforms.uGlowScale.value = Number.isFinite(state.starFieldGlowScale)
+        ? state.starFieldGlowScale
+        : options.glowScale ?? DEFAULT_TUNED_GLOW_SCALE;
+    }
+    if (mat.uniforms.uGlowPower) {
+      mat.uniforms.uGlowPower.value = Number.isFinite(state.starFieldGlowPower)
+        ? state.starFieldGlowPower
+        : options.glowPower ?? DEFAULT_TUNED_GLOW_POWER;
     }
   }
 

@@ -1,4 +1,7 @@
-import { DEFAULT_TUNED_EXPOSURE } from '../layers/star-field-materials.js';
+import {
+  DEFAULT_STAR_FIELD_STATE,
+  DEFAULT_TUNED_EXPOSURE,
+} from '../layers/star-field-materials.js';
 import { SCALE } from './octree/scene-scale.js';
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -7,12 +10,37 @@ export const DEFAULT_PICK_TOLERANCE_DEG = 3.0;
 
 const TUNED_DEFAULTS = Object.freeze({
   exposure: DEFAULT_TUNED_EXPOSURE,
-  linearScale: 12.0,
   magLimit: 6.5,
-  sizeMin: 2.0,
-  sizeMax: 256.0,
+  magFadeRange: DEFAULT_STAR_FIELD_STATE.starFieldMagFadeRange,
+  baseSize: DEFAULT_STAR_FIELD_STATE.starFieldBaseSize,
+  sizeScale: DEFAULT_STAR_FIELD_STATE.starFieldSizeScale,
+  sizePower: DEFAULT_STAR_FIELD_STATE.starFieldSizePower,
+  sizeMax: DEFAULT_STAR_FIELD_STATE.starFieldSizeMax,
   extinctionScale: 1.0,
 });
+
+function clamp01(value) {
+  return Math.min(Math.max(value, 0), 1);
+}
+
+function smoothstep(edge0, edge1, value) {
+  if (edge0 === edge1) {
+    return value < edge0 ? 0 : 1;
+  }
+  const t = clamp01((value - edge0) / (edge1 - edge0));
+  return t * t * (3 - 2 * t);
+}
+
+function apparentFluxFromMagnitude(mApp) {
+  return Math.pow(10, -0.4 * mApp);
+}
+
+function computeMagnitudeFade(mApp, magLimit, magFadeRange) {
+  if (!(magFadeRange > 0)) {
+    return mApp <= magLimit ? 1 : 0;
+  }
+  return 1 - smoothstep(magLimit - magFadeRange, magLimit, mApp);
+}
 
 /**
  * Decode a teffLog8 byte (0–255) to effective temperature in kelvin,
@@ -25,34 +53,29 @@ export function decodeTemperatureK(teffLog8Raw) {
 }
 
 /**
- * Mirror the tuned vertex shader's Stellarium-style point-size calculation.
+ * Mirror the default desktop star shader's apparent-magnitude-driven point-size calculation.
  * Returns the rendered point size in CSS pixels for a star of apparent
  * magnitude `mApp` under the given material settings.
  */
 export function computeVisualRadiusPx(mApp, options = {}) {
   const magLimit = options.magLimit ?? TUNED_DEFAULTS.magLimit;
   const exposure = options.exposure ?? TUNED_DEFAULTS.exposure;
-  const linearScale = options.linearScale ?? TUNED_DEFAULTS.linearScale;
-  const sizeMin = options.sizeMin ?? TUNED_DEFAULTS.sizeMin;
+  const magFadeRange = options.magFadeRange ?? TUNED_DEFAULTS.magFadeRange;
+  const baseSize = options.baseSize ?? options.sizeMin ?? TUNED_DEFAULTS.baseSize;
+  const sizeScale = options.sizeScale ?? options.linearScale ?? TUNED_DEFAULTS.sizeScale;
+  const sizePower = options.sizePower ?? TUNED_DEFAULTS.sizePower;
   const sizeMax = options.sizeMax ?? TUNED_DEFAULTS.sizeMax;
 
-  const relativeFlux = Math.pow(10, 0.4 * (magLimit - mApp));
-  const energy = relativeFlux * exposure;
-  const rawRadius = Math.sqrt(energy) * linearScale;
-
-  let radius;
-  if (rawRadius < sizeMin) {
-    const luminance = (rawRadius * rawRadius * rawRadius)
-      / (sizeMin * sizeMin * sizeMin);
-    if (luminance < 0.03) return 0;
-    radius = sizeMin;
-  } else if (rawRadius > 8.0) {
-    radius = 8.0 + Math.sqrt(1.0 + rawRadius - 8.0) - 1.0;
-  } else {
-    radius = rawRadius;
+  const fade = computeMagnitudeFade(mApp, magLimit, magFadeRange);
+  if (fade <= 0) {
+    return 0;
   }
 
-  return Math.min(Math.max(radius, sizeMin), sizeMax);
+  const displayFlux = apparentFluxFromMagnitude(mApp) * exposure;
+  const sizeSignal = Math.max(Math.pow(1 + Math.max(displayFlux, 0), sizePower) - 1, 0);
+  const radius = baseSize + sizeScale * sizeSignal;
+
+  return Math.min(Math.max(radius, 0), sizeMax);
 }
 
 /**
@@ -76,8 +99,11 @@ export function computeVisualRadiusPx(mApp, options = {}) {
  * @param {number} [options.viewportHeight]  Viewport height in CSS pixels.
  * @param {number} [options.magLimit]        Current magnitude limit uniform.
  * @param {number} [options.exposure]        Current exposure uniform.
- * @param {number} [options.linearScale]     Stellarium linear-scale factor.
- * @param {number} [options.sizeMin]         Minimum point size (px).
+ * @param {number} [options.magFadeRange]    Magnitude fade range near the limit.
+ * @param {number} [options.baseSize]        Baseline point size (px).
+ * @param {number} [options.sizeScale]       Brightness-to-size response scale.
+ * @param {number} [options.sizePower]       Brightness-to-size response power.
+ * @param {number} [options.sizeMin]         Legacy alias for baseSize.
  * @param {number} [options.sizeMax]         Maximum point size (px).
  * @param {number} [options.extinctionScale] Extinction multiplier (default 1).
  * @returns {Object|null}
@@ -91,8 +117,10 @@ export function pickStar(ray, starData, options = {}) {
     viewportHeight,
     magLimit = TUNED_DEFAULTS.magLimit,
     exposure = TUNED_DEFAULTS.exposure,
-    linearScale = TUNED_DEFAULTS.linearScale,
-    sizeMin = TUNED_DEFAULTS.sizeMin,
+    magFadeRange = TUNED_DEFAULTS.magFadeRange,
+    baseSize = TUNED_DEFAULTS.baseSize,
+    sizeScale = TUNED_DEFAULTS.sizeScale,
+    sizePower = TUNED_DEFAULTS.sizePower,
     sizeMax = TUNED_DEFAULTS.sizeMax,
     extinctionScale = TUNED_DEFAULTS.extinctionScale,
   } = options;
@@ -111,7 +139,15 @@ export function pickStar(ray, starData, options = {}) {
     ? viewportHeight / (2 * Math.tan(fovRad / 2))
     : 0;
 
-  const sizeOpts = { magLimit, exposure, linearScale, sizeMin, sizeMax };
+  const sizeOpts = {
+    magLimit,
+    magFadeRange,
+    exposure,
+    baseSize,
+    sizeScale,
+    sizePower,
+    sizeMax,
+  };
 
   const ox = ray.origin.x;
   const oy = ray.origin.y;
