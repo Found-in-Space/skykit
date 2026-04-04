@@ -316,9 +316,112 @@ test('XR locomotion controller flyTo advances toward target without thumbstick i
   });
   controller.update(context);
 
-  assert.ok(state.observerPc.z < -0.9 && state.observerPc.z > -1.1,
+  assert.ok(state.observerPc.z < -0.4 && state.observerPc.z > -0.6,
     'should ramp in smoothly instead of lurching forward');
   assert.equal(state.observerPc.x, 0, 'should stay on straight-line path (x)');
   assert.equal(state.observerPc.y, 0, 'should stay on straight-line path (y)');
   assert.equal(controller.getStats().movementAutomation, 'flyTo');
+});
+
+test('XR locomotion controller flyTo keeps accelerating when no max speed cap is given', () => {
+  const controller = createXrLocomotionController({
+    sceneScale: 1.0,
+    moveSpeed: 2,
+    flyAcceleration: 4,
+    flyDeceleration: 6,
+  });
+  const navigationRoot = new THREE.Group();
+  const contentRoot = new THREE.Group();
+  const camera = new THREE.PerspectiveCamera();
+  camera.lookAt(0, 0, -1);
+  const state = {
+    observerPc: { x: 0, y: 0, z: 0 },
+    starFieldScale: 1.0,
+  };
+  const context = {
+    state,
+    camera,
+    navigationRoot,
+    contentRoot,
+    xr: {
+      presenting: true,
+      session: {
+        inputSources: [],
+      },
+    },
+    frame: { deltaSeconds: 0.5 },
+  };
+
+  controller.attach(context);
+  controller.flyTo({
+    x: 0,
+    y: 0,
+    z: -50,
+  }, {
+    acceleration: 4,
+    deceleration: 6,
+    arrivalThreshold: 0.01,
+  });
+
+  controller.update(context);
+  const firstStep = Math.abs(state.observerPc.z);
+  controller.update(context);
+  const secondStep = Math.abs(state.observerPc.z) - firstStep;
+
+  assert.ok(secondStep > firstStep,
+    `uncapped flight should keep accelerating (first ${firstStep}, second ${secondStep})`);
+  assert.equal(controller.getStats().movementAutomationMaxSpeedPcPerSec, null);
+});
+
+test('XR locomotion controller flyTo respects an explicit max speed cap', () => {
+  const controller = createXrLocomotionController({
+    sceneScale: 1.0,
+    moveSpeed: 2,
+    flyAcceleration: 8,
+    flyDeceleration: 8,
+  });
+  const navigationRoot = new THREE.Group();
+  const contentRoot = new THREE.Group();
+  const camera = new THREE.PerspectiveCamera();
+  camera.lookAt(0, 0, -1);
+  const state = {
+    observerPc: { x: 0, y: 0, z: 0 },
+    starFieldScale: 1.0,
+  };
+  const context = {
+    state,
+    camera,
+    navigationRoot,
+    contentRoot,
+    xr: {
+      presenting: true,
+      session: {
+        inputSources: [],
+      },
+    },
+    frame: { deltaSeconds: 0.5 },
+  };
+
+  controller.attach(context);
+  controller.flyTo({
+    x: 0,
+    y: 0,
+    z: -50,
+  }, {
+    maxSpeed: 3,
+    acceleration: 8,
+    deceleration: 8,
+    arrivalThreshold: 0.01,
+  });
+
+  controller.update(context);
+  const firstStep = Math.abs(state.observerPc.z);
+  controller.update(context);
+  const secondStep = Math.abs(state.observerPc.z) - firstStep;
+  const stats = controller.getStats();
+
+  assert.ok(firstStep <= 0.8, `first capped step should stay modest, got ${firstStep}`);
+  assert.ok(secondStep <= 1.6, `second capped step should respect the 3 pc/s ceiling, got ${secondStep}`);
+  assert.equal(stats.movementAutomationMaxSpeedPcPerSec, 3);
+  assert.ok(stats.movementAutomationSpeedPcPerSec <= 3);
 });

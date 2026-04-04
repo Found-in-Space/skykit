@@ -11,6 +11,24 @@ function positiveFinite(value, fallback) {
   return Number.isFinite(value) && value > 0 ? Number(value) : fallback;
 }
 
+function optionalPositiveFinite(value, fallback = null) {
+  return Number.isFinite(value) && value > 0 ? Number(value) : fallback;
+}
+
+function resolveFlyMaxSpeed(spec, fallback = null) {
+  if (!spec || typeof spec !== 'object') {
+    return fallback;
+  }
+
+  if (Object.hasOwn(spec, 'maxSpeed')) {
+    return optionalPositiveFinite(spec.maxSpeed, null);
+  }
+  if (Object.hasOwn(spec, 'speed')) {
+    return optionalPositiveFinite(spec.speed, null);
+  }
+  return fallback;
+}
+
 /**
  * Read the thumbstick with the strongest motion from the XR input sources.
  * Returns `{ x, y, activeHand }` with deadzone applied.
@@ -62,9 +80,15 @@ export function createXrLocomotionController(options = {}) {
   const id = options.id ?? 'xr-locomotion-controller';
   const xrMoveSpeed = positiveFinite(options.moveSpeed, 4);
   const xrDeadzone = positiveFinite(options.deadzone, 0.15);
-  const xrFlySpeed = positiveFinite(options.flySpeed, 25);
-  const xrFlyAcceleration = positiveFinite(options.flyAcceleration, xrFlySpeed * 0.6);
-  const xrFlyDeceleration = positiveFinite(options.flyDeceleration, xrFlySpeed * 0.8);
+  const xrFlyMaxSpeed = optionalPositiveFinite(options.flyMaxSpeed ?? options.flySpeed, null);
+  const xrFlyAcceleration = positiveFinite(
+    options.flyAcceleration,
+    optionalPositiveFinite(xrFlyMaxSpeed, 25) * 0.6,
+  );
+  const xrFlyDeceleration = positiveFinite(
+    options.flyDeceleration,
+    optionalPositiveFinite(xrFlyMaxSpeed, 25) * 0.8,
+  );
 
   const rig = createCameraRig({
     observerPc: options.observerPc,
@@ -110,29 +134,44 @@ export function createXrLocomotionController(options = {}) {
       return true;
     }
 
-    const stoppingDistance = (movementAutomation.currentSpeed * movementAutomation.currentSpeed)
-      / (2 * movementAutomation.deceleration);
+    const direction = {
+      x: dx / remainingDistance,
+      y: dy / remainingDistance,
+      z: dz / remainingDistance,
+    };
+    const previousSpeed = movementAutomation.currentSpeed;
+    const brakingDistance = Math.max(
+      0,
+      remainingDistance - (movementAutomation.arrivalThreshold ?? 0.01),
+    );
+    const brakingSpeed = movementAutomation.deceleration > 0
+      ? Math.sqrt(2 * movementAutomation.deceleration * brakingDistance)
+      : Number.POSITIVE_INFINITY;
+    const targetSpeed = movementAutomation.maxSpeed == null
+      ? brakingSpeed
+      : Math.min(brakingSpeed, movementAutomation.maxSpeed);
 
-    if (stoppingDistance >= remainingDistance) {
-      movementAutomation.currentSpeed = Math.max(
-        0,
-        movementAutomation.currentSpeed - movementAutomation.deceleration * dt,
+    if (movementAutomation.currentSpeed < targetSpeed) {
+      movementAutomation.currentSpeed = Math.min(
+        targetSpeed,
+        movementAutomation.currentSpeed + movementAutomation.acceleration * dt,
       );
     } else {
-      movementAutomation.currentSpeed = Math.min(
-        movementAutomation.maxSpeed,
-        movementAutomation.currentSpeed + movementAutomation.acceleration * dt,
+      movementAutomation.currentSpeed = Math.max(
+        targetSpeed,
+        movementAutomation.currentSpeed - movementAutomation.deceleration * dt,
       );
     }
 
-    const step = Math.min(remainingDistance, movementAutomation.currentSpeed * dt);
+    const averageSpeed = (previousSpeed + movementAutomation.currentSpeed) * 0.5;
+    const step = Math.min(remainingDistance, averageSpeed * dt);
     if (!(step > 0)) {
       return true;
     }
 
-    rig.positionPc.x += movementAutomation.direction.x * step;
-    rig.positionPc.y += movementAutomation.direction.y * step;
-    rig.positionPc.z += movementAutomation.direction.z * step;
+    rig.positionPc.x += direction.x * step;
+    rig.positionPc.y += direction.y * step;
+    rig.positionPc.z += direction.z * step;
     return true;
   }
 
@@ -199,12 +238,7 @@ export function createXrLocomotionController(options = {}) {
       movementAutomation = {
         type: 'flyTo',
         target: clonePoint(target),
-        direction: {
-          x: dx / distance,
-          y: dy / distance,
-          z: dz / distance,
-        },
-        maxSpeed: positiveFinite(opts.speed, xrFlySpeed),
+        maxSpeed: resolveFlyMaxSpeed(opts, xrFlyMaxSpeed),
         currentSpeed: 0,
         acceleration: positiveFinite(opts.acceleration, xrFlyAcceleration),
         deceleration: positiveFinite(opts.deceleration, xrFlyDeceleration),
@@ -279,6 +313,8 @@ export function createXrLocomotionController(options = {}) {
         sceneScale: starFieldScale,
         presenting: true,
         movementAutomation: movementAutomation?.type ?? null,
+        movementAutomationSpeedPcPerSec: movementAutomation?.currentSpeed ?? 0,
+        movementAutomationMaxSpeedPcPerSec: movementAutomation?.maxSpeed ?? null,
       };
     },
 
