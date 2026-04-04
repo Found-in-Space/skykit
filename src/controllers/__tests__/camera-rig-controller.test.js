@@ -457,6 +457,31 @@ test('motion.speedPcPerSec reflects actual movement from arrow keys', () => {
   controller.dispose();
 });
 
+test('CameraRigController writes observerSpeedPcPerSec into runtime state', () => {
+  const controller = createCameraRigController({
+    observerPc: { x: 0, y: 0, z: 0 },
+    lookAtPc: { x: 0, y: 0, z: -10 },
+    moveSpeed: 20,
+    pointerTarget: new FakeEventTarget(),
+    keyboardTarget: new FakeEventTarget(),
+  });
+  const camera = new THREE.PerspectiveCamera();
+  const state = {};
+  controller.attach({ camera, canvas: new FakeEventTarget(), state });
+
+  controller.update({ camera, state, frame: { deltaSeconds: 0.1 } });
+  assert.equal(state.observerSpeedPcPerSec, 0);
+
+  controller.simulateKeyDown('ArrowUp');
+  controller.update({ camera, state, frame: { deltaSeconds: 0.1 } });
+  controller.simulateKeyUp('ArrowUp');
+
+  assert.ok(state.observerSpeedPcPerSec > 15, `state speed should be ~20 pc/s, got ${state.observerSpeedPcPerSec}`);
+  assert.ok(state.observerSpeedPcPerSec < 25, `state speed should be ~20 pc/s, got ${state.observerSpeedPcPerSec}`);
+
+  controller.dispose();
+});
+
 test('motion.speedPcPerSec reports speed during flyTo automation', () => {
   const controller = createCameraRigController({
     observerPc: { x: 0, y: 0, z: 0 },

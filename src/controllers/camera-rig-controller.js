@@ -557,6 +557,7 @@ export function createCameraRigController(options = {}) {
 
   function writeToState(state) {
     state.observerPc = rig.clonePosition();
+    state.observerSpeedPcPerSec = Number(_motionStats?.speedPcPerSec ?? 0);
     lastObserverPc = rig.clonePosition();
   }
 

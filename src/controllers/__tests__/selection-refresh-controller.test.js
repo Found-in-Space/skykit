@@ -56,37 +56,75 @@ test('SelectionRefreshController refreshes immediately, then respects the interv
     },
   };
 
-  controller.start(baseContext);
+  await controller.start(baseContext);
   state.observerPc = { x: 2, y: 0, z: 0 };
 
-  controller.update({
+  await controller.update({
     ...baseContext,
     frame: {
       timeMs: 100,
     },
   });
-  await Promise.resolve();
-  await Promise.resolve();
   assert.equal(refreshCount, 1);
 
   state.observerPc = { x: 4, y: 0, z: 0 };
-  controller.update({
+  await controller.update({
     ...baseContext,
     frame: {
       timeMs: 200,
     },
   });
-  await Promise.resolve();
-  await Promise.resolve();
   assert.equal(refreshCount, 1);
 
-  controller.update({
+  await controller.update({
     ...baseContext,
     frame: {
       timeMs: 400,
     },
   });
-  await Promise.resolve();
-  await Promise.resolve();
   assert.equal(refreshCount, 2);
+});
+
+test('SelectionRefreshController refreshes when the interest field refresh key changes', async () => {
+  const controller = createSelectionRefreshController({
+    minIntervalMs: 0,
+    watchSize: false,
+  });
+
+  let refreshCount = 0;
+  let effectiveMaxLevel = 6;
+  const runtime = {
+    interestField: {
+      async captureRefreshSnapshot() {
+        return { effectiveMaxLevel };
+      },
+    },
+    refreshSelection: async () => {
+      refreshCount += 1;
+    },
+  };
+  const baseContext = {
+    runtime,
+    state: {
+      observerPc: { x: 0, y: 0, z: 0 },
+      mDesired: 7.5,
+    },
+    size: {
+      width: 100,
+      height: 100,
+    },
+  };
+
+  await controller.start(baseContext);
+
+  effectiveMaxLevel = 3;
+  await controller.update({
+    ...baseContext,
+    frame: {
+      timeMs: 100,
+    },
+  });
+
+  assert.equal(refreshCount, 1);
+  assert.deepEqual(controller.getStats().lastReasons, ['interestField']);
 });

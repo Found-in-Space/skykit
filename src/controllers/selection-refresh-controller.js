@@ -25,13 +25,32 @@ function normalizeFiniteNumber(value, fallback = null) {
   return Number.isFinite(value) ? Number(value) : fallback;
 }
 
-export function captureSelectionRefreshSnapshot(context) {
+async function captureInterestFieldRefreshKey(context) {
+  const captureSnapshot = context.runtime?.interestField?.captureRefreshSnapshot;
+  if (typeof captureSnapshot !== 'function') {
+    return null;
+  }
+
+  const snapshot = await captureSnapshot.call(context.runtime.interestField, context);
+  if (snapshot == null) {
+    return null;
+  }
+
+  if (typeof snapshot === 'string') {
+    return snapshot;
+  }
+
+  return JSON.stringify(snapshot);
+}
+
+export async function captureSelectionRefreshSnapshot(context) {
   return {
     observerPc: normalizePoint(context.state?.observerPc, null),
     targetPc: normalizePoint(context.state?.targetPc, null),
     mDesired: normalizeFiniteNumber(context.state?.mDesired, DEFAULT_MAG_LIMIT),
     width: normalizeFiniteNumber(context.size?.width, null),
     height: normalizeFiniteNumber(context.size?.height, null),
+    interestFieldRefreshKey: await captureInterestFieldRefreshKey(context),
   };
 }
 
@@ -86,6 +105,12 @@ export function getSelectionRefreshReasons(previousSnapshot, nextSnapshot, optio
     }
   }
 
+  const previousInterestFieldRefreshKey = previousSnapshot?.interestFieldRefreshKey ?? null;
+  const nextInterestFieldRefreshKey = nextSnapshot?.interestFieldRefreshKey ?? null;
+  if (previousInterestFieldRefreshKey !== nextInterestFieldRefreshKey) {
+    reasons.push('interestField');
+  }
+
   return reasons;
 }
 
@@ -98,6 +123,7 @@ export function createSelectionRefreshController(options = {}) {
   let lastSnapshot = null;
   let lastRequestTimeMs = Number.NEGATIVE_INFINITY;
   let refreshPromise = null;
+  let snapshotPromise = null;
   let stats = {
     pending: false,
     refreshCount: 0,
@@ -119,58 +145,67 @@ export function createSelectionRefreshController(options = {}) {
           : null,
       };
     },
-    start(context) {
-      lastSnapshot = captureSelectionRefreshSnapshot(context);
+    async start(context) {
+      lastSnapshot = await captureSelectionRefreshSnapshot(context);
     },
     update(context) {
-      if (refreshPromise) {
+      if (refreshPromise || snapshotPromise) {
         return;
       }
 
-      const nextSnapshot = captureSelectionRefreshSnapshot(context);
-      const reasons = getSelectionRefreshReasons(lastSnapshot, nextSnapshot, options);
-      if (reasons.length === 0) {
-        return;
-      }
+      snapshotPromise = (async () => {
+        const nextSnapshot = await captureSelectionRefreshSnapshot(context);
+        const reasons = getSelectionRefreshReasons(lastSnapshot, nextSnapshot, options);
+        if (reasons.length === 0) {
+          return;
+        }
 
-      const frameTimeMs = Number.isFinite(context.frame?.timeMs)
-        ? Number(context.frame.timeMs)
-        : Date.now();
-      if (frameTimeMs - lastRequestTimeMs < minIntervalMs) {
-        return;
-      }
+        const frameTimeMs = Number.isFinite(context.frame?.timeMs)
+          ? Number(context.frame.timeMs)
+          : Date.now();
+        if (frameTimeMs - lastRequestTimeMs < minIntervalMs) {
+          return;
+        }
 
-      const requestedSnapshot = nextSnapshot;
-      lastRequestTimeMs = frameTimeMs;
-      stats = {
-        ...stats,
-        pending: true,
-        lastReasons: [...reasons],
-        lastError: null,
-      };
+        const requestedSnapshot = nextSnapshot;
+        lastRequestTimeMs = frameTimeMs;
+        stats = {
+          ...stats,
+          pending: true,
+          lastReasons: [...reasons],
+          lastError: null,
+        };
 
-      refreshPromise = context.runtime.refreshSelection()
-        .then(() => {
-          lastSnapshot = requestedSnapshot;
-          stats = {
-            ...stats,
-            refreshCount: stats.refreshCount + 1,
-          };
-        })
-        .catch((error) => {
-          stats = {
-            ...stats,
-            lastError: error instanceof Error ? error.message : String(error),
-          };
-          console.error('[SelectionRefreshController] refreshSelection failed', error);
-        })
+        refreshPromise = context.runtime.refreshSelection()
+          .then(() => {
+            lastSnapshot = requestedSnapshot;
+            stats = {
+              ...stats,
+              refreshCount: stats.refreshCount + 1,
+            };
+          })
+          .catch((error) => {
+            stats = {
+              ...stats,
+              lastError: error instanceof Error ? error.message : String(error),
+            };
+            console.error('[SelectionRefreshController] refreshSelection failed', error);
+          })
+          .finally(() => {
+            refreshPromise = null;
+            stats = {
+              ...stats,
+              pending: false,
+            };
+          });
+
+        await refreshPromise;
+      })()
         .finally(() => {
-          refreshPromise = null;
-          stats = {
-            ...stats,
-            pending: false,
-          };
+          snapshotPromise = null;
         });
+
+      return snapshotPromise;
     },
   };
 }

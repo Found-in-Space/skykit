@@ -9,6 +9,99 @@ import {
 
 const DEFAULT_OBSERVER_PC = Object.freeze({ x: 0, y: 0, z: 0 });
 
+function normalizeNonNegativeInteger(value, fallback = null) {
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback;
+}
+
+function normalizePositiveFinite(value, fallback = null) {
+  return Number.isFinite(value) && value > 0 ? Number(value) : fallback;
+}
+
+function resolveMaxLevelSpec(spec, context) {
+  if (typeof spec === 'function') {
+    return normalizeNonNegativeInteger(spec(context), null);
+  }
+
+  return normalizeNonNegativeInteger(spec, null);
+}
+
+function resolveAdaptiveLevelCapSpec(spec, context) {
+  if (!spec || typeof spec !== 'object') {
+    return null;
+  }
+
+  const speedPcPerSec = typeof spec.speedPcPerSec === 'function'
+    ? spec.speedPcPerSec(context)
+    : spec.speedPcPerSec;
+  const fallbackSpeed = Number(context.state?.observerSpeedPcPerSec);
+
+  return {
+    lookaheadSecs: normalizePositiveFinite(spec.lookaheadSecs, null),
+    minLevel: normalizeNonNegativeInteger(spec.minLevel, 0),
+    speedPcPerSec: normalizePositiveFinite(
+      speedPcPerSec,
+      normalizePositiveFinite(fallbackSpeed, 0),
+    ) ?? 0,
+  };
+}
+
+export function resolveObserverShellTraversalState(context, options = {}, bootstrapHeader = null) {
+  const observerPc = resolvePointSpec(
+    options.observerPc,
+    context,
+    normalizePoint(context.state?.observerPc, DEFAULT_OBSERVER_PC),
+  ) ?? normalizePoint(DEFAULT_OBSERVER_PC);
+  const requestedMDesired = Number.isFinite(context.state?.mDesired)
+    ? Number(context.state.mDesired)
+    : DEFAULT_MAG_LIMIT;
+  const requestedMaxLevel = resolveMaxLevelSpec(options.maxLevel, context);
+  const adaptiveLevelCap = resolveAdaptiveLevelCapSpec(options.motionAdaptiveMaxLevel, context);
+
+  let adaptiveMaxLevel = null;
+  let speedCapDistancePc = 0;
+  let observerSpeedPcPerSec = adaptiveLevelCap?.speedPcPerSec ?? 0;
+
+  if (
+    bootstrapHeader
+    && adaptiveLevelCap
+    && adaptiveLevelCap.lookaheadSecs
+    && adaptiveLevelCap.speedPcPerSec > 0
+    && Number.isFinite(bootstrapHeader.worldHalfSize)
+    && bootstrapHeader.worldHalfSize > 0
+    && Number.isFinite(bootstrapHeader.magLimit)
+  ) {
+    speedCapDistancePc = adaptiveLevelCap.speedPcPerSec * adaptiveLevelCap.lookaheadSecs;
+    const visibilityScale = 10 ** ((requestedMDesired - bootstrapHeader.magLimit) / 5);
+    const levelRatio = (bootstrapHeader.worldHalfSize * visibilityScale) / speedCapDistancePc;
+    const unclampedMaxLevel = Number.isFinite(levelRatio) && levelRatio > 0
+      ? Math.floor(Math.log2(levelRatio))
+      : adaptiveLevelCap.minLevel;
+    adaptiveMaxLevel = Math.max(adaptiveLevelCap.minLevel, unclampedMaxLevel);
+  }
+
+  const effectiveMaxLevel = adaptiveMaxLevel == null
+    ? requestedMaxLevel
+    : Math.min(
+      requestedMaxLevel ?? Number.POSITIVE_INFINITY,
+      adaptiveMaxLevel,
+    );
+
+  return {
+    observerPc,
+    requestedMDesired,
+    requestedMaxLevel,
+    effectiveMaxLevel: Number.isFinite(effectiveMaxLevel) ? effectiveMaxLevel : null,
+    observerSpeedPcPerSec,
+    speedCapDistancePc,
+    adaptiveLevelCap: adaptiveLevelCap
+      ? {
+        ...adaptiveLevelCap,
+        maxLevel: adaptiveMaxLevel,
+      }
+      : null,
+  };
+}
+
 function compareShellNodes(left, right) {
   if (left.level !== right.level) {
     return left.level - right.level;
@@ -55,17 +148,24 @@ export function createObserverShellField(options = {}) {
         };
       }
 
-      const observerPc = resolvePointSpec(
-        options.observerPc,
+      const bootstrap = await context.datasetSession.ensureRenderBootstrap();
+      const traversalState = resolveObserverShellTraversalState(
         context,
-        normalizePoint(context.state?.observerPc, DEFAULT_OBSERVER_PC),
-      ) ?? normalizePoint(DEFAULT_OBSERVER_PC);
-      const requestedMDesired = Number.isFinite(context.state?.mDesired)
-        ? Number(context.state.mDesired)
-        : DEFAULT_MAG_LIMIT;
+        options,
+        bootstrap?.header ?? null,
+      );
+      const {
+        observerPc,
+        requestedMDesired,
+        requestedMaxLevel,
+        effectiveMaxLevel,
+        observerSpeedPcPerSec,
+        speedCapDistancePc,
+        adaptiveLevelCap,
+      } = traversalState;
 
       const result = await selectOctreeNodes(context, {
-        maxLevel: options.maxLevel,
+        maxLevel: effectiveMaxLevel,
         predicate(node, helper) {
           const shell = evaluateMagnitudeShell(
             observerPc,
@@ -90,6 +190,12 @@ export function createObserverShellField(options = {}) {
         observerPc: normalizePoint(observerPc),
         mDesired: requestedMDesired,
         mIndex,
+        requestedMaxLevel,
+        effectiveMaxLevel,
+        observerSpeedPcPerSec,
+        speedCapDistancePc,
+        adaptiveMaxLevel: adaptiveLevelCap?.maxLevel ?? null,
+        adaptiveLookaheadSecs: adaptiveLevelCap?.lookaheadSecs ?? null,
         ...result.stats,
       };
 
@@ -101,8 +207,30 @@ export function createObserverShellField(options = {}) {
           observerPc: normalizePoint(observerPc),
           mDesired: requestedMDesired,
           mIndex,
+          requestedMaxLevel,
+          effectiveMaxLevel,
+          observerSpeedPcPerSec,
+          speedCapDistancePc,
+          adaptiveMaxLevel: adaptiveLevelCap?.maxLevel ?? null,
+          adaptiveLookaheadSecs: adaptiveLevelCap?.lookaheadSecs ?? null,
           ...result.stats,
         },
+      };
+    },
+    async captureRefreshSnapshot(context) {
+      if (!context.datasetSession || !options.motionAdaptiveMaxLevel) {
+        return null;
+      }
+
+      const bootstrap = await context.datasetSession.ensureRenderBootstrap();
+      const traversalState = resolveObserverShellTraversalState(
+        context,
+        options,
+        bootstrap?.header ?? null,
+      );
+
+      return {
+        effectiveMaxLevel: traversalState.effectiveMaxLevel,
       };
     },
   };
