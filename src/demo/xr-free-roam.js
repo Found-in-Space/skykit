@@ -39,6 +39,11 @@ const EXPOSURE_CONTROL = Object.freeze({
   maxLog10: 5.5,
   step: 0.05,
 });
+const WORLD_SCALE_CONTROL = Object.freeze({
+  minLog10: -2.0,
+  maxLog10: 3.0,
+  step: 0.05,
+});
 
 function approachTargetFromObserver(targetPc, observerPc, distancePc) {
   const dx = targetPc.x - observerPc.x;
@@ -65,7 +70,9 @@ const WAYPOINTS = [
 
 const XR_REFERENCE_SPACE_TYPE = 'local-floor';
 const XR_NEAR_PLANE = 0.25;
-const XR_FAR_PLANE = 10000;
+const XR_TARGET_VISIBLE_DISTANCE_PC = 100000;
+const XR_MIN_FAR_PLANE = 100;
+const XR_MAX_FAR_PLANE = 2000000;
 const {
   icrsToScene: ORION_SCENE_TRANSFORM,
   sceneToIcrs: ORION_SCENE_TO_ICRS_TRANSFORM,
@@ -76,7 +83,12 @@ function clonePoint(point) {
 }
 
 function createViewerCamera() {
-  const camera = new THREE.PerspectiveCamera(60, 1, XR_NEAR_PLANE, XR_FAR_PLANE);
+  const camera = new THREE.PerspectiveCamera(
+    60,
+    1,
+    XR_NEAR_PLANE,
+    computeXrFarPlane(DEFAULT_METERS_PER_PARSEC),
+  );
   camera.position.set(0, 0, 0);
   camera.lookAt(0, 0, -1);
   return camera;
@@ -174,6 +186,7 @@ const MAG_LIMIT_CONTROL = readNumberControlConfig(magLimitInput, {
 });
 const MAG_LIMIT_DECIMALS = countFractionDigits(MAG_LIMIT_CONTROL.step);
 const EXPOSURE_DECIMALS = countFractionDigits(EXPOSURE_CONTROL.step);
+const WORLD_SCALE_LOG_DECIMALS = countFractionDigits(WORLD_SCALE_CONTROL.step);
 
 function normalizeMagLimit(value) {
   const numeric = Number(value);
@@ -191,6 +204,63 @@ function normalizeMagLimit(value) {
 
 function formatMagLimitValue(value) {
   return Number.isFinite(value) ? value.toFixed(MAG_LIMIT_DECIMALS) : '-';
+}
+
+function normalizeWorldScaleLogValue(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+  const clamped = Math.min(
+    Math.max(numeric, WORLD_SCALE_CONTROL.minLog10),
+    WORLD_SCALE_CONTROL.maxLog10,
+  );
+  const stepped = WORLD_SCALE_CONTROL.minLog10
+    + Math.round((clamped - WORLD_SCALE_CONTROL.minLog10) / WORLD_SCALE_CONTROL.step)
+      * WORLD_SCALE_CONTROL.step;
+  return Number(stepped.toFixed(WORLD_SCALE_LOG_DECIMALS));
+}
+
+function worldScaleToSliderValue(scale) {
+  const numeric = Number(scale);
+  if (!(Number.isFinite(numeric) && numeric > 0)) {
+    return null;
+  }
+  return normalizeWorldScaleLogValue(Math.log10(numeric));
+}
+
+function sliderValueToWorldScale(value) {
+  const logValue = normalizeWorldScaleLogValue(value);
+  if (logValue == null) {
+    return null;
+  }
+  return Number((10 ** logValue).toPrecision(4));
+}
+
+function normalizeWorldScale(value) {
+  const sliderValue = worldScaleToSliderValue(value);
+  return sliderValue == null ? null : sliderValueToWorldScale(sliderValue);
+}
+
+function formatWorldScaleValue(value) {
+  if (!(Number.isFinite(value) && value > 0)) {
+    return '-';
+  }
+  return `${value.toLocaleString('en-US', { maximumSignificantDigits: 4 })} m/pc`;
+}
+
+function formatWorldScaleSliderValue(value) {
+  return formatWorldScaleValue(sliderValueToWorldScale(value));
+}
+
+function computeXrFarPlane(scale) {
+  const metersPerParsec = Number.isFinite(scale) && scale > 0
+    ? Number(scale)
+    : DEFAULT_METERS_PER_PARSEC;
+  return Math.min(
+    XR_MAX_FAR_PLANE,
+    Math.max(XR_MIN_FAR_PLANE, XR_TARGET_VISIBLE_DISTANCE_PC * metersPerParsec),
+  );
 }
 
 function clamp(value, min, max) {
@@ -261,6 +331,7 @@ let xrSupported = null;
 let desktopShaderEnabled = true;
 let artEnabled = true;
 let activeMagLimit = normalizeMagLimit(magLimitInput?.value) ?? 7.5;
+let activeStarFieldScale = normalizeWorldScale(DEFAULT_METERS_PER_PARSEC) ?? DEFAULT_METERS_PER_PARSEC;
 let activeVrExposure = DEFAULT_XR_STAR_FIELD_STATE.starFieldExposure;
 let activeDesktopExposure = DEFAULT_TUNED_EXPOSURE;
 let nearDistanceFloorEnabled = true;
@@ -311,10 +382,33 @@ function syncVisibilityControls() {
     magLimitInput.value = formatMagLimitValue(activeMagLimit);
   }
   tabletRef?.setItemValue('tuned-shader', desktopShaderEnabled);
+  tabletRef?.setItemValue('world-scale', worldScaleToSliderValue(activeStarFieldScale));
   tabletRef?.setItemValue('mag-limit', activeMagLimit);
   tabletRef?.setItemValue('exposure', exposureToSliderValue(getActiveExposure()));
   tabletRef?.setItemValue('near-distance-floor', nearDistanceFloorEnabled);
   tabletRef?.setItemValue('constellation-art', artEnabled);
+}
+
+function syncWorldClipPlanes() {
+  const far = computeXrFarPlane(activeStarFieldScale);
+  const camera = viewer?.camera ?? null;
+  if (!camera) {
+    return far;
+  }
+
+  camera.near = XR_NEAR_PLANE;
+  camera.far = far;
+  camera.updateProjectionMatrix();
+
+  const session = viewer?.runtime?.renderer?.xr?.getSession?.() ?? null;
+  if (typeof session?.updateRenderState === 'function') {
+    session.updateRenderState({
+      depthNear: XR_NEAR_PLANE,
+      depthFar: far,
+    });
+  }
+
+  return far;
 }
 
 function scheduleSelectionRefresh() {
@@ -350,10 +444,12 @@ function applyVisibilityState(options = {}) {
   }
 
   viewer.setState({
+    starFieldScale: activeStarFieldScale,
     mDesired: activeMagLimit,
     starFieldExposure: getActiveExposure(),
     ...getNearDistanceFloorState(),
   });
+  syncWorldClipPlanes();
   renderSnapshot();
 
   if (options.refreshSelection) {
@@ -563,6 +659,16 @@ function buildRenderingMenuItems() {
     { id: 'back-home', label: '< Back', type: 'button' },
     { id: 'tuned-shader', label: 'Desktop Shader', type: 'toggle', value: desktopShaderEnabled },
     {
+      id: 'world-scale',
+      label: 'World Scale',
+      type: 'range',
+      value: worldScaleToSliderValue(activeStarFieldScale),
+      min: WORLD_SCALE_CONTROL.minLog10,
+      max: WORLD_SCALE_CONTROL.maxLog10,
+      step: WORLD_SCALE_CONTROL.step,
+      formatValue: formatWorldScaleSliderValue,
+    },
+    {
       id: 'mag-limit',
       label: 'Mag Limit',
       type: 'range',
@@ -669,6 +775,8 @@ function renderSummary(snapshot, datasetDescription) {
     demo: 'phase-5b-xr-free-roam',
     xrSupported,
     desktopShaderEnabled,
+    starFieldScale: activeStarFieldScale,
+    xrFarPlane: computeXrFarPlane(activeStarFieldScale),
     mDesired: activeMagLimit,
     starFieldExposure: getActiveExposure(),
     artEnabled,
@@ -699,6 +807,8 @@ function renderSnapshot() {
   snapshotValue.textContent = JSON.stringify({
     xrSupported,
     desktopShaderEnabled,
+    starFieldScale: activeStarFieldScale,
+    xrFarPlane: computeXrFarPlane(activeStarFieldScale),
     mDesired: activeMagLimit,
     starFieldExposure: getActiveExposure(),
     artEnabled,
@@ -794,7 +904,7 @@ async function mountViewer() {
 
   const camera = createViewerCamera();
   const xrRig = createXrRig(camera, {
-    starFieldScale: DEFAULT_METERS_PER_PARSEC,
+    starFieldScale: activeStarFieldScale,
   });
   xrRig.deck.add(createShipDeckSlab());
   const vrProfile = createVrStarFieldMaterialProfile();
@@ -889,6 +999,13 @@ async function mountViewer() {
           applyVisibilityState({ refreshSelection: true });
         }
       }
+      if (id === 'world-scale') {
+        const nextValue = sliderValueToWorldScale(value);
+        if (nextValue != null) {
+          activeStarFieldScale = nextValue;
+          applyVisibilityState();
+        }
+      }
       if (id === 'exposure') {
         const nextExposure = sliderValueToExposure(value);
         if (nextExposure != null) {
@@ -965,12 +1082,14 @@ async function mountViewer() {
       observerPc: { x: 0, y: 0, z: 0 },
       targetPc: ORION_CENTER_PC,
       fieldStrategy: 'observer-shell',
+      starFieldScale: activeStarFieldScale,
       mDesired: activeMagLimit,
       ...getNearDistanceFloorState(),
     },
     clearColor: 0x02040b,
   });
 
+  syncWorldClipPlanes();
   await refreshXrSupport();
   renderSnapshot();
   syncButtons();
@@ -985,7 +1104,7 @@ enterXrButton?.addEventListener('click', () => {
       optionalFeatures: [XR_REFERENCE_SPACE_TYPE],
     },
     near: XR_NEAR_PLANE,
-    far: XR_FAR_PLANE,
+    far: computeXrFarPlane(activeStarFieldScale),
   })
     .then(() => {
       renderSnapshot();
