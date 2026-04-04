@@ -18,8 +18,8 @@ import {
 } from '../index.js';
 
 const {
-  icrsToScene: ICRS_TO_SCENE_Y_UP,
-  sceneToIcrs: SCENE_Y_UP_TO_ICRS,
+  icrsToScene: ORION_SCENE_TRANSFORM,
+  sceneToIcrs: ORION_SCENE_TO_ICRS_TRANSFORM,
 } = createSceneOrientationTransforms(ORION_CENTER_PC);
 const DEFAULT_WESTERN_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stellarium-skycultures-western@0.1.0/dist/manifest.json';
 
@@ -69,7 +69,7 @@ function createInterestField(strategy, index) {
       overscanDeg: 18,
       targetRadiusPc: 180,
       preloadDistancePc: 0,
-      note: 'Phase 5 target-locked field for directed-view parallax scenes.',
+      note: 'Phase 5 target-locked field for Orion-style parallax scenes.',
     });
   }
 
@@ -110,7 +110,7 @@ function renderSummary(viewerSnapshots, datasetDescription) {
 function createLayer(index) {
   return createStarFieldLayer({
     id: `phase-5-star-field-layer-${index + 1}`,
-    positionTransform: ICRS_TO_SCENE_Y_UP,
+    positionTransform: ORION_SCENE_TRANSFORM,
     materialFactory: () => (index % 2 === 0
       ? createDefaultStarFieldMaterialProfile()
       : createCartoonStarFieldMaterialProfile({
@@ -125,10 +125,10 @@ function createLayers(index) {
 
   if (index === 1) {
     layers.push(createConstellationArtLayer({
-      id: 'phase-5-constellation-art-layer-2',
+      id: 'phase-5-orion-constellation-art-layer',
       manifestUrl: activeConstellationManifestUrl,
       iauFilter: ['Ori'],
-      transformDirection: ICRS_TO_SCENE_Y_UP,
+      transformDirection: ORION_SCENE_TRANSFORM,
       radius: 8,
       opacity: 0.24,
     }));
@@ -145,8 +145,8 @@ function createControllers(index) {
   return [
     createCameraRigController({
       id: 'phase-5-camera-rig-controller',
-      icrsToSceneTransform: ICRS_TO_SCENE_Y_UP,
-      sceneToIcrsTransform: SCENE_Y_UP_TO_ICRS,
+      icrsToSceneTransform: ORION_SCENE_TRANSFORM,
+      sceneToIcrsTransform: ORION_SCENE_TO_ICRS_TRANSFORM,
       lookAtPc: ORION_CENTER_PC,
       moveSpeed: 18,
     }),
