@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import {
+  createConstellationArtLayer,
+  createConstellationCompassController,
   createTunedStarFieldMaterialProfile,
   createVrStarFieldMaterialProfile,
   DEFAULT_XR_STAR_FIELD_STATE,
@@ -12,6 +14,7 @@ import {
   createViewer,
   createXrRig,
   getDatasetSession,
+  loadConstellationArtManifest,
   ORION_CENTER_PC,
   resolveFoundInSpaceDatasetOverrides,
   formatDistancePc,
@@ -30,6 +33,7 @@ const XR_DESKTOP_NEAR_MAG_LIMIT_RADIUS_PC = 1.0;
 const XR_DESKTOP_NEAR_MAG_LIMIT_FEATHER_PC = 0.25;
 const XR_DESKTOP_NEAR_SIZE_FLOOR = 8.0;
 const XR_DESKTOP_NEAR_ALPHA_FLOOR = 0.35;
+const DEFAULT_ART_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stellarium-skycultures-western@0.1.0/dist/manifest.json';
 const EXPOSURE_CONTROL = Object.freeze({
   minLog10: 2.0,
   maxLog10: 5.5,
@@ -213,13 +217,16 @@ const datasetSession = getDatasetSession(createFoundInSpaceDatasetOptions({
 }));
 
 let starFieldLayer = null;
+let constellationArtLayer = null;
+let constellationCompassControllerRef = null;
 let viewer = null;
 let tabletRef = null;
 let pickControllerRef = null;
 let xrLocomotionControllerRef = null;
 let snapshotTimer = null;
 let xrSupported = null;
-let desktopShaderEnabled = false;
+let desktopShaderEnabled = true;
+let artEnabled = true;
 let activeMagLimit = normalizeMagLimit(magLimitInput?.value) ?? 7.5;
 let activeVrExposure = DEFAULT_XR_STAR_FIELD_STATE.starFieldExposure;
 let activeDesktopExposure = DEFAULT_TUNED_EXPOSURE;
@@ -227,6 +234,8 @@ let nearDistanceFloorEnabled = true;
 let pickGeneration = 0;
 let lastPickedResult = null;
 let pendingSelectionRefreshTimer = null;
+let currentConstellationIau = null;
+let currentTabletPage = 'home';
 let warmState = {
   bootstrap: 'idle',
   rootShard: 'idle',
@@ -272,6 +281,7 @@ function syncVisibilityControls() {
   tabletRef?.setItemValue('mag-limit', activeMagLimit);
   tabletRef?.setItemValue('exposure', exposureToSliderValue(getActiveExposure()));
   tabletRef?.setItemValue('near-distance-floor', nearDistanceFloorEnabled);
+  tabletRef?.setItemValue('constellation-art', artEnabled);
 }
 
 function scheduleSelectionRefresh() {
@@ -318,6 +328,17 @@ function applyVisibilityState(options = {}) {
   }
 }
 
+function syncConstellationArtVisibility() {
+  if (!constellationArtLayer) {
+    return;
+  }
+  if (!artEnabled) {
+    constellationArtLayer.hideAll();
+  } else if (currentConstellationIau) {
+    constellationArtLayer.show(currentConstellationIau);
+  }
+}
+
 function nonDisposable(profile) {
   return {
     ...profile,
@@ -330,7 +351,11 @@ function flyToObserver(observerPc, options = {}) {
     return false;
   }
   return xrLocomotionControllerRef.flyTo(observerPc, {
-    maxSpeed: options.maxSpeed ?? options.speed ?? 12,
+    ...(Number.isFinite(options.maxSpeed) && options.maxSpeed > 0
+      ? { maxSpeed: options.maxSpeed }
+      : Number.isFinite(options.speed) && options.speed > 0
+        ? { speed: options.speed }
+        : {}),
     acceleration: options.acceleration ?? 6,
     deceleration: options.deceleration ?? 8,
     arrivalThreshold: options.arrivalThreshold ?? 0.01,
@@ -478,6 +503,93 @@ function updateTabletStarInfo(result) {
   tabletRef.setDisplay('star-info', lines);
 }
 
+function buildHomeMenuItems() {
+  return [
+    { id: 'page-selection', label: 'Selection', type: 'button' },
+    { id: 'page-rendering', label: 'Rendering', type: 'button' },
+    { id: 'page-waypoints', label: 'Waypoints', type: 'button' },
+  ];
+}
+
+function buildSelectionMenuItems() {
+  return [
+    { id: 'back-home', label: '< Back', type: 'button' },
+    {
+      id: 'star-info',
+      label: 'Selected Target',
+      type: 'display',
+      lines: [],
+      dismissible: true,
+      actionId: 'go-selected',
+      actionLabel: 'Go to Selected',
+    },
+  ];
+}
+
+function buildRenderingMenuItems() {
+  return [
+    { id: 'back-home', label: '< Back', type: 'button' },
+    { id: 'tuned-shader', label: 'Desktop Shader', type: 'toggle', value: desktopShaderEnabled },
+    {
+      id: 'mag-limit',
+      label: 'Mag Limit',
+      type: 'range',
+      value: activeMagLimit,
+      min: MAG_LIMIT_CONTROL.min,
+      max: MAG_LIMIT_CONTROL.max,
+      step: MAG_LIMIT_CONTROL.step,
+      formatValue: formatMagLimitValue,
+    },
+    {
+      id: 'exposure',
+      label: 'Exposure',
+      type: 'range',
+      value: exposureToSliderValue(getActiveExposure()),
+      min: EXPOSURE_CONTROL.minLog10,
+      max: EXPOSURE_CONTROL.maxLog10,
+      step: EXPOSURE_CONTROL.step,
+      formatValue: formatExposureSliderValue,
+    },
+    { id: 'near-distance-floor', label: 'Near 1pc floor', type: 'toggle', value: nearDistanceFloorEnabled },
+    { id: 'constellation-art', label: 'Constellation Art', type: 'toggle', value: artEnabled },
+  ];
+}
+
+function buildWaypointMenuItems() {
+  return [
+    { id: 'back-home', label: '< Back', type: 'button' },
+    ...WAYPOINTS.map((waypoint, index) => ({
+      id: `wp-${index}`,
+      label: waypoint.label,
+      type: 'button',
+    })),
+  ];
+}
+
+function setTabletPage(pageId) {
+  currentTabletPage = pageId;
+  if (!tabletRef) {
+    return;
+  }
+
+  if (pageId === 'selection') {
+    tabletRef.setItems(buildSelectionMenuItems());
+    updateTabletStarInfo(lastPickedResult);
+    return;
+  }
+  if (pageId === 'rendering') {
+    tabletRef.setItems(buildRenderingMenuItems());
+    syncVisibilityControls();
+    return;
+  }
+  if (pageId === 'waypoints') {
+    tabletRef.setItems(buildWaypointMenuItems());
+    return;
+  }
+
+  tabletRef.setItems(buildHomeMenuItems());
+}
+
 function handlePick(result) {
   pickGeneration += 1;
   const generation = pickGeneration;
@@ -527,6 +639,8 @@ function renderSummary(snapshot, datasetDescription) {
     desktopShaderEnabled,
     mDesired: activeMagLimit,
     starFieldExposure: getActiveExposure(),
+    artEnabled,
+    activeConstellationIau: currentConstellationIau,
     nearDistanceFloorEnabled,
     sharedDatasetSession: datasetDescription?.id ?? null,
     renderServiceStats: datasetDescription?.services?.render?.stats ?? null,
@@ -545,12 +659,18 @@ function renderSnapshot() {
       ? 'running'
       : 'idle';
   renderSummary(snapshot, datasetDescription);
+  if (lastPickedResult) {
+    renderPickInfo(lastPickedResult);
+    updateTabletStarInfo(lastPickedResult);
+  }
 
   snapshotValue.textContent = JSON.stringify({
     xrSupported,
     desktopShaderEnabled,
     mDesired: activeMagLimit,
     starFieldExposure: getActiveExposure(),
+    artEnabled,
+    activeConstellationIau: currentConstellationIau,
     nearDistanceFloorEnabled,
     viewer: snapshot,
     warmState,
@@ -648,57 +768,43 @@ async function mountViewer() {
   const tunedProfile = createTunedStarFieldMaterialProfile({
     scale: DEFAULT_METERS_PER_PARSEC,
   });
+  const manifest = await loadConstellationArtManifest({ manifestUrl: DEFAULT_ART_MANIFEST_URL });
 
   starFieldLayer = createStarFieldLayer({
     id: 'phase-5b-vr-star-field-layer',
     positionTransform: ORION_SCENE_TRANSFORM,
-    materialFactory: () => createVrStarFieldMaterialProfile(),
+    materialFactory: () => createTunedStarFieldMaterialProfile({
+      scale: DEFAULT_METERS_PER_PARSEC,
+    }),
     includePickMeta: true,
   });
+  constellationArtLayer = createConstellationArtLayer({
+    id: 'phase-5b-xr-constellation-art-layer',
+    manifest,
+    manifestUrl: DEFAULT_ART_MANIFEST_URL,
+    transformDirection: ORION_SCENE_TRANSFORM,
+  });
 
-  const mainMenuItems = [
-    {
-      id: 'star-info',
-      label: 'Selected Star',
-      type: 'display',
-      lines: [],
-      dismissible: true,
-      actionId: 'go-selected',
-      actionLabel: 'Go to Selected',
+  const constellationCompassController = createConstellationCompassController({
+    id: 'phase-5b-xr-constellation-compass-controller',
+    manifest,
+    sceneToIcrsTransform: ORION_SCENE_TO_ICRS_TRANSFORM,
+    onConstellationIn(payload) {
+      currentConstellationIau = payload.iau ?? null;
+      if (artEnabled && currentConstellationIau) {
+        constellationArtLayer?.show(currentConstellationIau);
+      }
+      renderSnapshot();
     },
-    { id: 'tuned-shader', label: 'Desktop Shader', type: 'toggle', value: false },
-    {
-      id: 'mag-limit',
-      label: 'Mag Limit',
-      type: 'range',
-      value: activeMagLimit,
-      min: MAG_LIMIT_CONTROL.min,
-      max: MAG_LIMIT_CONTROL.max,
-      step: MAG_LIMIT_CONTROL.step,
-      formatValue: formatMagLimitValue,
+    onConstellationOut(payload) {
+      constellationArtLayer?.hide(payload.iau);
+      if (payload.iau === currentConstellationIau) {
+        currentConstellationIau = null;
+      }
+      renderSnapshot();
     },
-    {
-      id: 'exposure',
-      label: 'Exposure',
-      type: 'range',
-      value: exposureToSliderValue(getActiveExposure()),
-      min: EXPOSURE_CONTROL.minLog10,
-      max: EXPOSURE_CONTROL.maxLog10,
-      step: EXPOSURE_CONTROL.step,
-      formatValue: formatExposureSliderValue,
-    },
-    { id: 'near-distance-floor', label: 'Near 1pc floor', type: 'toggle', value: nearDistanceFloorEnabled },
-    { id: 'show-waypoints', label: '> Waypoints', type: 'button' },
-  ];
-
-  const waypointMenuItems = [
-    { id: 'wp-back', label: '< Back', type: 'button' },
-    ...WAYPOINTS.map((waypoint, index) => ({
-      id: `wp-${index}`,
-      label: waypoint.label,
-      type: 'button',
-    })),
-  ];
+  });
+  constellationCompassControllerRef = constellationCompassController;
 
   const xrLocomotionController = createXrLocomotionController({
     id: 'phase-5b-xr-locomotion-controller',
@@ -706,7 +812,6 @@ async function mountViewer() {
     sceneToIcrsTransform: ORION_SCENE_TO_ICRS_TRANSFORM,
     sceneScale: 1.0,
     moveSpeed: 4.0,
-    flySpeed: 12,
     flyAcceleration: 6,
     flyDeceleration: 8,
   });
@@ -714,7 +819,7 @@ async function mountViewer() {
 
   const xrTabletController = createXrTabletController({
     id: 'phase-5b-xr-tablet-controller',
-    items: mainMenuItems,
+    items: buildHomeMenuItems(),
     onChange(id, value) {
       if (id === 'star-info') {
         pickControllerRef?.clearSelection();
@@ -722,6 +827,18 @@ async function mountViewer() {
       }
       if (id === 'go-selected') {
         goToPickedStar(lastPickedResult);
+      }
+      if (id === 'page-selection') {
+        setTabletPage('selection');
+      }
+      if (id === 'page-rendering') {
+        setTabletPage('rendering');
+      }
+      if (id === 'page-waypoints') {
+        setTabletPage('waypoints');
+      }
+      if (id === 'back-home') {
+        setTabletPage('home');
       }
       if (id === 'tuned-shader') {
         desktopShaderEnabled = value === true;
@@ -754,12 +871,10 @@ async function mountViewer() {
         nearDistanceFloorEnabled = value === true;
         applyVisibilityState();
       }
-      if (id === 'show-waypoints') {
-        xrTabletController.setItems(waypointMenuItems);
-      }
-      if (id === 'wp-back') {
-        xrTabletController.setItems(mainMenuItems);
-        syncVisibilityControls();
+      if (id === 'constellation-art') {
+        artEnabled = value === true;
+        syncConstellationArtVisibility();
+        renderSnapshot();
       }
       const waypointMatch = id.match(/^wp-(\d+)$/);
       if (waypointMatch) {
@@ -767,8 +882,7 @@ async function mountViewer() {
         if (waypoint) {
           goToStarTarget(waypoint.targetPc);
         }
-        xrTabletController.setItems(mainMenuItems);
-        syncVisibilityControls();
+        setTabletPage('home');
       }
     },
   });
@@ -807,10 +921,11 @@ async function mountViewer() {
         minIntervalMs: 300,
         watchSize: false,
       }),
+      constellationCompassController,
       xrTabletController,
       xrPickController,
     ],
-    layers: [starFieldLayer],
+    layers: [starFieldLayer, constellationArtLayer],
     state: {
       ...DEFAULT_XR_STAR_FIELD_STATE,
       demo: 'phase-5b-xr-free-roam',
