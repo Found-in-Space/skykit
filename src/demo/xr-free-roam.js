@@ -82,6 +82,39 @@ function createViewerCamera() {
   return camera;
 }
 
+function createShipDeckSlab() {
+  const slab = new THREE.Group();
+  slab.name = 'shipDeckSlab';
+
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(1.15, 0.025, 1.55),
+    new THREE.MeshBasicMaterial({
+      color: 0x1d8f89,
+      transparent: true,
+      opacity: 0.16,
+      depthWrite: false,
+    }),
+  );
+  base.position.set(0, -0.0125, -0.08);
+  base.renderOrder = 20;
+  slab.add(base);
+
+  const nose = new THREE.Mesh(
+    new THREE.BoxGeometry(0.26, 0.03, 0.38),
+    new THREE.MeshBasicMaterial({
+      color: 0x9cf0e3,
+      transparent: true,
+      opacity: 0.28,
+      depthWrite: false,
+    }),
+  );
+  nose.position.set(0, -0.01, -0.72);
+  nose.renderOrder = 21;
+  slab.add(nose);
+
+  return slab;
+}
+
 function summarizeViewer(snapshot) {
   if (!snapshot) {
     return null;
@@ -381,7 +414,6 @@ function goToStarTarget(targetPc) {
     return;
   }
   flyToObserver(approachTargetFromObserver(targetPc, observerPc, 0.25), {
-    maxSpeed: 10,
     acceleration: 5,
     deceleration: 7,
   });
@@ -764,6 +796,7 @@ async function mountViewer() {
   const xrRig = createXrRig(camera, {
     starFieldScale: DEFAULT_METERS_PER_PARSEC,
   });
+  xrRig.deck.add(createShipDeckSlab());
   const vrProfile = createVrStarFieldMaterialProfile();
   const tunedProfile = createTunedStarFieldMaterialProfile({
     scale: DEFAULT_METERS_PER_PARSEC,
