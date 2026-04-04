@@ -25,6 +25,16 @@ import { DEFAULT_METERS_PER_PARSEC, SCALE } from '../services/octree/scene-scale
 const PROXIMA_CEN_PC = { x: -0.47, y: -0.36, z: -1.16 };
 const SIRIUS_PC = { x: -0.49, y: 2.48, z: -0.76 };
 const BETELGEUSE_PC = { x: 4.2, y: 198.3, z: 25.8 };
+const XR_DESKTOP_NEAR_MAG_LIMIT_FLOOR = 25.0;
+const XR_DESKTOP_NEAR_MAG_LIMIT_RADIUS_PC = 1.0;
+const XR_DESKTOP_NEAR_MAG_LIMIT_FEATHER_PC = 0.25;
+const XR_DESKTOP_NEAR_SIZE_FLOOR = 8.0;
+const XR_DESKTOP_NEAR_ALPHA_FLOOR = 0.35;
+const EXPOSURE_CONTROL = Object.freeze({
+  minLog10: 2.0,
+  maxLog10: 5.5,
+  step: 0.05,
+});
 
 function approachTargetFromObserver(targetPc, observerPc, distancePc) {
   const dx = targetPc.x - observerPc.x;
@@ -100,6 +110,99 @@ const summaryValue = document.querySelector('[data-summary]');
 const snapshotValue = document.querySelector('[data-snapshot]');
 const pickInfoEl = document.querySelector('[data-pick-info]');
 
+function countFractionDigits(value) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  const text = String(value);
+  const dot = text.indexOf('.');
+  return dot >= 0 ? text.length - dot - 1 : 0;
+}
+
+function readNumberControlConfig(input, fallback) {
+  const min = Number(input?.min);
+  const max = Number(input?.max);
+  const step = Number(input?.step);
+  return {
+    min: Number.isFinite(min) ? min : fallback.min,
+    max: Number.isFinite(max) ? max : fallback.max,
+    step: Number.isFinite(step) && step > 0 ? step : fallback.step,
+  };
+}
+
+const MAG_LIMIT_CONTROL = readNumberControlConfig(magLimitInput, {
+  min: 0,
+  max: 25,
+  step: 0.1,
+});
+const MAG_LIMIT_DECIMALS = countFractionDigits(MAG_LIMIT_CONTROL.step);
+const EXPOSURE_DECIMALS = countFractionDigits(EXPOSURE_CONTROL.step);
+
+function normalizeMagLimit(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+  const clamped = Math.min(
+    Math.max(numeric, MAG_LIMIT_CONTROL.min),
+    MAG_LIMIT_CONTROL.max,
+  );
+  const stepped = MAG_LIMIT_CONTROL.min
+    + Math.round((clamped - MAG_LIMIT_CONTROL.min) / MAG_LIMIT_CONTROL.step) * MAG_LIMIT_CONTROL.step;
+  return Number(stepped.toFixed(MAG_LIMIT_DECIMALS));
+}
+
+function formatMagLimitValue(value) {
+  return Number.isFinite(value) ? value.toFixed(MAG_LIMIT_DECIMALS) : '-';
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function normalizeExposureLogValue(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+  const clamped = clamp(
+    numeric,
+    EXPOSURE_CONTROL.minLog10,
+    EXPOSURE_CONTROL.maxLog10,
+  );
+  const stepped = EXPOSURE_CONTROL.minLog10
+    + Math.round((clamped - EXPOSURE_CONTROL.minLog10) / EXPOSURE_CONTROL.step) * EXPOSURE_CONTROL.step;
+  return Number(stepped.toFixed(EXPOSURE_DECIMALS));
+}
+
+function exposureToSliderValue(exposure) {
+  if (!(Number.isFinite(exposure) && exposure > 0)) {
+    return null;
+  }
+  return normalizeExposureLogValue(Math.log10(exposure));
+}
+
+function sliderValueToExposure(value) {
+  const logValue = normalizeExposureLogValue(value);
+  if (logValue == null) {
+    return null;
+  }
+  return Number((10 ** logValue).toPrecision(4));
+}
+
+function formatExposure(exposure) {
+  if (!(Number.isFinite(exposure) && exposure > 0)) {
+    return '-';
+  }
+  return exposure >= 1000
+    ? Math.round(exposure).toLocaleString('en-US')
+    : exposure.toFixed(1);
+}
+
+function formatExposureSliderValue(value) {
+  return formatExposure(sliderValueToExposure(value));
+}
+
 const datasetSession = getDatasetSession(createFoundInSpaceDatasetOptions({
   id: 'phase-5b-xr-dataset',
   ...resolveFoundInSpaceDatasetOverrides(),
@@ -116,9 +219,14 @@ let pickControllerRef = null;
 let xrLocomotionControllerRef = null;
 let snapshotTimer = null;
 let xrSupported = null;
-let activeMagLimit = Number.isFinite(Number(magLimitInput?.value)) ? Number(magLimitInput.value) : 7.5;
+let desktopShaderEnabled = false;
+let activeMagLimit = normalizeMagLimit(magLimitInput?.value) ?? 7.5;
+let activeVrExposure = DEFAULT_XR_STAR_FIELD_STATE.starFieldExposure;
+let activeDesktopExposure = DEFAULT_TUNED_EXPOSURE;
+let nearDistanceFloorEnabled = true;
 let pickGeneration = 0;
 let lastPickedResult = null;
+let pendingSelectionRefreshTimer = null;
 let warmState = {
   bootstrap: 'idle',
   rootShard: 'idle',
@@ -134,6 +242,82 @@ function fmt(n, decimals = 2) {
   return Number.isFinite(n) ? n.toFixed(decimals) : '-';
 }
 
+function getNearDistanceFloorState() {
+  return nearDistanceFloorEnabled
+    ? {
+      starFieldNearMagLimitFloor: XR_DESKTOP_NEAR_MAG_LIMIT_FLOOR,
+      starFieldNearMagLimitRadiusPc: XR_DESKTOP_NEAR_MAG_LIMIT_RADIUS_PC,
+      starFieldNearMagLimitFeatherPc: XR_DESKTOP_NEAR_MAG_LIMIT_FEATHER_PC,
+      starFieldNearSizeFloor: XR_DESKTOP_NEAR_SIZE_FLOOR,
+      starFieldNearAlphaFloor: XR_DESKTOP_NEAR_ALPHA_FLOOR,
+    }
+    : {
+      starFieldNearMagLimitFloor: XR_DESKTOP_NEAR_MAG_LIMIT_FLOOR,
+      starFieldNearMagLimitRadiusPc: 0,
+      starFieldNearMagLimitFeatherPc: XR_DESKTOP_NEAR_MAG_LIMIT_FEATHER_PC,
+      starFieldNearSizeFloor: 0,
+      starFieldNearAlphaFloor: 0,
+    };
+}
+
+function getActiveExposure() {
+  return desktopShaderEnabled ? activeDesktopExposure : activeVrExposure;
+}
+
+function syncVisibilityControls() {
+  if (magLimitInput) {
+    magLimitInput.value = formatMagLimitValue(activeMagLimit);
+  }
+  tabletRef?.setItemValue('tuned-shader', desktopShaderEnabled);
+  tabletRef?.setItemValue('mag-limit', activeMagLimit);
+  tabletRef?.setItemValue('exposure', exposureToSliderValue(getActiveExposure()));
+  tabletRef?.setItemValue('near-distance-floor', nearDistanceFloorEnabled);
+}
+
+function scheduleSelectionRefresh() {
+  if (!viewer) {
+    renderSnapshot();
+    return;
+  }
+
+  if (pendingSelectionRefreshTimer != null) {
+    window.clearTimeout(pendingSelectionRefreshTimer);
+  }
+
+  pendingSelectionRefreshTimer = window.setTimeout(() => {
+    pendingSelectionRefreshTimer = null;
+    viewer?.refreshSelection()
+      .then(() => {
+        renderSnapshot();
+      })
+      .catch((error) => {
+        statusValue.textContent = 'error';
+        snapshotValue.textContent = error.stack ?? error.message;
+        console.error('[xr-free-roam-demo] mag limit update failed', error);
+      });
+  }, 120);
+}
+
+function applyVisibilityState(options = {}) {
+  syncVisibilityControls();
+
+  if (!viewer) {
+    renderSnapshot();
+    return;
+  }
+
+  viewer.setState({
+    mDesired: activeMagLimit,
+    starFieldExposure: getActiveExposure(),
+    ...getNearDistanceFloorState(),
+  });
+  renderSnapshot();
+
+  if (options.refreshSelection) {
+    scheduleSelectionRefresh();
+  }
+}
+
 function nonDisposable(profile) {
   return {
     ...profile,
@@ -146,7 +330,7 @@ function flyToObserver(observerPc, options = {}) {
     return false;
   }
   return xrLocomotionControllerRef.flyTo(observerPc, {
-    speed: options.speed ?? 12,
+    maxSpeed: options.maxSpeed ?? options.speed ?? 12,
     acceleration: options.acceleration ?? 6,
     deceleration: options.deceleration ?? 8,
     arrivalThreshold: options.arrivalThreshold ?? 0.01,
@@ -172,7 +356,7 @@ function goToStarTarget(targetPc) {
     return;
   }
   flyToObserver(approachTargetFromObserver(targetPc, observerPc, 0.25), {
-    speed: 10,
+    maxSpeed: 10,
     acceleration: 5,
     deceleration: 7,
   });
@@ -340,7 +524,10 @@ function renderSummary(snapshot, datasetDescription) {
   summaryValue.textContent = JSON.stringify({
     demo: 'phase-5b-xr-free-roam',
     xrSupported,
+    desktopShaderEnabled,
     mDesired: activeMagLimit,
+    starFieldExposure: getActiveExposure(),
+    nearDistanceFloorEnabled,
     sharedDatasetSession: datasetDescription?.id ?? null,
     renderServiceStats: datasetDescription?.services?.render?.stats ?? null,
     viewer: summarizeViewer(snapshot),
@@ -361,7 +548,10 @@ function renderSnapshot() {
 
   snapshotValue.textContent = JSON.stringify({
     xrSupported,
+    desktopShaderEnabled,
     mDesired: activeMagLimit,
+    starFieldExposure: getActiveExposure(),
+    nearDistanceFloorEnabled,
     viewer: snapshot,
     warmState,
     datasetSession: datasetDescription,
@@ -477,6 +667,27 @@ async function mountViewer() {
       actionLabel: 'Go to Selected',
     },
     { id: 'tuned-shader', label: 'Desktop Shader', type: 'toggle', value: false },
+    {
+      id: 'mag-limit',
+      label: 'Mag Limit',
+      type: 'range',
+      value: activeMagLimit,
+      min: MAG_LIMIT_CONTROL.min,
+      max: MAG_LIMIT_CONTROL.max,
+      step: MAG_LIMIT_CONTROL.step,
+      formatValue: formatMagLimitValue,
+    },
+    {
+      id: 'exposure',
+      label: 'Exposure',
+      type: 'range',
+      value: exposureToSliderValue(getActiveExposure()),
+      min: EXPOSURE_CONTROL.minLog10,
+      max: EXPOSURE_CONTROL.maxLog10,
+      step: EXPOSURE_CONTROL.step,
+      formatValue: formatExposureSliderValue,
+    },
+    { id: 'near-distance-floor', label: 'Near 1pc floor', type: 'toggle', value: nearDistanceFloorEnabled },
     { id: 'show-waypoints', label: '> Waypoints', type: 'button' },
   ];
 
@@ -513,19 +724,42 @@ async function mountViewer() {
         goToPickedStar(lastPickedResult);
       }
       if (id === 'tuned-shader') {
-        if (value) {
+        desktopShaderEnabled = value === true;
+        if (desktopShaderEnabled) {
           starFieldLayer.setMaterialProfile(nonDisposable(tunedProfile));
-          viewer?.setState({ starFieldExposure: DEFAULT_TUNED_EXPOSURE });
         } else {
           starFieldLayer.setMaterialProfile(nonDisposable(vrProfile));
-          viewer?.setState({ starFieldExposure: DEFAULT_XR_STAR_FIELD_STATE.starFieldExposure });
         }
+        applyVisibilityState();
+      }
+      if (id === 'mag-limit') {
+        const nextValue = normalizeMagLimit(value);
+        if (nextValue != null) {
+          activeMagLimit = nextValue;
+          applyVisibilityState({ refreshSelection: true });
+        }
+      }
+      if (id === 'exposure') {
+        const nextExposure = sliderValueToExposure(value);
+        if (nextExposure != null) {
+          if (desktopShaderEnabled) {
+            activeDesktopExposure = nextExposure;
+          } else {
+            activeVrExposure = nextExposure;
+          }
+          applyVisibilityState();
+        }
+      }
+      if (id === 'near-distance-floor') {
+        nearDistanceFloorEnabled = value === true;
+        applyVisibilityState();
       }
       if (id === 'show-waypoints') {
         xrTabletController.setItems(waypointMenuItems);
       }
       if (id === 'wp-back') {
         xrTabletController.setItems(mainMenuItems);
+        syncVisibilityControls();
       }
       const waypointMatch = id.match(/^wp-(\d+)$/);
       if (waypointMatch) {
@@ -534,10 +768,12 @@ async function mountViewer() {
           goToStarTarget(waypoint.targetPc);
         }
         xrTabletController.setItems(mainMenuItems);
+        syncVisibilityControls();
       }
     },
   });
   tabletRef = xrTabletController;
+  syncVisibilityControls();
 
   const xrPickController = createXrPickController({
     id: 'phase-5b-xr-pick-controller',
@@ -582,6 +818,7 @@ async function mountViewer() {
       targetPc: ORION_CENTER_PC,
       fieldStrategy: 'observer-shell',
       mDesired: activeMagLimit,
+      ...getNearDistanceFloorState(),
     },
     clearColor: 0x02040b,
   });
@@ -627,32 +864,20 @@ exitXrButton?.addEventListener('click', () => {
 });
 
 magLimitInput?.addEventListener('change', () => {
-  const parsed = Number(magLimitInput.value);
-  if (!Number.isFinite(parsed)) {
-    magLimitInput.value = String(activeMagLimit);
+  const parsed = normalizeMagLimit(magLimitInput.value);
+  if (parsed == null) {
+    magLimitInput.value = formatMagLimitValue(activeMagLimit);
     return;
   }
 
   activeMagLimit = parsed;
-
-  if (!viewer) {
-    renderSnapshot();
-    return;
-  }
-
-  viewer.setState({ mDesired: activeMagLimit });
-  viewer.refreshSelection()
-    .then(() => {
-      renderSnapshot();
-    })
-    .catch((error) => {
-      statusValue.textContent = 'error';
-      snapshotValue.textContent = error.stack ?? error.message;
-      console.error('[xr-free-roam-demo] mag limit update failed', error);
-    });
+  applyVisibilityState({ refreshSelection: true });
 });
 
 window.addEventListener('beforeunload', () => {
+  if (pendingSelectionRefreshTimer != null) {
+    window.clearTimeout(pendingSelectionRefreshTimer);
+  }
   if (snapshotTimer != null) {
     window.clearInterval(snapshotTimer);
   }
