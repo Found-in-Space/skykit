@@ -28,6 +28,7 @@ function resolveDatasetSession(options) {
 function createViewerHandle(runtime) {
   return {
     runtime,
+    camera: runtime.camera,
     canvas: runtime.canvas,
     datasetSession: runtime.datasetSession,
     mount: runtime.mount,

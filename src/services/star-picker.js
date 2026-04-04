@@ -3,6 +3,7 @@ import { SCALE } from './octree/scene-scale.js';
 
 const DEG_TO_RAD = Math.PI / 180;
 const RAD_TO_DEG = 180 / Math.PI;
+export const DEFAULT_PICK_TOLERANCE_DEG = 3.0;
 
 const TUNED_DEFAULTS = Object.freeze({
   exposure: DEFAULT_TUNED_EXPOSURE,
@@ -84,7 +85,7 @@ export function computeVisualRadiusPx(mApp, options = {}) {
 export function pickStar(ray, starData, options = {}) {
   const {
     scale = SCALE,
-    toleranceDeg = 1.0,
+    toleranceDeg = DEFAULT_PICK_TOLERANCE_DEG,
     minClickRadiusDeg = 0.15,
     fovRad,
     viewportHeight,

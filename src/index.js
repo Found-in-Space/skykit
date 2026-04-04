@@ -97,6 +97,7 @@ export {
 export { createVolumeHRLoader } from './hr-diagram/volume-hr-loader.js';
 export { HRDiagramRenderer } from './hr-diagram/hr-diagram-renderer.js';
 export {
+  DEFAULT_PICK_TOLERANCE_DEG,
   computeVisualRadiusPx,
   decodeTemperatureK,
   pickStar,

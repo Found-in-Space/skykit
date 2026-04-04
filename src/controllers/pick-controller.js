@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { DEFAULT_TUNED_EXPOSURE } from '../layers/star-field-materials.js';
-import { pickStar } from '../services/star-picker.js';
+import { DEFAULT_PICK_TOLERANCE_DEG, pickStar } from '../services/star-picker.js';
 import { SCALE } from '../services/octree/scene-scale.js';
 
 const MAX_DRAG_DISTANCE_SQ = 25;
@@ -18,7 +18,7 @@ const _projVec = new THREE.Vector3();
  * @param {Object} options
  * @param {Function} options.getStarData   () => starData from a StarFieldLayer.
  * @param {Function} [options.onPick]      Called with (result, event, stats).
- * @param {number}   [options.toleranceDeg]  Angular search half-angle (default 1.0).
+ * @param {number}   [options.toleranceDeg]  Angular search half-angle (default 3.0).
  * @param {number}   [options.scale]         Scene scale override.
  */
 export function createPickController(options = {}) {
@@ -28,7 +28,7 @@ export function createPickController(options = {}) {
     scale = SCALE,
   } = options;
 
-  let toleranceDeg = options.toleranceDeg ?? 1.0;
+  let toleranceDeg = options.toleranceDeg ?? DEFAULT_PICK_TOLERANCE_DEG;
 
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
