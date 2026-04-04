@@ -272,3 +272,53 @@ test('XR locomotion controller moves in full 3D when looking up or down', () => 
   assert.ok(state.observerPc.y < -0.5, 'should move downward when looking down');
   assert.ok(state.observerPc.z < -0.5, 'should still move forward along Z');
 });
+
+test('XR locomotion controller flyTo advances toward target without thumbstick input', () => {
+  const controller = createXrLocomotionController({
+    sceneScale: 1.0,
+    moveSpeed: 2,
+    flySpeed: 10,
+    flyAcceleration: 4,
+    flyDeceleration: 6,
+  });
+  const navigationRoot = new THREE.Group();
+  const contentRoot = new THREE.Group();
+  const camera = new THREE.PerspectiveCamera();
+  camera.lookAt(0, 0, -1);
+  const state = {
+    observerPc: { x: 0, y: 0, z: 0 },
+    starFieldScale: 1.0,
+  };
+  const context = {
+    state,
+    camera,
+    navigationRoot,
+    contentRoot,
+    xr: {
+      presenting: true,
+      session: {
+        inputSources: [],
+      },
+    },
+    frame: { deltaSeconds: 0.5 },
+  };
+
+  controller.attach(context);
+  controller.flyTo({
+    x: 0,
+    y: 0,
+    z: -10,
+  }, {
+    speed: 10,
+    acceleration: 4,
+    deceleration: 6,
+    arrivalThreshold: 0.01,
+  });
+  controller.update(context);
+
+  assert.ok(state.observerPc.z < -0.9 && state.observerPc.z > -1.1,
+    'should ramp in smoothly instead of lurching forward');
+  assert.equal(state.observerPc.x, 0, 'should stay on straight-line path (x)');
+  assert.equal(state.observerPc.y, 0, 'should stay on straight-line path (y)');
+  assert.equal(controller.getStats().movementAutomation, 'flyTo');
+});

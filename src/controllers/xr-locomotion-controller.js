@@ -62,6 +62,9 @@ export function createXrLocomotionController(options = {}) {
   const id = options.id ?? 'xr-locomotion-controller';
   const xrMoveSpeed = positiveFinite(options.moveSpeed, 4);
   const xrDeadzone = positiveFinite(options.deadzone, 0.15);
+  const xrFlySpeed = positiveFinite(options.flySpeed, 25);
+  const xrFlyAcceleration = positiveFinite(options.flyAcceleration, xrFlySpeed * 0.6);
+  const xrFlyDeceleration = positiveFinite(options.flyDeceleration, xrFlySpeed * 0.8);
 
   const rig = createCameraRig({
     observerPc: options.observerPc,
@@ -72,6 +75,7 @@ export function createXrLocomotionController(options = {}) {
   });
 
   let lastObserverPc = rig.clonePosition();
+  let movementAutomation = null;
 
   let stats = {
     observerPc: rig.clonePosition(),
@@ -79,7 +83,58 @@ export function createXrLocomotionController(options = {}) {
     locomotionAxes: { x: 0, y: 0 },
     sceneScale: rig.sceneScale,
     presenting: false,
+    movementAutomation: null,
   };
+
+  function updateFlyToAutomation(dt) {
+    if (!movementAutomation || movementAutomation.type !== 'flyTo') {
+      return false;
+    }
+
+    const dx = movementAutomation.target.x - rig.positionPc.x;
+    const dy = movementAutomation.target.y - rig.positionPc.y;
+    const dz = movementAutomation.target.z - rig.positionPc.z;
+    const remainingDistance = Math.hypot(dx, dy, dz);
+
+    if (remainingDistance <= (movementAutomation.arrivalThreshold ?? 0.01)) {
+      rig.setPosition(movementAutomation.target);
+      const onArrive = movementAutomation.onArrive;
+      movementAutomation = null;
+      if (typeof onArrive === 'function') {
+        onArrive();
+      }
+      return true;
+    }
+
+    if (!(dt > 0)) {
+      return true;
+    }
+
+    const stoppingDistance = (movementAutomation.currentSpeed * movementAutomation.currentSpeed)
+      / (2 * movementAutomation.deceleration);
+
+    if (stoppingDistance >= remainingDistance) {
+      movementAutomation.currentSpeed = Math.max(
+        0,
+        movementAutomation.currentSpeed - movementAutomation.deceleration * dt,
+      );
+    } else {
+      movementAutomation.currentSpeed = Math.min(
+        movementAutomation.maxSpeed,
+        movementAutomation.currentSpeed + movementAutomation.acceleration * dt,
+      );
+    }
+
+    const step = Math.min(remainingDistance, movementAutomation.currentSpeed * dt);
+    if (!(step > 0)) {
+      return true;
+    }
+
+    rig.positionPc.x += movementAutomation.direction.x * step;
+    rig.positionPc.y += movementAutomation.direction.y * step;
+    rig.positionPc.z += movementAutomation.direction.z * step;
+    return true;
+  }
 
   function syncViewerOrientation(context) {
     const xrFrame = context.xr?.frame;
@@ -126,6 +181,39 @@ export function createXrLocomotionController(options = {}) {
       };
     },
 
+    flyTo(targetPc, opts = {}) {
+      const target = normalizePoint(targetPc, null);
+      if (!target) {
+        return false;
+      }
+
+      const dx = target.x - rig.positionPc.x;
+      const dy = target.y - rig.positionPc.y;
+      const dz = target.z - rig.positionPc.z;
+      const distance = Math.hypot(dx, dy, dz);
+      if (!(distance > 0)) {
+        rig.setPosition(target);
+        return true;
+      }
+
+      movementAutomation = {
+        type: 'flyTo',
+        target: clonePoint(target),
+        direction: {
+          x: dx / distance,
+          y: dy / distance,
+          z: dz / distance,
+        },
+        maxSpeed: positiveFinite(opts.speed, xrFlySpeed),
+        currentSpeed: 0,
+        acceleration: positiveFinite(opts.acceleration, xrFlyAcceleration),
+        deceleration: positiveFinite(opts.deceleration, xrFlyDeceleration),
+        arrivalThreshold: positiveFinite(opts.arrivalThreshold, 0.02),
+        onArrive: typeof opts.onArrive === 'function' ? opts.onArrive : null,
+      };
+      return true;
+    },
+
     attach(context) {
       if (!context.state || typeof context.state !== 'object') {
         throw new TypeError('XrLocomotionController requires a mutable runtime state object');
@@ -159,6 +247,7 @@ export function createXrLocomotionController(options = {}) {
       const axes = readXrAxes(context.xr?.session?.inputSources ?? [], { deadzone: xrDeadzone });
 
       if (axes.x !== 0 || axes.y !== 0) {
+        movementAutomation = null;
         _movement.copy(_right).multiplyScalar(axes.x).addScaledVector(_forward, -axes.y);
         const strength = _movement.length();
         if (strength > 0) {
@@ -168,6 +257,8 @@ export function createXrLocomotionController(options = {}) {
             (xrMoveSpeed * strength * dt) / sceneScale,
           );
         }
+      } else {
+        updateFlyToAutomation(dt);
       }
 
       const starFieldScale = positiveFinite(context.state?.starFieldScale, rig.sceneScale);
@@ -187,6 +278,7 @@ export function createXrLocomotionController(options = {}) {
         locomotionAxes: { x: axes.x, y: axes.y },
         sceneScale: starFieldScale,
         presenting: true,
+        movementAutomation: movementAutomation?.type ?? null,
       };
     },
 
