@@ -1,6 +1,17 @@
 import { createConstellationArtLayer } from '../layers/constellation-art-layer.js';
 import { createConstellationCompassController } from '../controllers/constellation-compass-controller.js';
 
+const DEFAULT_ART_LAYER_ID = 'constellation-art';
+const DEFAULT_COMPASS_ID = 'constellation-compass';
+const DEFAULT_ART_OPACITY = 0.3;
+const DEFAULT_ART_FADE_DURATION_SECS = 0.4;
+const DEFAULT_COMPASS_HYSTERESIS_SECS = 0.2;
+const DEFAULT_HUD_POSITION = 'top-right';
+
+const HUD_CONSTELLATION_LABEL_PREFIX = '✦ ';
+const HUD_CONSTELLATION_LABEL_EMPTY = '✦ —';
+const HUD_CONSTELLATION_TOGGLE_TITLE = 'View-center constellation (toggle art)';
+
 /**
  * Feature preset: view-center constellation indicator with art toggle.
  *
@@ -37,19 +48,19 @@ export function createConstellationPreset(options) {
   let artEnabled = true;
 
   const artLayer = createConstellationArtLayer({
-    id: options.artLayerId ?? 'constellation-art',
+    id: options.artLayerId ?? DEFAULT_ART_LAYER_ID,
     manifest,
     manifestUrl,
     transformDirection,
-    opacity: options.opacity ?? 0.22,
-    fadeDurationSecs: options.fadeDurationSecs ?? 0.8,
+    opacity: options.opacity ?? DEFAULT_ART_OPACITY,
+    fadeDurationSecs: options.fadeDurationSecs ?? DEFAULT_ART_FADE_DURATION_SECS,
   });
 
   const compassController = createConstellationCompassController({
-    id: options.compassId ?? 'constellation-compass',
+    id: options.compassId ?? DEFAULT_COMPASS_ID,
     manifest,
     sceneToIcrsTransform,
-    hysteresisSecs: options.hysteresisSecs ?? 0.5,
+    hysteresisSecs: options.hysteresisSecs ?? DEFAULT_COMPASS_HYSTERESIS_SECS,
     onConstellationIn(payload) {
       currentIau = payload.iau;
       currentName = payload.name?.native ?? payload.name?.english ?? payload.iau;
@@ -64,15 +75,18 @@ export function createConstellationPreset(options) {
     },
   });
 
-  const position = options.position ?? 'top-right';
+  const position = options.position ?? DEFAULT_HUD_POSITION;
 
   return {
     artLayer,
     compassController,
     controls: [
       {
-        label: () => currentName ? `✦ ${currentName}` : '✦ —',
-        title: 'View-center constellation (toggle art)',
+        label: () =>
+          currentName
+            ? `${HUD_CONSTELLATION_LABEL_PREFIX}${currentName}`
+            : HUD_CONSTELLATION_LABEL_EMPTY,
+        title: HUD_CONSTELLATION_TOGGLE_TITLE,
         toggle: true,
         initialActive: true,
         position,
