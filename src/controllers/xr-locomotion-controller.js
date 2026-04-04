@@ -418,10 +418,9 @@ export function createXrLocomotionController(options = {}) {
         _movement.copy(_shipRight).multiplyScalar(axes.x).addScaledVector(_shipForward, -axes.y);
         const strength = _movement.length();
         if (strength > 0) {
-          const sceneScale = positiveFinite(context.state?.starFieldScale, rig.sceneScale);
           rig.moveInSceneDirection(
             _movement.normalize(),
-            (xrMoveSpeed * strength * dt) / sceneScale,
+            xrMoveSpeed * strength * dt,
           );
         }
       } else {

@@ -75,6 +75,42 @@ test('XR locomotion controller scales content and advances observer from stick m
   assert.ok(state.observerPc.z < -1.9, 'should have moved forward');
 });
 
+test('XR locomotion controller right-stick thrust scales with the universe', () => {
+  const controller = createXrLocomotionController({
+    sceneScale: 1.0,
+    moveSpeed: 2,
+  });
+  const navigationRoot = new THREE.Group();
+  const contentRoot = new THREE.Group();
+  const camera = new THREE.PerspectiveCamera();
+  camera.lookAt(0, 0, -1);
+  const state = {
+    observerPc: { x: 0, y: 0, z: 0 },
+    starFieldScale: 10.0,
+  };
+  const context = {
+    state,
+    camera,
+    navigationRoot,
+    contentRoot,
+    xr: {
+      presenting: true,
+      session: {
+        inputSources: [
+          { handedness: 'right', gamepad: { axes: [0, 0, 0, -1] } },
+        ],
+      },
+    },
+    frame: { deltaSeconds: 1 },
+  };
+
+  controller.attach(context);
+  controller.update(context);
+
+  assert.ok(state.observerPc.z < -1.9, 'observer motion should stay strong at large world scales');
+  assert.ok(navigationRoot.position.z < -19.9, 'world-space ship motion should grow with starFieldScale');
+});
+
 test('XR locomotion controller movement stays in ship coordinates despite viewer yaw', () => {
   const controller = createXrLocomotionController({
     sceneScale: 1.0,
