@@ -147,6 +147,9 @@ export function createXrPickController(options = {}) {
       sizeScale: latestState?.starFieldSizeScale ?? latestState?.starFieldLinearScale,
       sizePower: latestState?.starFieldSizePower,
       sizeMax: latestState?.starFieldSizeMax,
+      nearMagLimitFloor: latestState?.starFieldNearMagLimitFloor,
+      nearMagLimitRadiusPc: latestState?.starFieldNearMagLimitRadiusPc,
+      nearMagLimitFeatherPc: latestState?.starFieldNearMagLimitFeatherPc,
       extinctionScale: latestState?.starFieldExtinctionScale ?? 1.0,
     });
     const pickTimeMs = performance.now() - t0;

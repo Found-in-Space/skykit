@@ -1,4 +1,6 @@
 import {
+  computeEffectiveMagLimit,
+  computeNearDistanceBlend,
   DEFAULT_STAR_FIELD_STATE,
   DEFAULT_TUNED_EXPOSURE,
 } from '../layers/star-field-materials.js';
@@ -13,9 +15,15 @@ const TUNED_DEFAULTS = Object.freeze({
   magLimit: 6.5,
   magFadeRange: DEFAULT_STAR_FIELD_STATE.starFieldMagFadeRange,
   baseSize: DEFAULT_STAR_FIELD_STATE.starFieldBaseSize,
+  sizeFluxScale: DEFAULT_STAR_FIELD_STATE.starFieldSizeFluxScale,
   sizeScale: DEFAULT_STAR_FIELD_STATE.starFieldSizeScale,
   sizePower: DEFAULT_STAR_FIELD_STATE.starFieldSizePower,
   sizeMax: DEFAULT_STAR_FIELD_STATE.starFieldSizeMax,
+  nearMagLimitFloor: DEFAULT_STAR_FIELD_STATE.starFieldNearMagLimitFloor,
+  nearMagLimitRadiusPc: DEFAULT_STAR_FIELD_STATE.starFieldNearMagLimitRadiusPc,
+  nearMagLimitFeatherPc: DEFAULT_STAR_FIELD_STATE.starFieldNearMagLimitFeatherPc,
+  nearSizeFloor: DEFAULT_STAR_FIELD_STATE.starFieldNearSizeFloor,
+  nearAlphaFloor: DEFAULT_STAR_FIELD_STATE.starFieldNearAlphaFloor,
   extinctionScale: 1.0,
 });
 
@@ -59,21 +67,38 @@ export function decodeTemperatureK(teffLog8Raw) {
  */
 export function computeVisualRadiusPx(mApp, options = {}) {
   const magLimit = options.magLimit ?? TUNED_DEFAULTS.magLimit;
-  const exposure = options.exposure ?? TUNED_DEFAULTS.exposure;
   const magFadeRange = options.magFadeRange ?? TUNED_DEFAULTS.magFadeRange;
   const baseSize = options.baseSize ?? options.sizeMin ?? TUNED_DEFAULTS.baseSize;
+  const sizeFluxScale = options.sizeFluxScale ?? TUNED_DEFAULTS.sizeFluxScale;
   const sizeScale = options.sizeScale ?? options.linearScale ?? TUNED_DEFAULTS.sizeScale;
   const sizePower = options.sizePower ?? TUNED_DEFAULTS.sizePower;
   const sizeMax = options.sizeMax ?? TUNED_DEFAULTS.sizeMax;
+  const nearSizeFloor = options.nearSizeFloor ?? TUNED_DEFAULTS.nearSizeFloor;
+  const effectiveMagLimit = computeEffectiveMagLimit(
+    magLimit,
+    options.distancePc,
+    {
+      nearMagLimitFloor: options.nearMagLimitFloor ?? TUNED_DEFAULTS.nearMagLimitFloor,
+      nearMagLimitRadiusPc: options.nearMagLimitRadiusPc ?? TUNED_DEFAULTS.nearMagLimitRadiusPc,
+      nearMagLimitFeatherPc: options.nearMagLimitFeatherPc ?? TUNED_DEFAULTS.nearMagLimitFeatherPc,
+    },
+  );
 
-  const fade = computeMagnitudeFade(mApp, magLimit, magFadeRange);
+  const fade = computeMagnitudeFade(mApp, effectiveMagLimit, magFadeRange);
   if (fade <= 0) {
     return 0;
   }
 
-  const displayFlux = apparentFluxFromMagnitude(mApp) * exposure;
-  const sizeSignal = Math.max(Math.pow(1 + Math.max(displayFlux, 0), sizePower) - 1, 0);
-  const radius = baseSize + sizeScale * sizeSignal;
+  const apparentFlux = apparentFluxFromMagnitude(mApp) * Math.max(sizeFluxScale, 0);
+  const sizeSignal = Math.max(Math.pow(1 + Math.max(apparentFlux, 0), sizePower) - 1, 0);
+  const nearBlend = computeNearDistanceBlend(options.distancePc, {
+    nearMagLimitRadiusPc: options.nearMagLimitRadiusPc ?? TUNED_DEFAULTS.nearMagLimitRadiusPc,
+    nearMagLimitFeatherPc: options.nearMagLimitFeatherPc ?? TUNED_DEFAULTS.nearMagLimitFeatherPc,
+  });
+  const radius = Math.max(
+    baseSize + sizeScale * sizeSignal,
+    nearSizeFloor * nearBlend,
+  );
 
   return Math.min(Math.max(radius, 0), sizeMax);
 }
@@ -101,10 +126,15 @@ export function computeVisualRadiusPx(mApp, options = {}) {
  * @param {number} [options.exposure]        Current exposure uniform.
  * @param {number} [options.magFadeRange]    Magnitude fade range near the limit.
  * @param {number} [options.baseSize]        Baseline point size (px).
+ * @param {number} [options.sizeFluxScale]   Fixed flux scaling for size response.
  * @param {number} [options.sizeScale]       Brightness-to-size response scale.
  * @param {number} [options.sizePower]       Brightness-to-size response power.
  * @param {number} [options.sizeMin]         Legacy alias for baseSize.
  * @param {number} [options.sizeMax]         Maximum point size (px).
+ * @param {number} [options.nearMagLimitFloor] Optional nearby-star mag limit floor.
+ * @param {number} [options.nearMagLimitRadiusPc] Distance where the nearby floor is fully active.
+ * @param {number} [options.nearMagLimitFeatherPc] Fade width past the nearby floor radius.
+ * @param {number} [options.nearSizeFloor]   Optional minimum point size for nearby stars.
  * @param {number} [options.extinctionScale] Extinction multiplier (default 1).
  * @returns {Object|null}
  */
@@ -119,9 +149,14 @@ export function pickStar(ray, starData, options = {}) {
     exposure = TUNED_DEFAULTS.exposure,
     magFadeRange = TUNED_DEFAULTS.magFadeRange,
     baseSize = TUNED_DEFAULTS.baseSize,
+    sizeFluxScale = TUNED_DEFAULTS.sizeFluxScale,
     sizeScale = TUNED_DEFAULTS.sizeScale,
     sizePower = TUNED_DEFAULTS.sizePower,
     sizeMax = TUNED_DEFAULTS.sizeMax,
+    nearMagLimitFloor = TUNED_DEFAULTS.nearMagLimitFloor,
+    nearMagLimitRadiusPc = TUNED_DEFAULTS.nearMagLimitRadiusPc,
+    nearMagLimitFeatherPc = TUNED_DEFAULTS.nearMagLimitFeatherPc,
+    nearSizeFloor = TUNED_DEFAULTS.nearSizeFloor,
     extinctionScale = TUNED_DEFAULTS.extinctionScale,
   } = options;
 
@@ -144,9 +179,14 @@ export function pickStar(ray, starData, options = {}) {
     magFadeRange,
     exposure,
     baseSize,
+    sizeFluxScale,
     sizeScale,
     sizePower,
     sizeMax,
+    nearMagLimitFloor,
+    nearMagLimitRadiusPc,
+    nearMagLimitFeatherPc,
+    nearSizeFloor,
   };
 
   const ox = ray.origin.x;
@@ -184,7 +224,10 @@ export function pickStar(ray, starData, options = {}) {
 
     let effectiveAngularRadius = minClickRadiusRad;
     if (canComputeAngularSize) {
-      const px = computeVisualRadiusPx(mApp, sizeOpts);
+      const px = computeVisualRadiusPx(mApp, {
+        ...sizeOpts,
+        distancePc: dPc,
+      });
       if (px > 0) {
         effectiveAngularRadius = Math.max(
           px / pixelsPerRadian,
@@ -209,7 +252,10 @@ export function pickStar(ray, starData, options = {}) {
   const mApp = magAbs[bestIndex]
     + extinctionScale * (5 * Math.log10(Math.max(distPc, 0.001)) - 5);
   const visualPx = canComputeAngularSize
-    ? computeVisualRadiusPx(mApp, sizeOpts)
+    ? computeVisualRadiusPx(mApp, {
+      ...sizeOpts,
+      distancePc: distPc,
+    })
     : null;
 
   const result = {
