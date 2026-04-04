@@ -9,9 +9,12 @@ export function createConstellationArtLayer(options = {}) {
   const group = new THREE.Group();
   group.name = options.id ?? 'constellation-art-layer';
   const transformDirection = options.transformDirection ?? identityIcrsToSceneTransform;
-  const fadeDurationSecs = Number.isFinite(options.fadeDurationSecs) && options.fadeDurationSecs >= 0
+  let fadeDurationSecs = Number.isFinite(options.fadeDurationSecs) && options.fadeDurationSecs >= 0
     ? Number(options.fadeDurationSecs)
     : 0.8;
+  let baseOpacity = Number.isFinite(options.opacity) && options.opacity >= 0
+    ? Number(options.opacity)
+    : 0.22;
   let artGroup = null;
   let meshes = [];
   const meshesByIau = new Map();
@@ -55,7 +58,7 @@ export function createConstellationArtLayer(options = {}) {
   return {
     id: group.name,
     show(iau) {
-      setTargetOpacity(iau, options.opacity ?? 0.22);
+      setTargetOpacity(iau, baseOpacity);
     },
     hide(iau) {
       setTargetOpacity(iau, 0);
@@ -64,6 +67,24 @@ export function createConstellationArtLayer(options = {}) {
       for (const iau of meshesByIau.keys()) {
         targetOpacityByIau.set(iau, 0);
       }
+    },
+    setOpacity(opacity) {
+      if (!Number.isFinite(opacity) || opacity < 0) {
+        return;
+      }
+
+      baseOpacity = Number(opacity);
+      for (const [iau, targetOpacity] of targetOpacityByIau.entries()) {
+        if (targetOpacity > 0) {
+          targetOpacityByIau.set(iau, baseOpacity);
+        }
+      }
+    },
+    setFadeDurationSecs(seconds) {
+      if (!Number.isFinite(seconds) || seconds < 0) {
+        return;
+      }
+      fadeDurationSecs = Number(seconds);
     },
     getStats() {
       const visibleIaus = [];
@@ -82,6 +103,12 @@ export function createConstellationArtLayer(options = {}) {
         meshCount: meshes.length,
         visibleIaus,
         fadingIaus,
+      };
+    },
+    getConfig() {
+      return {
+        opacity: baseOpacity,
+        fadeDurationSecs,
       };
     },
     async attach({ mount }) {

@@ -242,6 +242,12 @@ export const DEFAULT_STAR_FIELD_STATE = Object.freeze({
   starFieldScale: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.scale,
   starFieldExtinctionScale: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.extinctionScale,
   starFieldExposure: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.exposure,
+  starFieldMagFadeRange: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.magFadeRange,
+  starFieldSizeMin: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.sizeMin,
+  starFieldSizeMax: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.sizeMax,
+  starFieldLinearScale: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.linearScale,
+  starFieldHaloThreshold: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.haloThreshold,
+  starFieldHaloSize: DEFAULT_STAR_FIELD_PROFILE_SETTINGS.haloSize,
   mDesired: DEFAULT_MAG_LIMIT,
 });
 
@@ -479,9 +485,38 @@ export function createTunedStarFieldMaterialProfile(options = {}) {
     mat.uniforms.uMagLimit.value = Number.isFinite(state.mDesired)
       ? state.mDesired
       : options.magLimit ?? DEFAULT_MAG_LIMIT;
+    mat.uniforms.uMagFadeRange.value = Number.isFinite(state.starFieldMagFadeRange)
+      ? state.starFieldMagFadeRange
+      : options.magFadeRange ?? DEFAULT_MAG_FADE_RANGE;
     mat.uniforms.uExposure.value = Number.isFinite(state.starFieldExposure)
       ? state.starFieldExposure
       : options.exposure ?? DEFAULT_TUNED_EXPOSURE;
+
+    if (mat.uniforms.uSizeMin) {
+      mat.uniforms.uSizeMin.value = Number.isFinite(state.starFieldSizeMin)
+        ? state.starFieldSizeMin
+        : options.sizeMin ?? DEFAULT_TUNED_POINT_SIZE_MIN;
+    }
+    if (mat.uniforms.uSizeMax) {
+      mat.uniforms.uSizeMax.value = Number.isFinite(state.starFieldSizeMax)
+        ? state.starFieldSizeMax
+        : options.sizeMax ?? DEFAULT_TUNED_POINT_SIZE_MAX;
+    }
+    if (mat.uniforms.uLinearScale) {
+      mat.uniforms.uLinearScale.value = Number.isFinite(state.starFieldLinearScale)
+        ? state.starFieldLinearScale
+        : options.linearScale ?? DEFAULT_TUNED_LINEAR_SCALE;
+    }
+    if (mat.uniforms.uHaloThreshold) {
+      mat.uniforms.uHaloThreshold.value = Number.isFinite(state.starFieldHaloThreshold)
+        ? state.starFieldHaloThreshold
+        : options.haloThreshold ?? DEFAULT_TUNED_HALO_THRESHOLD;
+    }
+    if (mat.uniforms.uHaloSize) {
+      mat.uniforms.uHaloSize.value = Number.isFinite(state.starFieldHaloSize)
+        ? state.starFieldHaloSize
+        : options.haloSize ?? DEFAULT_TUNED_HALO_SIZE;
+    }
   }
 
   return {

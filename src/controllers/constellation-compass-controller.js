@@ -25,7 +25,7 @@ export function createConstellationCompassController(options = {}) {
   const sceneToIcrsTransform = typeof options.sceneToIcrsTransform === 'function'
     ? options.sceneToIcrsTransform
     : identitySceneToIcrsTransform;
-  const hysteresisSecs = normalizeHysteresis(options.hysteresisSecs, 0.5);
+  let hysteresisSecs = normalizeHysteresis(options.hysteresisSecs, 0.5);
   const onConstellationIn = typeof options.onConstellationIn === 'function'
     ? options.onConstellationIn
     : () => {};
@@ -196,6 +196,11 @@ export function createConstellationCompassController(options = {}) {
         activeIau: committed?.iau ?? null,
       };
     },
+    setHysteresisSecs(value) {
+      hysteresisSecs = normalizeHysteresis(value, hysteresisSecs ?? 0.5);
+      candidate = null;
+      candidateHeldSecs = 0;
+    },
     dispose() {
       resolver = null;
       committed = null;
@@ -215,6 +220,11 @@ export function createConstellationCompassController(options = {}) {
       return {
         ...stats,
         viewIcrsDir: cloneDirection(stats.viewIcrsDir),
+      };
+    },
+    getConfig() {
+      return {
+        hysteresisSecs,
       };
     },
   };
