@@ -134,157 +134,115 @@ export async function selectOctreeNodes(context, options = {}) {
   }
 
   while (pending.length > 0) {
-    const batch = pending.splice(0);
+    const next = pending.pop();
+    const shard = next.shardOffset === bootstrap.rootShardOffset
+      ? rootShard
+      : await renderService.loadShard(next.shardOffset);
+    const record = shard.readNode(next.nodeIndex);
+    const geom = runtimeNodeGeometry(bootstrap.header, shard.hdr, record);
+    const nodeKey = makeNodeKey(next.shardOffset, next.nodeIndex);
+    const bounds = {
+      minX: geom.centerX - geom.halfSize,
+      minY: geom.centerY - geom.halfSize,
+      minZ: geom.centerZ - geom.halfSize,
+      maxX: geom.centerX + geom.halfSize,
+      maxY: geom.centerY + geom.halfSize,
+      maxZ: geom.centerZ + geom.halfSize,
+    };
 
-    const uniqueOffsets = new Set(batch.map((item) => item.shardOffset));
-    const shardMap = new Map();
-    const shardPromises = [];
-    for (const offset of uniqueOffsets) {
-      if (offset === bootstrap.rootShardOffset) {
-        shardMap.set(offset, rootShard);
-      } else {
-        shardPromises.push(
-          renderService.loadShard(offset).then((shard) => shardMap.set(offset, shard)),
-        );
-      }
+    stats.visitedNodeCount += 1;
+    stats.maxLevelVisited = stats.maxLevelVisited == null
+      ? geom.level
+      : Math.max(stats.maxLevelVisited, geom.level);
+
+    const decisionValue = await options.predicate({
+      shard,
+      shardOffset: next.shardOffset,
+      nodeIndex: next.nodeIndex,
+      nodeKey,
+      record,
+      geom,
+      bounds,
+    }, {
+      bootstrap,
+      renderService,
+      context,
+      stats,
+    });
+
+    const decision = typeof decisionValue === 'boolean'
+      ? { include: decisionValue, meta: null }
+      : decisionValue ?? { include: false, meta: null };
+
+    if (!decision.include) {
+      stats.prunedNodeCount += 1;
+      continue;
     }
-    if (shardPromises.length > 0) {
-      await Promise.all(shardPromises);
-    }
 
-    const frontierShardOffsets = new Set();
+    stats.acceptedNodeCount += 1;
 
-    for (const next of batch) {
-      const shard = shardMap.get(next.shardOffset);
-      const record = shard.readNode(next.nodeIndex);
-      const geom = runtimeNodeGeometry(bootstrap.header, shard.hdr, record);
-      const nodeKey = makeNodeKey(next.shardOffset, next.nodeIndex);
-      const bounds = {
-        minX: geom.centerX - geom.halfSize,
-        minY: geom.centerY - geom.halfSize,
-        minZ: geom.centerZ - geom.halfSize,
-        maxX: geom.centerX + geom.halfSize,
-        maxY: geom.centerY + geom.halfSize,
-        maxZ: geom.centerZ + geom.halfSize,
-      };
-
-      stats.visitedNodeCount += 1;
-      stats.maxLevelVisited = stats.maxLevelVisited == null
-        ? geom.level
-        : Math.max(stats.maxLevelVisited, geom.level);
-
-      const decisionValue = options.predicate({
-        shard,
+    if ((record.flags & HAS_PAYLOAD) && record.payloadLength > 0) {
+      selectedNodes.push({
+        ...(decision.meta && typeof decision.meta === 'object' ? decision.meta : {}),
+        nodeKey,
         shardOffset: next.shardOffset,
         nodeIndex: next.nodeIndex,
-        nodeKey,
-        record,
-        geom,
-        bounds,
-      }, {
-        bootstrap,
-        renderService,
-        context,
-        stats,
+        payloadOffset: record.payloadOffset,
+        payloadLength: record.payloadLength,
+        centerX: geom.centerX,
+        centerY: geom.centerY,
+        centerZ: geom.centerZ,
+        halfSize: geom.halfSize,
+        level: geom.level,
       });
+      stats.maxLevelSelected = stats.maxLevelSelected == null
+        ? geom.level
+        : Math.max(stats.maxLevelSelected, geom.level);
+    }
 
-      const decision = typeof decisionValue === 'boolean'
-        ? { include: decisionValue, meta: null }
-        : decisionValue ?? { include: false, meta: null };
+    if (geom.level >= maxLevel || record.childMask === 0) {
+      continue;
+    }
 
-      if (!decision.include) {
-        stats.prunedNodeCount += 1;
+    if (record.flags & IS_FRONTIER) {
+      const continuation = shard.readFrontierContinuation(next.nodeIndex);
+      if (continuation === 0n) {
         continue;
       }
 
-      stats.acceptedNodeCount += 1;
-
-      if ((record.flags & HAS_PAYLOAD) && record.payloadLength > 0) {
-        selectedNodes.push({
-          ...(decision.meta && typeof decision.meta === 'object' ? decision.meta : {}),
-          nodeKey,
-          shardOffset: next.shardOffset,
-          nodeIndex: next.nodeIndex,
-          payloadOffset: record.payloadOffset,
-          payloadLength: record.payloadLength,
-          centerX: geom.centerX,
-          centerY: geom.centerY,
-          centerZ: geom.centerZ,
-          halfSize: geom.halfSize,
-          level: geom.level,
-        });
-        stats.maxLevelSelected = stats.maxLevelSelected == null
-          ? geom.level
-          : Math.max(stats.maxLevelSelected, geom.level);
-      }
-
-      if (geom.level >= maxLevel || record.childMask === 0) {
-        continue;
-      }
-
-      if (record.flags & IS_FRONTIER) {
-        const continuation = shard.readFrontierContinuation(next.nodeIndex);
-        if (continuation === 0n) {
-          continue;
-        }
-
-        stats.frontierExpansionCount += 1;
-        const childShardOffset = Number(continuation);
-        frontierShardOffsets.add(childShardOffset);
-
-        for (let octant = 7; octant >= 0; octant -= 1) {
-          if ((record.childMask & (1 << octant)) === 0) {
-            continue;
-          }
-          pending.push({
-            shardOffset: childShardOffset,
-            entryOctant: octant,
-          });
-        }
-        continue;
-      }
-
-      if (record.firstChild <= 0) {
-        continue;
-      }
-
+      stats.frontierExpansionCount += 1;
+      const childShardOffset = Number(continuation);
+      const childShard = await renderService.loadShard(childShardOffset);
       for (let octant = 7; octant >= 0; octant -= 1) {
         if ((record.childMask & (1 << octant)) === 0) {
           continue;
         }
-        const childIndex = record.firstChild + popcountBelow(record.childMask, octant);
-        if (childIndex > 0 && childIndex <= shard.hdr.nodeCount) {
+        const childNodeIndex = childShard.hdr.entryNodes[octant];
+        if (childNodeIndex > 0) {
           pending.push({
-            shardOffset: next.shardOffset,
-            nodeIndex: childIndex,
+            shardOffset: childShardOffset,
+            nodeIndex: childNodeIndex,
           });
         }
       }
+      continue;
     }
 
-    if (frontierShardOffsets.size > 0) {
-      const prefetchPromises = [];
-      for (const offset of frontierShardOffsets) {
-        prefetchPromises.push(
-          renderService.loadShard(offset).then((shard) => shardMap.set(offset, shard)),
-        );
-      }
-      await Promise.all(prefetchPromises);
+    if (record.firstChild <= 0) {
+      continue;
+    }
 
-      const resolved = [];
-      for (const item of pending) {
-        if (item.entryOctant != null) {
-          const shard = shardMap.get(item.shardOffset);
-          const nodeIndex = shard.hdr.entryNodes[item.entryOctant];
-          if (nodeIndex > 0) {
-            resolved.push({ shardOffset: item.shardOffset, nodeIndex });
-          }
-        } else {
-          resolved.push(item);
-        }
+    for (let octant = 7; octant >= 0; octant -= 1) {
+      if ((record.childMask & (1 << octant)) === 0) {
+        continue;
       }
-      pending.length = 0;
-      pending.push(...resolved);
+      const childIndex = record.firstChild + popcountBelow(record.childMask, octant);
+      if (childIndex > 0 && childIndex <= shard.hdr.nodeCount) {
+        pending.push({
+          shardOffset: next.shardOffset,
+          nodeIndex: childIndex,
+        });
+      }
     }
   }
 
