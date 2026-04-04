@@ -3,29 +3,418 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SkyKit: Free Roam Demo</title>
+    <title>SkyKit: Free Roam Console</title>
     <link rel="stylesheet" href="./shared.css" />
+    <style>
+      body.free-roam-page {
+        height: 100vh;
+        max-height: 100vh;
+        overflow: hidden;
+        grid-template-rows: 1fr;
+        align-items: stretch;
+      }
+
+      body.free-roam-page aside {
+        min-height: 0;
+        max-height: 100%;
+        overflow-y: auto;
+      }
+
+      body.free-roam-page main {
+        min-height: 0;
+        padding: 20px;
+      }
+
+      body.free-roam-page .viewer-shell {
+        height: calc(100vh - 40px);
+      }
+
+      .accordion {
+        margin: 16px 0 0;
+        border: 1px solid var(--panel-border);
+        border-radius: 18px;
+        background: var(--panel-bg);
+        box-shadow: 0 20px 40px var(--panel-shadow);
+        overflow: hidden;
+      }
+
+      .accordion[open] {
+        background: rgba(10, 20, 34, 0.95);
+      }
+
+      .accordion summary {
+        cursor: pointer;
+        list-style: none;
+        padding: 14px 16px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--text-main);
+      }
+
+      .accordion summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .accordion summary::after {
+        content: '+';
+        float: right;
+        color: var(--accent-strong);
+        font-size: 1rem;
+      }
+
+      .accordion[open] summary::after {
+        content: '−';
+      }
+
+      .accordion__content {
+        padding: 0 16px 16px;
+      }
+
+      .accordion__copy {
+        margin: 0 0 12px;
+        color: var(--text-muted);
+      }
+
+      .control-row {
+        display: grid;
+        grid-template-columns: minmax(84px, 104px) minmax(0, 1fr) minmax(48px, 64px);
+        align-items: center;
+        gap: 10px;
+        margin: 10px 0 0;
+      }
+
+      .control-row label {
+        margin: 0;
+        min-width: 0;
+        font-size: 0.82rem;
+        color: var(--text-muted);
+      }
+
+      .control-row input[type="range"] {
+        width: 100%;
+        min-width: 0;
+        min-height: 24px;
+        padding: 0;
+        border: none;
+        border-radius: 0;
+        background: none;
+        accent-color: var(--accent-strong);
+      }
+
+      .value-readout {
+        min-width: 0;
+        text-align: right;
+        color: var(--accent-strong);
+        font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: nowrap;
+      }
+
+      .constellation-panel {
+        margin-top: 14px;
+        padding: 14px;
+        border: 1px solid var(--panel-border);
+        border-radius: 14px;
+        background: rgba(6, 12, 22, 0.72);
+      }
+
+      .constellation-panel h2 {
+        margin: 0 0 8px;
+        font-size: 1rem;
+      }
+
+      .constellation-meta {
+        margin: 4px 0;
+        color: var(--text-muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.85rem;
+      }
+
+      .constellation-desc {
+        margin: 10px 0 0;
+        color: var(--text-main);
+      }
+
+      .pick-detail[hidden] {
+        display: none !important;
+      }
+
+      .pick-subtitle {
+        margin: 14px 0 6px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+      }
+
+      .pick-placeholder {
+        margin: 10px 0;
+        color: var(--text-muted);
+        font-style: italic;
+      }
+
+      .pick-placeholder[hidden] {
+        display: none !important;
+      }
+
+      .pick-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.88rem;
+        margin: 8px 0;
+      }
+
+      .pick-table th {
+        width: 40%;
+        padding: 4px 8px 4px 0;
+        text-align: left;
+        vertical-align: top;
+        white-space: nowrap;
+        color: var(--text-muted);
+        font-weight: 500;
+      }
+
+      .pick-table td {
+        padding: 4px 0;
+        color: var(--text-main);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.82rem;
+        word-break: break-all;
+      }
+
+      .pick-score {
+        display: inline-block;
+        padding: 1px 8px;
+        border-radius: 8px;
+        font-size: 0.78rem;
+        font-weight: 600;
+      }
+
+      .pick-score.inside { background: rgba(115, 213, 255, 0.22); color: #9fe9ff; }
+      .pick-score.near   { background: rgba(255, 200, 80, 0.18); color: #ffd080; }
+      .pick-score.edge   { background: rgba(255, 120, 80, 0.15); color: #ffaa80; }
+
+      .pick-timing {
+        margin: 6px 0 0;
+        font-size: 0.78rem;
+        color: var(--text-muted);
+      }
+
+      .pick-simbad-link {
+        color: #9fe9ff;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+
+      .pick-simbad-link:hover {
+        color: #c8f4ff;
+      }
+
+      .meta-block {
+        margin: 12px 0 0;
+      }
+
+      @media (max-width: 960px) {
+        body.free-roam-page {
+          height: auto;
+          max-height: none;
+          overflow: auto;
+          grid-template-rows: auto auto;
+        }
+
+        body.free-roam-page aside {
+          max-height: none;
+          overflow-y: visible;
+        }
+
+        body.free-roam-page main {
+          padding: 16px;
+        }
+
+        body.free-roam-page .viewer-shell {
+          height: 58vh;
+          min-height: 360px;
+        }
+
+        .control-row {
+          grid-template-columns: minmax(76px, 92px) minmax(0, 1fr) minmax(44px, 56px);
+          gap: 8px;
+        }
+      }
+    </style>
   </head>
-  <body>
+  <body class="free-roam-page">
     <aside>
-      <nav class="breadcrumb"><a href="../index.html">SkyKit</a> <span>/ Free Roam</span></nav>
-      <h1>Free Roam</h1>
+      <nav class="breadcrumb"><a href="../index.html">SkyKit</a> <span>/ Free Roam Console</span></nav>
+      <h1>Free Roam Console</h1>
       <p>
-        One viewer, one shell field, and automatic reselection as the observer moves.
+        Fly, inspect the active constellation, and tune the star shader from one page while the viewer stays live.
       </p>
-      <ul>
-        <li>Drag in the viewer to look around.</li>
-        <li>Selection refresh follows meaningful observer movement.</li>
-      </ul>
-      <label for="mag-limit">Magnitude Limit</label>
-      <input id="mag-limit" type="number" min="0" max="25" step="0.5" value="6.5" data-mag-limit />
-      <p class="status">Status: <span data-status>idle</span></p>
-      <pre class="meta-block" data-summary></pre>
-      <pre data-snapshot></pre>
+
+      <details class="accordion" open>
+        <summary>Navigation</summary>
+        <div class="accordion__content">
+          <p class="accordion__copy">
+            Drag in the viewer to look around. Use the on-screen HUD buttons or your keyboard to move while the observer-shell field keeps refreshing around you.
+          </p>
+
+          <div class="control-row">
+            <label for="ctrl-mag-limit">Mag limit</label>
+            <input id="ctrl-mag-limit" type="range" min="0" max="12" step="0.1" value="6.5" data-mag-limit />
+            <span class="value-readout" data-readout="mag-limit">6.5</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-fov">FOV</label>
+            <input id="ctrl-fov" type="range" min="20" max="110" step="1" value="60" data-fov-deg />
+            <span class="value-readout" data-readout="fov">60°</span>
+          </div>
+        </div>
+      </details>
+
+      <details class="accordion" open>
+        <summary>Constellation Compass</summary>
+        <div class="accordion__content">
+          <p class="accordion__copy">
+            The compass watches the view direction, not your position. The HUD button toggles art visibility while this panel shows the currently resolved constellation.
+          </p>
+
+          <div class="control-row">
+            <label for="ctrl-hysteresis">Hysteresis</label>
+            <input id="ctrl-hysteresis" type="range" min="0" max="2" step="0.05" value="0.2" data-hysteresis-secs />
+            <span class="value-readout" data-readout="hysteresis">0.20s</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-art-fade">Art fade</label>
+            <input id="ctrl-art-fade" type="range" min="0" max="2" step="0.05" value="0.4" data-art-fade-secs />
+            <span class="value-readout" data-readout="art-fade">0.40s</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-art-opacity">Art opacity</label>
+            <input id="ctrl-art-opacity" type="range" min="0" max="1" step="0.01" value="0.3" data-art-opacity />
+            <span class="value-readout" data-readout="art-opacity">0.30</span>
+          </div>
+
+          <section class="constellation-panel">
+            <h2>Active Constellation</h2>
+            <p class="constellation-meta">IAU: <span data-constellation-iau>none</span></p>
+            <p class="constellation-meta">Name: <span data-constellation-name>none</span></p>
+            <p class="constellation-meta">RA: <span data-constellation-ra>—</span></p>
+            <p class="constellation-meta">Dec: <span data-constellation-dec>—</span></p>
+            <p class="constellation-desc" data-constellation-desc>
+              No active constellation yet. Move the camera to trigger the compass.
+            </p>
+          </section>
+        </div>
+      </details>
+
+      <details class="accordion" open>
+        <summary>Star Shader</summary>
+        <div class="accordion__content">
+          <p class="accordion__copy">
+            These sliders feed the live tuned star-field uniforms so you can move through the scene and judge changes in context.
+          </p>
+
+          <div class="control-row">
+            <label for="ctrl-exposure">Exposure</label>
+            <input id="ctrl-exposure" type="range" min="-4" max="4" step="0.01" value="0" data-star-exposure />
+            <span class="value-readout" data-readout="exposure">1.000</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-extinction">Extinction</label>
+            <input id="ctrl-extinction" type="range" min="0" max="2" step="0.01" value="1" data-star-extinction-scale />
+            <span class="value-readout" data-readout="extinction">1.00</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-fade-range">Fade range</label>
+            <input id="ctrl-fade-range" type="range" min="0" max="8" step="0.1" value="3" data-star-fade-range />
+            <span class="value-readout" data-readout="fade-range">3.0</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-size-min">Size min</label>
+            <input id="ctrl-size-min" type="range" min="0.5" max="8" step="0.1" value="2" data-star-size-min />
+            <span class="value-readout" data-readout="size-min">2.0</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-size-max">Size max</label>
+            <input id="ctrl-size-max" type="range" min="8" max="256" step="1" value="256" data-star-size-max />
+            <span class="value-readout" data-readout="size-max">256</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-linear-scale">Linear scale</label>
+            <input id="ctrl-linear-scale" type="range" min="2" max="24" step="0.1" value="12" data-star-linear-scale />
+            <span class="value-readout" data-readout="linear-scale">12.0</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-halo-threshold">Halo threshold</label>
+            <input id="ctrl-halo-threshold" type="range" min="0" max="40" step="0.5" value="10" data-star-halo-threshold />
+            <span class="value-readout" data-readout="halo-threshold">10.0</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-halo-size">Halo size</label>
+            <input id="ctrl-halo-size" type="range" min="8" max="160" step="1" value="80" data-star-halo-size />
+            <span class="value-readout" data-readout="halo-size">80</span>
+          </div>
+        </div>
+      </details>
+
+      <details class="accordion" open>
+        <summary>Star Picker</summary>
+        <div class="accordion__content">
+          <p class="accordion__copy">
+            Click a star in the viewer to inspect its catalog metadata and observational values without leaving free roam.
+          </p>
+
+          <div class="control-row">
+            <label for="ctrl-pick-tolerance">Tolerance</label>
+            <input id="ctrl-pick-tolerance" type="range" min="0.1" max="5" step="0.1" data-pick-tolerance />
+            <span class="value-readout" data-readout="pick-tolerance">1.0°</span>
+          </div>
+
+          <div class="constellation-panel" data-pick-info>
+            <p class="pick-placeholder" data-pick-empty>Click a star to inspect it.</p>
+            <div class="pick-detail" data-pick-detail hidden>
+              <p class="pick-subtitle">Catalog</p>
+              <table class="pick-table">
+                <tr><th>Proper name</th><td data-pick-meta="proper">—</td></tr>
+                <tr><th>Bayer</th><td data-pick-meta="bayer">—</td></tr>
+                <tr><th>HD</th><td data-pick-meta="hd">—</td></tr>
+                <tr><th>HIP</th><td data-pick-meta="hip">—</td></tr>
+                <tr><th>Gaia</th><td data-pick-meta="gaia">—</td></tr>
+                <tr><th>SIMBAD</th><td>
+                  <span data-pick-simbad-empty>—</span>
+                  <a class="pick-simbad-link" data-pick-simbad-link href="#" target="_blank" rel="noopener noreferrer" hidden>View in SIMBAD</a>
+                </td></tr>
+              </table>
+              <p class="pick-subtitle">Observation</p>
+              <table class="pick-table">
+                <tr><th>ICRS position</th><td data-pick-obs="icrs">—</td></tr>
+                <tr><th>Distance</th><td data-pick-obs="distance">—</td></tr>
+                <tr><th>Abs. magnitude</th><td data-pick-obs="absMag">—</td></tr>
+                <tr><th>App. magnitude</th><td data-pick-obs="appMag">—</td></tr>
+                <tr><th>Temperature</th><td data-pick-obs="temp">—</td></tr>
+                <tr><th>Visual radius</th><td data-pick-obs="visualPx">—</td></tr>
+                <tr><th>Pick score</th><td data-pick-obs="score">—</td></tr>
+                <tr><th>Angular offset</th><td data-pick-obs="offset">—</td></tr>
+                <tr><th>Buffer index</th><td data-pick-obs="bufferIndex">—</td></tr>
+              </table>
+              <p class="pick-timing" data-pick-timing hidden></p>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="accordion">
+        <summary>Diagnostics</summary>
+        <div class="accordion__content">
+          <p class="status">Status: <span data-status>idle</span></p>
+          <pre class="meta-block" data-summary></pre>
+          <pre data-snapshot></pre>
+        </div>
+      </details>
     </aside>
     <main>
       <div class="viewer-shell" data-skykit-viewer-root></div>
     </main>
-    <script type="module" src="/src/demo/free-fly.js"></script>
+    <script type="module" src="/src/demo/free-roam.js"></script>
   </body>
 </html>
