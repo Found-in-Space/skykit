@@ -17,8 +17,8 @@ import {
 } from '../index.js';
 
 const {
-  icrsToScene: ORION_SCENE_TRANSFORM,
-  sceneToIcrs: ORION_SCENE_TO_ICRS_TRANSFORM,
+  icrsToScene: ICRS_TO_SCENE_Y_UP,
+  sceneToIcrs: SCENE_Y_UP_TO_ICRS,
 } = createSceneOrientationTransforms(ORION_CENTER_PC);
 
 const DEFAULT_ART_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stellarium-skycultures-western@0.1.0/dist/manifest.json';
@@ -149,7 +149,7 @@ async function mountViewer() {
     id: 'constellation-compass-art-layer',
     manifest,
     manifestUrl: DEFAULT_ART_MANIFEST_URL,
-    transformDirection: ORION_SCENE_TRANSFORM,
+    transformDirection: ICRS_TO_SCENE_Y_UP,
     radius: 8,
     opacity: 0.24,
     fadeDurationSecs,
@@ -158,7 +158,7 @@ async function mountViewer() {
   const compassController = createConstellationCompassController({
     id: 'constellation-compass-controller',
     manifest,
-    sceneToIcrsTransform: ORION_SCENE_TO_ICRS_TRANSFORM,
+    sceneToIcrsTransform: SCENE_Y_UP_TO_ICRS,
     hysteresisSecs,
     onConstellationIn(payload) {
       artLayer.show(payload.iau);
@@ -180,8 +180,8 @@ async function mountViewer() {
     controllers: [
       createCameraRigController({
         id: 'constellation-compass-camera-controller',
-        icrsToSceneTransform: ORION_SCENE_TRANSFORM,
-        sceneToIcrsTransform: ORION_SCENE_TO_ICRS_TRANSFORM,
+        icrsToSceneTransform: ICRS_TO_SCENE_Y_UP,
+        sceneToIcrsTransform: SCENE_Y_UP_TO_ICRS,
         lookAtPc: ORION_CENTER_PC,
         moveSpeed: 18,
       }),
@@ -190,7 +190,7 @@ async function mountViewer() {
     layers: [
       createStarFieldLayer({
         id: 'constellation-compass-star-layer',
-        positionTransform: ORION_SCENE_TRANSFORM,
+        positionTransform: ICRS_TO_SCENE_Y_UP,
         materialFactory: () => createDefaultStarFieldMaterialProfile(),
       }),
       artLayer,

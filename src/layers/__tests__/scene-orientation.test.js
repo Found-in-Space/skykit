@@ -5,7 +5,7 @@ import {
   createSceneToIcrsYUpTransform,
 } from '../scene-orientation.js';
 
-test('scene orientation transforms round-trip through Orion frame', () => {
+test('scene orientation Y-up transforms round-trip ICRS coordinates', () => {
   const targetPc = { x: 62.775, y: 602.667, z: -12.713 };
   const icrsToScene = createIcrsToSceneYUpTransform(targetPc);
   const sceneToIcrs = createSceneToIcrsYUpTransform(targetPc);

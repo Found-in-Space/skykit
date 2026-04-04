@@ -24,8 +24,8 @@ const DEFAULT_ART_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stellarium-s
 const CONSTELLATION_LOOK_DISTANCE_PC = 120;
 
 const {
-  icrsToScene: ORION_SCENE_TRANSFORM,
-  sceneToIcrs: ORION_SCENE_TO_ICRS_TRANSFORM,
+  icrsToScene: ICRS_TO_SCENE_Y_UP,
+  sceneToIcrs: SCENE_Y_UP_TO_ICRS,
 } = createSceneOrientationTransforms(ORION_CENTER_PC);
 
 function clonePoint(point) {
@@ -300,14 +300,14 @@ async function mountViewer() {
 
   cameraController = createCameraRigController({
     id: 'demo-fly-orbit-camera-rig',
-    icrsToSceneTransform: ORION_SCENE_TRANSFORM,
-    sceneToIcrsTransform: ORION_SCENE_TO_ICRS_TRANSFORM,
+    icrsToSceneTransform: ICRS_TO_SCENE_Y_UP,
+    sceneToIcrsTransform: SCENE_Y_UP_TO_ICRS,
     lookAtPc: ALCYONE_PC,
     moveSpeed: 18,
   });
   constellationArtLayer = createConstellationArtLayer({
     id: 'demo-fly-orbit-constellation-art-layer',
-    transformDirection: ORION_SCENE_TRANSFORM,
+    transformDirection: ICRS_TO_SCENE_Y_UP,
     manifestUrl: DEFAULT_ART_MANIFEST_URL,
     fadeDurationSecs: 0.7,
     opacity: 0.25,
@@ -331,7 +331,7 @@ async function mountViewer() {
     layers: [
       createStarFieldLayer({
         id: 'demo-fly-orbit-star-field-layer',
-        positionTransform: ORION_SCENE_TRANSFORM,
+        positionTransform: ICRS_TO_SCENE_Y_UP,
         materialFactory: () => createDefaultStarFieldMaterialProfile(),
       }),
       constellationArtLayer,
@@ -435,7 +435,7 @@ showConstellationArtToggle?.addEventListener('change', () => {
 
 function orbitEntryPoint(center, radius) {
   const scale = cameraController.rig.sceneScale;
-  const [ix, iy, iz] = ORION_SCENE_TO_ICRS_TRANSFORM(radius * scale, 0, 0);
+  const [ix, iy, iz] = SCENE_Y_UP_TO_ICRS(radius * scale, 0, 0);
   return {
     x: center.x + ix / scale,
     y: center.y + iy / scale,

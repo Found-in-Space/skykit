@@ -23,8 +23,8 @@ import { createFullscreenPreset } from '../presets/fullscreen-preset.js';
 const DEFAULT_ART_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stellarium-skycultures-western@0.1.0/dist/manifest.json';
 
 const {
-  icrsToScene: ORION_SCENE_TRANSFORM,
-  sceneToIcrs: ORION_SCENE_TO_ICRS_TRANSFORM,
+  icrsToScene: ICRS_TO_SCENE_Y_UP,
+  sceneToIcrs: SCENE_Y_UP_TO_ICRS,
 } = createSceneOrientationTransforms(ORION_CENTER_PC);
 
 function clonePoint(point) {
@@ -169,8 +169,8 @@ async function mountViewer() {
 
   const cameraController = createCameraRigController({
     id: 'phase-5-camera-rig-controller',
-    icrsToSceneTransform: ORION_SCENE_TRANSFORM,
-    sceneToIcrsTransform: ORION_SCENE_TO_ICRS_TRANSFORM,
+    icrsToSceneTransform: ICRS_TO_SCENE_Y_UP,
+    sceneToIcrsTransform: SCENE_Y_UP_TO_ICRS,
     lookAtPc: ORION_CENTER_PC,
     moveSpeed: 18,
   });
@@ -180,8 +180,8 @@ async function mountViewer() {
   const constellation = createConstellationPreset({
     manifest,
     manifestUrl: DEFAULT_ART_MANIFEST_URL,
-    sceneToIcrsTransform: ORION_SCENE_TO_ICRS_TRANSFORM,
-    transformDirection: ORION_SCENE_TRANSFORM,
+    sceneToIcrsTransform: SCENE_Y_UP_TO_ICRS,
+    transformDirection: ICRS_TO_SCENE_Y_UP,
     position: 'top-right',
   });
 
@@ -232,7 +232,7 @@ async function mountViewer() {
       constellation.artLayer,
       createStarFieldLayer({
         id: 'phase-5-free-fly-star-field-layer',
-        positionTransform: ORION_SCENE_TRANSFORM,
+        positionTransform: ICRS_TO_SCENE_Y_UP,
         materialFactory: () => createDefaultStarFieldMaterialProfile(),
       }),
     ],

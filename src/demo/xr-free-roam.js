@@ -24,8 +24,8 @@ const XR_REFERENCE_SPACE_TYPE = 'local-floor';
 const XR_NEAR_PLANE = 0.25;
 const XR_FAR_PLANE = 10000;
 const {
-  icrsToScene: ORION_SCENE_TRANSFORM,
-  sceneToIcrs: ORION_SCENE_TO_ICRS_TRANSFORM,
+  icrsToScene: ICRS_TO_SCENE_Y_UP,
+  sceneToIcrs: SCENE_Y_UP_TO_ICRS,
 } = createSceneOrientationTransforms(ORION_CENTER_PC);
 
 function clonePoint(point) {
@@ -93,7 +93,7 @@ let warmState = {
 };
 
 function sceneToIcrsPc(pos) {
-  const [ix, iy, iz] = ORION_SCENE_TO_ICRS_TRANSFORM(pos.x, pos.y, pos.z);
+  const [ix, iy, iz] = SCENE_Y_UP_TO_ICRS(pos.x, pos.y, pos.z);
   return { x: ix / SCALE, y: iy / SCALE, z: iz / SCALE };
 }
 
@@ -361,7 +361,7 @@ async function mountViewer() {
 
   starFieldLayer = createStarFieldLayer({
     id: 'xr-star-field-layer',
-    positionTransform: ORION_SCENE_TRANSFORM,
+    positionTransform: ICRS_TO_SCENE_Y_UP,
     materialFactory: () => createVrStarFieldMaterialProfile(),
     includePickMeta: true,
   });
@@ -406,8 +406,8 @@ async function mountViewer() {
     controllers: [
       createXrLocomotionController({
         id: 'xr-locomotion-controller',
-        icrsToSceneTransform: ORION_SCENE_TRANSFORM,
-        sceneToIcrsTransform: ORION_SCENE_TO_ICRS_TRANSFORM,
+        icrsToSceneTransform: ICRS_TO_SCENE_Y_UP,
+        sceneToIcrsTransform: SCENE_Y_UP_TO_ICRS,
         sceneScale: 1.0,
         moveSpeed: 4.0,
       }),

@@ -25,8 +25,8 @@ import { createFullscreenPreset } from '../presets/fullscreen-preset.js';
 import { createRadioBubbleMeshes } from '../layers/radio-bubble-meshes.js';
 
 const {
-  icrsToScene: ORION_SCENE_TRANSFORM,
-  sceneToIcrs: ORION_SCENE_TO_ICRS_TRANSFORM,
+  icrsToScene: ICRS_TO_SCENE_Y_UP,
+  sceneToIcrs: SCENE_Y_UP_TO_ICRS,
 } = createSceneOrientationTransforms(ORION_CENTER_PC);
 
 function createViewerCamera() {
@@ -73,8 +73,8 @@ async function mountViewer() {
 
   const cameraController = createCameraRigController({
     id: 'radio-bubble-camera-rig',
-    icrsToSceneTransform: ORION_SCENE_TRANSFORM,
-    sceneToIcrsTransform: ORION_SCENE_TO_ICRS_TRANSFORM,
+    icrsToSceneTransform: ICRS_TO_SCENE_Y_UP,
+    sceneToIcrsTransform: SCENE_Y_UP_TO_ICRS,
     lookAtPc: ORION_CENTER_PC,
     moveSpeed: 18,
   });
@@ -125,7 +125,7 @@ async function mountViewer() {
     layers: [
       createStarFieldLayer({
         id: 'radio-bubble-star-field',
-        positionTransform: ORION_SCENE_TRANSFORM,
+        positionTransform: ICRS_TO_SCENE_Y_UP,
         materialFactory: () => createDefaultStarFieldMaterialProfile(),
       }),
     ],
