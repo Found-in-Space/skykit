@@ -171,7 +171,6 @@ export function createPickController(options = {}) {
     clearSelection() {
       pickedPosition = null;
       if (highlightEl) highlightEl.style.display = 'none';
-      if (ringSprite) ringSprite.visible = false;
     },
 
     dispose() {
