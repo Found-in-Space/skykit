@@ -4,6 +4,7 @@ import { DEFAULT_DUST_MAP_NG_URL } from '../found-in-space-dataset.js';
 import { SCALE } from '../services/octree/scene-scale.js';
 import {
   createCameraRigController,
+  createPickController,
   DEFAULT_MAG_LIMIT,
   DEFAULT_STAR_FIELD_STATE,
   createFoundInSpaceDatasetOptions,
@@ -28,10 +29,17 @@ import { createFullscreenPreset } from '../presets/fullscreen-preset.js';
 const DUST_SCALE = SCALE;
 /** Ray-march sample cap: GLSL loop bound and default `uSteps` (must match). */
 const DUST_VOLUME_RAYMARCH_STEPS = 64;
-/** Column τ above this maps to saturated false-colour (same τ definition as star extinction). */
-const TAU_VIZ_MAX = 8.0;
 const DEFAULT_ART_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stellarium-skycultures-western@0.1.0/dist/manifest.json';
-const SOLAR_GALACTOCENTRIC_X_PC = 8200.0;
+const DUST_MODE_ABSORPTIVE = 'absorptive';
+const DUST_MODE_EXTINCTION_MAP = 'extinction-map';
+const MILKY_WAY_RV = 3.1;
+const NH_PER_EBV_CM2 = 5.8e21;
+const NH_PER_AV_CM2 = NH_PER_EBV_CM2 / MILKY_WAY_RV;
+const PC_TO_CM = 3.085677581e18;
+const AV_TO_TAU = Math.LN10 / 2.5;
+const DUST_AV_PER_CM3_PC = PC_TO_CM / NH_PER_AV_CM2;
+const DEFAULT_DUST_AV_SCALE = 0.01;
+const DEFAULT_EXTINCTION_MAP_GAIN = 0.5;
 
 // ── Scene orientation ───────────────────────────────────────────────────────
 
@@ -40,11 +48,12 @@ const {
   sceneToIcrs: SCENE_TO_ICRS,
 } = createSceneOrientationTransforms(ORION_CENTER_PC);
 
-// ── Standard IAU ICRS ↔ Galactic rotation (Murray 1989) ─────────────────────
-// A_G maps ICRS → Galactic:  (gx, gy, gz) = A_G · (ix, iy, iz)
-// Transpose maps Galactic → ICRS.
+// ── Standard IAU Galactic → ICRS rotation (Murray 1989) ─────────────────────
+// Each row is a Galactic basis axis expressed in ICRS Cartesian coordinates.
+// dust_map_ng.bin is already Galactic Cartesian in a heliocentric frame, so
+// placement only needs this rotation plus the viewer's scene orientation.
 
-const A_G = [
+const GALACTIC_TO_ICRS_ROTATION = [
   [-0.0548755604, +0.4941094279, -0.8676661490],
   [-0.8734370902, -0.4448296300, -0.1980763734],
   [-0.4838350155, +0.7469822445, +0.4559837762],
@@ -52,9 +61,15 @@ const A_G = [
 
 function galacticToIcrs(gx, gy, gz) {
   return [
-    A_G[0][0] * gx + A_G[1][0] * gy + A_G[2][0] * gz,
-    A_G[0][1] * gx + A_G[1][1] * gy + A_G[2][1] * gz,
-    A_G[0][2] * gx + A_G[1][2] * gy + A_G[2][2] * gz,
+    GALACTIC_TO_ICRS_ROTATION[0][0] * gx
+      + GALACTIC_TO_ICRS_ROTATION[0][1] * gy
+      + GALACTIC_TO_ICRS_ROTATION[0][2] * gz,
+    GALACTIC_TO_ICRS_ROTATION[1][0] * gx
+      + GALACTIC_TO_ICRS_ROTATION[1][1] * gy
+      + GALACTIC_TO_ICRS_ROTATION[1][2] * gz,
+    GALACTIC_TO_ICRS_ROTATION[2][0] * gx
+      + GALACTIC_TO_ICRS_ROTATION[2][1] * gy
+      + GALACTIC_TO_ICRS_ROTATION[2][2] * gz,
   ];
 }
 
@@ -63,13 +78,69 @@ function galacticToDustScene(gx, gy, gz) {
   return ICRS_TO_SCENE(ix * DUST_SCALE, iy * DUST_SCALE, iz * DUST_SCALE);
 }
 
-function galactocentricMapToHeliocentric(gx, gy, gz) {
-  return [gx + SOLAR_GALACTOCENTRIC_X_PC, gy, gz];
+function computeVisibleBandAvRatio(lambdaMicron, rv = MILKY_WAY_RV) {
+  const x = 1 / lambdaMicron;
+  if (!(x >= 1.1 && x <= 3.3)) {
+    throw new RangeError(`O'Donnell extinction law expects 0.303–0.909 μm, got ${lambdaMicron}`);
+  }
+  const y = x - 1.82;
+  const a = 1
+    + 0.104 * y
+    - 0.609 * y ** 2
+    + 0.701 * y ** 3
+    + 1.137 * y ** 4
+    - 1.718 * y ** 5
+    - 0.827 * y ** 6
+    + 1.647 * y ** 7
+    - 0.505 * y ** 8;
+  const b = 1.952 * y
+    + 2.908 * y ** 2
+    - 3.989 * y ** 3
+    - 7.985 * y ** 4
+    + 11.102 * y ** 5
+    + 5.491 * y ** 6
+    - 10.805 * y ** 7
+    + 3.347 * y ** 8;
+  return a + b / rv;
 }
 
-// ── Ray-marching volume shader ──────────────────────────────────────────────
-// The box lives in local space aligned with Galactic axes.  The inverse model
-// matrix converts world (scene) positions back to local space for UVW lookup.
+const VISIBLE_CHANNEL_AV_RATIOS = new THREE.Vector3(
+  computeVisibleBandAvRatio(0.64),
+  computeVisibleBandAvRatio(0.55),
+  computeVisibleBandAvRatio(0.44),
+);
+
+const dustExtinctionShaderChunk = /* glsl */ `
+  const float DUST_AV_PER_CM3_PC = ${DUST_AV_PER_CM3_PC.toFixed(12)};
+  const float AV_TO_TAU = ${AV_TO_TAU.toFixed(12)};
+
+  float sampleDustAv(float rawDensity, float dustMaxDensity, float avScale, float stepSizePc) {
+    float densityCm3 = rawDensity * dustMaxDensity;
+    return densityCm3 * DUST_AV_PER_CM3_PC * avScale * stepSizePc;
+  }
+
+  vec3 avToTransmission(float av, vec3 avToRgb) {
+    return exp(-AV_TO_TAU * av * avToRgb);
+  }
+`;
+
+const dustVisualizationShaderChunk = /* glsl */ `
+  vec3 extinctionMapColor(float av) {
+    float n = 1.0 - exp(-av * 0.85);
+    vec3 c0 = vec3(0.10, 0.16, 0.30);
+    vec3 c1 = vec3(0.24, 0.55, 0.88);
+    vec3 c2 = vec3(0.95, 0.80, 0.24);
+    vec3 c3 = vec3(0.82, 0.29, 0.16);
+    if (n < 0.35) return mix(c0, c1, n / 0.35);
+    if (n < 0.7) return mix(c1, c2, (n - 0.35) / 0.35);
+    return mix(c2, c3, (n - 0.7) / 0.3);
+  }
+`;
+
+// ── Extinction-study volume shader ──────────────────────────────────────────
+// The box lives in local space aligned with Galactic axes. We integrate
+// visual extinction A_V along the view ray, then display the equivalent
+// reddening a white background source would acquire through that dust column.
 
 const volumeVertexShader = /* glsl */ `
   out vec3 vWorldPos;
@@ -85,44 +156,32 @@ const volumeFragmentShader = `
   precision highp sampler3D;
 
   uniform sampler3D uVolume;
-  uniform float uMaxDensity;
-  uniform float uKappa;
-  uniform float uBrightness;
+  uniform float uDustMaxDensity;
+  uniform float uDustAvScale;
+  uniform float uMapGain;
   uniform int uSteps;
-  uniform int uMode;          // 0 = emissive, 1 = absorptive, 2 = column τ (same units as star extinction)
-
   uniform mat4 uInvModelMatrix;
   uniform vec3 uBoxSize;      // full box extent in local (model) space
   uniform float uSceneScale;  // world units per parsec (octree SCALE)
-  uniform float uTauVizMax;   // τ mapped to full false-colour (typ. a few ×1)
+  uniform vec3 uDustAvToRgb;  // Broad visible-channel A_λ / A_V ratios for R, G, B
 
   in vec3 vWorldPos;
   out vec4 fragColor;
 
-  // False colour for dimensionless τ (low = cool/dark, high = hot)
-  vec3 tauToRgb(float n) {
-    n = clamp(n, 0.0, 1.0);
-    vec3 c0 = vec3(0.04, 0.06, 0.14);
-    vec3 c1 = vec3(0.12, 0.35, 0.92);
-    vec3 c2 = vec3(0.18, 0.85, 0.42);
-    vec3 c3 = vec3(0.98, 0.82, 0.12);
-    vec3 c4 = vec3(0.95, 0.22, 0.08);
-    if (n < 0.25) return mix(c0, c1, n / 0.25);
-    if (n < 0.5) return mix(c1, c2, (n - 0.25) / 0.25);
-    if (n < 0.75) return mix(c2, c3, (n - 0.5) / 0.25);
-    return mix(c3, c4, (n - 0.75) / 0.25);
-  }
+  ${dustExtinctionShaderChunk}
+  ${dustVisualizationShaderChunk}
 
   void main() {
     // Transform camera and fragment pos into local (Galactic-aligned) space
     vec3 localPos = (uInvModelMatrix * vec4(vWorldPos, 1.0)).xyz;
     vec3 localCam = (uInvModelMatrix * vec4(cameraPosition, 1.0)).xyz;
     vec3 rayDir   = normalize(localPos - localCam);
+    vec3 safeDir  = mix(vec3(1e-5), rayDir, step(vec3(1e-5), abs(rayDir)));
 
     // Ray-box intersection in local space (box centred at origin)
     vec3 halfSize = uBoxSize * 0.5;
-    vec3 tMin = (-halfSize - localCam) / rayDir;
-    vec3 tMax = ( halfSize - localCam) / rayDir;
+    vec3 tMin = (-halfSize - localCam) / safeDir;
+    vec3 tMax = ( halfSize - localCam) / safeDir;
     vec3 t1 = min(tMin, tMax);
     vec3 t2 = max(tMin, tMax);
     float tNear = max(max(t1.x, t1.y), t1.z);
@@ -133,10 +192,9 @@ const volumeFragmentShader = `
 
     float stepSize = (tFar - tNear) / float(uSteps);
     float stepSizePc = stepSize / max(uSceneScale, 1e-9);
+    if (stepSize <= 0.0 || stepSizePc <= 0.0) discard;
 
-    vec3 accColor = vec3(0.0);
-    float transmittance = 1.0;
-    float tauColumn = 0.0;
+    float avColumn = 0.0;
 
     for (int i = 0; i < ${DUST_VOLUME_RAYMARCH_STEPS}; i++) {
       if (i >= uSteps) break;
@@ -148,48 +206,20 @@ const volumeFragmentShader = `
       vec3 uvw = pos / uBoxSize + 0.5;
 
       float raw = texture(uVolume, uvw).r;
-      float density = raw * uMaxDensity;
-
-      if (uMode == 2) {
-        // Same differential τ as star-field computeDustTau: raw * kappa * Δs_pc
-        if (raw > 0.0) {
-          tauColumn += raw * uKappa * stepSizePc;
-        }
-        continue;
+      if (raw > 0.0) {
+        avColumn += sampleDustAv(raw, uDustMaxDensity, uDustAvScale, stepSizePc);
       }
-
-      if (density <= 0.0) continue;
-
-      if (uMode == 0) {
-        // Emissive: dust glows — brighter where denser
-        float intensity = density * uKappa * stepSize * uBrightness;
-        vec3 dustColor = mix(
-          vec3(0.35, 0.45, 0.7),
-          vec3(0.9, 0.75, 0.5),
-          clamp(raw * 4.0, 0.0, 1.0)
-        );
-        accColor += transmittance * dustColor * intensity;
-        transmittance *= exp(-density * uKappa * stepSize * 0.3);
-      } else {
-        // Absorptive: wavelength-dependent extinction (Rv ≈ 3.1 approximation)
-        float tau = density * uKappa * stepSize;
-        vec3 scattered = vec3(0.15, 0.08, 0.04) * density * uKappa * stepSize * uBrightness * 0.1;
-        accColor += transmittance * scattered;
-        transmittance *= exp(-tau);
-      }
-
-      if (transmittance < 0.01) break;
     }
 
-    if (uMode == 2) {
-      float tauDisp = tauColumn * uBrightness;
-      float n = tauDisp / max(uTauVizMax, 1e-6);
-      vec3 rgb = tauToRgb(n);
-      float alpha = clamp(0.88 * smoothstep(0.0, 0.07, n), 0.0, 0.9);
-      fragColor = vec4(rgb, alpha);
-    } else {
-      fragColor = vec4(accColor, 1.0 - transmittance);
-    }
+    if (avColumn <= 1e-5) discard;
+
+    // Educational overlay: show the actual integrated A_V field directly,
+    // using colour only as a readable map of extinction strength.
+    vec3 displayColor = extinctionMapColor(avColumn);
+    float alpha = clamp((1.0 - exp(-avColumn * 1.15)) * uMapGain, 0.0, 0.9);
+    alpha *= smoothstep(0.01, 0.05, avColumn);
+
+    fragColor = vec4(displayColor, alpha);
   }
 `;
 
@@ -213,11 +243,11 @@ function createDustExtinctionStarFieldMaterialProfile(options = {}) {
       uExposure: { value: options.exposure ?? 1.0 },
       uCameraPosition: { value: new THREE.Vector3(0, 0, 0) },
       uDustVolume: { value: options.texture ?? null },
+      uDustMaxDensity: { value: options.maxDensity ?? 1.0 },
       uDustInvModelMatrix: { value: fallbackInvDustModelMatrix },
       uDustBoxSize: { value: options.boxSize ?? new THREE.Vector3(1, 1, 1) },
-      uDustKappa: { value: options.getKappa?.() ?? 0.005 },
-      uDustAttenuationMix: { value: options.getAttenuationMix?.() ?? 0.0 },
-      uDustRgbScale: { value: options.rgbScale ?? new THREE.Vector3(0.78, 1.0, 1.32) },
+      uDustAvScale: { value: options.getAvScale?.() ?? 1.0 },
+      uDustAvToRgb: { value: options.avToRgb?.clone?.() ?? VISIBLE_CHANNEL_AV_RATIOS.clone() },
     },
     glslVersion: THREE.GLSL3,
     vertexShader: /* glsl */ `
@@ -238,11 +268,13 @@ function createDustExtinctionStarFieldMaterialProfile(options = {}) {
       uniform vec3 uCameraPosition;
 
       uniform sampler3D uDustVolume;
+      uniform float uDustMaxDensity;
       uniform mat4 uDustInvModelMatrix;
       uniform vec3 uDustBoxSize;
-      uniform float uDustKappa;
-      uniform float uDustAttenuationMix;
-      uniform vec3 uDustRgbScale;
+      uniform float uDustAvScale;
+      uniform vec3 uDustAvToRgb;
+
+      ${dustExtinctionShaderChunk}
 
       float decodeTemperature(float log8) {
         if (log8 >= 0.996) return 5800.0;
@@ -262,9 +294,7 @@ function createDustExtinctionStarFieldMaterialProfile(options = {}) {
         return clamp(c / 255.0, 0.0, 1.0);
       }
 
-      float computeDustTau(vec3 startWorld, vec3 endWorld) {
-        if (uDustAttenuationMix <= 0.0) return 0.0;
-
+      float computeDustAv(vec3 startWorld, vec3 endWorld) {
         vec3 localStart = (uDustInvModelMatrix * vec4(startWorld, 1.0)).xyz;
         vec3 localEnd = (uDustInvModelMatrix * vec4(endWorld, 1.0)).xyz;
         vec3 segment = localEnd - localStart;
@@ -287,17 +317,19 @@ function createDustExtinctionStarFieldMaterialProfile(options = {}) {
         if (tNear >= tFar) return 0.0;
 
         float stepSizePc = (tFar - tNear) / float(${DUST_STAR_MAX_STEPS}) / uScale;
-        float tau = 0.0;
+        float av = 0.0;
 
         for (int i = 0; i < ${DUST_STAR_MAX_STEPS}; i++) {
           float t = tNear + (float(i) + 0.5) * (tFar - tNear) / float(${DUST_STAR_MAX_STEPS});
           vec3 pos = localStart + rayDir * t;
           vec3 uvw = pos / uDustBoxSize + 0.5;
-          float dust = texture(uDustVolume, uvw).r;
-          tau += dust * uDustKappa * stepSizePc;
+          float raw = texture(uDustVolume, uvw).r;
+          if (raw > 0.0) {
+            av += sampleDustAv(raw, uDustMaxDensity, uDustAvScale, stepSizePc);
+          }
         }
 
-        return tau;
+        return av;
       }
 
       void main() {
@@ -306,14 +338,14 @@ function createDustExtinctionStarFieldMaterialProfile(options = {}) {
         float dPc = max(d / uScale, 0.001);
         float mApp = magAbs + uExtinctionScale * (5.0 * log(dPc) / log(10.0) - 5.0);
 
-        float tau = computeDustTau(uCameraPosition, worldPos);
-        vec3 transmittance = exp(-tau * uDustRgbScale);
+        float av = computeDustAv(uCameraPosition, worldPos);
+        vec3 transmittance = avToTransmission(av, uDustAvToRgb);
         vec3 starColor = blackbodyToRGB(decodeTemperature(teff_log8));
-        vColor = mix(starColor, starColor * transmittance, uDustAttenuationMix);
+        vColor = starColor * transmittance;
 
         float brightnessTransmittance = dot(transmittance, vec3(0.2126, 0.7152, 0.0722));
         float relativeFlux = pow(10.0, 0.4 * (uMagLimit - mApp));
-        float energy = relativeFlux * uExposure * mix(1.0, brightnessTransmittance, uDustAttenuationMix);
+        float energy = relativeFlux * uExposure * brightnessTransmittance;
 
         float rawRadius = sqrt(max(energy, 0.0)) * uLinearScale;
 
@@ -400,8 +432,7 @@ function createDustExtinctionStarFieldMaterialProfile(options = {}) {
       material.uniforms.uExposure.value = Number.isFinite(state.starFieldExposure)
         ? state.starFieldExposure
         : options.exposure ?? 1.0;
-      material.uniforms.uDustKappa.value = options.getKappa?.() ?? 0.005;
-      material.uniforms.uDustAttenuationMix.value = options.getAttenuationMix?.() ?? 0.0;
+      material.uniforms.uDustAvScale.value = options.getAvScale?.() ?? 1.0;
     },
     dispose() {
       material.dispose();
@@ -434,15 +465,10 @@ function createDustPlacement(voxelInfo) {
   const cenGalX = (minX + maxX) / 2;
   const cenGalY = (minY + maxY) / 2;
   const cenGalZ = (minZ + maxZ) / 2;
-  const [cenHelioX, cenHelioY, cenHelioZ] = galactocentricMapToHeliocentric(
-    cenGalX,
-    cenGalY,
-    cenGalZ,
-  );
   const basisX = galacticToDustScene(1, 0, 0).map((v) => v / DUST_SCALE);
   const basisY = galacticToDustScene(0, 1, 0).map((v) => v / DUST_SCALE);
   const basisZ = galacticToDustScene(0, 0, 1).map((v) => v / DUST_SCALE);
-  const [cx, cy, cz] = galacticToDustScene(cenHelioX, cenHelioY, cenHelioZ);
+  const [cx, cy, cz] = galacticToDustScene(cenGalX, cenGalY, cenGalZ);
 
   const rotBasis = new THREE.Matrix4().makeBasis(
     new THREE.Vector3(...basisX).normalize(),
@@ -481,15 +507,14 @@ function buildVolumeMesh(voxelInfo) {
   const mat = new THREE.ShaderMaterial({
     uniforms: {
       uVolume: { value: texture },
-      uMaxDensity: { value: maxDensity },
-      uKappa: { value: dustRenderState.kappa },
-      uBrightness: { value: 1.0 },
+      uDustMaxDensity: { value: maxDensity },
+      uDustAvScale: { value: dustRenderState.avScale },
+      uMapGain: { value: dustRenderState.mapGain },
       uSteps: { value: DUST_VOLUME_RAYMARCH_STEPS },
-      uMode: { value: 0 },
       uInvModelMatrix: { value: invModelMatrix },
       uBoxSize: { value: placement.boxSize },
       uSceneScale: { value: SCALE },
-      uTauVizMax: { value: TAU_VIZ_MAX },
+      uDustAvToRgb: { value: VISIBLE_CHANNEL_AV_RATIOS.clone() },
     },
     vertexShader: volumeVertexShader,
     fragmentShader: volumeFragmentShader,
@@ -569,7 +594,7 @@ function buildGalacticPlaneGuide(voxelInfo) {
   return guide;
 }
 
-// ── Helpers (from free-fly) ─────────────────────────────────────────────────
+// ── Helpers (from free-roam) ────────────────────────────────────────────────
 
 function clonePoint(point) {
   return point ? { x: point.x, y: point.y, z: point.z } : null;
@@ -609,10 +634,10 @@ const summaryValue = document.querySelector('[data-summary]');
 const snapshotValue = document.querySelector('[data-snapshot]');
 
 const modeSelect = document.querySelector('[data-render-mode]');
-const kappaInput = document.querySelector('[data-kappa]');
-const kappaValueSpan = document.querySelector('[data-kappa-value]');
-const brightnessInput = document.querySelector('[data-brightness]');
-const brightnessValueSpan = document.querySelector('[data-brightness-value]');
+const avScaleInput = document.querySelector('[data-av-scale]');
+const avScaleValueSpan = document.querySelector('[data-av-scale-value]');
+const mapGainInput = document.querySelector('[data-map-gain]');
+const mapGainValueSpan = document.querySelector('[data-map-gain-value]');
 const showGalacticPlaneInput = document.querySelector('[data-show-galactic-plane]');
 const gridInfoSpan = document.querySelector('[data-grid-info]');
 const gridExtentsSpan = document.querySelector('[data-grid-extents]');
@@ -623,6 +648,7 @@ const starIcrsMaxSpan = document.querySelector('[data-star-icrs-max]');
 const cellSizeSpan = document.querySelector('[data-cell-size]');
 const dustScaleSpan = document.querySelector('[data-dust-scale]');
 const densityMaxSpan = document.querySelector('[data-density-max]');
+const pickInfoEl = document.querySelector('[data-pick-info]');
 
 // ── Dataset ─────────────────────────────────────────────────────────────────
 
@@ -640,12 +666,32 @@ let snapshotTimer = null;
 let volumeMesh = null;
 let galacticPlaneGuide = null;
 let activeVoxelInfo = null;
+let starFieldLayer = null;
+let pickControllerRef = null;
+let lastPickResult = null;
+let pickGeneration = 0;
 let activeMagLimit = Number.isFinite(Number(magLimitInput?.value)) ? Number(magLimitInput.value) : 6.5;
 const dustRenderState = {
-  mode: modeSelect?.value ?? 'emissive',
-  kappa: Number(kappaInput?.value) || 0.005,
+  mode: modeSelect?.value ?? DUST_MODE_ABSORPTIVE,
+  avScale: Number(avScaleInput?.value) || DEFAULT_DUST_AV_SCALE,
+  mapGain: Number(mapGainInput?.value) || DEFAULT_EXTINCTION_MAP_GAIN,
 };
+if (mapGainInput) mapGainInput.disabled = dustRenderState.mode !== DUST_MODE_EXTINCTION_MAP;
 let warmState = { bootstrap: 'idle', rootShard: 'idle', meta: 'idle' };
+
+const _dustLocalStart = new THREE.Vector3();
+const _dustLocalEnd = new THREE.Vector3();
+const _dustSegment = new THREE.Vector3();
+const _dustRayDir = new THREE.Vector3();
+const _dustPos = new THREE.Vector3();
+const _dustHalfSize = new THREE.Vector3();
+const _dustCameraWorld = new THREE.Vector3();
+const _dustObserverWorld = new THREE.Vector3();
+const _dustTMin = new THREE.Vector3();
+const _dustTMax = new THREE.Vector3();
+const _dustT1 = new THREE.Vector3();
+const _dustT2 = new THREE.Vector3();
+const _dustSafeDir = new THREE.Vector3();
 
 /** Axis-aligned bounds of rendered star positions in ICRS parsecs (from scene geometry). */
 let lastStarIcrsBounds = null;
@@ -679,6 +725,209 @@ function formatPcTriplet(v) {
   return `${v[0].toFixed(0)} … ${v[1].toFixed(0)} … ${v[2].toFixed(0)}`;
 }
 
+function fmt(n, decimals = 2) {
+  return Number.isFinite(n) ? n.toFixed(decimals) : '—';
+}
+
+function sceneToIcrsPc(pos) {
+  const [ix, iy, iz] = SCENE_TO_ICRS(pos.x, pos.y, pos.z);
+  return { x: ix / SCALE, y: iy / SCALE, z: iz / SCALE };
+}
+
+function getObserverPc() {
+  return viewer?.getSnapshotState?.()?.state?.observerPc ?? { x: 0, y: 0, z: 0 };
+}
+
+function observerPcToSceneWorld(observerPc) {
+  const [sx, sy, sz] = ICRS_TO_SCENE(
+    observerPc.x * SCALE,
+    observerPc.y * SCALE,
+    observerPc.z * SCALE,
+  );
+  return _dustObserverWorld.set(sx, sy, sz);
+}
+
+function sampleDustRawTrilinear(voxelInfo, uvw) {
+  const x = THREE.MathUtils.clamp(uvw.x, 0, 1) * (voxelInfo.nx - 1);
+  const y = THREE.MathUtils.clamp(uvw.y, 0, 1) * (voxelInfo.ny - 1);
+  const z = THREE.MathUtils.clamp(uvw.z, 0, 1) * (voxelInfo.nz - 1);
+
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const z0 = Math.floor(z);
+  const x1 = Math.min(x0 + 1, voxelInfo.nx - 1);
+  const y1 = Math.min(y0 + 1, voxelInfo.ny - 1);
+  const z1 = Math.min(z0 + 1, voxelInfo.nz - 1);
+
+  const tx = x - x0;
+  const ty = y - y0;
+  const tz = z - z0;
+  const strideX = 1;
+  const strideY = voxelInfo.nx;
+  const strideZ = voxelInfo.nx * voxelInfo.ny;
+  const data = voxelInfo.u8;
+
+  const sample = (ix, iy, iz) => data[iz * strideZ + iy * strideY + ix * strideX] / 255;
+
+  const c000 = sample(x0, y0, z0);
+  const c100 = sample(x1, y0, z0);
+  const c010 = sample(x0, y1, z0);
+  const c110 = sample(x1, y1, z0);
+  const c001 = sample(x0, y0, z1);
+  const c101 = sample(x1, y0, z1);
+  const c011 = sample(x0, y1, z1);
+  const c111 = sample(x1, y1, z1);
+
+  const c00 = c000 + (c100 - c000) * tx;
+  const c10 = c010 + (c110 - c010) * tx;
+  const c01 = c001 + (c101 - c001) * tx;
+  const c11 = c011 + (c111 - c011) * tx;
+  const c0 = c00 + (c10 - c00) * ty;
+  const c1 = c01 + (c11 - c01) * ty;
+  return c0 + (c1 - c0) * tz;
+}
+
+function computeDustAvBetweenWorldPoints(startWorld, endWorld, voxelInfo, invDustMatrix, avScale) {
+  if (!voxelInfo?.u8 || !invDustMatrix || !(avScale > 0)) return 0;
+
+  _dustLocalStart.copy(startWorld).applyMatrix4(invDustMatrix);
+  _dustLocalEnd.copy(endWorld).applyMatrix4(invDustMatrix);
+  _dustSegment.subVectors(_dustLocalEnd, _dustLocalStart);
+  const segmentLength = _dustSegment.length();
+  if (!(segmentLength > 1e-5)) return 0;
+
+  _dustRayDir.copy(_dustSegment).multiplyScalar(1 / segmentLength);
+  _dustSafeDir.set(
+    Math.abs(_dustRayDir.x) >= 1e-5 ? _dustRayDir.x : 1e-5,
+    Math.abs(_dustRayDir.y) >= 1e-5 ? _dustRayDir.y : 1e-5,
+    Math.abs(_dustRayDir.z) >= 1e-5 ? _dustRayDir.z : 1e-5,
+  );
+
+  const placement = createDustPlacement(voxelInfo);
+  _dustHalfSize.copy(placement.boxSize).multiplyScalar(0.5);
+
+  _dustTMin.set(
+    (-_dustHalfSize.x - _dustLocalStart.x) / _dustSafeDir.x,
+    (-_dustHalfSize.y - _dustLocalStart.y) / _dustSafeDir.y,
+    (-_dustHalfSize.z - _dustLocalStart.z) / _dustSafeDir.z,
+  );
+  _dustTMax.set(
+    (_dustHalfSize.x - _dustLocalStart.x) / _dustSafeDir.x,
+    (_dustHalfSize.y - _dustLocalStart.y) / _dustSafeDir.y,
+    (_dustHalfSize.z - _dustLocalStart.z) / _dustSafeDir.z,
+  );
+  _dustT1.set(
+    Math.min(_dustTMin.x, _dustTMax.x),
+    Math.min(_dustTMin.y, _dustTMax.y),
+    Math.min(_dustTMin.z, _dustTMax.z),
+  );
+  _dustT2.set(
+    Math.max(_dustTMin.x, _dustTMax.x),
+    Math.max(_dustTMin.y, _dustTMax.y),
+    Math.max(_dustTMin.z, _dustTMax.z),
+  );
+
+  let tNear = Math.max(_dustT1.x, _dustT1.y, _dustT1.z, 0);
+  let tFar = Math.min(_dustT2.x, _dustT2.y, _dustT2.z, segmentLength);
+  if (!(tNear < tFar)) return 0;
+
+  const stepSizePc = (tFar - tNear) / DUST_STAR_MAX_STEPS / SCALE;
+  let av = 0;
+  for (let i = 0; i < DUST_STAR_MAX_STEPS; i += 1) {
+    const t = tNear + (i + 0.5) * (tFar - tNear) / DUST_STAR_MAX_STEPS;
+    _dustPos.copy(_dustLocalStart).addScaledVector(_dustRayDir, t);
+    const uvw = {
+      x: _dustPos.x / placement.boxSize.x + 0.5,
+      y: _dustPos.y / placement.boxSize.y + 0.5,
+      z: _dustPos.z / placement.boxSize.z + 0.5,
+    };
+    const raw = sampleDustRawTrilinear(voxelInfo, uvw);
+    if (raw > 0) {
+      av += raw * voxelInfo.maxDensity * DUST_AV_PER_CM3_PC * avScale * stepSizePc;
+    }
+  }
+  return av;
+}
+
+let pickUi = null;
+function bindPickUi() {
+  if (pickUi || !pickInfoEl) return pickUi;
+  pickUi = {
+    empty: pickInfoEl.querySelector('[data-pick-empty]'),
+    detail: pickInfoEl.querySelector('[data-pick-detail]'),
+    timing: pickInfoEl.querySelector('[data-pick-timing]'),
+    meta: {
+      proper: pickInfoEl.querySelector('[data-pick-meta="proper"]'),
+      bayer: pickInfoEl.querySelector('[data-pick-meta="bayer"]'),
+      hd: pickInfoEl.querySelector('[data-pick-meta="hd"]'),
+      hip: pickInfoEl.querySelector('[data-pick-meta="hip"]'),
+      gaia: pickInfoEl.querySelector('[data-pick-meta="gaia"]'),
+    },
+    obs: {
+      icrs: pickInfoEl.querySelector('[data-pick-obs="icrs"]'),
+      distance: pickInfoEl.querySelector('[data-pick-obs="distance"]'),
+      absMag: pickInfoEl.querySelector('[data-pick-obs="absMag"]'),
+      appMagGeom: pickInfoEl.querySelector('[data-pick-obs="appMagGeom"]'),
+      dustAv: pickInfoEl.querySelector('[data-pick-obs="dustAv"]'),
+      appMagDust: pickInfoEl.querySelector('[data-pick-obs="appMagDust"]'),
+      temp: pickInfoEl.querySelector('[data-pick-obs="temp"]'),
+      visualPx: pickInfoEl.querySelector('[data-pick-obs="visualPx"]'),
+      score: pickInfoEl.querySelector('[data-pick-obs="score"]'),
+    },
+  };
+  return pickUi;
+}
+
+function renderPickInfo(result) {
+  const ui = bindPickUi();
+  if (!ui?.empty || !ui.detail) return;
+  if (!result) {
+    ui.empty.hidden = false;
+    ui.detail.hidden = true;
+    if (ui.timing) {
+      ui.timing.hidden = true;
+      ui.timing.textContent = '';
+    }
+    return;
+  }
+
+  ui.empty.hidden = true;
+  ui.detail.hidden = false;
+  const f = result.sidecarFields;
+  ui.meta.proper.textContent = f?.properName || '—';
+  ui.meta.bayer.textContent = f?.bayer || '—';
+  ui.meta.hd.textContent = f?.hd || '—';
+  ui.meta.hip.textContent = f?.hip || '—';
+  ui.meta.gaia.textContent = f?.gaia || '—';
+
+  const icrsPc = sceneToIcrsPc(result.position);
+  const tempStr = Number.isFinite(result.temperatureK)
+    ? `${Math.round(result.temperatureK).toLocaleString()} K`
+    : '—';
+  const visualPxStr = Number.isFinite(result.visualRadiusPx)
+    ? `${fmt(result.visualRadiusPx, 1)} px`
+    : '—';
+
+  ui.obs.icrs.textContent = `(${fmt(icrsPc.x, 1)}, ${fmt(icrsPc.y, 1)}, ${fmt(icrsPc.z, 1)}) pc`;
+  ui.obs.distance.textContent = `${fmt(result.distancePc, 2)} pc`;
+  ui.obs.absMag.textContent = fmt(result.absoluteMagnitude, 2);
+  ui.obs.appMagGeom.textContent = fmt(result.apparentMagnitude, 3);
+  ui.obs.dustAv.textContent = fmt(result.dustAv, 3);
+  ui.obs.appMagDust.textContent = fmt(result.apparentMagnitudeAfterDust, 3);
+  ui.obs.temp.textContent = tempStr;
+  ui.obs.visualPx.textContent = visualPxStr;
+  ui.obs.score.textContent = `${fmt(result.score, 2)} @ ${fmt(result.angularDistanceDeg, 3)}°`;
+  if (ui.timing) {
+    if (Number.isFinite(result._pickTimeMs)) {
+      ui.timing.hidden = false;
+      ui.timing.textContent = `Pick took ${fmt(result._pickTimeMs, 1)} ms over ${result._starCount ?? '?'} stars`;
+    } else {
+      ui.timing.hidden = true;
+      ui.timing.textContent = '';
+    }
+  }
+}
+
 function renderStarExtentStats() {
   if (!lastStarIcrsBounds || lastStarIcrsBounds.starCount < 1) {
     if (starCountSpan) starCountSpan.textContent = '—';
@@ -706,6 +955,15 @@ function renderSummary(snapshot, desc) {
   summaryValue.textContent = JSON.stringify({
     demo: 'dust-roam',
     mDesired: activeMagLimit,
+    pick: lastPickResult
+      ? {
+        index: lastPickResult.index,
+        distancePc: +lastPickResult.distancePc.toFixed(2),
+        appMagGeom: +lastPickResult.apparentMagnitude.toFixed(3),
+        dustAv: +lastPickResult.dustAv.toFixed(3),
+        appMagDust: +lastPickResult.apparentMagnitudeAfterDust.toFixed(3),
+      }
+      : null,
     sharedDatasetSession: desc?.id ?? null,
     renderServiceStats: desc?.services?.render?.stats ?? null,
     viewer: summarizeViewer(snapshot),
@@ -732,7 +990,7 @@ function renderDustStats() {
   if (gridExtentsSpan) gridExtentsSpan.textContent = extentInfo.extents;
   if (cellSizeSpan) cellSizeSpan.textContent = extentInfo.cellSize;
   if (dustScaleSpan) {
-    dustScaleSpan.textContent = `${activeVoxelInfo.format}/${activeVoxelInfo.frame}, emissive ${DUST_VOLUME_RAYMARCH_STEPS} steps`;
+    dustScaleSpan.textContent = `${activeVoxelInfo.format}/${activeVoxelInfo.frame}, Rv 3.1, Bohlin gas→Av, ${DUST_VOLUME_RAYMARCH_STEPS} steps`;
   }
   if (densityMaxSpan) densityMaxSpan.textContent = activeVoxelInfo.maxDensity.toFixed(1);
 }
@@ -749,22 +1007,60 @@ function renderSnapshot() {
 }
 
 function applyDustMode() {
-  const { mode } = dustRenderState;
-  const isAbsorptive = mode === 'absorptive';
-  const isTauViz = mode === 'optical-depth';
+  if (mapGainInput) {
+    mapGainInput.disabled = dustRenderState.mode !== DUST_MODE_EXTINCTION_MAP;
+  }
   if (volumeMesh) {
-    volumeMesh.visible = !isAbsorptive;
-    if (isAbsorptive) {
-      volumeMesh.material.uniforms.uMode.value = 1;
-    } else if (isTauViz) {
-      volumeMesh.material.uniforms.uMode.value = 2;
-    } else {
-      volumeMesh.material.uniforms.uMode.value = 0;
-    }
+    volumeMesh.visible = dustRenderState.mode === DUST_MODE_EXTINCTION_MAP;
   }
   if (viewer?.runtime?.renderOnce) {
     viewer.runtime.renderOnce();
   }
+}
+
+function handlePick(result) {
+  pickGeneration += 1;
+  const generation = pickGeneration;
+  lastPickResult = result;
+  if (result) {
+    const observerPc = getObserverPc();
+    observerPcToSceneWorld(observerPc);
+    _dustCameraWorld.copy(_dustObserverWorld);
+    const invDustMatrix = volumeMesh?.matrixWorld
+      ? volumeMesh.matrixWorld.clone().invert()
+      : createDustPlacement(activeVoxelInfo).invModelMatrix;
+    const dustAv = computeDustAvBetweenWorldPoints(
+      _dustCameraWorld,
+      new THREE.Vector3(result.position.x, result.position.y, result.position.z),
+      activeVoxelInfo,
+      invDustMatrix,
+      dustRenderState.avScale,
+    );
+    result.dustAv = dustAv;
+    result.apparentMagnitudeAfterDust = result.apparentMagnitude + dustAv;
+  }
+  renderPickInfo(result);
+  renderSnapshot();
+
+  if (!result) return;
+
+  const starData = starFieldLayer?.getStarData?.();
+  const pickMeta = starData?.pickMeta?.[result.index];
+  if (!pickMeta || !datasetSession.getSidecarService('meta')) return;
+
+  void (async () => {
+    try {
+      const fields = await datasetSession.resolveSidecarMetaFields('meta', pickMeta);
+      if (generation !== pickGeneration || lastPickResult !== result) return;
+      if (fields) {
+        result.sidecarFields = fields;
+        renderPickInfo(result);
+        renderSnapshot();
+      }
+    } catch {
+      /* sidecar unavailable or incompatible */
+    }
+  })();
 }
 
 // ── Warm dataset ────────────────────────────────────────────────────────────
@@ -831,6 +1127,42 @@ async function mountViewer() {
     position: 'top-right',
   });
 
+  starFieldLayer = createStarFieldLayer({
+    id: 'dust-roam-star-field',
+    positionTransform: ICRS_TO_SCENE,
+    includePickMeta: true,
+    materialFactory: () => createDustExtinctionStarFieldMaterialProfile({
+      texture: voxelInfo.texture,
+      maxDensity: voxelInfo.maxDensity,
+      boxSize: dustStarPlacement.boxSize,
+      invDustModelMatrix: dustStarPlacement.invModelMatrix,
+      getDustMesh: () => volumeMesh,
+      getAvScale: () => dustRenderState.avScale,
+      avToRgb: VISIBLE_CHANNEL_AV_RATIOS,
+    }),
+    onCommit({ positions, starCount }) {
+      const bounds = computeStarIcrsBoundsFromScenePositions(positions, SCALE);
+      if (bounds && Number.isFinite(starCount) && starCount > 0) {
+        lastStarIcrsBounds = { ...bounds, starCount };
+      } else {
+        lastStarIcrsBounds = null;
+      }
+      renderStarExtentStats();
+    },
+  });
+
+  pickControllerRef = createPickController({
+    id: 'dust-roam-pick-controller',
+    getStarData: () => starFieldLayer?.getStarData?.(),
+    onPick(result, _event, stats) {
+      if (result) {
+        result._pickTimeMs = stats?.pickTimeMs ?? null;
+        result._starCount = stats?.starCount ?? null;
+      }
+      handlePick(result);
+    },
+  });
+
   viewer = await createViewer(mount, {
     datasetSession,
     camera: createViewerCamera(),
@@ -846,6 +1178,7 @@ async function mountViewer() {
         minIntervalMs: 250,
         watchSize: false,
       }),
+      pickControllerRef,
       constellation.compassController,
       fullscreen.controller,
       createHud({
@@ -870,27 +1203,7 @@ async function mountViewer() {
     ],
     layers: [
       constellation.artLayer,
-      createStarFieldLayer({
-        id: 'dust-roam-star-field',
-        positionTransform: ICRS_TO_SCENE,
-        materialFactory: () => createDustExtinctionStarFieldMaterialProfile({
-          texture: voxelInfo.texture,
-          boxSize: dustStarPlacement.boxSize,
-          invDustModelMatrix: dustStarPlacement.invModelMatrix,
-          getDustMesh: () => volumeMesh,
-          getKappa: () => dustRenderState.kappa,
-          getAttenuationMix: () => (dustRenderState.mode === 'absorptive' ? 1.0 : 0.0),
-        }),
-        onCommit({ positions, starCount }) {
-          const bounds = computeStarIcrsBoundsFromScenePositions(positions, SCALE);
-          if (bounds && Number.isFinite(starCount) && starCount > 0) {
-            lastStarIcrsBounds = { ...bounds, starCount };
-          } else {
-            lastStarIcrsBounds = null;
-          }
-          renderStarExtentStats();
-        },
-      }),
+      starFieldLayer,
     ],
     state: {
       ...DEFAULT_STAR_FIELD_STATE,
@@ -935,18 +1248,20 @@ modeSelect?.addEventListener('change', () => {
   applyDustMode();
 });
 
-kappaInput?.addEventListener('input', () => {
-  const v = Number(kappaInput.value);
-  dustRenderState.kappa = v;
-  if (kappaValueSpan) kappaValueSpan.textContent = v.toFixed(4);
-  if (volumeMesh) volumeMesh.material.uniforms.uKappa.value = v;
+avScaleInput?.addEventListener('input', () => {
+  const v = Number(avScaleInput.value);
+  dustRenderState.avScale = v;
+  if (avScaleValueSpan) avScaleValueSpan.textContent = v.toFixed(3);
+  if (volumeMesh) volumeMesh.material.uniforms.uDustAvScale.value = v;
   if (viewer?.runtime?.renderOnce) viewer.runtime.renderOnce();
 });
 
-brightnessInput?.addEventListener('input', () => {
-  const v = Number(brightnessInput.value);
-  if (brightnessValueSpan) brightnessValueSpan.textContent = v.toFixed(1);
-  if (volumeMesh) volumeMesh.material.uniforms.uBrightness.value = v;
+mapGainInput?.addEventListener('input', () => {
+  const v = Number(mapGainInput.value);
+  dustRenderState.mapGain = v;
+  if (mapGainValueSpan) mapGainValueSpan.textContent = v.toFixed(1);
+  if (volumeMesh) volumeMesh.material.uniforms.uMapGain.value = v;
+  if (viewer?.runtime?.renderOnce) viewer.runtime.renderOnce();
 });
 
 showGalacticPlaneInput?.addEventListener('change', () => {

@@ -27,6 +27,9 @@
         flex: 1;
         accent-color: var(--accent-strong);
       }
+      .range-row input[type="range"]:disabled {
+        opacity: 0.45;
+      }
       .range-val {
         min-width: 3.4em;
         text-align: right;
@@ -63,9 +66,10 @@
       <h1>Dust Roam</h1>
       <p>
         Free-roam star field with volumetric interstellar dust from
-        Rezaei&nbsp;Kh.&nbsp;et&nbsp;al.&nbsp;2024. Emissive (glow),
-        optical-depth τ (column integral matching star extinction), or
-        absorptive (reddening on stars).
+        Rezaei&nbsp;Kh.&nbsp;et&nbsp;al.&nbsp;2024. Stars are dimmed and reddened
+        using a simple Milky Way extinction law (R<sub>V</sub> ≈ 3.1), and the
+        study view renders that same extinction column as a direct A<sub>V</sub>
+        map overlay.
       </p>
       <ul>
         <li>Drag in the viewer to look around.</li>
@@ -80,21 +84,20 @@
 
         <label for="render-mode">Mode</label>
         <select id="render-mode" data-render-mode>
-          <option value="emissive" selected>Emissive (glow)</option>
-          <option value="optical-depth">Optical depth τ (column, matches stars)</option>
-          <option value="absorptive">Absorptive (extinction)</option>
+          <option value="absorptive" selected>Stars through dust</option>
+          <option value="extinction-map">Extinction map (same model, made visible)</option>
         </select>
 
-        <label for="kappa">Kappa (opacity scale)</label>
+        <label for="av-scale">Extinction scale</label>
         <div class="range-row">
-          <input id="kappa" type="range" min="0.0001" max="0.05" step="0.0001" value="0.005" data-kappa />
-          <span class="range-val" data-kappa-value>0.0050</span>
+          <input id="av-scale" type="range" min="0" max="0.03" step="0.001" value="0.01" data-av-scale />
+          <span class="range-val" data-av-scale-value>0.010</span>
         </div>
 
-        <label for="brightness">Brightness</label>
+        <label for="map-gain">Extinction-map gain</label>
         <div class="range-row">
-          <input id="brightness" type="range" min="0.1" max="10" step="0.1" value="1.0" data-brightness />
-          <span class="range-val" data-brightness-value>1.0</span>
+          <input id="map-gain" type="range" min="0.2" max="4" step="0.1" value="0.5" data-map-gain />
+          <span class="range-val" data-map-gain-value>0.5</span>
         </div>
 
         <label style="display:flex; align-items:center; gap:8px; margin-top:12px;">
