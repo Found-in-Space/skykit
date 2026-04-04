@@ -36,13 +36,20 @@ const LAYOUT = {
   displayFontSize: 17,
   displayPaddingY: 12,
   displayLabelFontSize: 13,
+  displayActionHeight: 34,
+  displayActionGap: 10,
 };
 
 function getItemHeight(item) {
   if (item.type === 'display') {
     const contentLines = Math.max(item.lines?.length ?? 0, 1);
     const labelLines = item.label ? 1 : 0;
-    return LAYOUT.displayPaddingY * 2 + (contentLines + labelLines) * LAYOUT.displayLineHeight;
+    const actionHeight = item.actionLabel && (item.lines?.length ?? 0) > 0
+      ? LAYOUT.displayActionGap + LAYOUT.displayActionHeight
+      : 0;
+    return LAYOUT.displayPaddingY * 2
+      + (contentLines + labelLines) * LAYOUT.displayLineHeight
+      + actionHeight;
   }
   return LAYOUT.itemHeight;
 }
@@ -118,6 +125,19 @@ function hitTestPanel(panelMesh, rayOrigin, rayDirection) {
 const DISMISS_SIZE = 28;
 const DISMISS_MARGIN = 10;
 
+function getDisplayActionRect(item, y, h) {
+  if (!item.actionLabel || (item.lines?.length ?? 0) === 0) {
+    return null;
+  }
+
+  return {
+    x: LAYOUT.padding + LAYOUT.itemPaddingX,
+    y: y + h - LAYOUT.displayPaddingY - LAYOUT.displayActionHeight,
+    w: CANVAS_WIDTH - LAYOUT.padding * 2 - LAYOUT.itemPaddingX * 2,
+    h: LAYOUT.displayActionHeight,
+  };
+}
+
 function itemAtUV(items, u, v) {
   const px = u * CANVAS_WIDTH;
   const py = (1 - v) * CANVAS_HEIGHT;
@@ -133,6 +153,18 @@ function itemAtUV(items, u, v) {
         if (px >= bx && px <= bx + DISMISS_SIZE && py >= by && py <= by + DISMISS_SIZE) {
           return item;
         }
+      }
+      const actionRect = getDisplayActionRect(item, y, h);
+      if (actionRect
+        && px >= actionRect.x
+        && px <= actionRect.x + actionRect.w
+        && py >= actionRect.y
+        && py <= actionRect.y + actionRect.h) {
+        return {
+          id: item.actionId ?? `${item.id}-action`,
+          type: 'button',
+          label: item.actionLabel,
+        };
       }
     } else if (
       px >= LAYOUT.padding && px <= rectRight &&
@@ -173,7 +205,12 @@ function drawPanel(ctx, items, hoveredId, pressedId) {
     };
 
     if (item.type === 'display') {
-      drawDisplay(ctx, rect, item, item.id === hoveredId, item.id === pressedId);
+      drawDisplay(ctx, rect, item, {
+        dismissHovered: item.id === hoveredId,
+        dismissPressed: item.id === pressedId,
+        actionHovered: (item.actionId ?? `${item.id}-action`) === hoveredId,
+        actionPressed: (item.actionId ?? `${item.id}-action`) === pressedId,
+      });
     } else {
       const isHovered = item.id === hoveredId;
       const isPressed = item.id === pressedId;
@@ -214,7 +251,14 @@ function drawPanel(ctx, items, hoveredId, pressedId) {
   }
 }
 
-function drawDisplay(ctx, rect, item, isHovered, isPressed) {
+function drawDisplay(ctx, rect, item, states) {
+  const {
+    dismissHovered,
+    dismissPressed,
+    actionHovered,
+    actionPressed,
+  } = states;
+
   ctx.fillStyle = COLORS.itemBg;
   roundRect(ctx, rect.x, rect.y, rect.w, rect.h, LAYOUT.itemRadius);
   ctx.fill();
@@ -249,14 +293,35 @@ function drawDisplay(ctx, rect, item, isHovered, isPressed) {
     ly += LAYOUT.displayLineHeight;
   }
 
+  const actionRect = getDisplayActionRect(item, rect.y, rect.h);
+  if (actionRect) {
+    ctx.fillStyle = actionPressed
+      ? COLORS.itemPress
+      : actionHovered
+        ? COLORS.itemHover
+        : COLORS.toggleOff;
+    roundRect(ctx, actionRect.x, actionRect.y, actionRect.w, actionRect.h, 10);
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.text;
+    ctx.font = `bold ${LAYOUT.displayFontSize}px sans-serif`;
+    ctx.textBaseline = 'middle';
+    const textWidth = ctx.measureText(item.actionLabel).width;
+    ctx.fillText(
+      item.actionLabel,
+      actionRect.x + (actionRect.w - textWidth) / 2,
+      actionRect.y + actionRect.h / 2,
+    );
+  }
+
   if (item.dismissible) {
     const cx = rect.x + rect.w - DISMISS_MARGIN - DISMISS_SIZE / 2;
     const cy = rect.y + DISMISS_MARGIN + DISMISS_SIZE / 2;
     const r = DISMISS_SIZE / 2;
 
-    ctx.fillStyle = isPressed
+    ctx.fillStyle = dismissPressed
       ? COLORS.itemPress
-      : isHovered
+      : dismissHovered
         ? COLORS.itemHover
         : COLORS.toggleOff;
     ctx.beginPath();
@@ -320,7 +385,7 @@ function roundRect(ctx, x, y, w, h, r) {
  */
 export function createXrTabletController(options = {}) {
   const {
-    items = [],
+    items: initialItems = [],
     onChange,
     handedness = DEFAULT_HANDEDNESS,
   } = options;
@@ -348,10 +413,12 @@ export function createXrTabletController(options = {}) {
 
   let parent = null;
   let hoveredId = null;
+  let hoveredItem = null;
   let pressedId = null;
   let triggerWasPressed = false;
   let needsRedraw = true;
   let currentHit = null;
+  let items = Array.isArray(initialItems) ? [...initialItems] : [];
 
   function redraw() {
     drawPanel(ctx, items, hoveredId, pressedId);
@@ -420,9 +487,10 @@ export function createXrTabletController(options = {}) {
     currentHit = hit;
 
     if (hit) {
-      const item = itemAtUV(items, hit.u, hit.v);
-      setHovered(item?.id ?? null);
+      hoveredItem = itemAtUV(items, hit.u, hit.v);
+      setHovered(hoveredItem?.id ?? null);
     } else {
+      hoveredItem = null;
       setHovered(null);
     }
   }
@@ -430,7 +498,7 @@ export function createXrTabletController(options = {}) {
   function handleTrigger(xr) {
     const pressed = isTriggerPressed(xr, pointerHand);
     if (pressed && !triggerWasPressed && hoveredId != null) {
-      const item = items.find((i) => i.id === hoveredId);
+      const item = hoveredItem;
       pressedId = hoveredId;
       needsRedraw = true;
       activateItem(item);
@@ -462,6 +530,7 @@ export function createXrTabletController(options = {}) {
       if (context.xr?.presenting !== true) {
         panelMesh.visible = false;
         currentHit = null;
+        hoveredItem = null;
         return;
       }
 
@@ -479,6 +548,15 @@ export function createXrTabletController(options = {}) {
         item.value = value;
         needsRedraw = true;
       }
+    },
+
+    setItems(nextItems) {
+      items = Array.isArray(nextItems) ? [...nextItems] : [];
+      hoveredId = null;
+      hoveredItem = null;
+      pressedId = null;
+      currentHit = null;
+      needsRedraw = true;
     },
 
     setDisplay(id, lines) {
