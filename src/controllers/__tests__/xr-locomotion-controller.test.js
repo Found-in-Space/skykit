@@ -26,6 +26,19 @@ test('readXrAxes applies deadzone', () => {
   assert.equal(axes.activeHand, null);
 });
 
+test('readXrAxes can filter by handedness', () => {
+  const axes = readXrAxes([
+    { handedness: 'left', gamepad: { axes: [0, 0, 0.8, -0.8] } },
+    { handedness: 'right', gamepad: { axes: [0, 0, 0.1, -0.2] } },
+  ], { handedness: 'right' });
+
+  assert.deepEqual(axes, {
+    x: 0,
+    y: -0.2,
+    activeHand: 'right',
+  });
+});
+
 test('XR locomotion controller scales content and advances observer from stick motion', () => {
   const controller = createXrLocomotionController({
     sceneScale: 1.0,
@@ -48,7 +61,7 @@ test('XR locomotion controller scales content and advances observer from stick m
       presenting: true,
       session: {
         inputSources: [
-          { handedness: 'left', gamepad: { axes: [0, 0, 0, -1] } },
+          { handedness: 'right', gamepad: { axes: [0, 0, 0, -1] } },
         ],
       },
     },
@@ -62,7 +75,7 @@ test('XR locomotion controller scales content and advances observer from stick m
   assert.ok(state.observerPc.z < -1.9, 'should have moved forward');
 });
 
-test('XR locomotion controller derives movement from viewer pose', () => {
+test('XR locomotion controller movement stays in ship coordinates despite viewer yaw', () => {
   const controller = createXrLocomotionController({
     sceneScale: 1.0,
     moveSpeed: 2,
@@ -90,7 +103,7 @@ test('XR locomotion controller derives movement from viewer pose', () => {
       presenting: true,
       session: {
         inputSources: [
-          { handedness: 'left', gamepad: { axes: [0, 0, 0, -1] } },
+          { handedness: 'right', gamepad: { axes: [0, 0, 0, -1] } },
         ],
       },
       referenceSpace: {},
@@ -110,8 +123,8 @@ test('XR locomotion controller derives movement from viewer pose', () => {
   controller.attach(context);
   controller.update(context);
 
-  assert.ok(Math.abs(state.observerPc.z) < 0.01, 'should not move along Z when facing +X');
-  assert.ok(state.observerPc.x > 1.9, 'should move along +X (headset forward)');
+  assert.ok(state.observerPc.z < -1.9, 'should still move along ship forward');
+  assert.ok(Math.abs(state.observerPc.x) < 0.01, 'viewer yaw should not steer thrust sideways');
 });
 
 test('XR locomotion controller moves spaceship to observer scene position', () => {
@@ -136,7 +149,7 @@ test('XR locomotion controller moves spaceship to observer scene position', () =
       presenting: true,
       session: {
         inputSources: [
-          { handedness: 'left', gamepad: { axes: [0, 0, 0, -1] } },
+          { handedness: 'right', gamepad: { axes: [0, 0, 0, -1] } },
         ],
       },
     },
@@ -173,7 +186,7 @@ test('XR locomotion controller keeps universe at origin', () => {
       presenting: true,
       session: {
         inputSources: [
-          { handedness: 'left', gamepad: { axes: [0, 0, 0, -1] } },
+          { handedness: 'right', gamepad: { axes: [0, 0, 0, -1] } },
         ],
       },
     },
@@ -216,7 +229,7 @@ test('XR locomotion controller does nothing when not presenting', () => {
   assert.equal(contentRoot.scale.x, 1, 'universe scale unchanged');
 });
 
-test('XR locomotion controller moves in full 3D when looking up or down', () => {
+test('XR locomotion controller ignores viewer pitch for thrust direction', () => {
   const controller = createXrLocomotionController({
     sceneScale: 1.0,
     moveSpeed: 2,
@@ -244,7 +257,7 @@ test('XR locomotion controller moves in full 3D when looking up or down', () => 
       presenting: true,
       session: {
         inputSources: [
-          { handedness: 'left', gamepad: { axes: [0, 0, 0, -1] } },
+          { handedness: 'right', gamepad: { axes: [0, 0, 0, -1] } },
         ],
       },
       referenceSpace: {},
@@ -269,8 +282,165 @@ test('XR locomotion controller moves in full 3D when looking up or down', () => 
   controller.attach(context);
   controller.update(context);
 
-  assert.ok(state.observerPc.y < -0.5, 'should move downward when looking down');
-  assert.ok(state.observerPc.z < -0.5, 'should still move forward along Z');
+  assert.ok(Math.abs(state.observerPc.y) < 0.01, 'viewer pitch should not add vertical thrust');
+  assert.ok(state.observerPc.z < -1.9, 'ship forward thrust should still advance through space');
+});
+
+test('XR locomotion controller yaws and pitches the spaceship from the left stick', () => {
+  const controller = createXrLocomotionController({
+    sceneScale: 1.0,
+    moveSpeed: 2,
+    yawRateRadPerSec: 1.0,
+    pitchRateRadPerSec: 1.0,
+  });
+  const navigationRoot = new THREE.Group();
+  const contentRoot = new THREE.Group();
+  const camera = new THREE.PerspectiveCamera();
+  camera.lookAt(0, 0, -1);
+  const state = {
+    observerPc: { x: 0, y: 0, z: 0 },
+    starFieldScale: 1.0,
+  };
+  const context = {
+    state,
+    camera,
+    navigationRoot,
+    contentRoot,
+    xr: {
+      presenting: true,
+      session: {
+        inputSources: [
+          { handedness: 'left', gamepad: { axes: [0, 0, 0.5, -0.5] } },
+        ],
+      },
+      referenceSpace: {},
+      frame: {
+        getViewerPose() {
+          return {
+            transform: {
+              orientation: { x: 0, y: 0, z: 0, w: 1 },
+            },
+          };
+        },
+      },
+    },
+    frame: { deltaSeconds: 1 },
+  };
+
+  controller.attach(context);
+  controller.update(context);
+
+  assert.ok(Math.abs(navigationRoot.quaternion.x) > 0.1, 'pitch should rotate the spaceship root');
+  assert.ok(Math.abs(navigationRoot.quaternion.y) > 0.1, 'yaw should rotate the spaceship root');
+  assert.ok(Math.abs(state.observerOrientation.x) > 0.1, 'orientation should be written into runtime state');
+});
+
+test('XR locomotion controller rolls the spaceship when the left grip modifier is held', () => {
+  const controller = createXrLocomotionController({
+    sceneScale: 1.0,
+    moveSpeed: 2,
+    rollRateRadPerSec: 1.0,
+  });
+  const navigationRoot = new THREE.Group();
+  const contentRoot = new THREE.Group();
+  const camera = new THREE.PerspectiveCamera();
+  camera.lookAt(0, 0, -1);
+  const state = {
+    observerPc: { x: 0, y: 0, z: 0 },
+    starFieldScale: 1.0,
+  };
+  const context = {
+    state,
+    camera,
+    navigationRoot,
+    contentRoot,
+    xr: {
+      presenting: true,
+      session: {
+        inputSources: [
+          {
+            handedness: 'left',
+            gamepad: {
+              axes: [0, 0, 0.5, 0],
+              buttons: [{ pressed: false }, { pressed: true }],
+            },
+          },
+        ],
+      },
+      referenceSpace: {},
+      frame: {
+        getViewerPose() {
+          return {
+            transform: {
+              orientation: { x: 0, y: 0, z: 0, w: 1 },
+            },
+          };
+        },
+      },
+    },
+    frame: { deltaSeconds: 1 },
+  };
+
+  controller.attach(context);
+  controller.update(context);
+
+  assert.ok(Math.abs(navigationRoot.quaternion.z) > 0.1, 'grip-modified horizontal stick should roll the spaceship');
+  assert.equal(controller.getStats().attitudeMode, 'roll-pitch');
+});
+
+test('XR locomotion controller movement follows the downward-pitched spaceship frame', () => {
+  const controller = createXrLocomotionController({
+    sceneScale: 1.0,
+    moveSpeed: 2,
+    pitchRateRadPerSec: 1.0,
+  });
+  const navigationRoot = new THREE.Group();
+  const contentRoot = new THREE.Group();
+  const camera = new THREE.PerspectiveCamera();
+  camera.lookAt(0, 0, -1);
+  const state = {
+    observerPc: { x: 0, y: 0, z: 0 },
+    starFieldScale: 1.0,
+  };
+  const baseXr = {
+    presenting: true,
+    referenceSpace: {},
+    frame: {
+      getViewerPose() {
+        return {
+          transform: {
+            orientation: { x: 0, y: 0, z: 0, w: 1 },
+          },
+        };
+      },
+    },
+  };
+  const context = {
+    state,
+    camera,
+    navigationRoot,
+    contentRoot,
+    xr: {
+      ...baseXr,
+      session: {
+        inputSources: [
+          { handedness: 'left', gamepad: { axes: [0, 0, 0, -1] } },
+        ],
+      },
+    },
+    frame: { deltaSeconds: 0.5 },
+  };
+
+  controller.attach(context);
+  controller.update(context);
+
+  context.xr.session.inputSources = [
+    { handedness: 'right', gamepad: { axes: [0, 0, 0, -1] } },
+  ];
+  controller.update(context);
+
+  assert.ok(state.observerPc.y < -0.4, 'forward motion should descend after pitching the spaceship down');
+  assert.ok(state.observerPc.z < -0.5, 'forward motion should still advance through space');
 });
 
 test('XR locomotion controller flyTo advances toward target without thumbstick input', () => {
