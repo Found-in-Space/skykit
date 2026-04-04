@@ -103,6 +103,7 @@ export function createStarFieldLayer(options = {}) {
   let currentSelectionSignature = null;
   let loadGeneration = 0;
   let activeLoadPromise = null;
+  let lastContext = null;
   let stats = {
     nodeCount: 0,
     starCount: 0,
@@ -353,24 +354,58 @@ export function createStarFieldLayer(options = {}) {
       };
     },
     async attach(context) {
+      lastContext = context;
       bootstrap = context.datasetSession ? await context.datasetSession.ensureRenderBootstrap() : null;
       await ensureMaterialProfile(context);
       applyMaterialUniforms(context);
       context.mount.add(group);
     },
     async start(context) {
+      lastContext = context;
       applyMaterialUniforms(context);
       void rebuildGeometry(context).catch((error) => {
         console.error('[StarFieldLayer] initial rebuild failed', error);
       });
     },
     update(context) {
+      lastContext = context;
       applyMaterialUniforms(context);
       const nextSignature = createSelectionSignature(context.selection);
       if (!activeLoadPromise && nextSignature !== currentSelectionSignature) {
         void rebuildGeometry(context).catch((error) => {
           console.error('[StarFieldLayer] rebuild failed', error);
         });
+      }
+    },
+    setMaterialProfile(profile) {
+      const nextProfile = normalizeMaterialProfile(profile);
+
+      if (materialProfile) {
+        materialProfile.dispose();
+      } else if (points.material === placeholderMaterial) {
+        placeholderMaterial.dispose();
+      }
+
+      materialProfile = nextProfile;
+      points.material = nextProfile.material;
+
+      if (nextProfile.haloMaterial) {
+        if (!haloPoints) {
+          haloPoints = new THREE.Points(points.geometry, nextProfile.haloMaterial);
+          haloPoints.name = `${group.name}-halo`;
+          haloPoints.frustumCulled = false;
+          group.add(haloPoints);
+        } else {
+          haloPoints.material = nextProfile.haloMaterial;
+        }
+      } else if (haloPoints) {
+        group.remove(haloPoints);
+        haloPoints = null;
+      }
+
+      if (lastContext) {
+        applyMaterialUniforms(lastContext);
+        lastContext.runtime.renderOnce();
       }
     },
     dispose(context) {
