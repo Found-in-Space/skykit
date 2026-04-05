@@ -19,6 +19,8 @@ export function createConstellationArtLayer(options = {}) {
   let meshes = [];
   const meshesByIau = new Map();
   const targetOpacityByIau = new Map();
+  const _observerWorldPosition = new THREE.Vector3();
+  const _observerInContentPosition = new THREE.Vector3();
 
   function readMeshOpacity(mesh) {
     return Number(mesh?.material?.uniforms?.opacity?.value ?? 0);
@@ -116,6 +118,14 @@ export function createConstellationArtLayer(options = {}) {
       await buildGroup();
     },
     update(context) {
+      if (context?.navigationRoot && context?.contentRoot) {
+        _observerWorldPosition.copy(context.navigationRoot.position);
+        context.navigationRoot.parent?.localToWorld?.(_observerWorldPosition);
+        _observerInContentPosition.copy(_observerWorldPosition);
+        context.contentRoot.worldToLocal(_observerInContentPosition);
+        group.position.copy(_observerInContentPosition);
+      }
+
       const deltaSeconds = Number.isFinite(context?.frame?.deltaSeconds)
         ? Math.max(0, Number(context.frame.deltaSeconds))
         : 0;
