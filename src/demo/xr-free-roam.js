@@ -61,6 +61,44 @@ function approachTargetFromObserver(targetPc, observerPc, distancePc) {
   };
 }
 
+function normalizeQuaternion(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const x = Number(value.x);
+  const y = Number(value.y);
+  const z = Number(value.z);
+  const w = Number(value.w);
+  const len = Math.hypot(x, y, z, w);
+  if (!(len > 0)) {
+    return null;
+  }
+  return { x: x / len, y: y / len, z: z / len, w: w / len };
+}
+
+function approachTargetFromShipForward(targetPc, orientation, distancePc) {
+  const q = normalizeQuaternion(orientation);
+  if (!q || !(distancePc > 0)) {
+    return clonePoint(targetPc);
+  }
+  const forwardScene = new THREE.Vector3(0, 0, -1)
+    .applyQuaternion(new THREE.Quaternion(q.x, q.y, q.z, q.w));
+  const [ix, iy, iz] = ORION_SCENE_TO_ICRS_TRANSFORM(
+    forwardScene.x,
+    forwardScene.y,
+    forwardScene.z,
+  );
+  const len = Math.hypot(ix, iy, iz);
+  if (!(len > 0)) {
+    return clonePoint(targetPc);
+  }
+  return {
+    x: targetPc.x - (ix / len) * distancePc,
+    y: targetPc.y - (iy / len) * distancePc,
+    z: targetPc.z - (iz / len) * distancePc,
+  };
+}
+
 const WAYPOINTS = [
   { label: 'Sol', targetPc: { x: 0, y: 0, z: 0 } },
   { label: 'Proxima Centauri', targetPc: PROXIMA_CEN_PC },
@@ -505,11 +543,19 @@ function goToPickedStar(result) {
 }
 
 function goToStarTarget(targetPc) {
-  const observerPc = viewer?.getSnapshotState?.()?.state?.observerPc;
+  const snapshotState = viewer?.getSnapshotState?.()?.state;
+  const observerPc = snapshotState?.observerPc;
   if (!observerPc || !targetPc) {
     return;
   }
-  flyToObserver(approachTargetFromObserver(targetPc, observerPc, 0.25), {
+  const starFieldScale = Number.isFinite(snapshotState?.starFieldScale) && snapshotState.starFieldScale > 0
+    ? snapshotState.starFieldScale
+    : DEFAULT_METERS_PER_PARSEC;
+  const arrivalDistancePc = 0.25 / starFieldScale;
+  const approachTarget = snapshotState?.observerOrientation
+    ? approachTargetFromShipForward(targetPc, snapshotState.observerOrientation, arrivalDistancePc)
+    : approachTargetFromObserver(targetPc, observerPc, arrivalDistancePc);
+  flyToObserver(approachTarget, {
     acceleration: 5,
     deceleration: 7,
   });
