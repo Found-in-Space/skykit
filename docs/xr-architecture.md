@@ -150,7 +150,7 @@ The XR pick controller (`xr-pick-controller.js`) creates a laser `Line` and a ri
 
 ### Tablet (Hand Menu)
 
-The XR tablet controller (`xr-tablet-controller.js`) renders a canvas-texture panel attached to the **left** controller's grip space. The right controller's laser pointer interacts with it.
+The XR tablet controller (`xr-tablet-controller.js`) is an XR host for the generic touch-display runtime (`ui/touch-display.js`). The controller attaches a panel to the **left** controller's grip space, while the touch display owns canvas rendering, control layout, hover/press state, and sub-control dispatch. The right controller's laser pointer interacts with it.
 
 The panel is a `THREE.Mesh` with `PlaneGeometry` (0.20m × 0.28m), using `depthTest: false` and high `renderOrder` to render above the star field. The canvas texture is only redrawn when hover/press state changes.
 
@@ -158,8 +158,8 @@ On each frame:
 
 1. Read the left controller's `gripSpace` pose and position the panel mesh
 2. Read the right controller's `targetRaySpace` ray and intersect it with the panel plane
-3. Convert the intersection to UV coordinates and map to a button/toggle item
-4. On right trigger press over a hovered item, fire the item's action via `onChange(id, value)`
+3. Forward the panel UV hit plus trigger state into the touch-display runtime
+4. Let the display resolve which sub-control owns the interaction and fire its action via `onChange(id, value)`
 
 The tablet controller runs **before** the pick controller in the update loop. It exposes `getHit()` which returns `{ length, blocked: true }` when the pointer ray hits the panel, or `null` otherwise. The pick controller calls this via `getLaserOverride` to shorten its laser and suppress star picks.
 
