@@ -61,6 +61,7 @@ export { createDensityFieldMaterialProfile } from './layers/density-field-materi
 export { createHighlightStarFieldMaterialProfile } from './layers/highlight-star-field-materials.js';
 export { createDeviceTiltTracker } from './services/input/device-tilt-tracker.js';
 export { createHud } from './ui/hud.js';
+export { createTouchDisplay } from './ui/touch-display.js';
 export {
   PRESET_ARROWS,
   PRESET_QE,
