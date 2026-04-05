@@ -60,6 +60,7 @@ export { createVrStarFieldMaterialProfile } from './layers/star-field-materials.
 export { createDensityFieldMaterialProfile } from './layers/density-field-materials.js';
 export { createHighlightStarFieldMaterialProfile } from './layers/highlight-star-field-materials.js';
 export { createDeviceTiltTracker } from './services/input/device-tilt-tracker.js';
+export { computeXrDepthRange } from './services/render/xr-depth-range.js';
 export { createHud } from './ui/hud.js';
 export {
   PRESET_ARROWS,
