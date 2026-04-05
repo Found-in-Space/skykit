@@ -24,6 +24,7 @@ import { createXrLocomotionController } from '../controllers/xr-locomotion-contr
 import { createXrPickController } from '../controllers/xr-pick-controller.js';
 import { createXrTabletController } from '../controllers/xr-tablet-controller.js';
 import { DEFAULT_METERS_PER_PARSEC, SCALE } from '../services/octree/scene-scale.js';
+import { computeXrDepthRange } from '../services/render/xr-depth-range.js';
 
 const PROXIMA_CEN_PC = { x: -0.47, y: -0.36, z: -1.16 };
 const SIRIUS_PC = { x: -0.49, y: 2.48, z: -0.76 };
@@ -70,7 +71,8 @@ const WAYPOINTS = [
 
 const XR_REFERENCE_SPACE_TYPE = 'local-floor';
 const XR_NEAR_PLANE = 0.25;
-const XR_TARGET_VISIBLE_DISTANCE_PC = 100000;
+const XR_DEPTH_MARGIN_FACTOR = 1.2;
+const XR_CONSTELLATION_SPHERE_RADIUS_PC = 8;
 const XR_MIN_FAR_PLANE = 100;
 const XR_MAX_FAR_PLANE = 2000000;
 const {
@@ -87,7 +89,10 @@ function createViewerCamera() {
     60,
     1,
     XR_NEAR_PLANE,
-    computeXrFarPlane(DEFAULT_METERS_PER_PARSEC),
+    computeXrDepthTelemetry(null, {
+      starFieldScale: DEFAULT_METERS_PER_PARSEC,
+      includeConstellationSphere: true,
+    }).far,
   );
   camera.position.set(0, 0, 0);
   camera.lookAt(0, 0, -1);
@@ -147,6 +152,7 @@ function summarizeViewer(snapshot) {
     renderedStars: starLayerPart?.stats?.starCount ?? null,
     xrLocomotion: xrPart?.stats ?? null,
     selectionRefresh: refreshPart?.stats ?? null,
+    xrDepthRange: xrDepthRangeTelemetry,
   };
 }
 
@@ -253,14 +259,22 @@ function formatWorldScaleSliderValue(value) {
   return formatWorldScaleValue(sliderValueToWorldScale(value));
 }
 
-function computeXrFarPlane(scale) {
-  const metersPerParsec = Number.isFinite(scale) && scale > 0
-    ? Number(scale)
+function computeXrDepthTelemetry(snapshot = null, options = {}) {
+  const metersPerParsec = Number.isFinite(options.starFieldScale) && options.starFieldScale > 0
+    ? Number(options.starFieldScale)
     : DEFAULT_METERS_PER_PARSEC;
-  return Math.min(
-    XR_MAX_FAR_PLANE,
-    Math.max(XR_MIN_FAR_PLANE, XR_TARGET_VISIBLE_DISTANCE_PC * metersPerParsec),
-  );
+
+  return computeXrDepthRange({
+    near: XR_NEAR_PLANE,
+    metersPerParsec,
+    selection: snapshot?.selection ?? null,
+    observerPc: snapshot?.state?.observerPc ?? null,
+    includeConstellationSphere: options.includeConstellationSphere === true,
+    constellationSphereRadiusPc: options.constellationSphereRadiusPc ?? XR_CONSTELLATION_SPHERE_RADIUS_PC,
+    marginFactor: XR_DEPTH_MARGIN_FACTOR,
+    minFar: XR_MIN_FAR_PLANE,
+    maxFar: XR_MAX_FAR_PLANE,
+  });
 }
 
 function clamp(value, min, max) {
@@ -340,6 +354,8 @@ let lastPickedResult = null;
 let pendingSelectionRefreshTimer = null;
 let currentConstellationIau = null;
 let currentTabletPage = 'home';
+let xrDepthRangeTelemetry = null;
+
 let warmState = {
   bootstrap: 'idle',
   rootShard: 'idle',
@@ -389,26 +405,31 @@ function syncVisibilityControls() {
   tabletRef?.setItemValue('constellation-art', artEnabled);
 }
 
-function syncWorldClipPlanes() {
-  const far = computeXrFarPlane(activeStarFieldScale);
+function syncWorldClipPlanes(snapshot = null) {
+  const range = computeXrDepthTelemetry(snapshot, {
+    starFieldScale: activeStarFieldScale,
+    includeConstellationSphere: artEnabled,
+  });
+  xrDepthRangeTelemetry = range.telemetry;
+
   const camera = viewer?.camera ?? null;
   if (!camera) {
-    return far;
+    return range.far;
   }
 
-  camera.near = XR_NEAR_PLANE;
-  camera.far = far;
+  camera.near = range.near;
+  camera.far = range.far;
   camera.updateProjectionMatrix();
 
   const session = viewer?.runtime?.renderer?.xr?.getSession?.() ?? null;
   if (typeof session?.updateRenderState === 'function') {
     session.updateRenderState({
-      depthNear: XR_NEAR_PLANE,
-      depthFar: far,
+      depthNear: range.near,
+      depthFar: range.far,
     });
   }
 
-  return far;
+  return range.far;
 }
 
 function scheduleSelectionRefresh() {
@@ -776,7 +797,7 @@ function renderSummary(snapshot, datasetDescription) {
     xrSupported,
     desktopShaderEnabled,
     starFieldScale: activeStarFieldScale,
-    xrFarPlane: computeXrFarPlane(activeStarFieldScale),
+    xrDepthRange: xrDepthRangeTelemetry,
     mDesired: activeMagLimit,
     starFieldExposure: getActiveExposure(),
     artEnabled,
@@ -790,6 +811,9 @@ function renderSummary(snapshot, datasetDescription) {
 
 function renderSnapshot() {
   const snapshot = viewer?.getSnapshotState?.() ?? null;
+  if (viewer) {
+    syncWorldClipPlanes(snapshot);
+  }
   const datasetDescription = datasetSession.describe();
   const presenting = snapshot?.xr?.presenting === true;
 
@@ -808,7 +832,7 @@ function renderSnapshot() {
     xrSupported,
     desktopShaderEnabled,
     starFieldScale: activeStarFieldScale,
-    xrFarPlane: computeXrFarPlane(activeStarFieldScale),
+    xrDepthRange: xrDepthRangeTelemetry,
     mDesired: activeMagLimit,
     starFieldExposure: getActiveExposure(),
     artEnabled,
@@ -1104,7 +1128,10 @@ enterXrButton?.addEventListener('click', () => {
       optionalFeatures: [XR_REFERENCE_SPACE_TYPE],
     },
     near: XR_NEAR_PLANE,
-    far: computeXrFarPlane(activeStarFieldScale),
+    far: computeXrDepthTelemetry(null, {
+      starFieldScale: activeStarFieldScale,
+      includeConstellationSphere: artEnabled,
+    }).far,
   })
     .then(() => {
       renderSnapshot();
