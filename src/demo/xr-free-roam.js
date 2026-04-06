@@ -13,6 +13,7 @@ import {
   createStarFieldLayer,
   createViewer,
   createXrRig,
+  GALACTIC_CENTER_PC,
   getDatasetSession,
   loadConstellationArtManifest,
   ORION_CENTER_PC,
@@ -47,7 +48,13 @@ const WORLD_SCALE_CONTROL = Object.freeze({
 });
 const GALAXY_MAP_CONTROL_ID = 'galaxy-map';
 const GALAXY_MAP_RADIAL_TICKS_PC = Object.freeze([2000, 4000, 8000, 12000]);
-const GALAXY_MAP_HEIGHT_PC = 1200;
+const GALACTIC_FRAME_ROTATION = Object.freeze([
+  Object.freeze([-0.0548756, 0.4941094, -0.8676661]),
+  Object.freeze([-0.4838350, 0.7469822, 0.4559838]),
+  Object.freeze([0.8734371, 0.4448296, 0.1980764]),
+]);
+const TABLET_HOME_CANVAS_HEIGHT = 760;
+const TABLET_PANEL_HEIGHT = 0.38;
 
 function approachTargetFromObserver(targetPc, observerPc, distancePc) {
   const dx = targetPc.x - observerPc.x;
@@ -416,51 +423,80 @@ function clamp01(value) {
   return Math.min(Math.max(value, 0), 1);
 }
 
+function icrsVectorToGalactic(x, y, z) {
+  return {
+    x: GALACTIC_FRAME_ROTATION[0][0] * x + GALACTIC_FRAME_ROTATION[0][1] * y + GALACTIC_FRAME_ROTATION[0][2] * z,
+    y: GALACTIC_FRAME_ROTATION[1][0] * x + GALACTIC_FRAME_ROTATION[1][1] * y + GALACTIC_FRAME_ROTATION[1][2] * z,
+    z: GALACTIC_FRAME_ROTATION[2][0] * x + GALACTIC_FRAME_ROTATION[2][1] * y + GALACTIC_FRAME_ROTATION[2][2] * z,
+  };
+}
+
+function icrsPointRelativeToGalacticCenter(point) {
+  if (!point) {
+    return null;
+  }
+  return icrsVectorToGalactic(
+    point.x - GALACTIC_CENTER_PC.x,
+    point.y - GALACTIC_CENTER_PC.y,
+    point.z - GALACTIC_CENTER_PC.z,
+  );
+}
+
 function buildGalaxyMapValue() {
   const observerPc = viewer?.getSnapshotState?.()?.state?.observerPc ?? { x: 0, y: 0, z: 0 };
   const selectedPc = lastPickedResult?.position ? sceneToIcrsPc(lastPickedResult.position) : null;
-  const radialObserverPc = Math.hypot(observerPc.x, observerPc.z);
-  const radialSelectedPc = selectedPc ? Math.hypot(selectedPc.x, selectedPc.z) : null;
+  const observerRelative = icrsPointRelativeToGalacticCenter(observerPc) ?? { x: 0, y: 0, z: 0 };
+  const selectedRelative = icrsPointRelativeToGalacticCenter(selectedPc);
+  const radialObserverPc = Math.hypot(observerRelative.x, observerRelative.z);
+  const radialSelectedPc = selectedRelative ? Math.hypot(selectedRelative.x, selectedRelative.z) : null;
+  const verticalObserverPc = Math.abs(observerRelative.y);
+  const verticalSelectedPc = selectedRelative ? Math.abs(selectedRelative.y) : null;
   const spanCandidate = Math.max(
     GALAXY_MAP_RADIAL_TICKS_PC[GALAXY_MAP_RADIAL_TICKS_PC.length - 1],
     radialObserverPc,
     Number.isFinite(radialSelectedPc) ? radialSelectedPc : 0,
   );
   const radialSpanPc = Math.max(100, Math.ceil(spanCandidate / 100) * 100);
+  const verticalSpanCandidate = Math.max(
+    500,
+    verticalObserverPc,
+    Number.isFinite(verticalSelectedPc) ? verticalSelectedPc : 0,
+  );
+  const verticalHalfSpanPc = Math.max(100, Math.ceil(verticalSpanCandidate / 100) * 100);
   return {
-    observer: observerPc,
-    selected: selectedPc,
+    observerRelative,
+    selectedRelative,
     radialSpanPc,
     radialTicksPc: GALAXY_MAP_RADIAL_TICKS_PC,
-    verticalHalfSpanPc: GALAXY_MAP_HEIGHT_PC,
+    verticalHalfSpanPc,
   };
 }
 
 function createGalaxyMapControl() {
   return {
     getHeight() {
-      return 190;
+      return 208;
     },
 
     render(ctx, rect, item, _state, env) {
       const { theme } = env;
       const data = item.value ?? {};
-      const observer = data.observer ?? { x: 0, y: 0, z: 0 };
-      const selected = data.selected ?? null;
+      const observer = data.observerRelative ?? { x: 0, y: 0, z: 0 };
+      const selected = data.selectedRelative ?? null;
       const radialSpanPc = Number.isFinite(data.radialSpanPc) && data.radialSpanPc > 0 ? data.radialSpanPc : 1;
       const radialTicksPc = Array.isArray(data.radialTicksPc) ? data.radialTicksPc : [];
       const verticalHalfSpanPc = Number.isFinite(data.verticalHalfSpanPc) && data.verticalHalfSpanPc > 0
         ? data.verticalHalfSpanPc
         : 1;
 
-      const topX = rect.x + 22;
-      const topY = rect.y + 18;
-      const topW = rect.w - 44;
-      const topH = 100;
-      const sideX = rect.x + 22;
-      const sideY = rect.y + 128;
-      const sideW = rect.w - 44;
-      const sideH = 38;
+      const topX = rect.x + 54;
+      const topY = rect.y + 24;
+      const topW = rect.w - 72;
+      const topH = 116;
+      const sideX = rect.x + 16;
+      const sideY = topY + 2;
+      const sideW = 24;
+      const sideH = topH;
 
       ctx.fillStyle = theme.itemBg;
       ctx.strokeStyle = theme.border;
@@ -471,7 +507,7 @@ function createGalaxyMapControl() {
       ctx.fillStyle = theme.accent;
       ctx.font = 'bold 12px sans-serif';
       ctx.textBaseline = 'top';
-      ctx.fillText('GALACTIC MAP (TOP + HEIGHT)', rect.x + 16, rect.y + 8);
+      ctx.fillText('GALACTIC CENTRE REFERENCE', rect.x + 14, rect.y + 7);
 
       const centerX = topX + topW / 2;
       const baseY = topY + topH;
@@ -520,12 +556,16 @@ function createGalaxyMapControl() {
 
       ctx.strokeStyle = theme.border;
       ctx.strokeRect(sideX, sideY, sideW, sideH);
+      ctx.beginPath();
+      ctx.moveTo(sideX, sideY + sideH / 2);
+      ctx.lineTo(sideX + sideW, sideY + sideH / 2);
+      ctx.stroke();
 
       function drawHeightMarker(point, color) {
         if (!point) return;
         const t = clamp01((point.y + verticalHalfSpanPc) / (verticalHalfSpanPc * 2));
-        const px = sideX + t * sideW;
-        const py = sideY + sideH / 2;
+        const px = sideX + sideW / 2;
+        const py = sideY + sideH - t * sideH;
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(px, py, 4.5, 0, Math.PI * 2);
@@ -538,8 +578,8 @@ function createGalaxyMapControl() {
       ctx.fillStyle = theme.textDim;
       ctx.font = '11px sans-serif';
       ctx.textBaseline = 'alphabetic';
-      ctx.fillText(`0..${Math.round(radialSpanPc).toLocaleString()} pc from galactic centre`, topX, topY + 12);
-      ctx.fillText(`height ±${Math.round(verticalHalfSpanPc).toLocaleString()} pc`, sideX, sideY + sideH + 13);
+      ctx.fillText(`radial 0..${Math.round(radialSpanPc).toLocaleString()} pc from centre`, topX, topY + 12);
+      ctx.fillText(`⊥ plane ±${Math.round(verticalHalfSpanPc).toLocaleString()} pc`, sideX - 2, sideY + sideH + 14);
     },
   };
 }
@@ -1180,7 +1220,9 @@ async function mountViewer() {
   const xrTabletController = createXrTabletController({
     id: 'phase-5b-xr-tablet-controller',
     items: buildHomeMenuItems(),
+    panelHeight: TABLET_PANEL_HEIGHT,
     displayOptions: {
+      height: TABLET_HOME_CANVAS_HEIGHT,
       controls: {
         'galaxy-map': createGalaxyMapControl(),
       },
