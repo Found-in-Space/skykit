@@ -85,12 +85,14 @@ export function createXrTabletController(options = {}) {
     onChange,
     handedness = DEFAULT_HANDEDNESS,
     title,
+    displayOptions = {},
   } = options;
 
   const pointerHand = handedness === 'left' ? 'right' : 'left';
   const display = createTouchDisplay({
     title,
     items: initialItems,
+    ...displayOptions,
     onAction(id, value, detail) {
       if (typeof onChange === 'function') {
         onChange(id, value, detail);
