@@ -1,5 +1,8 @@
 import { MetaSidecarService } from '../services/sidecars/meta-sidecar-service.js';
 import { RenderOctreeService } from '../services/octree/render-octree-service.js';
+import { decodeTemperatureK } from '../services/star-picker.js';
+import { fromStarDataId, parseStarDataId } from '../services/star-data-id.js';
+import { SCALE } from '../services/octree/scene-scale.js';
 
 const DEFAULT_CACHE_NAMES = Object.freeze([
   'bootstrapHeaders',
@@ -237,6 +240,98 @@ export class DatasetSession {
     }
 
     return service.resolveMetaEntryFields(pickMeta);
+  }
+
+  normalizeStarDataId(starDataId) {
+    if (typeof starDataId === 'string') {
+      return parseStarDataId(starDataId);
+    }
+
+    return fromStarDataId(starDataId);
+  }
+
+  async resolvePickMetaByStarId(starDataId) {
+    const normalizedId = this.normalizeStarDataId(starDataId);
+    const renderService = this.getRenderService();
+    await renderService.ensureBootstrap();
+
+    if (!this.datasetUuid || normalizedId.datasetUuid !== this.datasetUuid) {
+      throw new Error(
+        `StarDataId datasetUuid ${normalizedId.datasetUuid} does not match active dataset ${this.datasetUuid ?? 'unknown'}`,
+      );
+    }
+
+    const node = await renderService.resolveNodeByLevelMorton(normalizedId.level, normalizedId.mortonCode);
+    if (!node) {
+      return null;
+    }
+
+    return {
+      id: normalizedId,
+      pickMeta: {
+        nodeKey: node.nodeKey,
+        level: node.level,
+        centerX: node.centerX,
+        centerY: node.centerY,
+        centerZ: node.centerZ,
+        gridX: node.gridX,
+        gridY: node.gridY,
+        gridZ: node.gridZ,
+        ordinal: normalizedId.ordinal,
+      },
+      node,
+    };
+  }
+
+  async resolveStarById(starDataId, options = {}) {
+    const resolved = await this.resolvePickMetaByStarId(starDataId);
+    if (!resolved) {
+      return null;
+    }
+
+    const { id, node, pickMeta } = resolved;
+    const renderService = this.getRenderService();
+    const payloadBuffer = await renderService.fetchNodePayload(node);
+    const decoded = renderService.decodePayload(payloadBuffer, node);
+
+    if (id.ordinal >= decoded.count) {
+      throw new RangeError(
+        `StarDataId ordinal ${id.ordinal} is out of range for node ${node.nodeKey} (count=${decoded.count})`,
+      );
+    }
+
+    const positionScene = [
+      decoded.positions[id.ordinal * 3],
+      decoded.positions[id.ordinal * 3 + 1],
+      decoded.positions[id.ordinal * 3 + 2],
+    ];
+    const temperatureByte = decoded.teffLog8?.[id.ordinal];
+    const includeSidecars = Array.isArray(options.includeSidecars) ? options.includeSidecars : [];
+    const sidecars = {};
+
+    for (const name of includeSidecars) {
+      sidecars[name] = await this.resolveSidecarMetaFields(name, pickMeta);
+    }
+
+    return {
+      id,
+      nodeKey: node.nodeKey,
+      pickMeta,
+      positionScene,
+      positionPc: positionScene.map((value) => value / SCALE),
+      absoluteMagnitude: decoded.magAbs[id.ordinal],
+      ...(temperatureByte != null ? { temperatureK: decodeTemperatureK(temperatureByte) } : {}),
+      ...(includeSidecars.length > 0 ? { sidecars } : {}),
+    };
+  }
+
+  async resolveSidecarMetaByStarId(name, starDataId) {
+    const resolved = await this.resolvePickMetaByStarId(starDataId);
+    if (!resolved) {
+      return null;
+    }
+
+    return this.resolveSidecarMetaFields(name, resolved.pickMeta);
   }
 
   describe() {
