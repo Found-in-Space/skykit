@@ -620,6 +620,81 @@ Recommended constraints:
 
 Multiple viewers on the same page (including a desktop viewer and an XR viewer) should ideally share a single `DatasetSession`. This is safe because `DatasetSession` has no rendering, rig, or camera dependencies.
 
+### Dataset Services: Canonical Identity and On-Demand Resolution
+
+`DatasetSession` should expose a canonical, dataset-scoped star identity so picks, waypoints, and saved state can survive runtime object lifetimes and transient render ordering.
+
+#### Canonical ID type
+
+```ts
+type StarDataId = string;
+```
+
+`StarDataId` represents one logical star identity within one dataset UUID/version. It is the canonical identifier used by API surfaces that persist or exchange targets (for example, localStorage, deep links, waypoints, or multiplayer state sync).
+
+#### Resolution API
+
+```ts
+interface DatasetSession {
+  resolveStarById(id: StarDataId): Promise<ResolvedStar | null>;
+}
+```
+
+`resolveStarById` is on-demand by design: consumers persist or pass around `StarDataId`, then ask the dataset services to resolve it when navigation or rendering actually needs star coordinates and metadata.
+
+#### Stability guarantees
+
+- **Guaranteed stable only within the same dataset UUID/version.** If two viewers share one dataset identity, a `StarDataId` must refer to the same logical star in both.
+- **Not guaranteed across dataset changes by default.** If the dataset UUID/version changes, previously stored IDs are invalid unless an explicit migration map exists.
+- **Migration is data-owned, not viewer-owned.** Viewers should treat cross-version remapping as optional dataset metadata and fail gracefully when no migration is provided.
+
+#### Minimal usage snippets
+
+Pick conversion to canonical ID:
+
+```ts
+const pick = pickController.getLastPick();
+if (pick) {
+  // Convert transient pick payload into canonical dataset identity.
+  const starId = datasetSession.getStarDataIdFromPick(pick); // StarDataId
+}
+```
+
+Persisting to localStorage:
+
+```ts
+const key = `skykit:waypoint:${datasetSession.datasetUuid}`;
+localStorage.setItem(
+  key,
+  JSON.stringify({
+    starId, // canonical StarDataId
+  }),
+);
+```
+
+Waypoint restore + resolve + navigation:
+
+```ts
+const key = `skykit:waypoint:${datasetSession.datasetUuid}`;
+const saved = JSON.parse(localStorage.getItem(key) ?? 'null');
+
+if (saved?.starId) {
+  const resolved = await datasetSession.resolveStarById(saved.starId);
+  if (resolved) {
+    cameraRigController.flyTo(resolved.positionPc);
+  }
+}
+```
+
+#### Migration note for existing waypoint formats
+
+- Existing waypoints that store `targetPc` can continue as a fallback for legacy snapshots, but new writes should store `starId` as the primary target identity.
+- Existing flows that persist transient `result.index` from pick/search results should migrate to `StarDataId`; `result.index` is renderer/query-order state and is not stable identity.
+- A practical migration path is:
+  1. read legacy `starId` if present;
+  2. otherwise read legacy `targetPc` and navigate directly;
+  3. when an identity can be resolved, rewrite the waypoint with canonical `starId`.
+
 ### Payload Streaming
 
 Render-payload loading should be treated as a first-class shared service concern rather than as an incidental detail inside one layer.
