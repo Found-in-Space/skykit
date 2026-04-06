@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { createTouchDisplay } from '../ui/touch-display.js';
 
 const DEFAULT_HANDEDNESS = 'left';
-const PANEL_WIDTH = 0.20;
-const PANEL_HEIGHT = 0.28;
+const DEFAULT_PANEL_WIDTH = 0.20;
+const DEFAULT_PANEL_HEIGHT = 0.28;
 const PANEL_RENDER_ORDER = 998;
 
 const _plane = new THREE.Plane();
@@ -51,7 +51,7 @@ function isTriggerPressed(xr, handedness) {
   return false;
 }
 
-function hitTestPanel(panelMesh, rayOrigin, rayDirection) {
+function hitTestPanel(panelMesh, rayOrigin, rayDirection, panelWidth, panelHeight) {
   _normal.set(0, 0, 1).applyQuaternion(panelMesh.quaternion);
   _plane.setFromNormalAndCoplanarPoint(_normal, panelMesh.position);
 
@@ -65,8 +65,8 @@ function hitTestPanel(panelMesh, rayOrigin, rayDirection) {
 
   _tmpQuat.copy(panelMesh.quaternion).invert();
   _localPt.copy(_intersect).sub(panelMesh.position).applyQuaternion(_tmpQuat);
-  const u = _localPt.x / PANEL_WIDTH + 0.5;
-  const v = _localPt.y / PANEL_HEIGHT + 0.5;
+  const u = _localPt.x / panelWidth + 0.5;
+  const v = _localPt.y / panelHeight + 0.5;
 
   if (u < 0 || u > 1 || v < 0 || v > 1) return null;
   return { u, v, distance: t, point: _intersect.clone() };
@@ -86,6 +86,8 @@ export function createXrTabletController(options = {}) {
     handedness = DEFAULT_HANDEDNESS,
     title,
     displayOptions = {},
+    panelWidth = DEFAULT_PANEL_WIDTH,
+    panelHeight = DEFAULT_PANEL_HEIGHT,
   } = options;
 
   const pointerHand = handedness === 'left' ? 'right' : 'left';
@@ -103,7 +105,7 @@ export function createXrTabletController(options = {}) {
   const texture = new THREE.CanvasTexture(display.canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
 
-  const panelGeo = new THREE.PlaneGeometry(PANEL_WIDTH, PANEL_HEIGHT);
+  const panelGeo = new THREE.PlaneGeometry(panelWidth, panelHeight);
   const panelMat = new THREE.MeshBasicMaterial({
     map: texture,
     transparent: true,
@@ -157,7 +159,7 @@ export function createXrTabletController(options = {}) {
     _rayOrig.set(p.x, p.y, p.z);
     _rayDir.set(0, 0, -1).applyQuaternion(_tmpQuat.set(o.x, o.y, o.z, o.w));
 
-    currentHit = hitTestPanel(panelMesh, _rayOrig, _rayDir);
+    currentHit = hitTestPanel(panelMesh, _rayOrig, _rayDir, panelWidth, panelHeight);
     return currentHit;
   }
 
