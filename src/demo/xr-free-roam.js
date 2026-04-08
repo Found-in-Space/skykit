@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { loadHaPreviewVolume } from '../dust/load-ha-preview-volume.js';
 import {
   createConstellationArtLayer,
   createConstellationCompassController,
@@ -55,6 +56,13 @@ const GALACTIC_FRAME_ROTATION = Object.freeze([
 ]);
 const TABLET_HOME_CANVAS_HEIGHT = 760;
 const TABLET_PANEL_HEIGHT = 0.38;
+const GALAXY_MAP_HEIGHT_PC = 1200;
+const H_ALPHA_XR_LEVEL_URL = '/previews/mccallum2025/levels/ha_l2_256.bin';
+const H_ALPHA_XR_RAYMARCH_STEPS = 64;
+const H_ALPHA_XR_GAIN = 7.0;
+const H_ALPHA_XR_THRESHOLD = 0.02;
+const H_ALPHA_XR_OPACITY = 0.75;
+const H_ALPHA_XR_BOUND_RADIUS_PC = 2200;
 
 function approachTargetFromObserver(targetPc, observerPc, distancePc) {
   const dx = targetPc.x - observerPc.x;
@@ -128,6 +136,101 @@ const {
   sceneToIcrs: ORION_SCENE_TO_ICRS_TRANSFORM,
 } = createSceneOrientationTransforms(ORION_CENTER_PC);
 
+const GALACTIC_TO_ICRS_ROTATION = [
+  [-0.0548755604, +0.4941094279, -0.8676661490],
+  [-0.8734370902, -0.4448296300, -0.1980763734],
+  [-0.4838350155, +0.7469822445, +0.4559837762],
+];
+
+function galacticToIcrs(gx, gy, gz) {
+  return [
+    GALACTIC_TO_ICRS_ROTATION[0][0] * gx
+      + GALACTIC_TO_ICRS_ROTATION[0][1] * gy
+      + GALACTIC_TO_ICRS_ROTATION[0][2] * gz,
+    GALACTIC_TO_ICRS_ROTATION[1][0] * gx
+      + GALACTIC_TO_ICRS_ROTATION[1][1] * gy
+      + GALACTIC_TO_ICRS_ROTATION[1][2] * gz,
+    GALACTIC_TO_ICRS_ROTATION[2][0] * gx
+      + GALACTIC_TO_ICRS_ROTATION[2][1] * gy
+      + GALACTIC_TO_ICRS_ROTATION[2][2] * gz,
+  ];
+}
+
+function galacticToXrScene(gx, gy, gz) {
+  const [ix, iy, iz] = galacticToIcrs(gx, gy, gz);
+  return ORION_SCENE_TRANSFORM(ix * SCALE, iy * SCALE, iz * SCALE);
+}
+
+const hAlphaVertexShader = /* glsl */ `
+  out vec3 vWorldPos;
+
+  void main() {
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vWorldPos = wp.xyz;
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }
+`;
+
+const hAlphaFragmentShader = /* glsl */ `
+  precision highp float;
+  precision highp sampler3D;
+
+  uniform sampler3D uVolume;
+  uniform float uGain;
+  uniform float uThreshold;
+  uniform float uOpacity;
+  uniform int uSteps;
+  uniform mat4 uInvModelMatrix;
+  uniform vec3 uBoxSize;
+  uniform float uSceneScale;
+  uniform float uReferenceLengthPc;
+
+  in vec3 vWorldPos;
+  out vec4 fragColor;
+
+  void main() {
+    vec3 localPos = (uInvModelMatrix * vec4(vWorldPos, 1.0)).xyz;
+    vec3 localCam = (uInvModelMatrix * vec4(cameraPosition, 1.0)).xyz;
+    vec3 rayDir = normalize(localPos - localCam);
+    vec3 safeDir = mix(vec3(1e-5), rayDir, step(vec3(1e-5), abs(rayDir)));
+
+    vec3 halfSize = uBoxSize * 0.5;
+    vec3 tMin = (-halfSize - localCam) / safeDir;
+    vec3 tMax = ( halfSize - localCam) / safeDir;
+    vec3 t1 = min(tMin, tMax);
+    vec3 t2 = max(tMin, tMax);
+    float tNear = max(max(t1.x, t1.y), t1.z);
+    float tFar = min(min(t2.x, t2.y), t2.z);
+
+    if (tNear > tFar) discard;
+    tNear = max(tNear, 0.0);
+
+    float stepSize = (tFar - tNear) / float(uSteps);
+    float stepSizePc = stepSize / max(uSceneScale, 1e-9);
+    if (stepSize <= 0.0 || stepSizePc <= 0.0) discard;
+
+    float emission = 0.0;
+    for (int i = 0; i < ${H_ALPHA_XR_RAYMARCH_STEPS}; i++) {
+      if (i >= uSteps) break;
+
+      float t = tNear + (float(i) + 0.5) * stepSize;
+      vec3 pos = localCam + rayDir * t;
+      vec3 uvw = pos / uBoxSize + 0.5;
+      float raw = texture(uVolume, uvw).r;
+      emission += max(raw - uThreshold, 0.0) * stepSizePc;
+    }
+
+    float signal = 1.0 - exp(-emission * uGain / max(uReferenceLengthPc, 1e-6));
+    if (signal <= 0.002) discard;
+
+    vec3 dim = vec3(0.50, 0.03, 0.015);
+    vec3 hot = vec3(1.0, 0.42, 0.12);
+    vec3 color = mix(dim, hot, smoothstep(0.02, 0.75, signal));
+    float alpha = clamp(signal * uOpacity, 0.0, 0.9);
+    fragColor = vec4(color * signal * uOpacity, alpha);
+  }
+`;
+
 function clonePoint(point) {
   return point ? { x: point.x, y: point.y, z: point.z } : null;
 }
@@ -178,6 +281,90 @@ function createShipDeckSlab() {
   slab.add(nose);
 
   return slab;
+}
+
+function createHaAlphaPlacement(voxelInfo) {
+  const {
+    nx,
+    ny,
+    nz,
+    minX,
+    maxX,
+    minY,
+    maxY,
+    minZ,
+    maxZ,
+  } = voxelInfo;
+
+  const dx = (maxX - minX) / Math.max(1, nx - 1);
+  const dy = (maxY - minY) / Math.max(1, ny - 1);
+  const dz = (maxZ - minZ) / Math.max(1, nz - 1);
+  const extX = (maxX - minX + dx) * SCALE;
+  const extY = (maxY - minY + dy) * SCALE;
+  const extZ = (maxZ - minZ + dz) * SCALE;
+  const cenGalX = (minX + maxX) / 2;
+  const cenGalY = (minY + maxY) / 2;
+  const cenGalZ = (minZ + maxZ) / 2;
+  const basisX = galacticToXrScene(1, 0, 0).map((v) => v / SCALE);
+  const basisY = galacticToXrScene(0, 1, 0).map((v) => v / SCALE);
+  const basisZ = galacticToXrScene(0, 0, 1).map((v) => v / SCALE);
+  const [cx, cy, cz] = galacticToXrScene(cenGalX, cenGalY, cenGalZ);
+
+  const rotBasis = new THREE.Matrix4().makeBasis(
+    new THREE.Vector3(...basisX).normalize(),
+    new THREE.Vector3(...basisY).normalize(),
+    new THREE.Vector3(...basisZ).normalize(),
+  );
+  return {
+    boxSize: new THREE.Vector3(extX, extY, extZ),
+    position: new THREE.Vector3(cx, cy, cz),
+    quaternion: new THREE.Quaternion().setFromRotationMatrix(rotBasis),
+  };
+}
+
+function buildHaAlphaMesh(voxelInfo) {
+  const placement = createHaAlphaPlacement(voxelInfo);
+  const geometry = new THREE.BoxGeometry(
+    placement.boxSize.x,
+    placement.boxSize.y,
+    placement.boxSize.z,
+  );
+  const invModelMatrix = new THREE.Matrix4();
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uVolume: { value: voxelInfo.texture },
+      uGain: { value: H_ALPHA_XR_GAIN },
+      uThreshold: { value: H_ALPHA_XR_THRESHOLD },
+      uOpacity: { value: H_ALPHA_XR_OPACITY },
+      uSteps: { value: H_ALPHA_XR_RAYMARCH_STEPS },
+      uInvModelMatrix: { value: invModelMatrix },
+      uBoxSize: { value: placement.boxSize },
+      uSceneScale: { value: SCALE },
+      uReferenceLengthPc: {
+        value: Math.max(
+          placement.boxSize.x,
+          placement.boxSize.y,
+          placement.boxSize.z,
+        ) / SCALE,
+      },
+    },
+    vertexShader: hAlphaVertexShader,
+    fragmentShader: hAlphaFragmentShader,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.BackSide,
+    blending: THREE.AdditiveBlending,
+    glslVersion: THREE.GLSL3,
+  });
+
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = 'hAlphaLevel2Volume';
+  mesh.position.copy(placement.position);
+  mesh.quaternion.copy(placement.quaternion);
+  mesh.onBeforeRender = () => {
+    invModelMatrix.copy(mesh.matrixWorld).invert();
+  };
+  return mesh;
 }
 
 function summarizeViewer(snapshot) {
@@ -317,8 +504,13 @@ function computeXrDepthTelemetry(snapshot = null, options = {}) {
     metersPerParsec,
     selection: snapshot?.selection ?? null,
     observerPc: snapshot?.state?.observerPc ?? null,
-    includeConstellationSphere: options.includeConstellationSphere === true,
-    constellationSphereRadiusPc: options.constellationSphereRadiusPc ?? XR_CONSTELLATION_SPHERE_RADIUS_PC,
+    includeConstellationSphere: true,
+    constellationSphereRadiusPc: Math.max(
+      options.includeConstellationSphere === true
+        ? options.constellationSphereRadiusPc ?? XR_CONSTELLATION_SPHERE_RADIUS_PC
+        : 0,
+      H_ALPHA_XR_BOUND_RADIUS_PC,
+    ),
     marginFactor: XR_DEPTH_MARGIN_FACTOR,
     minFar: XR_MIN_FAR_PLANE,
     maxFar: XR_MAX_FAR_PLANE,
@@ -403,6 +595,8 @@ let pendingSelectionRefreshTimer = null;
 let currentConstellationIau = null;
 let currentTabletPage = 'home';
 let xrDepthRangeTelemetry = null;
+let hAlphaMesh = null;
+let hAlphaStatus = 'idle';
 
 let warmState = {
   bootstrap: 'idle',
@@ -1033,6 +1227,7 @@ function renderSummary(snapshot, datasetDescription) {
     mDesired: activeMagLimit,
     starFieldExposure: getActiveExposure(),
     artEnabled,
+    hAlpha: hAlphaStatus,
     activeConstellationIau: currentConstellationIau,
     nearDistanceFloorEnabled,
     sharedDatasetSession: datasetDescription?.id ?? null,
@@ -1069,6 +1264,7 @@ function renderSnapshot() {
     mDesired: activeMagLimit,
     starFieldExposure: getActiveExposure(),
     artEnabled,
+    hAlpha: hAlphaStatus,
     activeConstellationIau: currentConstellationIau,
     nearDistanceFloorEnabled,
     viewer: snapshot,
@@ -1158,6 +1354,11 @@ async function mountViewer() {
   }
 
   await warmDatasetSession();
+  hAlphaStatus = `loading ${H_ALPHA_XR_LEVEL_URL}`;
+  renderSnapshot();
+  const hAlphaLoad = loadHaPreviewVolume(H_ALPHA_XR_LEVEL_URL)
+    .then((voxelInfo) => ({ voxelInfo }))
+    .catch((error) => ({ error }));
 
   const camera = createViewerCamera();
   const xrRig = createXrRig(camera, {
@@ -1349,6 +1550,17 @@ async function mountViewer() {
     },
     clearColor: 0x02040b,
   });
+
+  const hAlphaResult = await hAlphaLoad;
+  if (hAlphaResult.voxelInfo) {
+    hAlphaMesh = buildHaAlphaMesh(hAlphaResult.voxelInfo);
+    viewer.contentRoot.add(hAlphaMesh);
+    hAlphaStatus = `loaded ${hAlphaResult.voxelInfo.nx}^3 from ${H_ALPHA_XR_LEVEL_URL}`;
+    viewer.runtime?.renderOnce?.();
+  } else {
+    hAlphaStatus = `unavailable: ${hAlphaResult.error?.message ?? 'unknown error'}`;
+    console.warn('[xr-free-roam-demo] H-alpha level 2 load failed', hAlphaResult.error);
+  }
 
   syncWorldClipPlanes();
   await refreshXrSupport();

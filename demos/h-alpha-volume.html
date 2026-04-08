@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit: H-alpha Volume</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .volume-controls {
+        margin-top: 12px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .volume-controls label {
+        display: block;
+        margin-top: 10px;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+      }
+      .range-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 4px 0 8px;
+      }
+      .range-row input[type="range"] {
+        flex: 1;
+        accent-color: var(--accent-strong);
+      }
+      .range-val {
+        min-width: 3.8em;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        color: var(--accent-strong);
+        font-size: 0.9rem;
+      }
+      .stat-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 4px 0;
+        font-size: 0.85rem;
+      }
+      .stat-label { color: var(--text-muted); }
+      .stat-value {
+        color: var(--accent-strong);
+        font-variant-numeric: tabular-nums;
+        overflow-wrap: anywhere;
+        text-align: right;
+      }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <nav class="breadcrumb"><a href="../index.html">SkyKit</a> <span>/ H-alpha Volume</span></nav>
+      <h1>H-alpha Volume</h1>
+      <p>
+        McCallum et al. 2025 H-alpha emission around the Sun, streamed as
+        sparse multiresolution bricks.
+      </p>
+      <ul>
+        <li>Drag in the viewer to look around.</li>
+        <li>WASD/QE or arrows to fly.</li>
+      </ul>
+
+      <label for="mag-limit">Magnitude Limit</label>
+      <input id="mag-limit" type="number" min="0" max="25" step="0.5" value="7.5" data-mag-limit />
+
+      <div class="volume-controls">
+        <strong style="font-size:0.9rem; color: var(--text-main, #eee);">H-alpha volume</strong>
+
+        <label for="ha-gain">Emission gain</label>
+        <div class="range-row">
+          <input id="ha-gain" type="range" min="0.2" max="12" step="0.1" value="3.2" data-ha-gain />
+          <span class="range-val" data-ha-gain-value>3.2</span>
+        </div>
+
+        <label for="ha-threshold">Threshold</label>
+        <div class="range-row">
+          <input id="ha-threshold" type="range" min="0" max="0.4" step="0.005" value="0.02" data-ha-threshold />
+          <span class="range-val" data-ha-threshold-value>0.020</span>
+        </div>
+
+        <label for="ha-opacity">Opacity</label>
+        <div class="range-row">
+          <input id="ha-opacity" type="range" min="0.05" max="1.5" step="0.05" value="0.85" data-ha-opacity />
+          <span class="range-val" data-ha-opacity-value>0.85</span>
+        </div>
+
+        <div class="stat-row">
+          <span class="stat-label">Manifest URL</span>
+          <span class="stat-value" data-ha-url>-</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Grid</span>
+          <span class="stat-value" data-ha-grid>-</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Extents (pc, Gal.)</span>
+          <span class="stat-value" data-ha-extents>-</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Cell size (pc)</span>
+          <span class="stat-value" data-ha-cell-size>-</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Format</span>
+          <span class="stat-value" data-ha-format>-</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Selected bricks</span>
+          <span class="stat-value" data-ha-selected>-</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Rendered bricks</span>
+          <span class="stat-value" data-ha-rendered>-</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Cached bricks</span>
+          <span class="stat-value" data-ha-cached>-</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">In flight</span>
+          <span class="stat-value" data-ha-inflight>-</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Requested</span>
+          <span class="stat-value" data-ha-requested>-</span>
+        </div>
+      </div>
+
+      <p class="status">Status: <span data-status>idle</span></p>
+    </aside>
+    <main>
+      <div class="viewer-shell" data-skykit-viewer-root></div>
+    </main>
+    <script type="module" src="/src/demo/h-alpha-volume.js"></script>
+  </body>
+</html>
