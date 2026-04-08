@@ -56,7 +56,7 @@
       <h1>H-alpha Volume</h1>
       <p>
         McCallum et al. 2025 H-alpha emission around the Sun, streamed as
-        sparse multiresolution bricks.
+        fixed-grid gzip tiles.
       </p>
       <ul>
         <li>Drag in the viewer to look around.</li>
@@ -71,8 +71,8 @@
 
         <label for="ha-gain">Emission gain</label>
         <div class="range-row">
-          <input id="ha-gain" type="range" min="0.2" max="12" step="0.1" value="3.2" data-ha-gain />
-          <span class="range-val" data-ha-gain-value>3.2</span>
+          <input id="ha-gain" type="range" min="0.2" max="12" step="0.1" value="7.0" data-ha-gain />
+          <span class="range-val" data-ha-gain-value>7.0</span>
         </div>
 
         <label for="ha-threshold">Threshold</label>
@@ -108,15 +108,15 @@
           <span class="stat-value" data-ha-format>-</span>
         </div>
         <div class="stat-row">
-          <span class="stat-label">Selected bricks</span>
+          <span class="stat-label">Target slots</span>
           <span class="stat-value" data-ha-selected>-</span>
         </div>
         <div class="stat-row">
-          <span class="stat-label">Rendered bricks</span>
+          <span class="stat-label">Rendered volume</span>
           <span class="stat-value" data-ha-rendered>-</span>
         </div>
         <div class="stat-row">
-          <span class="stat-label">Cached bricks</span>
+          <span class="stat-label">Decoded cache</span>
           <span class="stat-value" data-ha-cached>-</span>
         </div>
         <div class="stat-row">

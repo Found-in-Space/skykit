@@ -40,6 +40,10 @@ export {
   getSelectionRefreshReasons,
 } from './controllers/selection-refresh-controller.js';
 export { createConstellationArtLayer } from './layers/constellation-art-layer.js';
+export {
+  createHaTiledVolumeLayer,
+  createHaTiledVolumeMaterial,
+} from './layers/h-alpha-tiled-volume-layer.js';
 export { createMinimalSceneLayer } from './layers/minimal-scene-layer.js';
 export { createStarFieldLayer } from './layers/star-field-layer.js';
 export {
@@ -98,6 +102,12 @@ export {
 } from './presets/navigation-presets.js';
 export { createVolumeHRLoader } from './hr-diagram/volume-hr-loader.js';
 export { HRDiagramRenderer } from './hr-diagram/hr-diagram-renderer.js';
+export {
+  DEFAULT_MCCALLUM_HA_TILED_VOLUME_URL,
+  loadHaTiledVolume,
+  resolveHaTiledVolumeLevelIds,
+  resolveHaTiledVolumeUrl,
+} from './dust/load-ha-tiled-volume.js';
 export {
   DEFAULT_PICK_TOLERANCE_DEG,
   computeVisualRadiusPx,
