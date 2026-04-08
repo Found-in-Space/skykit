@@ -22,6 +22,8 @@ export default defineConfig({
         dataShape: path.resolve(__dirname, 'demos/data-shape.html'),
         dustMap: path.resolve(__dirname, 'demos/dust-map.html'),
         dustRoam: path.resolve(__dirname, 'demos/dust-roam.html'),
+        hAlphaPreview: path.resolve(__dirname, 'demos/h-alpha-preview.html'),
+        hAlphaVolume: path.resolve(__dirname, 'demos/h-alpha-volume.html'),
       },
     },
   },
