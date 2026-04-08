@@ -161,6 +161,7 @@ function renderStats() {
     finalLevel,
     slotCount,
     requestStats = {},
+    rangeCacheStats = {},
   } = volumeStats;
   const extentInfo = formatExtentInfo(manifest, volumeStats.displayDimension);
   if (gridSpan) {
@@ -176,7 +177,8 @@ function renderStats() {
   }
   if (inflightSpan) inflightSpan.textContent = String(volumeStats.inflightBricks);
   if (requestedSpan) {
-    requestedSpan.textContent = `${requestStats.bricksRequested ?? 0} · ${((requestStats.bytesRequested ?? 0) / (1024 * 1024)).toFixed(1)} MiB · ${volumeStats.uploadCount ?? 0} uploads`;
+    const cacheHits = rangeCacheStats.persistentCacheHits ?? requestStats.persistentCacheHits ?? 0;
+    requestedSpan.textContent = `${requestStats.bricksRequested ?? 0} · ${((requestStats.bytesRequested ?? 0) / (1024 * 1024)).toFixed(1)} MiB · ${cacheHits} cache hits · ${volumeStats.uploadCount ?? 0} uploads`;
   }
 }
 
