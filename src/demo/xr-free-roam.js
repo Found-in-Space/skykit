@@ -52,7 +52,10 @@ const GALAXY_MAP_CONTROL_ID = 'galaxy-map';
 const GALAXY_MAP_RADIAL_TICKS_PC = Object.freeze([2000, 4000, 8000, 12000]);
 const GALAXY_MAP_HEIGHT_PC = 1200;
 const H_ALPHA_XR_VOLUME_URL = resolveHaTiledVolumeUrl();
-const H_ALPHA_XR_LEVEL_IDS = resolveHaTiledVolumeLevelIds();
+const H_ALPHA_XR_LEVEL_IDS = resolveHaTiledVolumeLevelIds({
+  initialLevelDefault: 3,
+  finalLevelDefault: 1,
+});
 const H_ALPHA_XR_RAYMARCH_STEPS = 64;
 const H_ALPHA_XR_GAIN = 7.0;
 const H_ALPHA_XR_THRESHOLD = 0.02;

@@ -7,6 +7,7 @@ export const DEFAULT_HA_TILED_MAX_RESIDENT_BRICKS = 128;
 export const DEFAULT_HA_TILED_MAX_INFLIGHT_REQUESTS = 8;
 export const DEFAULT_HA_TILED_BATCH_MAX_BRICKS = 8;
 export const DEFAULT_HA_TILED_BATCH_MAX_BYTES = 32 * 1024 * 1024;
+export const HA_TILED_PERSISTENT_CACHE_NAME = 'skykit-h-alpha-tiled-v1';
 
 const decoder = new TextDecoder('ascii');
 
@@ -41,7 +42,13 @@ function keyForBrick(brick) {
   return `${brick.levelId}:${brick.slotIndex}`;
 }
 
+function rangeCacheUrl(url, start, end) {
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}_ha_r=${start}-${end}`;
+}
+
 async function fetchRange(fetchImpl, url, start, end, label) {
+  const t0 = performance.now();
   const expectedBytes = end - start + 1;
   const response = await fetchImpl(url, {
     headers: { Range: `bytes=${start}-${end}` },
@@ -55,7 +62,10 @@ async function fetchRange(fetchImpl, url, start, end, label) {
       `${label} range request returned ${buffer.byteLength} bytes, expected ${expectedBytes}`,
     );
   }
-  return buffer;
+  return {
+    buffer,
+    elapsed: performance.now() - t0,
+  };
 }
 
 export function resolveHaTiledVolumeUrl(search = null) {
@@ -70,22 +80,39 @@ export function resolveHaTiledVolumeUrl(search = null) {
   );
 }
 
-export function resolveHaTiledVolumeLevelIds(search = null) {
+function normalizeLevelId(value) {
+  if (value == null || value === '') return null;
+  if (Number.isInteger(value) && value >= 0) return `l${value}`;
+  const text = String(value).trim();
+  if (!text) return null;
+  if (/^\d+$/.test(text)) return `l${text}`;
+  return text;
+}
+
+export function resolveHaTiledVolumeLevelIds(searchOrOptions = null, maybeOptions = {}) {
+  const options = searchOrOptions && typeof searchOrOptions === 'object'
+    ? searchOrOptions
+    : maybeOptions;
+  const search = searchOrOptions && typeof searchOrOptions === 'object'
+    ? options.search
+    : searchOrOptions;
   const searchValue = typeof search === 'string'
     ? search
     : globalThis.location?.search ?? '';
   const params = new URLSearchParams(searchValue);
   return {
-    initialLevelId: (
+    initialLevelId: normalizeLevelId(
       params.get('haInitialLevel')?.trim()
       || params.get('haLowLevel')?.trim()
-      || null
+      || options.initialLevelDefault
+      || null,
     ),
-    finalLevelId: (
+    finalLevelId: normalizeLevelId(
       params.get('haFinalLevel')?.trim()
       || params.get('haHighLevel')?.trim()
       || params.get('haDisplayLevel')?.trim()
-      || null
+      || options.finalLevelDefault
+      || null,
     ),
   };
 }
@@ -305,11 +332,77 @@ class HaTiledVolumeBrickCache {
   }
 }
 
+class HaTiledVolumeRangeCache {
+  constructor(options = {}) {
+    this.fetchImpl = options.fetchImpl ?? defaultFetch;
+    this.persistentCache = options.persistentCache ?? options.session?.persistentCache ?? 'on';
+    this._persistentCachePromise = null;
+    this.stats = {
+      persistentCacheHits: 0,
+      persistentCacheMisses: 0,
+      persistentCacheWrites: 0,
+      fetchTimeMs: 0,
+    };
+  }
+
+  _openPersistentCache() {
+    if (this.persistentCache === 'off' || typeof caches === 'undefined') {
+      return Promise.resolve(null);
+    }
+    if (!this._persistentCachePromise) {
+      this._persistentCachePromise = caches
+        .open(HA_TILED_PERSISTENT_CACHE_NAME)
+        .catch(() => null);
+    }
+    return this._persistentCachePromise;
+  }
+
+  async fetchRange(url, start, end, label) {
+    const cache = await this._openPersistentCache();
+    if (cache) {
+      const cacheUrl = rangeCacheUrl(url, start, end);
+      try {
+        const cached = await cache.match(cacheUrl);
+        if (cached) {
+          this.stats.persistentCacheHits += 1;
+          return {
+            buffer: await cached.arrayBuffer(),
+            elapsed: 0,
+            persistentCacheHit: true,
+          };
+        }
+      } catch {
+        // Fall through to network when the persistent cache cannot be read.
+      }
+    }
+
+    this.stats.persistentCacheMisses += cache ? 1 : 0;
+    const result = await fetchRange(this.fetchImpl, url, start, end, label);
+    this.stats.fetchTimeMs += result.elapsed;
+
+    if (cache) {
+      const cacheUrl = rangeCacheUrl(url, start, end);
+      cache
+        .put(new Request(cacheUrl), new Response(result.buffer.slice(0)))
+        .then(() => {
+          this.stats.persistentCacheWrites += 1;
+        })
+        .catch(() => {});
+    }
+
+    return {
+      ...result,
+      persistentCacheHit: false,
+    };
+  }
+}
+
 export class HaTiledVolumeService {
   constructor(volume, options = {}) {
     this.volume = volume;
     this.fetchImpl = options.fetchImpl ?? defaultFetch;
     this.decompressImpl = options.decompressImpl ?? decompressGzipBuffer;
+    this.rangeCache = options.rangeCache ?? new HaTiledVolumeRangeCache(options);
     this.cache = options.cache ?? new HaTiledVolumeBrickCache(options.maxResidentBricks);
     this.maxInflightRequests = normalizePositiveInteger(
       options.maxInflightRequests,
@@ -324,6 +417,8 @@ export class HaTiledVolumeService {
       inflightSkipped: 0,
       capacitySkipped: 0,
       bytesRequested: 0,
+      persistentCacheHits: 0,
+      fetchTimeMs: 0,
     };
   }
 
@@ -437,7 +532,17 @@ export class HaTiledVolumeService {
     this.stats.bricksRequested += bricks.length;
     this.stats.bytesRequested += rangeBytes;
 
-    const range = await fetchRange(this.fetchImpl, url, start, end, `H-alpha tiled bricks ${start}-${end}`);
+    const rangeResult = await this.rangeCache.fetchRange(
+      url,
+      start,
+      end,
+      `H-alpha tiled bricks ${start}-${end}`,
+    );
+    this.stats.fetchTimeMs += rangeResult.elapsed;
+    if (rangeResult.persistentCacheHit) {
+      this.stats.persistentCacheHits += 1;
+    }
+    const range = rangeResult.buffer;
     for (const brick of bricks) {
       const sliceStart = brick.payloadOffset - start;
       const sliceEnd = sliceStart + brick.payloadLength;
@@ -475,27 +580,28 @@ export class HaTiledVolumeService {
       readyByLevel,
       totalByLevel,
       stats: { ...this.stats },
+      rangeCacheStats: { ...this.rangeCache.stats },
     };
   }
 }
 
 async function loadHaTiledLevel(levelUrl, manifestLevel, options = {}) {
-  const fetchImpl = options.fetchImpl ?? defaultFetch;
-  const headerBuffer = await fetchRange(
-    fetchImpl,
+  const rangeCache = options.rangeCache ?? new HaTiledVolumeRangeCache(options);
+  const headerResult = await rangeCache.fetchRange(
     levelUrl,
     0,
     HA_TILED_LEVEL_HEADER_BYTES - 1,
     `H-alpha tiled level header ${levelUrl}`,
   );
+  const headerBuffer = headerResult.buffer;
   const header = parseHeader(headerBuffer, { sourceUrl: levelUrl });
-  const tableBuffer = await fetchRange(
-    fetchImpl,
+  const tableResult = await rangeCache.fetchRange(
     levelUrl,
     0,
     header.tableBytes - 1,
     `H-alpha tiled level table ${levelUrl}`,
   );
+  const tableBuffer = tableResult.buffer;
   const level = parseHaTiledLevelBuffer(tableBuffer, {
     sourceUrl: levelUrl,
     levelId: manifestLevel.id,
@@ -517,6 +623,10 @@ export async function loadHaTiledVolume(
   options = {},
 ) {
   const fetchImpl = options.fetchImpl ?? defaultFetch;
+  const rangeCache = options.rangeCache ?? new HaTiledVolumeRangeCache({
+    ...options,
+    fetchImpl,
+  });
   const manifestResp = await fetchImpl(manifestUrl);
   if (!manifestResp.ok) {
     throw new Error(`Failed to fetch ${manifestUrl}: ${manifestResp.status}`);
@@ -539,7 +649,10 @@ export async function loadHaTiledVolume(
   for (const manifestLevel of [lowManifest, highManifest]) {
     if (loaded.has(manifestLevel.id)) continue;
     const levelUrl = resolveAssetUrl(manifestLevel.path, manifestUrl);
-    loaded.set(manifestLevel.id, await loadHaTiledLevel(levelUrl, manifestLevel, { fetchImpl }));
+    loaded.set(
+      manifestLevel.id,
+      await loadHaTiledLevel(levelUrl, manifestLevel, { ...options, fetchImpl, rangeCache }),
+    );
   }
 
   const lowLevel = loaded.get(lowLevelId);
@@ -563,5 +676,5 @@ export async function loadHaTiledVolume(
     format: manifest.format,
     frame: manifest.runtime_frame,
   };
-  return new HaTiledVolumeService(volume, options);
+  return new HaTiledVolumeService(volume, { ...options, fetchImpl, rangeCache });
 }

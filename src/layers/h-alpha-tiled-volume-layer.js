@@ -10,7 +10,7 @@ const DEFAULT_GAIN = 7.0;
 const DEFAULT_THRESHOLD = 0.02;
 const DEFAULT_OPACITY = 0.85;
 const DEFAULT_INITIAL_REQUEST_BRICKS_PER_UPDATE = 8;
-const DEFAULT_FINAL_REQUEST_BRICKS_PER_UPDATE = 1;
+const DEFAULT_FINAL_REQUEST_BRICKS_PER_UPDATE = 8;
 const DEFAULT_INITIAL_UPLOAD_BRICKS_PER_UPDATE = 2;
 const DEFAULT_FINAL_UPLOAD_BRICKS_PER_UPDATE = 1;
 const DEFAULT_INITIAL_BATCH_MAX_BRICKS = 8;
@@ -374,6 +374,7 @@ export function createHaTiledVolumeLayer(options = {}) {
       cachedBricks: description?.cachedBricks ?? 0,
       inflightBricks: description?.inflightBricks ?? 0,
       requestStats: description?.stats ?? {},
+      rangeCacheStats: description?.rangeCacheStats ?? {},
       uploadCount: display?.uploadCount ?? 0,
       uploadedBytes: display?.uploadedBytes ?? 0,
     };
@@ -542,10 +543,7 @@ export function createHaTiledVolumeLayer(options = {}) {
         }
         requestBricks.push(brick);
       }
-    } else if (
-      finalReady < slotCount
-      && !highLevel.bricks.some((brick) => service.isBrickInflight(brick))
-    ) {
+    } else if (finalReady < slotCount) {
       for (const brick of sortByCameraDistance(highLevel.bricks)) {
         if (requestBricks.length >= config.finalRequestBricksPerUpdate) break;
         if (
@@ -638,6 +636,7 @@ export function createHaTiledVolumeLayer(options = {}) {
         highLevelId: config.finalLevelId ?? undefined,
         maxResidentBricks: config.maxResidentBricks,
         maxInflightRequests: config.maxInflightRequests,
+        session: context.datasetSession,
       });
       if (service.volume.lowLevel.sampleSize > service.volume.highLevel.sampleSize) {
         throw new Error(
