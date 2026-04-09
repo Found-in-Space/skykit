@@ -22,12 +22,15 @@ import {
   createFlyToAction,
   createLookAtAction,
 } from '../index.js';
+import {
+  buildGalaxyMapValue,
+  createGalaxyMapControl,
+  deriveGalaxyMapScaleHint,
+} from '../ui/galaxy-map-control.js';
 
 const PROXIMA_CEN_PC = { x: -0.47, y: -0.36, z: -1.16 };
 const SIRIUS_PC = { x: -0.49, y: 2.48, z: -0.76 };
 const BETELGEUSE_PC = { x: 4.2, y: 198.3, z: 25.8 };
-const GALAXY_MAP_RADIAL_TICKS_PC = Object.freeze([2000, 4000, 8000, 12000]);
-const GALAXY_MAP_HEIGHT_PC = 1200;
 const GALAXY_MAP_CONTROL_ID = 'galaxy-map';
 
 const {
@@ -53,135 +56,6 @@ function fmt(value, decimals = 2) {
 function sceneToIcrsPc(pos) {
   const [ix, iy, iz] = ORION_SCENE_TO_ICRS_TRANSFORM(pos.x, pos.y, pos.z);
   return { x: ix / SCALE, y: iy / SCALE, z: iz / SCALE };
-}
-
-function buildGalaxyMapValue(observerPc, selectedPc) {
-  const radialObserverPc = Math.hypot(observerPc.x, observerPc.z);
-  const radialSelectedPc = selectedPc ? Math.hypot(selectedPc.x, selectedPc.z) : null;
-  const spanCandidate = Math.max(
-    GALAXY_MAP_RADIAL_TICKS_PC[GALAXY_MAP_RADIAL_TICKS_PC.length - 1],
-    radialObserverPc,
-    Number.isFinite(radialSelectedPc) ? radialSelectedPc : 0,
-  );
-  const radialSpanPc = Math.max(100, Math.ceil(spanCandidate / 100) * 100);
-  return {
-    observer: observerPc,
-    selected: selectedPc,
-    radialSpanPc,
-    radialTicksPc: GALAXY_MAP_RADIAL_TICKS_PC,
-    verticalHalfSpanPc: GALAXY_MAP_HEIGHT_PC,
-  };
-}
-
-function clamp01(value) {
-  return Math.min(Math.max(value, 0), 1);
-}
-
-function drawGalaxyMapGraphic(ctx, bounds, value, options = {}) {
-  if (!ctx || !bounds || !value) {
-    return;
-  }
-
-  const observer = value.observer ?? { x: 0, y: 0, z: 0 };
-  const selected = value.selected ?? null;
-  const radialSpanPc = Number.isFinite(value.radialSpanPc) && value.radialSpanPc > 0 ? value.radialSpanPc : 1;
-  const radialTicksPc = Array.isArray(value.radialTicksPc) ? value.radialTicksPc : [];
-  const verticalHalfSpanPc = Number.isFinite(value.verticalHalfSpanPc) && value.verticalHalfSpanPc > 0
-    ? value.verticalHalfSpanPc
-    : 1;
-
-  const theme = {
-    bg: options.bg ?? '#08121f',
-    border: options.border ?? 'rgba(159, 233, 255, 0.18)',
-    axis: options.axis ?? 'rgba(159, 233, 255, 0.28)',
-    text: options.text ?? '#9fb3c8',
-    title: options.title ?? null,
-  };
-
-  const x = bounds.x ?? 0;
-  const y = bounds.y ?? 0;
-  const width = bounds.w;
-  const height = bounds.h;
-  const topX = x + 22;
-  const topY = y + 18;
-  const topW = width - 44;
-  const topH = 118;
-  const sideX = x + 22;
-  const sideY = y + 154;
-  const sideW = width - 44;
-  const sideH = 30;
-  const centerX = topX + topW / 2;
-  const baseY = topY + topH;
-  const radius = Math.min(topW * 0.46, topH - 6);
-
-  ctx.fillStyle = theme.bg;
-  ctx.fillRect(x, y, width, height);
-
-  if (theme.title) {
-    ctx.fillStyle = theme.text;
-    ctx.font = 'bold 12px sans-serif';
-    ctx.textBaseline = 'top';
-    ctx.fillText(theme.title, x + 16, y + 8);
-  }
-
-  ctx.strokeStyle = theme.border;
-  ctx.lineWidth = 1.2;
-  for (const tick of radialTicksPc) {
-    if (!(tick > 0)) continue;
-    const r = radius * clamp01(tick / radialSpanPc);
-    ctx.beginPath();
-    ctx.arc(centerX, baseY, r, Math.PI, Math.PI * 2);
-    ctx.stroke();
-  }
-
-  ctx.strokeStyle = theme.axis;
-  ctx.beginPath();
-  ctx.moveTo(topX, baseY);
-  ctx.lineTo(topX + topW, baseY);
-  ctx.stroke();
-  ctx.strokeRect(sideX, sideY, sideW, sideH);
-
-  function drawTopMarker(point, color, outline = false) {
-    if (!point) return;
-    const radial = Math.hypot(point.x, point.z);
-    const angle = Math.atan2(point.x, -point.z);
-    const span = Math.PI * 0.98;
-    const clampedAngle = clamp01((angle + span / 2) / span) * span - span / 2;
-    const t = clamp01(radial / radialSpanPc);
-    const px = centerX + Math.sin(clampedAngle) * radius * t;
-    const py = baseY - Math.cos(clampedAngle) * radius * t;
-    ctx.beginPath();
-    ctx.arc(px, py, 5, 0, Math.PI * 2);
-    if (outline) {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2.2;
-      ctx.stroke();
-    } else {
-      ctx.fillStyle = color;
-      ctx.fill();
-    }
-  }
-
-  function drawHeightMarker(point, color) {
-    if (!point) return;
-    const t = clamp01((point.y + verticalHalfSpanPc) / (verticalHalfSpanPc * 2));
-    const px = sideX + t * sideW;
-    const py = sideY + sideH / 2;
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(px, py, 5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  drawTopMarker(observer, '#44ff66');
-  drawTopMarker(selected, '#ffcc66', true);
-  drawHeightMarker(observer, '#44ff66');
-  drawHeightMarker(selected, '#ffcc66');
-
-  ctx.fillStyle = theme.text;
-  ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
-  ctx.fillText(`Top: 0..${Math.round(radialSpanPc).toLocaleString()} pc from galactic centre`, topX, y + 14);
-  ctx.fillText(`Height: ±${Math.round(verticalHalfSpanPc).toLocaleString()} pc`, sideX, sideY + sideH + 14);
 }
 
 function approachTargetFromObserver(targetPc, observerPc, distancePc) {
@@ -231,6 +105,7 @@ let activeMagLimit = 7.5;
 let activeTolerance = DEFAULT_PICK_TOLERANCE_DEG;
 let activeFlySpeed = 180;
 let activeExposure = DEFAULT_STAR_FIELD_STATE.starFieldExposure;
+let galaxyMapScaleHint = null;
 
 function buildTabletHomeItems(observerPc = { x: 0, y: 0, z: 0 }, selectedPc = null) {
   const items = [
@@ -240,7 +115,7 @@ function buildTabletHomeItems(observerPc = { x: 0, y: 0, z: 0 }, selectedPc = nu
     {
       id: GALAXY_MAP_CONTROL_ID,
       type: 'galaxy-map',
-      value: buildGalaxyMapValue(observerPc, selectedPc),
+      value: buildGalaxyMapValue(observerPc, selectedPc, galaxyMapScaleHint),
     },
   ];
   return items;
@@ -382,7 +257,7 @@ function updateTabletGalaxyMap() {
   }
   const observerPc = viewer?.getSnapshotState?.()?.state?.observerPc ?? { x: 0, y: 0, z: 0 };
   const selectedPc = lastPickedResult?.position ? sceneToIcrsPc(lastPickedResult.position) : null;
-  tabletDisplay.setItemValue(GALAXY_MAP_CONTROL_ID, buildGalaxyMapValue(observerPc, selectedPc));
+  tabletDisplay.setItemValue(GALAXY_MAP_CONTROL_ID, buildGalaxyMapValue(observerPc, selectedPc, galaxyMapScaleHint));
   renderTabletDisplay();
 }
 
@@ -417,31 +292,6 @@ function setTabletPage(pageId) {
   updateTabletGalaxyMap();
 }
 
-function createTabletGalaxyMapControl() {
-  return {
-    getHeight() {
-      return 190;
-    },
-
-    render(ctx, rect, item, _state, env) {
-      const { theme } = env;
-      const data = item.value ?? {};
-      ctx.fillStyle = theme.itemBg;
-      ctx.strokeStyle = theme.border;
-      ctx.lineWidth = 2;
-      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-      drawGalaxyMapGraphic(ctx, rect, data, {
-        bg: theme.itemBg,
-        border: theme.border,
-        axis: theme.textDim,
-        text: theme.textDim,
-        title: 'GALACTIC MAP (TOP + HEIGHT)',
-      });
-    },
-  };
-}
-
 function initSceneTablet() {
   if (tabletDisplay) {
     return;
@@ -453,7 +303,7 @@ function initSceneTablet() {
     items: buildTabletHomeItems(),
     displayOptions: {
       controls: {
-        'galaxy-map': createTabletGalaxyMapControl(),
+        'galaxy-map': createGalaxyMapControl(),
       },
     },
     mouseControls: true,
@@ -566,6 +416,7 @@ function handlePick(result) {
   if (result) {
     delete result.sidecarFields;
   } else {
+    cameraController?.cancelOrientation?.();
     pickControllerRef?.clearSelection?.();
   }
   if (result) {
@@ -622,6 +473,7 @@ function goToStarTarget(targetPc) {
     speed: activeFlySpeed,
     deceleration: 2.4,
     onArrive: () => {
+      cameraController?.cancelOrientation?.();
       viewer?.refreshSelection().catch((error) => {
         console.error('[galaxy-map-demo] refresh after flyTo failed', error);
       });
@@ -646,13 +498,17 @@ function renderSnapshot() {
     return;
   }
   const selectedPc = lastPickedResult?.position ? sceneToIcrsPc(lastPickedResult.position) : null;
-  tabletDisplay.setItemValue(GALAXY_MAP_CONTROL_ID, buildGalaxyMapValue(observerPc, selectedPc));
+  tabletDisplay.setItemValue(
+    GALAXY_MAP_CONTROL_ID,
+    buildGalaxyMapValue(observerPc, selectedPc, galaxyMapScaleHint),
+  );
 }
 
 async function warmDatasetSession() {
   try {
-    await datasetSession.ensureRenderRootShard();
-    const bootstrap = await datasetSession.ensureRenderBootstrap();
+    const renderService = datasetSession.getRenderService();
+    const { bootstrap, rootShard } = await renderService.ensureBootstrapAndRootShard();
+    galaxyMapScaleHint = deriveGalaxyMapScaleHint(bootstrap, rootShard);
 
     const metaService = datasetSession.getSidecarService('meta');
     if (metaService) {
