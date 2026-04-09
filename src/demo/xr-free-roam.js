@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import {
   createConstellationArtLayer,
   createConstellationCompassController,
-  createHaTiledVolumeLayer,
   createTunedStarFieldMaterialProfile,
   createVrStarFieldMaterialProfile,
   DEFAULT_XR_STAR_FIELD_STATE,
@@ -14,13 +13,10 @@ import {
   createStarFieldLayer,
   createViewer,
   createXrRig,
-  GALACTIC_CENTER_PC,
   getDatasetSession,
   loadConstellationArtManifest,
   ORION_CENTER_PC,
   resolveFoundInSpaceDatasetOverrides,
-  resolveHaTiledVolumeLevelIds,
-  resolveHaTiledVolumeUrl,
   formatDistancePc,
   buildSimbadBasicSearch,
 } from '../index.js';
@@ -51,24 +47,7 @@ const WORLD_SCALE_CONTROL = Object.freeze({
 });
 const GALAXY_MAP_CONTROL_ID = 'galaxy-map';
 const GALAXY_MAP_RADIAL_TICKS_PC = Object.freeze([2000, 4000, 8000, 12000]);
-const GALACTIC_FRAME_ROTATION = Object.freeze([
-  Object.freeze([-0.0548756, 0.4941094, -0.8676661]),
-  Object.freeze([-0.4838350, 0.7469822, 0.4559838]),
-  Object.freeze([0.8734371, 0.4448296, 0.1980764]),
-]);
-const TABLET_HOME_CANVAS_HEIGHT = 760;
-const TABLET_PANEL_HEIGHT = 0.38;
 const GALAXY_MAP_HEIGHT_PC = 1200;
-const H_ALPHA_XR_VOLUME_URL = resolveHaTiledVolumeUrl();
-const H_ALPHA_XR_LEVEL_IDS = resolveHaTiledVolumeLevelIds({
-  initialLevelDefault: 3,
-  finalLevelDefault: 1,
-});
-const H_ALPHA_XR_RAYMARCH_STEPS = 64;
-const H_ALPHA_XR_GAIN = 7.0;
-const H_ALPHA_XR_THRESHOLD = 0.02;
-const H_ALPHA_XR_OPACITY = 0.75;
-const H_ALPHA_XR_BOUND_RADIUS_PC = 2200;
 
 function approachTargetFromObserver(targetPc, observerPc, distancePc) {
   const dx = targetPc.x - observerPc.x;
@@ -141,54 +120,6 @@ const {
   icrsToScene: ORION_SCENE_TRANSFORM,
   sceneToIcrs: ORION_SCENE_TO_ICRS_TRANSFORM,
 } = createSceneOrientationTransforms(ORION_CENTER_PC);
-
-const GALACTIC_TO_ICRS_ROTATION = [
-  [-0.0548755604, +0.4941094279, -0.8676661490],
-  [-0.8734370902, -0.4448296300, -0.1980763734],
-  [-0.4838350155, +0.7469822445, +0.4559837762],
-];
-
-function galacticToIcrs(gx, gy, gz) {
-  return [
-    GALACTIC_TO_ICRS_ROTATION[0][0] * gx
-      + GALACTIC_TO_ICRS_ROTATION[0][1] * gy
-      + GALACTIC_TO_ICRS_ROTATION[0][2] * gz,
-    GALACTIC_TO_ICRS_ROTATION[1][0] * gx
-      + GALACTIC_TO_ICRS_ROTATION[1][1] * gy
-      + GALACTIC_TO_ICRS_ROTATION[1][2] * gz,
-    GALACTIC_TO_ICRS_ROTATION[2][0] * gx
-      + GALACTIC_TO_ICRS_ROTATION[2][1] * gy
-      + GALACTIC_TO_ICRS_ROTATION[2][2] * gz,
-  ];
-}
-
-function icrsToGalactic(ix, iy, iz) {
-  return [
-    GALACTIC_TO_ICRS_ROTATION[0][0] * ix
-      + GALACTIC_TO_ICRS_ROTATION[1][0] * iy
-      + GALACTIC_TO_ICRS_ROTATION[2][0] * iz,
-    GALACTIC_TO_ICRS_ROTATION[0][1] * ix
-      + GALACTIC_TO_ICRS_ROTATION[1][1] * iy
-      + GALACTIC_TO_ICRS_ROTATION[2][1] * iz,
-    GALACTIC_TO_ICRS_ROTATION[0][2] * ix
-      + GALACTIC_TO_ICRS_ROTATION[1][2] * iy
-      + GALACTIC_TO_ICRS_ROTATION[2][2] * iz,
-  ];
-}
-
-function galacticToXrScene(gx, gy, gz) {
-  const [ix, iy, iz] = galacticToIcrs(gx, gy, gz);
-  return ORION_SCENE_TRANSFORM(ix * SCALE, iy * SCALE, iz * SCALE);
-}
-
-function sceneToGalacticPc(x, y, z) {
-  const [ixScene, iyScene, izScene] = ORION_SCENE_TO_ICRS_TRANSFORM(x, y, z);
-  return icrsToGalactic(
-    ixScene / SCALE,
-    iyScene / SCALE,
-    izScene / SCALE,
-  );
-}
 
 function clonePoint(point) {
   return point ? { x: point.x, y: point.y, z: point.z } : null;
@@ -379,13 +310,8 @@ function computeXrDepthTelemetry(snapshot = null, options = {}) {
     metersPerParsec,
     selection: snapshot?.selection ?? null,
     observerPc: snapshot?.state?.observerPc ?? null,
-    includeConstellationSphere: true,
-    constellationSphereRadiusPc: Math.max(
-      options.includeConstellationSphere === true
-        ? options.constellationSphereRadiusPc ?? XR_CONSTELLATION_SPHERE_RADIUS_PC
-        : 0,
-      H_ALPHA_XR_BOUND_RADIUS_PC,
-    ),
+    includeConstellationSphere: options.includeConstellationSphere === true,
+    constellationSphereRadiusPc: options.constellationSphereRadiusPc ?? XR_CONSTELLATION_SPHERE_RADIUS_PC,
     marginFactor: XR_DEPTH_MARGIN_FACTOR,
     minFar: XR_MIN_FAR_PLANE,
     maxFar: XR_MAX_FAR_PLANE,
@@ -470,8 +396,6 @@ let pendingSelectionRefreshTimer = null;
 let currentConstellationIau = null;
 let currentTabletPage = 'home';
 let xrDepthRangeTelemetry = null;
-let hAlphaLayer = null;
-let hAlphaStatus = 'idle';
 
 let warmState = {
   bootstrap: 'idle',
@@ -492,80 +416,51 @@ function clamp01(value) {
   return Math.min(Math.max(value, 0), 1);
 }
 
-function icrsVectorToGalactic(x, y, z) {
-  return {
-    x: GALACTIC_FRAME_ROTATION[0][0] * x + GALACTIC_FRAME_ROTATION[0][1] * y + GALACTIC_FRAME_ROTATION[0][2] * z,
-    y: GALACTIC_FRAME_ROTATION[1][0] * x + GALACTIC_FRAME_ROTATION[1][1] * y + GALACTIC_FRAME_ROTATION[1][2] * z,
-    z: GALACTIC_FRAME_ROTATION[2][0] * x + GALACTIC_FRAME_ROTATION[2][1] * y + GALACTIC_FRAME_ROTATION[2][2] * z,
-  };
-}
-
-function icrsPointRelativeToGalacticCenter(point) {
-  if (!point) {
-    return null;
-  }
-  return icrsVectorToGalactic(
-    point.x - GALACTIC_CENTER_PC.x,
-    point.y - GALACTIC_CENTER_PC.y,
-    point.z - GALACTIC_CENTER_PC.z,
-  );
-}
-
 function buildGalaxyMapValue() {
   const observerPc = viewer?.getSnapshotState?.()?.state?.observerPc ?? { x: 0, y: 0, z: 0 };
   const selectedPc = lastPickedResult?.position ? sceneToIcrsPc(lastPickedResult.position) : null;
-  const observerRelative = icrsPointRelativeToGalacticCenter(observerPc) ?? { x: 0, y: 0, z: 0 };
-  const selectedRelative = icrsPointRelativeToGalacticCenter(selectedPc);
-  const radialObserverPc = Math.hypot(observerRelative.x, observerRelative.z);
-  const radialSelectedPc = selectedRelative ? Math.hypot(selectedRelative.x, selectedRelative.z) : null;
-  const verticalObserverPc = Math.abs(observerRelative.y);
-  const verticalSelectedPc = selectedRelative ? Math.abs(selectedRelative.y) : null;
+  const radialObserverPc = Math.hypot(observerPc.x, observerPc.z);
+  const radialSelectedPc = selectedPc ? Math.hypot(selectedPc.x, selectedPc.z) : null;
   const spanCandidate = Math.max(
     GALAXY_MAP_RADIAL_TICKS_PC[GALAXY_MAP_RADIAL_TICKS_PC.length - 1],
     radialObserverPc,
     Number.isFinite(radialSelectedPc) ? radialSelectedPc : 0,
   );
   const radialSpanPc = Math.max(100, Math.ceil(spanCandidate / 100) * 100);
-  const verticalSpanCandidate = Math.max(
-    500,
-    verticalObserverPc,
-    Number.isFinite(verticalSelectedPc) ? verticalSelectedPc : 0,
-  );
-  const verticalHalfSpanPc = Math.max(100, Math.ceil(verticalSpanCandidate / 100) * 100);
   return {
-    observerRelative,
-    selectedRelative,
+    observer: observerPc,
+    selected: selectedPc,
     radialSpanPc,
     radialTicksPc: GALAXY_MAP_RADIAL_TICKS_PC,
-    verticalHalfSpanPc,
+    verticalHalfSpanPc: GALAXY_MAP_HEIGHT_PC,
   };
 }
 
 function createGalaxyMapControl() {
   return {
     getHeight() {
-      return 208;
+      return 190;
     },
 
     render(ctx, rect, item, _state, env) {
       const { theme } = env;
       const data = item.value ?? {};
-      const observer = data.observerRelative ?? { x: 0, y: 0, z: 0 };
-      const selected = data.selectedRelative ?? null;
+      const observer = data.observer ?? { x: 0, y: 0, z: 0 };
+      const selected = data.selected ?? null;
       const radialSpanPc = Number.isFinite(data.radialSpanPc) && data.radialSpanPc > 0 ? data.radialSpanPc : 1;
       const radialTicksPc = Array.isArray(data.radialTicksPc) ? data.radialTicksPc : [];
       const verticalHalfSpanPc = Number.isFinite(data.verticalHalfSpanPc) && data.verticalHalfSpanPc > 0
         ? data.verticalHalfSpanPc
         : 1;
 
-      const topX = rect.x + 54;
-      const topY = rect.y + 24;
-      const topW = rect.w - 72;
-      const topH = 116;
-      const sideX = rect.x + 16;
-      const sideY = topY + 2;
-      const sideW = 24;
-      const sideH = topH;
+      const topX = rect.x + 22;
+      const topY = rect.y + 18;
+      const topW = rect.w - 44;
+      const topH = 100;
+      const sideX = rect.x + 22;
+      const sideY = rect.y + 128;
+      const sideW = rect.w - 44;
+      const sideH = 38;
 
       ctx.fillStyle = theme.itemBg;
       ctx.strokeStyle = theme.border;
@@ -576,7 +471,7 @@ function createGalaxyMapControl() {
       ctx.fillStyle = theme.accent;
       ctx.font = 'bold 12px sans-serif';
       ctx.textBaseline = 'top';
-      ctx.fillText('GALACTIC CENTRE REFERENCE', rect.x + 14, rect.y + 7);
+      ctx.fillText('GALACTIC MAP (TOP + HEIGHT)', rect.x + 16, rect.y + 8);
 
       const centerX = topX + topW / 2;
       const baseY = topY + topH;
@@ -625,16 +520,12 @@ function createGalaxyMapControl() {
 
       ctx.strokeStyle = theme.border;
       ctx.strokeRect(sideX, sideY, sideW, sideH);
-      ctx.beginPath();
-      ctx.moveTo(sideX, sideY + sideH / 2);
-      ctx.lineTo(sideX + sideW, sideY + sideH / 2);
-      ctx.stroke();
 
       function drawHeightMarker(point, color) {
         if (!point) return;
         const t = clamp01((point.y + verticalHalfSpanPc) / (verticalHalfSpanPc * 2));
-        const px = sideX + sideW / 2;
-        const py = sideY + sideH - t * sideH;
+        const px = sideX + t * sideW;
+        const py = sideY + sideH / 2;
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(px, py, 4.5, 0, Math.PI * 2);
@@ -647,8 +538,8 @@ function createGalaxyMapControl() {
       ctx.fillStyle = theme.textDim;
       ctx.font = '11px sans-serif';
       ctx.textBaseline = 'alphabetic';
-      ctx.fillText(`radial 0..${Math.round(radialSpanPc).toLocaleString()} pc from centre`, topX, topY + 12);
-      ctx.fillText(`⊥ plane ±${Math.round(verticalHalfSpanPc).toLocaleString()} pc`, sideX - 2, sideY + sideH + 14);
+      ctx.fillText(`0..${Math.round(radialSpanPc).toLocaleString()} pc from galactic centre`, topX, topY + 12);
+      ctx.fillText(`height ±${Math.round(verticalHalfSpanPc).toLocaleString()} pc`, sideX, sideY + sideH + 13);
     },
   };
 }
@@ -1102,7 +993,6 @@ function renderSummary(snapshot, datasetDescription) {
     mDesired: activeMagLimit,
     starFieldExposure: getActiveExposure(),
     artEnabled,
-    hAlpha: hAlphaStatus,
     activeConstellationIau: currentConstellationIau,
     nearDistanceFloorEnabled,
     sharedDatasetSession: datasetDescription?.id ?? null,
@@ -1139,7 +1029,6 @@ function renderSnapshot() {
     mDesired: activeMagLimit,
     starFieldExposure: getActiveExposure(),
     artEnabled,
-    hAlpha: hAlphaStatus,
     activeConstellationIau: currentConstellationIau,
     nearDistanceFloorEnabled,
     viewer: snapshot,
@@ -1229,8 +1118,6 @@ async function mountViewer() {
   }
 
   await warmDatasetSession();
-  hAlphaStatus = `loading ${H_ALPHA_XR_VOLUME_URL}`;
-  renderSnapshot();
 
   const camera = createViewerCamera();
   const xrRig = createXrRig(camera, {
@@ -1256,27 +1143,6 @@ async function mountViewer() {
     manifest,
     manifestUrl: DEFAULT_ART_MANIFEST_URL,
     transformDirection: ORION_SCENE_TRANSFORM,
-  });
-  hAlphaLayer = createHaTiledVolumeLayer({
-    id: 'phase-5b-h-alpha-volume-layer',
-    manifestUrl: H_ALPHA_XR_VOLUME_URL,
-    initialLevelId: H_ALPHA_XR_LEVEL_IDS.initialLevelId,
-    finalLevelId: H_ALPHA_XR_LEVEL_IDS.finalLevelId,
-    volumeToSceneTransform: galacticToXrScene,
-    sceneToVolumeTransform: sceneToGalacticPc,
-    raymarchSteps: H_ALPHA_XR_RAYMARCH_STEPS,
-    gain: H_ALPHA_XR_GAIN,
-    threshold: H_ALPHA_XR_THRESHOLD,
-    opacity: H_ALPHA_XR_OPACITY,
-    onStatus: (status) => {
-      hAlphaStatus = status;
-      renderSnapshot();
-    },
-    onError: (error) => {
-      hAlphaStatus = `unavailable: ${error?.message ?? 'unknown error'}`;
-      console.warn('[xr-free-roam-demo] H-alpha tiled volume failed', error);
-      renderSnapshot();
-    },
   });
 
   const constellationCompassController = createConstellationCompassController({
@@ -1314,9 +1180,7 @@ async function mountViewer() {
   const xrTabletController = createXrTabletController({
     id: 'phase-5b-xr-tablet-controller',
     items: buildHomeMenuItems(),
-    panelHeight: TABLET_PANEL_HEIGHT,
     displayOptions: {
-      height: TABLET_HOME_CANVAS_HEIGHT,
       controls: {
         'galaxy-map': createGalaxyMapControl(),
       },
@@ -1430,7 +1294,7 @@ async function mountViewer() {
       xrTabletController,
       xrPickController,
     ],
-    layers: [starFieldLayer, constellationArtLayer, hAlphaLayer],
+    layers: [starFieldLayer, constellationArtLayer],
     state: {
       ...DEFAULT_XR_STAR_FIELD_STATE,
       demo: 'phase-5b-xr-free-roam',

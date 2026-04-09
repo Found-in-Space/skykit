@@ -20,7 +20,6 @@ export default defineConfig({
         radioBubble: path.resolve(__dirname, 'demos/radio-bubble.html'),
         clusters: path.resolve(__dirname, 'demos/clusters.html'),
         dataShape: path.resolve(__dirname, 'demos/data-shape.html'),
-        dustMap: path.resolve(__dirname, 'demos/dust-map.html'),
         dustRoam: path.resolve(__dirname, 'demos/dust-roam.html'),
         hAlphaVolume: path.resolve(__dirname, 'demos/h-alpha-volume.html'),
       },
