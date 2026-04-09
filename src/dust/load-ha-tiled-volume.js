@@ -7,6 +7,7 @@ export const DEFAULT_HA_TILED_MAX_RESIDENT_BRICKS = 128;
 export const DEFAULT_HA_TILED_MAX_INFLIGHT_REQUESTS = 8;
 export const DEFAULT_HA_TILED_BATCH_MAX_BRICKS = 8;
 export const DEFAULT_HA_TILED_BATCH_MAX_BYTES = 32 * 1024 * 1024;
+export const DEFAULT_HA_TILED_DECODE_MODE = 'main';
 export const HA_TILED_PERSISTENT_CACHE_NAME = 'skykit-h-alpha-tiled-v1';
 
 const decoder = new TextDecoder('ascii');
@@ -21,6 +22,18 @@ function normalizePositiveInteger(value, fallback) {
 
 function normalizeNonNegativeInteger(value, fallback) {
   return Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback;
+}
+
+function normalizeDecodeMode(value, fallback = DEFAULT_HA_TILED_DECODE_MODE) {
+  return value === 'worker' || value === 'main' ? value : fallback;
+}
+
+function defaultDecodeWorkerCount() {
+  const concurrency = globalThis.navigator?.hardwareConcurrency;
+  if (!Number.isFinite(concurrency)) return 2;
+  if (concurrency <= 4) return 2;
+  if (concurrency <= 8) return 3;
+  return 4;
 }
 
 function assertArrayBufferLooksBinary(buf, label) {
@@ -397,6 +410,91 @@ class HaTiledVolumeRangeCache {
   }
 }
 
+class HaTiledDecodeWorkerPool {
+  constructor(options = {}) {
+    const requestedSize = normalizePositiveInteger(
+      options.size,
+      defaultDecodeWorkerCount(),
+    );
+    this.size = Math.min(4, Math.max(2, requestedSize));
+    this.workers = [];
+    this.idleWorkers = [];
+    this.queue = [];
+    this.activeJobs = new Map();
+    this.nextJobId = 1;
+
+    for (let index = 0; index < this.size; index += 1) {
+      this.#spawnWorker();
+    }
+  }
+
+  #spawnWorker() {
+    const worker = new Worker(new URL('./ha-tiled-decode-worker.js', import.meta.url), {
+      type: 'module',
+    });
+    worker.addEventListener('message', (event) => this.#handleWorkerMessage(worker, event));
+    worker.addEventListener('error', (event) => this.#handleWorkerError(worker, event));
+    this.workers.push(worker);
+    this.idleWorkers.push(worker);
+  }
+
+  #handleWorkerMessage(worker, event) {
+    const message = event.data ?? {};
+    const job = this.activeJobs.get(message.id);
+    if (!job) return;
+    this.activeJobs.delete(message.id);
+
+    if (message.type === 'decoded') {
+      job.resolve(message.buffer);
+    } else {
+      job.reject(new Error(message.message ?? 'Failed to decode H-alpha tiled brick in worker'));
+    }
+    this.idleWorkers.push(worker);
+    this.#dispatch();
+  }
+
+  #handleWorkerError(worker, event) {
+    const activeEntry = [...this.activeJobs.entries()]
+      .find(([, job]) => job.worker === worker);
+    if (activeEntry) {
+      const [jobId, job] = activeEntry;
+      this.activeJobs.delete(jobId);
+      job.reject(event.error ?? new Error('H-alpha decode worker failed'));
+    }
+    this.idleWorkers = this.idleWorkers.filter((idleWorker) => idleWorker !== worker);
+    this.workers = this.workers.filter((existingWorker) => existingWorker !== worker);
+    if (this.workers.length < this.size) {
+      this.#spawnWorker();
+    }
+    this.#dispatch();
+  }
+
+  #dispatch() {
+    while (this.idleWorkers.length > 0 && this.queue.length > 0) {
+      const worker = this.idleWorkers.pop();
+      const job = this.queue.shift();
+      this.activeJobs.set(job.id, { ...job, worker });
+      worker.postMessage({
+        type: 'decode',
+        id: job.id,
+        buffer: job.buffer,
+      }, [job.buffer]);
+    }
+  }
+
+  decode(buffer) {
+    return new Promise((resolve, reject) => {
+      this.queue.push({
+        id: this.nextJobId++,
+        buffer,
+        resolve,
+        reject,
+      });
+      this.#dispatch();
+    });
+  }
+}
+
 export class HaTiledVolumeService {
   constructor(volume, options = {}) {
     this.volume = volume;
@@ -408,6 +506,16 @@ export class HaTiledVolumeService {
       options.maxInflightRequests,
       DEFAULT_HA_TILED_MAX_INFLIGHT_REQUESTS,
     );
+    this.decodeMode = normalizeDecodeMode(options.decodeMode);
+    this.decodeWorkerPool = (
+      this.decodeMode === 'worker'
+      && typeof Worker === 'function'
+      && options.decompressImpl == null
+    )
+      ? (options.decodeWorkerPool ?? new HaTiledDecodeWorkerPool({
+        size: options.decodeWorkerPoolSize,
+      }))
+      : null;
     this.inflight = new Map();
     this.stats = {
       rangeRequests: 0,
@@ -546,7 +654,11 @@ export class HaTiledVolumeService {
     for (const brick of bricks) {
       const sliceStart = brick.payloadOffset - start;
       const sliceEnd = sliceStart + brick.payloadLength;
-      const decoded = new Uint8Array(await this.decompressImpl(range.slice(sliceStart, sliceEnd)));
+      const compressed = range.slice(sliceStart, sliceEnd);
+      const decodedBuffer = this.decodeWorkerPool
+        ? await this.decodeWorkerPool.decode(compressed)
+        : await this.decompressImpl(compressed);
+      const decoded = new Uint8Array(decodedBuffer);
       const expectedBytes = brick.textureSampleSize ** 3;
       if (decoded.byteLength !== expectedBytes) {
         throw new Error(
@@ -581,6 +693,7 @@ export class HaTiledVolumeService {
       totalByLevel,
       stats: { ...this.stats },
       rangeCacheStats: { ...this.rangeCache.stats },
+      decodeMode: this.decodeWorkerPool ? 'worker' : 'main',
     };
   }
 }
