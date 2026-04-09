@@ -16,6 +16,7 @@ import {
   createViewer,
   getDatasetSession,
 } from '../index.js';
+import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 const {
   icrsToScene: ORION_SCENE_TRANSFORM,
@@ -259,6 +260,13 @@ async function mountViewers() {
       clearColor: 0x02040b,
     })),
   );
+  viewers.forEach((viewer, index) => {
+    installDemoViewerDebugConsole(viewer, {
+      id: `main-${index + 1}`,
+      label: `Main ${index + 1}`,
+      makeActive: index === 0,
+    });
+  });
 
   renderSnapshot();
   return viewers;

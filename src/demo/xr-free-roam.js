@@ -30,6 +30,7 @@ import {
   createGalaxyMapControl,
   deriveGalaxyMapScaleHint,
 } from '../ui/galaxy-map-control.js';
+import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 const PROXIMA_CEN_PC = { x: -0.47, y: -0.36, z: -1.16 };
 const SIRIUS_PC = { x: -0.49, y: 2.48, z: -0.76 };
@@ -1186,6 +1187,7 @@ async function mountViewer() {
     },
     clearColor: 0x02040b,
   });
+  installDemoViewerDebugConsole(viewer, { id: 'xr-free-roam' });
 
   syncWorldClipPlanes();
   await refreshXrSupport();

@@ -23,6 +23,7 @@ import {
 import { createConstellationPreset } from '../presets/constellation-preset.js';
 import { createSpeedReadout, createDistanceReadout, createFlyToAction, createLookAtAction } from '../presets/navigation-presets.js';
 import { createFullscreenPreset } from '../presets/fullscreen-preset.js';
+import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -1226,6 +1227,7 @@ async function mountViewer() {
     },
     clearColor: 0x02040b,
   });
+  installDemoViewerDebugConsole(viewer, { id: 'dust-roam' });
 
   volumeMesh = buildVolumeMesh(voxelInfo);
   viewer.contentRoot.add(volumeMesh);

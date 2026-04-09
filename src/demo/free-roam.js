@@ -27,6 +27,7 @@ import {
 } from '../index.js';
 import { createSpeedReadout, createDistanceReadout, createFlyToAction, createLookAtAction } from '../presets/navigation-presets.js';
 import { createFullscreenPreset } from '../presets/fullscreen-preset.js';
+import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 const DEFAULT_ART_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stellarium-skycultures-western@0.1.0/dist/manifest.json';
 const DUST_VOLUME_RAYMARCH_STEPS = 64;
@@ -1437,6 +1438,7 @@ async function mountViewer() {
     },
     clearColor: 0x02040b,
   });
+  installDemoViewerDebugConsole(viewer, { id: 'free-roam' });
 
   if (dustEnabled) {
     await setDustEnabled(true);
