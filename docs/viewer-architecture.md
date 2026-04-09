@@ -237,10 +237,12 @@ XR controllers:
 
 - `XrLocomotionController` — thumbstick-driven movement, viewer pose for direction, moves the spaceship through the stationary universe. XR-only — no desktop code.
 - `XrPickController` — laser pointer and trigger-based star picking, visuals parented to `cameraMount` (xrOrigin). XR-only — no desktop code.
+- `XrTabletController` — XR-specific placement wrapper for the shared scene touch-display host. Handles the "tablet in hand" pose while delegating panel rendering and interaction to the generic controller.
 
 Shared controllers:
 
 - `SelectionRefreshController` — shared policy for when node reselection runs, driven by observer movement thresholds rather than raw input frequency. Usable by both desktop and XR viewers.
+- `SceneTouchDisplayController` — renders a `createTouchDisplay()` canvas onto a real `THREE.Mesh` plane that can be parented anywhere in the rig or scene. Supports mouse ray input, XR ray input, or both, so the same UI can act as a spaceship panel, wall display, hand-held tablet, or HUD-relative surface.
 
 Future controllers:
 

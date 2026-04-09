@@ -11,6 +11,7 @@ export default defineConfig({
       input: {
         index: path.resolve(__dirname, 'index.html'),
         freeRoam: path.resolve(__dirname, 'demos/free-roam.html'),
+        galaxyMap: path.resolve(__dirname, 'demos/galaxy-map.html'),
         flyOrbit: path.resolve(__dirname, 'demos/fly-orbit.html'),
         shared: path.resolve(__dirname, 'demos/shared-session.html'),
         xr: path.resolve(__dirname, 'demos/xr-free-roam.html'),
