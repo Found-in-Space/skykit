@@ -9,6 +9,7 @@ import {
   resolveFoundInSpaceDatasetOverrides,
 } from '../index.js';
 import { createDensityFieldMaterialProfile } from '../layers/density-field-materials.js';
+import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 // ── ICRS → Galactic rotation (galactic north = +Y) ──────────────────────────
 
@@ -203,6 +204,7 @@ async function mountViewer() {
     },
     clearColor: 0x02040b,
   });
+  installDemoViewerDebugConsole(viewer, { id: 'data-shape' });
 
   if (statusSpan) statusSpan.textContent = 'ready';
   return viewer;

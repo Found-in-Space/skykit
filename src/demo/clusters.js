@@ -19,6 +19,7 @@ import {
   UPPER_SCO_CENTER_PC,
   resolveFoundInSpaceDatasetOverrides,
 } from '../index.js';
+import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 const {
   icrsToScene: SCENE_TRANSFORM,
@@ -186,6 +187,7 @@ async function mountViewer() {
     },
     clearColor: 0x02040b,
   });
+  installDemoViewerDebugConsole(viewer, { id: 'clusters' });
 
   if (statusSpan) statusSpan.textContent = 'idle';
   syncButtons();

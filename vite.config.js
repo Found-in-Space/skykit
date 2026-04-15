@@ -11,6 +11,7 @@ export default defineConfig({
       input: {
         index: path.resolve(__dirname, 'index.html'),
         freeRoam: path.resolve(__dirname, 'demos/free-roam.html'),
+        galaxyMap: path.resolve(__dirname, 'demos/galaxy-map.html'),
         flyOrbit: path.resolve(__dirname, 'demos/fly-orbit.html'),
         shared: path.resolve(__dirname, 'demos/shared-session.html'),
         xr: path.resolve(__dirname, 'demos/xr-free-roam.html'),
@@ -20,7 +21,6 @@ export default defineConfig({
         radioBubble: path.resolve(__dirname, 'demos/radio-bubble.html'),
         clusters: path.resolve(__dirname, 'demos/clusters.html'),
         dataShape: path.resolve(__dirname, 'demos/data-shape.html'),
-        dustMap: path.resolve(__dirname, 'demos/dust-map.html'),
         dustRoam: path.resolve(__dirname, 'demos/dust-roam.html'),
         hAlphaVolume: path.resolve(__dirname, 'demos/h-alpha-volume.html'),
       },

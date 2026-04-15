@@ -150,7 +150,7 @@ The XR pick controller (`xr-pick-controller.js`) creates a laser `Line` and a ri
 
 ### Tablet (Hand Menu)
 
-The XR tablet controller (`xr-tablet-controller.js`) is an XR host for the generic touch-display runtime (`ui/touch-display.js`). The controller attaches a panel to the **left** controller's grip space, while the touch display owns canvas rendering, control layout, hover/press state, and sub-control dispatch. The right controller's laser pointer interacts with it.
+The XR tablet controller (`xr-tablet-controller.js`) is now a thin XR-specific wrapper around the generic scene touch-display host (`scene-touch-display-controller.js`), which itself wraps the shared touch-display runtime (`ui/touch-display.js`). The shared host owns the actual `THREE.Mesh` panel, canvas texture, hover/press state, and pointer dispatch; the XR wrapper only supplies the "left hand tablet" placement rule. The right controller's laser pointer interacts with that same scene object.
 
 The panel is a `THREE.Mesh` with `PlaneGeometry` (0.20m × 0.28m), using `depthTest: false` and high `renderOrder` to render above the star field. The canvas texture is only redrawn when hover/press state changes.
 
@@ -158,10 +158,17 @@ On each frame:
 
 1. Read the left controller's `gripSpace` pose and position the panel mesh
 2. Read the right controller's `targetRaySpace` ray and intersect it with the panel plane
-3. Forward the panel UV hit plus trigger state into the touch-display runtime
+3. Forward the panel UV hit plus trigger state into the shared touch-display host
 4. Let the display resolve which sub-control owns the interaction and fire its action via `onChange(id, value)`
 
 The tablet controller runs **before** the pick controller in the update loop. It exposes `getHit()` which returns `{ length, blocked: true }` when the pointer ray hits the panel, or `null` otherwise. The pick controller calls this via `getLaserOverride` to shorten its laser and suppress star picks.
+
+Because the touch-display host is scene-native rather than XR-only, the same UI runtime can also be mounted elsewhere:
+
+- parent to `cameraMount` for a head-locked HUD surface
+- parent to `attachmentRoot`, `deck`, or `navigationRoot` for spaceship-fixed panels
+- parent to `contentRoot`, `scene`, or any custom `Object3D` for wall screens and in-world consoles
+- accept mouse rays, XR rays, or both, depending on controller options
 
 Items are plain config objects:
 
@@ -185,15 +192,16 @@ The universe stays at the scene origin. The spaceship moves to represent the obs
 
 ### Controller Separation
 
-Desktop and XR input handling are in **completely separate files** with no shared code paths:
+Navigation and star picking remain in **separate desktop and XR files**, but touch-display panels now use a shared scene host so the same panel can exist in either viewer product:
 
-| Concern | Desktop file | XR file |
+| Concern | Desktop path | XR path |
 |---|---|---|
 | Navigation | `camera-rig-controller.js` | `xr-locomotion-controller.js` |
 | Star picking | `pick-controller.js` | `xr-pick-controller.js` |
-| Hand menu | — | `xr-tablet-controller.js` |
+| Touch-display scene host | `scene-touch-display-controller.js` with mouse rays | `scene-touch-display-controller.js` with XR rays |
+| Hand menu placement | desktop/demo-specific placement callback | `xr-tablet-controller.js` wrapper |
 
-Both sides share `camera-rig.js` for pure quaternion math and position tracking, but never import each other. A change to the desktop controller cannot affect XR, and vice versa.
+Both sides still share `camera-rig.js` for pure quaternion math and position tracking. The important split is that locomotion and star picking do not share input code, while touch-display panels intentionally do share a scene-native interaction host.
 
 ## Structural Offsets
 
@@ -223,6 +231,7 @@ The current XR implementation is deliberately minimal:
 - Tunable star-field scale
 - Controller-attached UI (panels parented to grip space)
 - Head-locked HUD (elements parented to camera)
+- Shared touch-display panels that can also be remounted as deck-fixed or world-fixed scene objects
 
 **Not yet included:**
 

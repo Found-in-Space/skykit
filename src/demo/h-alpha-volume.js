@@ -26,6 +26,7 @@ import {
   createSpeedReadout,
 } from '../presets/navigation-presets.js';
 import { createFullscreenPreset } from '../presets/fullscreen-preset.js';
+import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 const DEFAULT_GAIN = 7.0;
 const DEFAULT_THRESHOLD = 0.02;
@@ -290,6 +291,7 @@ async function mountViewer() {
     },
     clearColor: 0x02040b,
   });
+  installDemoViewerDebugConsole(viewer, { id: 'h-alpha-volume' });
 
   return viewer;
 }

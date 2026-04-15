@@ -19,6 +19,7 @@ import {
   createViewer,
   getDatasetSession,
 } from '../index.js';
+import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 const DEFAULT_ART_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stellarium-skycultures-western@0.1.0/dist/manifest.json';
 const CONSTELLATION_LOOK_DISTANCE_PC = 120;
@@ -346,6 +347,7 @@ async function mountViewer() {
     },
     clearColor: 0x02040b,
   });
+  installDemoViewerDebugConsole(viewer, { id: 'fly-orbit' });
 
   renderSnapshot();
   syncConstellationArtVisibility();

@@ -29,6 +29,7 @@ export {
 } from './fields/octree-selection.js';
 export { createCameraRig } from './controllers/camera-rig.js';
 export { createCameraRigController } from './controllers/camera-rig-controller.js';
+export { createSceneTouchDisplayController } from './controllers/scene-touch-display-controller.js';
 export {
   createXrLocomotionController,
   readXrAxes,

@@ -24,6 +24,7 @@ import {
   createLookAtAction,
   createSpeedReadout,
 } from '../presets/navigation-presets.js';
+import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 const {
   icrsToScene: SCENE_TRANSFORM,
@@ -256,6 +257,7 @@ async function mountViewer() {
     },
     clearColor: 0x02040b,
   });
+  installDemoViewerDebugConsole(viewer, { id: 'hr-diagram' });
 
   statusSpan.textContent = 'running';
 

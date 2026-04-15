@@ -101,6 +101,24 @@
         accent-color: var(--accent-strong);
       }
 
+      .control-row select {
+        width: 100%;
+        min-width: 0;
+        padding: 6px 8px;
+        border: 1px solid var(--panel-border);
+        border-radius: 8px;
+        background: rgba(6, 12, 22, 0.86);
+        color: var(--text-main);
+      }
+
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 10px 0 0;
+        color: var(--text-main);
+      }
+
       .value-readout {
         min-width: 0;
         text-align: right;
@@ -252,6 +270,54 @@
       </p>
 
       <details class="accordion" open>
+        <summary>Star Picker</summary>
+        <div class="accordion__content">
+          <p class="accordion__copy">
+            Click a star in the viewer to inspect its catalog metadata and observational values without leaving free roam.
+          </p>
+
+          <div class="control-row">
+            <label for="ctrl-pick-tolerance">Tolerance</label>
+            <input id="ctrl-pick-tolerance" type="range" min="0.1" max="5" step="0.1" data-pick-tolerance />
+            <span class="value-readout" data-readout="pick-tolerance">1.0°</span>
+          </div>
+
+          <div class="constellation-panel" data-pick-info>
+            <p class="pick-placeholder" data-pick-empty>Click a star to inspect it.</p>
+            <div class="pick-detail" data-pick-detail hidden>
+              <p class="pick-subtitle">Catalog</p>
+              <table class="pick-table">
+                <tr><th>Proper name</th><td data-pick-meta="proper">—</td></tr>
+                <tr><th>Bayer</th><td data-pick-meta="bayer">—</td></tr>
+                <tr><th>HD</th><td data-pick-meta="hd">—</td></tr>
+                <tr><th>HIP</th><td data-pick-meta="hip">—</td></tr>
+                <tr><th>Gaia</th><td data-pick-meta="gaia">—</td></tr>
+                <tr><th>SIMBAD</th><td>
+                  <span data-pick-simbad-empty>—</span>
+                  <a class="pick-simbad-link" data-pick-simbad-link href="#" target="_blank" rel="noopener noreferrer" hidden>View in SIMBAD</a>
+                </td></tr>
+              </table>
+              <p class="pick-subtitle">Observation</p>
+              <table class="pick-table">
+                <tr><th>ICRS position</th><td data-pick-obs="icrs">—</td></tr>
+                <tr><th>Distance</th><td data-pick-obs="distance">—</td></tr>
+                <tr><th>Abs. magnitude</th><td data-pick-obs="absMag">—</td></tr>
+                <tr><th>App. magnitude</th><td data-pick-obs="appMag">—</td></tr>
+                <tr><th>Dust A_V</th><td data-pick-obs="dustAv">off</td></tr>
+                <tr><th>Dust app. mag.</th><td data-pick-obs="appMagDust">off</td></tr>
+                <tr><th>Temperature</th><td data-pick-obs="temp">—</td></tr>
+                <tr><th>Visual radius</th><td data-pick-obs="visualPx">—</td></tr>
+                <tr><th>Pick score</th><td data-pick-obs="score">—</td></tr>
+                <tr><th>Angular offset</th><td data-pick-obs="offset">—</td></tr>
+                <tr><th>Buffer index</th><td data-pick-obs="bufferIndex">—</td></tr>
+              </table>
+              <p class="pick-timing" data-pick-timing hidden></p>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="accordion">
         <summary>Navigation</summary>
         <div class="accordion__content">
           <p class="accordion__copy">
@@ -271,8 +337,8 @@
         </div>
       </details>
 
-      <details class="accordion" open>
-        <summary>Constellation Compass</summary>
+      <details class="accordion">
+        <summary>Constellations</summary>
         <div class="accordion__content">
           <p class="accordion__copy">
             The compass watches the view direction, not your position. The HUD button toggles art visibility while this panel shows the currently resolved constellation.
@@ -307,7 +373,7 @@
         </div>
       </details>
 
-      <details class="accordion" open>
+      <details class="accordion">
         <summary>Star Shader</summary>
         <div class="accordion__content">
           <p class="accordion__copy">
@@ -357,49 +423,48 @@
         </div>
       </details>
 
-      <details class="accordion" open>
-        <summary>Star Picker</summary>
+      <details class="accordion">
+        <summary>Dust</summary>
         <div class="accordion__content">
           <p class="accordion__copy">
-            Click a star in the viewer to inspect its catalog metadata and observational values without leaving free roam.
+            Enable the Rezaei Kh. 2024 dust volume when you want stars dimmed and reddened by the local interstellar medium.
           </p>
 
-          <div class="control-row">
-            <label for="ctrl-pick-tolerance">Tolerance</label>
-            <input id="ctrl-pick-tolerance" type="range" min="0.1" max="5" step="0.1" data-pick-tolerance />
-            <span class="value-readout" data-readout="pick-tolerance">1.0°</span>
-          </div>
+          <label class="toggle-row" for="ctrl-dust-enabled">
+            <input id="ctrl-dust-enabled" type="checkbox" data-dust-enabled />
+            <span>Use dust volume</span>
+          </label>
 
-          <div class="constellation-panel" data-pick-info>
-            <p class="pick-placeholder" data-pick-empty>Click a star to inspect it.</p>
-            <div class="pick-detail" data-pick-detail hidden>
-              <p class="pick-subtitle">Catalog</p>
-              <table class="pick-table">
-                <tr><th>Proper name</th><td data-pick-meta="proper">—</td></tr>
-                <tr><th>Bayer</th><td data-pick-meta="bayer">—</td></tr>
-                <tr><th>HD</th><td data-pick-meta="hd">—</td></tr>
-                <tr><th>HIP</th><td data-pick-meta="hip">—</td></tr>
-                <tr><th>Gaia</th><td data-pick-meta="gaia">—</td></tr>
-                <tr><th>SIMBAD</th><td>
-                  <span data-pick-simbad-empty>—</span>
-                  <a class="pick-simbad-link" data-pick-simbad-link href="#" target="_blank" rel="noopener noreferrer" hidden>View in SIMBAD</a>
-                </td></tr>
-              </table>
-              <p class="pick-subtitle">Observation</p>
-              <table class="pick-table">
-                <tr><th>ICRS position</th><td data-pick-obs="icrs">—</td></tr>
-                <tr><th>Distance</th><td data-pick-obs="distance">—</td></tr>
-                <tr><th>Abs. magnitude</th><td data-pick-obs="absMag">—</td></tr>
-                <tr><th>App. magnitude</th><td data-pick-obs="appMag">—</td></tr>
-                <tr><th>Temperature</th><td data-pick-obs="temp">—</td></tr>
-                <tr><th>Visual radius</th><td data-pick-obs="visualPx">—</td></tr>
-                <tr><th>Pick score</th><td data-pick-obs="score">—</td></tr>
-                <tr><th>Angular offset</th><td data-pick-obs="offset">—</td></tr>
-                <tr><th>Buffer index</th><td data-pick-obs="bufferIndex">—</td></tr>
-              </table>
-              <p class="pick-timing" data-pick-timing hidden></p>
-            </div>
+          <div class="control-row">
+            <label for="ctrl-dust-mode">Mode</label>
+            <select id="ctrl-dust-mode" data-dust-render-mode>
+              <option value="absorptive" selected>Stars through dust</option>
+              <option value="extinction-map">Extinction map</option>
+            </select>
+            <span class="value-readout" data-dust-status>off</span>
           </div>
+          <div class="control-row">
+            <label for="ctrl-dust-av-scale">A_V scale</label>
+            <input id="ctrl-dust-av-scale" type="range" min="0" max="0.03" step="0.001" value="0.01" data-dust-av-scale />
+            <span class="value-readout" data-readout="dust-av-scale">0.010</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-dust-map-gain">Map gain</label>
+            <input id="ctrl-dust-map-gain" type="range" min="0.2" max="4" step="0.1" value="0.5" data-dust-map-gain />
+            <span class="value-readout" data-readout="dust-map-gain">0.5</span>
+          </div>
+          <label class="toggle-row" for="ctrl-dust-plane">
+            <input id="ctrl-dust-plane" type="checkbox" data-show-galactic-plane />
+            <span>Show galactic plane guide</span>
+          </label>
+
+          <section class="constellation-panel">
+            <h2>Dust Volume</h2>
+            <p class="constellation-meta">Voxel grid: <span data-dust-grid-info>—</span></p>
+            <p class="constellation-meta">Extents: <span data-dust-grid-extents>—</span> pc</p>
+            <p class="constellation-meta">Cell size: <span data-dust-cell-size>—</span> pc</p>
+            <p class="constellation-meta">Max density: <span data-dust-density-max>—</span> cm^-3</p>
+          </section>
         </div>
       </details>
 

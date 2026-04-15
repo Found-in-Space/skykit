@@ -23,6 +23,7 @@ import {
 } from '../presets/navigation-presets.js';
 import { createFullscreenPreset } from '../presets/fullscreen-preset.js';
 import { createRadioBubbleMeshes } from '../layers/radio-bubble-meshes.js';
+import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 const {
   icrsToScene: ICRS_TO_SCENE_Y_UP,
@@ -138,6 +139,7 @@ async function mountViewer() {
     },
     clearColor: 0x02040b,
   });
+  installDemoViewerDebugConsole(viewer, { id: 'radio-bubble' });
 
   const { group: bubbleGroup } = createRadioBubbleMeshes();
   viewer.contentRoot.add(bubbleGroup);

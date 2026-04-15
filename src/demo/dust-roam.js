@@ -23,6 +23,7 @@ import {
 import { createConstellationPreset } from '../presets/constellation-preset.js';
 import { createSpeedReadout, createDistanceReadout, createFlyToAction, createLookAtAction } from '../presets/navigation-presets.js';
 import { createFullscreenPreset } from '../presets/fullscreen-preset.js';
+import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -233,14 +234,17 @@ function createDustExtinctionStarFieldMaterialProfile(options = {}) {
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
-      uSizeMin: { value: options.sizeMin ?? 2.0 },
-      uSizeMax: { value: options.sizeMax ?? 256.0 },
-      uLinearScale: { value: options.linearScale ?? 12.0 },
+      uSizeMin: { value: options.sizeMin ?? 0.0 },
+      uSizeMax: { value: options.sizeMax ?? DEFAULT_STAR_FIELD_STATE.starFieldSizeMax },
+      uBaseSize: { value: options.baseSize ?? DEFAULT_STAR_FIELD_STATE.starFieldBaseSize },
+      uSizeFluxScale: { value: options.sizeFluxScale ?? DEFAULT_STAR_FIELD_STATE.starFieldSizeFluxScale },
+      uSizeScale: { value: options.sizeScale ?? DEFAULT_STAR_FIELD_STATE.starFieldSizeScale },
+      uSizePower: { value: options.sizePower ?? DEFAULT_STAR_FIELD_STATE.starFieldSizePower },
       uScale: { value: options.scale ?? SCALE },
       uMagLimit: { value: options.magLimit ?? DEFAULT_MAG_LIMIT },
-      uMagFadeRange: { value: options.magFadeRange ?? 3.0 },
+      uMagFadeRange: { value: options.magFadeRange ?? DEFAULT_STAR_FIELD_STATE.starFieldMagFadeRange },
       uExtinctionScale: { value: options.extinctionScale ?? 1.0 },
-      uExposure: { value: options.exposure ?? 1.0 },
+      uExposure: { value: options.exposure ?? DEFAULT_STAR_FIELD_STATE.starFieldExposure },
       uCameraPosition: { value: new THREE.Vector3(0, 0, 0) },
       uDustVolume: { value: options.texture ?? null },
       uDustMaxDensity: { value: options.maxDensity ?? 1.0 },
@@ -259,7 +263,10 @@ function createDustExtinctionStarFieldMaterialProfile(options = {}) {
 
       uniform float uSizeMin;
       uniform float uSizeMax;
-      uniform float uLinearScale;
+      uniform float uBaseSize;
+      uniform float uSizeFluxScale;
+      uniform float uSizeScale;
+      uniform float uSizePower;
       uniform float uScale;
       uniform float uMagLimit;
       uniform float uMagFadeRange;
@@ -292,6 +299,14 @@ function createDustExtinctionStarFieldMaterialProfile(options = {}) {
         else if (t <= 19.0) c.b = 0.0;
         else c.b = 138.5177312231 * log(t - 10.0) - 305.0447927307;
         return clamp(c / 255.0, 0.0, 1.0);
+      }
+
+      float fluxSignal(float flux, float power) {
+        return max(pow(1.0 + max(flux, 0.0), power) - 1.0, 0.0);
+      }
+
+      float brightnessSignal(float displayFlux) {
+        return max(log(1.0 + max(displayFlux, 0.0)) / log(2.0), 0.0);
       }
 
       float computeDustAv(vec3 startWorld, vec3 endWorld) {
@@ -344,35 +359,14 @@ function createDustExtinctionStarFieldMaterialProfile(options = {}) {
         vColor = starColor * transmittance;
 
         float brightnessTransmittance = dot(transmittance, vec3(0.2126, 0.7152, 0.0722));
-        float relativeFlux = pow(10.0, 0.4 * (uMagLimit - mApp));
-        float energy = relativeFlux * uExposure * brightnessTransmittance;
-
-        float rawRadius = sqrt(max(energy, 0.0)) * uLinearScale;
-
-        float luminance;
-        float radius;
-        if (rawRadius < uSizeMin) {
-          luminance = (rawRadius * rawRadius * rawRadius) /
-                      (uSizeMin * uSizeMin * uSizeMin);
-          radius = uSizeMin;
-          if (luminance < 0.03) {
-            luminance = 0.0;
-            radius = 0.0;
-          }
-        } else {
-          luminance = 1.0;
-          float maxLinear = 8.0;
-          if (rawRadius > maxLinear) {
-            radius = maxLinear + sqrt(1.0 + rawRadius - maxLinear) - 1.0;
-          } else {
-            radius = rawRadius;
-          }
-        }
-
+        float apparentFlux = pow(10.0, -0.4 * mApp) * brightnessTransmittance;
+        float displayFlux = apparentFlux * uExposure;
+        float sizeSignal = fluxSignal(apparentFlux * max(uSizeFluxScale, 0.0), uSizePower);
+        float radius = uBaseSize + uSizeScale * sizeSignal;
         gl_PointSize = clamp(radius, uSizeMin, uSizeMax);
 
         float edgeFade = 1.0 - smoothstep(uMagLimit - uMagFadeRange, uMagLimit, mApp);
-        vLuminance = luminance * edgeFade;
+        vLuminance = edgeFade * mix(0.18, 1.0, 1.0 - exp(-0.25 * brightnessSignal(displayFlux)));
 
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
@@ -431,7 +425,25 @@ function createDustExtinctionStarFieldMaterialProfile(options = {}) {
         : options.magLimit ?? DEFAULT_MAG_LIMIT;
       material.uniforms.uExposure.value = Number.isFinite(state.starFieldExposure)
         ? state.starFieldExposure
-        : options.exposure ?? 1.0;
+        : options.exposure ?? DEFAULT_STAR_FIELD_STATE.starFieldExposure;
+      material.uniforms.uMagFadeRange.value = Number.isFinite(state.starFieldMagFadeRange)
+        ? state.starFieldMagFadeRange
+        : options.magFadeRange ?? DEFAULT_STAR_FIELD_STATE.starFieldMagFadeRange;
+      material.uniforms.uBaseSize.value = Number.isFinite(state.starFieldBaseSize)
+        ? state.starFieldBaseSize
+        : options.baseSize ?? DEFAULT_STAR_FIELD_STATE.starFieldBaseSize;
+      material.uniforms.uSizeMax.value = Number.isFinite(state.starFieldSizeMax)
+        ? state.starFieldSizeMax
+        : options.sizeMax ?? DEFAULT_STAR_FIELD_STATE.starFieldSizeMax;
+      material.uniforms.uSizeFluxScale.value = Number.isFinite(state.starFieldSizeFluxScale)
+        ? state.starFieldSizeFluxScale
+        : options.sizeFluxScale ?? DEFAULT_STAR_FIELD_STATE.starFieldSizeFluxScale;
+      material.uniforms.uSizeScale.value = Number.isFinite(state.starFieldSizeScale)
+        ? state.starFieldSizeScale
+        : options.sizeScale ?? DEFAULT_STAR_FIELD_STATE.starFieldSizeScale;
+      material.uniforms.uSizePower.value = Number.isFinite(state.starFieldSizePower)
+        ? state.starFieldSizePower
+        : options.sizePower ?? DEFAULT_STAR_FIELD_STATE.starFieldSizePower;
       material.uniforms.uDustAvScale.value = options.getAvScale?.() ?? 1.0;
     },
     dispose() {
@@ -1215,6 +1227,7 @@ async function mountViewer() {
     },
     clearColor: 0x02040b,
   });
+  installDemoViewerDebugConsole(viewer, { id: 'dust-roam' });
 
   volumeMesh = buildVolumeMesh(voxelInfo);
   viewer.contentRoot.add(volumeMesh);
