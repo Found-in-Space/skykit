@@ -194,6 +194,9 @@ export async function selectOctreeNodes(context, options = {}) {
         centerZ: geom.centerZ,
         halfSize: geom.halfSize,
         level: geom.level,
+        gridX: geom.gridX,
+        gridY: geom.gridY,
+        gridZ: geom.gridZ,
       });
       stats.maxLevelSelected = stats.maxLevelSelected == null
         ? geom.level

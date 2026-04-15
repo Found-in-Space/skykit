@@ -1,11 +1,16 @@
 import { getDatasetSession } from '../core/dataset-session.js';
 import { createObserverShellField } from '../fields/observer-shell-field.js';
+import { aabbDistance, selectOctreeNodes } from '../fields/octree-selection.js';
 import {
   DEFAULT_PAYLOAD_MAX_BATCH_BYTES,
   DEFAULT_PAYLOAD_MAX_GAP_BYTES,
   planPayloadRangeBatches,
 } from '../services/octree/octree-file-service.js';
 import { SCALE } from '../services/octree/scene-scale.js';
+import {
+  serializeStarDataId,
+  toStarDataId,
+} from '../services/star-data-id.js';
 
 const DEFAULT_OBSERVER_PC = Object.freeze({ x: 0, y: 0, z: 0 });
 
@@ -174,6 +179,166 @@ function mergeLevelRows(nodeSummary, decodedSummary) {
   };
 }
 
+function normalizeNonNegativeNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : fallback;
+}
+
+function normalizeNonNegativeInteger(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? Math.floor(number) : fallback;
+}
+
+function createPickMeta(node, ordinal) {
+  return {
+    nodeKey: node.nodeKey,
+    level: node.level,
+    centerX: node.centerX,
+    centerY: node.centerY,
+    centerZ: node.centerZ,
+    gridX: node.gridX,
+    gridY: node.gridY,
+    gridZ: node.gridZ,
+    ordinal,
+  };
+}
+
+function serializeBookmarkableStarId(pickMeta, datasetSession) {
+  const id = toStarDataId(pickMeta, {
+    datasetUuid: datasetSession.datasetUuid,
+  });
+
+  return {
+    id,
+    serialized: serializeStarDataId(id),
+  };
+}
+
+async function maybeResolveSidecarFields(datasetSession, pickMeta, includeSidecarMeta) {
+  if (!includeSidecarMeta || !datasetSession.getSidecarService('meta')) {
+    return null;
+  }
+
+  try {
+    return await datasetSession.resolveSidecarMetaFields('meta', pickMeta);
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function collectNearestStars(datasetSession, options = {}) {
+  const point = normalizePoint(options.point, DEFAULT_OBSERVER_PC);
+  const radiusPc = normalizeNonNegativeNumber(options.radiusPc, 10);
+  const nearestN = normalizeNonNegativeInteger(options.nearestN, 10);
+  const includeSidecarMeta = options.includeSidecarMeta !== false;
+
+  if (nearestN <= 0) {
+    return {
+      point,
+      radiusPc,
+      nearestN,
+      stars: [],
+      stats: {
+        candidatePayloadNodeCount: 0,
+        decodedStarCount: 0,
+        inRadiusStarCount: 0,
+      },
+    };
+  }
+
+  const selection = await selectOctreeNodes({
+    datasetSession,
+  }, {
+    predicate({ geom }) {
+      return aabbDistance(
+        point.x,
+        point.y,
+        point.z,
+        geom.centerX,
+        geom.centerY,
+        geom.centerZ,
+        geom.halfSize,
+      ) <= radiusPc;
+    },
+  });
+
+  const renderService = datasetSession.getRenderService();
+  const payloadNodes = selection.nodes.filter((node) => node.payloadLength > 0);
+  const entries = payloadNodes.length > 0
+    ? await renderService.fetchNodePayloadBatch(payloadNodes)
+    : [];
+  const candidates = [];
+  let decodedStarCount = 0;
+
+  for (const entry of entries) {
+    const node = entry.node;
+    const decoded = renderService.decodePayload(entry.buffer, node);
+    decodedStarCount += decoded.count;
+
+    for (let ordinal = 0; ordinal < decoded.count; ordinal += 1) {
+      const positionPc = {
+        x: decoded.positions[ordinal * 3] / SCALE,
+        y: decoded.positions[ordinal * 3 + 1] / SCALE,
+        z: decoded.positions[ordinal * 3 + 2] / SCALE,
+      };
+      const dx = positionPc.x - point.x;
+      const dy = positionPc.y - point.y;
+      const dz = positionPc.z - point.z;
+      const distancePc = Math.hypot(dx, dy, dz);
+      if (distancePc > radiusPc) {
+        continue;
+      }
+
+      const pickMeta = createPickMeta(node, ordinal);
+      const bookmark = serializeBookmarkableStarId(pickMeta, datasetSession);
+      const temperatureByte = decoded.teffLog8?.[ordinal];
+
+      candidates.push({
+        distancePc,
+        apparentMagnitude: computeApparentMagnitude(point, positionPc, decoded.magAbs[ordinal]),
+        absoluteMagnitude: decoded.magAbs[ordinal],
+        ...(temperatureByte != null ? { temperatureByte } : {}),
+        positionPc,
+        nodeKey: node.nodeKey,
+        pickMeta,
+        starDataId: bookmark.id,
+        bookmarkId: bookmark.serialized,
+      });
+    }
+  }
+
+  candidates.sort((left, right) => left.distancePc - right.distancePc);
+  const nearest = candidates.slice(0, nearestN);
+
+  for (const star of nearest) {
+    const sidecarMeta = await maybeResolveSidecarFields(
+      datasetSession,
+      star.pickMeta,
+      includeSidecarMeta,
+    );
+    if (sidecarMeta) {
+      star.sidecarMeta = sidecarMeta;
+    }
+  }
+
+  return {
+    point,
+    radiusPc,
+    nearestN,
+    includeSidecarMeta,
+    stars: nearest,
+    stats: {
+      candidatePayloadNodeCount: payloadNodes.length,
+      decodedStarCount,
+      inRadiusStarCount: candidates.length,
+      visitedNodeCount: selection.stats.visitedNodeCount,
+      prunedNodeCount: selection.stats.prunedNodeCount,
+    },
+  };
+}
+
 export async function diagnoseObserverShellSelection(options = {}) {
   const octreeUrl = typeof options.octreeUrl === 'string' && options.octreeUrl.trim()
     ? options.octreeUrl.trim()
@@ -198,10 +363,16 @@ export async function diagnoseObserverShellSelection(options = {}) {
     ? Math.floor(options.maxLevel)
     : null;
   const decodePayloads = options.decodePayloads !== false;
+  const nearestN = normalizeNonNegativeInteger(options.nearestN, 10);
+  const radiusPc = normalizeNonNegativeNumber(options.radiusPc, 10);
+  const includeSidecarMeta = options.includeSidecarMeta !== false;
 
   const datasetSession = getDatasetSession({
     id: 'observer-shell-diagnostic-session',
     octreeUrl,
+    ...(typeof options.metaUrl === 'string' && options.metaUrl.trim()
+      ? { metaUrl: options.metaUrl.trim() }
+      : {}),
   });
 
   try {
@@ -251,7 +422,16 @@ export async function diagnoseObserverShellSelection(options = {}) {
       );
     }
 
-    const totalMs = selectionMs + payloadFetchMs;
+    const t2 = performance.now();
+    const nearest = await collectNearestStars(datasetSession, {
+      point: observerPc,
+      radiusPc,
+      nearestN,
+      includeSidecarMeta,
+    });
+    const nearestMs = performance.now() - t2;
+
+    const totalMs = selectionMs + payloadFetchMs + nearestMs;
     const datasetDescription = datasetSession.describe();
     return {
       octreeUrl,
@@ -262,6 +442,7 @@ export async function diagnoseObserverShellSelection(options = {}) {
       timing: {
         selectionMs: Math.round(selectionMs),
         payloadFetchMs: Math.round(payloadFetchMs),
+        nearestMs: Math.round(nearestMs),
         totalMs: Math.round(totalMs),
       },
       selectionMeta: selection.meta ?? null,
@@ -272,7 +453,9 @@ export async function diagnoseObserverShellSelection(options = {}) {
       batches: {
         jsLike: nodeSummary.batches,
       },
+      nearest,
       loader: datasetDescription.services.render,
+      sidecars: datasetDescription.sidecars,
     };
   } finally {
     datasetSession.dispose();

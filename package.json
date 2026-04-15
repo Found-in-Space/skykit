@@ -26,6 +26,7 @@
     "dev": "vite",
     "build": "vite build",
     "diag:observer-shell": "node ./scripts/observer-shell-diagnostic.js",
+    "lookup:bookmark-star": "node ./scripts/bookmark-star-lookup.js",
     "test": "node --test",
     "test:watch": "node --test --watch"
   },
