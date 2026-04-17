@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit: HR Diagram Touch Display</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      body {
+        display: block;
+        margin: 0;
+      }
+
+      main {
+        min-height: 100vh;
+      }
+
+      .viewer-shell {
+        min-height: 100vh;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="viewer-shell" data-skykit-viewer-root></div>
+    </main>
+    <script type="module" src="/src/demo/hr-diagram-touch.js"></script>
+  </body>
+</html>

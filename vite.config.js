@@ -18,6 +18,7 @@ export default defineConfig({
         parallaxDebug: path.resolve(__dirname, 'demos/parallax-debug.html'),
         shaderTuning: path.resolve(__dirname, 'demos/shader-tuning.html'),
         hrDiagram: path.resolve(__dirname, 'demos/hr-diagram.html'),
+        hrDiagramTouch: path.resolve(__dirname, 'demos/hr-diagram-touch.html'),
         radioBubble: path.resolve(__dirname, 'demos/radio-bubble.html'),
         clusters: path.resolve(__dirname, 'demos/clusters.html'),
         dataShape: path.resolve(__dirname, 'demos/data-shape.html'),
