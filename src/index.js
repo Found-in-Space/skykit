@@ -69,6 +69,14 @@ export { computeXrDepthRange } from './services/render/xr-depth-range.js';
 export { createHud } from './ui/hud.js';
 export { createTouchDisplay } from './ui/touch-display.js';
 export {
+  buildHRDiagramValue,
+  createHRDiagramControl,
+  decodeTeff,
+  drawHRDiagramGraphic,
+  magToY,
+  tempToX,
+} from './ui/hr-diagram-control.js';
+export {
   PRESET_ARROWS,
   PRESET_QE,
   PRESET_VERTICALS,
