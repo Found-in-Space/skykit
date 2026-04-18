@@ -29,6 +29,7 @@ function createFakeContext() {
       calls.strokeRect += 1;
     },
     beginPath() {},
+    arc() {},
     moveTo() {},
     lineTo() {},
     stroke() {},
@@ -132,5 +133,23 @@ test('createHRDiagramControl exposes expected touch-display control contract', (
 
 test('decodeTeff preserves solar sentinel encoding', () => {
   const sentinelTemp = decodeTeff(255);
-  assert.equal(sentinelTemp, 5800);
+  assert.equal(sentinelTemp, null);
+});
+
+test('drawHRDiagramGraphic suppresses stars with sentinel teff_log8=255', () => {
+  const { ctx } = createFakeContext();
+  const value = {
+    positions: new Float32Array([0, 0, -0.01]),
+    teffLog8: new Uint8Array([255]),
+    magAbs: new Float32Array([5]),
+    starCount: 1,
+    observerX: 0,
+    observerY: 0,
+    observerZ: 0,
+    mode: 1,
+    appMagLimit: 6.5,
+  };
+
+  const visible = drawHRDiagramGraphic(ctx, { x: 0, y: 0, w: 240, h: 180 }, value);
+  assert.equal(visible, 0);
 });
