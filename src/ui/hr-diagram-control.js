@@ -9,6 +9,8 @@ const DEFAULT_HEIGHT = 220;
 const TEMP_TICKS = [3000, 5000, 8000, 15000, 30000];
 const MAG_TICK_STEP = 4;
 const DIRECT_DRAW_THRESHOLD = 2000;
+const INVALID_TEFF_LOG8 = 255;
+const PLOT_BG_RGBA = [1, 6, 16, 255];
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -52,10 +54,11 @@ function createImageDataBuffer(ctx, width, height) {
 }
 
 export function decodeTeff(log8Byte) {
-  const log8 = (Number(log8Byte) || 0) / 255;
-  if (log8 >= 0.996) {
-    return 5800;
+  const encoded = Number(log8Byte);
+  if (!Number.isFinite(encoded) || encoded >= INVALID_TEFF_LOG8) {
+    return null;
   }
+  const log8 = encoded / 255;
   return 2000 * Math.pow(25, log8);
 }
 
@@ -141,6 +144,9 @@ function drawStarsDirect(ctx, x, y, plotW, plotH, value, options) {
     }
 
     const teff = decodeTeff(value.teffLog8[i]);
+    if (!Number.isFinite(teff)) {
+      continue;
+    }
     const px = Math.floor(tempToX(teff, plotW, 0, options.coolK, options.hotK));
     const py = Math.floor(magToY(value.magAbs[i], plotH, 0, options.minMag, options.maxMag));
 
@@ -160,6 +166,12 @@ function drawStarsDirect(ctx, x, y, plotW, plotH, value, options) {
 function buildStarImageData(ctx, plotW, plotH, value, options) {
   const imageData = createImageDataBuffer(ctx, plotW, plotH);
   const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = PLOT_BG_RGBA[0];
+    data[i + 1] = PLOT_BG_RGBA[1];
+    data[i + 2] = PLOT_BG_RGBA[2];
+    data[i + 3] = PLOT_BG_RGBA[3];
+  }
   let visibleCount = 0;
 
   for (let i = 0; i < value.starCount; i += 1) {
@@ -172,6 +184,9 @@ function buildStarImageData(ctx, plotW, plotH, value, options) {
     }
 
     const teff = decodeTeff(value.teffLog8[i]);
+    if (!Number.isFinite(teff)) {
+      continue;
+    }
     const px = Math.floor(tempToX(teff, plotW, 0, options.coolK, options.hotK));
     const py = Math.floor(magToY(value.magAbs[i], plotH, 0, options.minMag, options.maxMag));
 
@@ -190,6 +205,40 @@ function buildStarImageData(ctx, plotW, plotH, value, options) {
   }
 
   return { imageData, visibleCount };
+}
+
+function drawSelectedStars(ctx, x, y, plotW, plotH, value, options) {
+  const selectedStars = Array.isArray(value?.selectedStars) ? value.selectedStars : null;
+  if (!selectedStars?.length) {
+    return;
+  }
+
+  ctx.save();
+  for (const star of selectedStars) {
+    const teff = Number(star?.teffK);
+    const magAbs = Number(star?.magAbs);
+    if (!Number.isFinite(teff) || !Number.isFinite(magAbs)) {
+      continue;
+    }
+    const px = tempToX(teff, plotW, 0, options.coolK, options.hotK);
+    const py = magToY(magAbs, plotH, 0, options.minMag, options.maxMag);
+    const sx = x + px;
+    const sy = y + py;
+    ctx.strokeStyle = 'rgba(255, 236, 138, 0.96)';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 4, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(21, 30, 51, 0.95)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(sx - 6, sy);
+    ctx.lineTo(sx + 6, sy);
+    ctx.moveTo(sx, sy - 6);
+    ctx.lineTo(sx, sy + 6);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawAxes(ctx, rect, options) {
@@ -292,6 +341,12 @@ export function buildHRDiagramValue(geometry, options = {}) {
     mode: Number.isFinite(options.mode) ? Number(options.mode) : 1,
     appMagLimit: Number.isFinite(options.appMagLimit) ? Number(options.appMagLimit) : 6.5,
     viewProjection,
+    selectedStars: Array.isArray(options.selectedStars)
+      ? options.selectedStars.map((star) => ({
+        teffK: Number(star?.teffK),
+        magAbs: Number(star?.magAbs),
+      }))
+      : null,
   };
 }
 
@@ -340,6 +395,16 @@ export function drawHRDiagramGraphic(ctx, rect, value, options = {}) {
       ctx.putImageData(imageData, x + margin, y + margin);
       return count;
     })();
+
+  drawSelectedStars(
+    ctx,
+    x + margin,
+    y + margin,
+    plotW,
+    plotH,
+    value,
+    drawOptions,
+  );
 
   drawAxes(ctx, { x, y, w, h }, {
     x,
@@ -431,6 +496,16 @@ export function createHRDiagramControl(options = {}) {
         ctx.putImageData(cachedImageData, x + config.margin, y + config.margin);
         visibleCount = rendered.visibleCount;
       }
+
+      drawSelectedStars(
+        ctx,
+        x + config.margin,
+        y + config.margin,
+        plotW,
+        plotH,
+        value,
+        config,
+      );
 
       drawAxes(ctx, { x, y, w, h }, {
         x,

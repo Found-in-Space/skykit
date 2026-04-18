@@ -3,10 +3,13 @@ import {
   buildHRDiagramValue,
   createCameraRigController,
   createDefaultStarFieldMaterialProfile,
+  createFlyToAction,
   createFoundInSpaceDatasetOptions,
   createHRDiagramControl,
   createHud,
+  createLookAtAction,
   createObserverShellField,
+  createPickController,
   createSceneOrientationTransforms,
   createSceneTouchDisplayController,
   createSelectionRefreshController,
@@ -18,6 +21,7 @@ import {
   getDatasetSession,
   ORION_CENTER_PC,
   resolveFoundInSpaceDatasetOverrides,
+  SCALE,
   SOLAR_ORIGIN_PC,
 } from '../index.js';
 import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
@@ -52,6 +56,7 @@ const datasetSession = getDatasetSession(createFoundInSpaceDatasetOptions({
 let viewer = null;
 let cameraController = null;
 let tabletDisplay = null;
+let pickControllerRef = null;
 let volumeLoader = null;
 let activePage = 'home';
 let activeMode = 0;
@@ -65,6 +70,7 @@ let volumeStarCount = 0;
 let lastVolumeObserverPc = { ...SOLAR_ORIGIN_PC };
 let volumeReloadQueued = false;
 let nextHrUpdateAtMs = 0;
+let lastPickedResult = null;
 
 const viewProjection = new THREE.Matrix4();
 
@@ -75,8 +81,47 @@ function clonePoint(point) {
 function buildHomeItems() {
   return [
     { id: 'hr', type: 'hr-diagram', value: null },
+    ...(lastPickedResult ? [{ id: 'page-selection', type: 'button', label: 'Selection' }] : []),
     { id: 'page-rendering', type: 'button', label: 'Rendering Controls' },
     { id: 'page-waypoints', type: 'button', label: 'Waypoints' },
+  ];
+}
+
+function sceneToIcrsPc(scenePosition) {
+  const [ix, iy, iz] = ORION_SCENE_TO_ICRS_TRANSFORM(scenePosition.x, scenePosition.y, scenePosition.z);
+  return { x: ix / SCALE, y: iy / SCALE, z: iz / SCALE };
+}
+
+function approachTargetFromObserver(targetPc, observerPc, distancePc) {
+  const dx = targetPc.x - observerPc.x;
+  const dy = targetPc.y - observerPc.y;
+  const dz = targetPc.z - observerPc.z;
+  const len = Math.hypot(dx, dy, dz);
+  if (!(len > distancePc)) {
+    return clonePoint(observerPc);
+  }
+  const factor = distancePc / len;
+  return {
+    x: targetPc.x - dx * factor,
+    y: targetPc.y - dy * factor,
+    z: targetPc.z - dz * factor,
+  };
+}
+
+function buildSelectionItems() {
+  return [
+    { id: 'back-home', type: 'button', label: '< Back' },
+    {
+      id: 'selected-star',
+      type: 'display',
+      label: 'Selected Star',
+      lines: [],
+      dismissible: true,
+      actionId: 'go-selected',
+      actionLabel: 'Go to Selected',
+    },
+    { id: 'look-selected', type: 'button', label: 'Look at Selected' },
+    { id: 'clear-selection', type: 'button', label: 'Clear Selection' },
   ];
 }
 
@@ -160,7 +205,86 @@ function setTabletPage(page) {
     tabletDisplay.setItems(buildWaypointItems());
     return;
   }
+  if (page === 'selection') {
+    tabletDisplay.setItems(buildSelectionItems());
+    return;
+  }
   tabletDisplay.setItems(buildHomeItems());
+}
+
+function updateTabletSelectionInfo() {
+  if (!tabletDisplay || activePage !== 'selection') {
+    return;
+  }
+  if (!lastPickedResult) {
+    tabletDisplay.setDisplay('selected-star', []);
+    return;
+  }
+
+  const lines = [];
+  const temp = Number(lastPickedResult.temperatureK);
+  const absMag = Number(lastPickedResult.absoluteMagnitude);
+  const appMag = Number(lastPickedResult.apparentMagnitude);
+  const distPc = Number(lastPickedResult.distancePc);
+  if (Number.isFinite(temp)) {
+    lines.push(`Temp: ${Math.round(temp).toLocaleString()} K`);
+  }
+  if (Number.isFinite(appMag) || Number.isFinite(absMag)) {
+    lines.push(`Mag: ${Number.isFinite(appMag) ? appMag.toFixed(2) : '-'} app / ${Number.isFinite(absMag) ? absMag.toFixed(2) : '-'} abs`);
+  }
+  if (Number.isFinite(distPc)) {
+    lines.push(`Distance: ${distPc.toFixed(2)} pc`);
+  }
+  tabletDisplay.setDisplay('selected-star', lines);
+}
+
+function goToStarTarget(targetPc) {
+  if (!cameraController || !targetPc) {
+    return;
+  }
+  const observerPc = viewer?.getSnapshotState?.()?.state?.observerPc;
+  if (!observerPc) {
+    return;
+  }
+  const arrivalTarget = approachTargetFromObserver(targetPc, observerPc, 0.25);
+  cameraController.cancelAutomation();
+  cameraController.lockAt(targetPc, {
+    dwellMs: 5000,
+    recenterSpeed: 0.06,
+  });
+  cameraController.flyTo(arrivalTarget, {
+    speed: activeFlySpeed,
+    deceleration: 2.4,
+    onArrive: () => {
+      cameraController?.cancelOrientation?.();
+      viewer?.refreshSelection().catch((error) => {
+        console.error('[hr-diagram-touch-demo] refresh after flyTo failed', error);
+      });
+    },
+  });
+}
+
+function goToPickedStar() {
+  if (!lastPickedResult?.position) {
+    return;
+  }
+  goToStarTarget(sceneToIcrsPc(lastPickedResult.position));
+}
+
+function handlePick(result) {
+  lastPickedResult = result ?? null;
+  if (!result) {
+    pickControllerRef?.clearSelection?.();
+  }
+  if (lastPickedResult) {
+    setTabletPage('selection');
+    updateTabletSelectionInfo();
+  } else if (activePage === 'selection') {
+    setTabletPage('home');
+  } else {
+    setTabletPage(activePage);
+  }
+  nextHrUpdateAtMs = 0;
 }
 
 async function loadVolumeHR() {
@@ -233,18 +357,29 @@ function updateHrDisplay(context) {
         context.camera.matrixWorldInverse,
       ).elements
       : undefined,
+    selectedStars: lastPickedResult
+      ? [{
+        teffK: lastPickedResult.temperatureK,
+        magAbs: lastPickedResult.absoluteMagnitude,
+      }]
+      : null,
   });
 
   tabletDisplay.setItemValue('hr', value);
 }
 
-function onTabletChange(id, value) {
+function onTabletChange(id, value, detail) {
   if (id === 'page-rendering') {
     setTabletPage('rendering');
     return;
   }
   if (id === 'page-waypoints') {
     setTabletPage('waypoints');
+    return;
+  }
+  if (id === 'page-selection') {
+    setTabletPage('selection');
+    updateTabletSelectionInfo();
     return;
   }
   if (id === 'back-home') {
@@ -289,6 +424,24 @@ function onTabletChange(id, value) {
     cameraController?.cancelAutomation();
     return;
   }
+  if (id === 'go-selected') {
+    goToPickedStar();
+    return;
+  }
+  if (id === 'look-selected') {
+    if (lastPickedResult?.position) {
+      cameraController?.lookAt(sceneToIcrsPc(lastPickedResult.position), { blend: 0.06 });
+    }
+    return;
+  }
+  if (id === 'clear-selection') {
+    handlePick(null);
+    return;
+  }
+  if (id === 'selected-star' && detail?.target?.targetType === 'dismiss') {
+    handlePick(null);
+    return;
+  }
 
   const waypoint = WAYPOINTS.find((entry) => entry.id === id);
   if (!waypoint) {
@@ -296,11 +449,7 @@ function onTabletChange(id, value) {
   }
 
   cameraController?.lookAt(waypoint.targetPc);
-  cameraController?.flyTo(waypoint.targetPc, {
-    speed: activeFlySpeed,
-    deceleration: Math.max(activeFlySpeed * 0.6, 5),
-    arrivalThreshold: 0.03,
-  });
+  goToStarTarget(waypoint.targetPc);
 }
 
 function initSceneTablet() {
@@ -344,8 +493,8 @@ function initSceneTablet() {
       panelMesh.rotation.set(0, 0, 0);
       return true;
     },
-    onChange(id, value) {
-      onTabletChange(id, value);
+    onChange(id, value, detail) {
+      onTabletChange(id, value, detail);
     },
   });
 }
@@ -367,6 +516,7 @@ async function mountViewer() {
   const starFieldLayer = createStarFieldLayer({
     id: 'desktop-hr-diagram-touch-star-field-layer',
     positionTransform: ORION_SCENE_TRANSFORM,
+    includePickMeta: true,
     materialFactory: () => createDefaultStarFieldMaterialProfile(),
     onCommit({ geometry, starCount }) {
       latestGeometry = geometry;
@@ -376,6 +526,14 @@ async function mountViewer() {
   });
 
   initSceneTablet();
+  pickControllerRef = createPickController({
+    id: 'desktop-hr-diagram-touch-pick-controller',
+    getStarData: () => starFieldLayer?.getStarData?.(),
+    toleranceDeg: DEFAULT_PICK_TOLERANCE_DEG,
+    onPick(result) {
+      handlePick(result);
+    },
+  });
 
   viewer = await createViewer(mount, {
     datasetSession,
@@ -391,11 +549,23 @@ async function mountViewer() {
         minIntervalMs: 140,
       }),
       tabletDisplay,
+      pickControllerRef,
       createHud({
         cameraController,
         controls: [
           { preset: 'arrows', position: 'bottom-right' },
           { preset: 'wasd-qe', position: 'bottom-left' },
+          createLookAtAction(cameraController, SOLAR_ORIGIN_PC, {
+            label: '⟳ Sun',
+            title: 'Look at Sun',
+            position: 'top-right',
+          }),
+          createFlyToAction(cameraController, SOLAR_ORIGIN_PC, {
+            label: '→ Sun',
+            title: 'Fly to Sun',
+            speed: 120,
+            position: 'top-right',
+          }),
         ],
       }),
     ],
