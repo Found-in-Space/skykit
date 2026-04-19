@@ -181,6 +181,15 @@ export function createPickController(options = {}) {
       if (highlightEl) highlightEl.style.display = 'none';
     },
 
+    setSelectionPosition(position) {
+      pickedPosition = position
+        ? { x: position.x, y: position.y, z: position.z }
+        : null;
+      if (!pickedPosition && highlightEl) {
+        highlightEl.style.display = 'none';
+      }
+    },
+
     dispose() {
       if (cleanupListeners) {
         cleanupListeners();
