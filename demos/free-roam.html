@@ -111,6 +111,18 @@
         color: var(--text-main);
       }
 
+      .control-row input[type="text"],
+      .control-row input[type="number"] {
+        width: 100%;
+        min-width: 0;
+        padding: 6px 8px;
+        border: 1px solid var(--panel-border);
+        border-radius: 8px;
+        background: rgba(6, 12, 22, 0.86);
+        color: var(--text-main);
+        font: inherit;
+      }
+
       .toggle-row {
         display: flex;
         align-items: center;
@@ -218,6 +230,16 @@
         color: var(--text-muted);
       }
 
+      .pick-actions {
+        display: flex;
+        gap: 10px;
+        margin: 14px 0 0;
+      }
+
+      .pick-actions button {
+        flex: 1 1 auto;
+      }
+
       .pick-simbad-link {
         color: #9fe9ff;
         text-decoration: underline;
@@ -230,6 +252,36 @@
 
       .meta-block {
         margin: 12px 0 0;
+      }
+
+      .coord-form {
+        margin-top: 12px;
+      }
+
+      .coord-form .control-row {
+        grid-template-columns: minmax(84px, 104px) minmax(0, 1fr);
+      }
+
+      .coord-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .coord-actions button {
+        flex: 1 1 auto;
+      }
+
+      .coord-help {
+        margin: 10px 0 0;
+        color: var(--text-muted);
+        font-size: 0.82rem;
+      }
+
+      .coord-status {
+        margin: 10px 0 0;
+        color: var(--text-muted);
+        font-size: 0.82rem;
       }
 
       @media (max-width: 960px) {
@@ -257,6 +309,10 @@
         .control-row {
           grid-template-columns: minmax(76px, 92px) minmax(0, 1fr) minmax(44px, 56px);
           gap: 8px;
+        }
+
+        .coord-form .control-row {
+          grid-template-columns: minmax(76px, 92px) minmax(0, 1fr);
         }
       }
     </style>
@@ -292,6 +348,7 @@
                 <tr><th>HD</th><td data-pick-meta="hd">—</td></tr>
                 <tr><th>HIP</th><td data-pick-meta="hip">—</td></tr>
                 <tr><th>Gaia</th><td data-pick-meta="gaia">—</td></tr>
+                <tr><th>Bookmark</th><td data-pick-meta="bookmark">—</td></tr>
                 <tr><th>SIMBAD</th><td>
                   <span data-pick-simbad-empty>—</span>
                   <a class="pick-simbad-link" data-pick-simbad-link href="#" target="_blank" rel="noopener noreferrer" hidden>View in SIMBAD</a>
@@ -311,6 +368,9 @@
                 <tr><th>Angular offset</th><td data-pick-obs="offset">—</td></tr>
                 <tr><th>Buffer index</th><td data-pick-obs="bufferIndex">—</td></tr>
               </table>
+              <div class="pick-actions">
+                <button type="button" data-pick-action="flyTo">Fly to</button>
+              </div>
               <p class="pick-timing" data-pick-timing hidden></p>
             </div>
           </div>
@@ -333,6 +393,37 @@
             <label for="ctrl-fov">FOV</label>
             <input id="ctrl-fov" type="range" min="20" max="110" step="1" value="60" data-fov-deg />
             <span class="value-readout" data-readout="fov">60°</span>
+          </div>
+        </div>
+      </details>
+
+      <details class="accordion">
+        <summary>Fly To Coordinates</summary>
+        <div class="accordion__content">
+          <p class="accordion__copy">
+            Enter J2000 / ICRS coordinates and a distance in parsecs to jump to a point directly.
+          </p>
+
+          <div class="coord-form">
+            <div class="control-row">
+              <label for="ctrl-ra-j2000">RA</label>
+              <input id="ctrl-ra-j2000" type="text" placeholder="5:55:10.3 or 88.7929 deg" data-fly-ra />
+            </div>
+            <div class="control-row">
+              <label for="ctrl-dec-j2000">Dec</label>
+              <input id="ctrl-dec-j2000" type="text" placeholder="+7:24:25 or 7.4071" data-fly-dec />
+            </div>
+            <div class="control-row">
+              <label for="ctrl-distance-pc">Distance</label>
+              <input id="ctrl-distance-pc" type="number" min="0" step="0.01" placeholder="548" data-fly-distance />
+            </div>
+            <div class="coord-actions">
+              <button type="button" data-fly-coords>Fly to Coordinates</button>
+            </div>
+            <p class="coord-help">
+              RA accepts decimal degrees, decimal hours, or sexagesimal like <code>5:55:10.3</code>. Dec accepts decimal degrees or sexagesimal like <code>+7:24:25</code>.
+            </p>
+            <p class="coord-status" data-fly-status>—</p>
           </div>
         </div>
       </details>
