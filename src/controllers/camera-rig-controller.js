@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import { normalizePoint } from '../fields/octree-selection.js';
 import { createCameraRig, LOCAL_RIGHT, LOCAL_UP, LOCAL_FORWARD } from './camera-rig.js';
+import {
+  advanceOrbitalInsertAutomation,
+  buildPolylineRoute,
+  createOrbitalInsertAutomation,
+  deriveOrbitAngle,
+  samplePolylineRoutePosition,
+} from './camera-routes.js';
 
 function clonePoint(p) {
   return p ? { x: p.x, y: p.y, z: p.z } : null;
@@ -12,11 +19,6 @@ function positiveFinite(value, fallback) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
-}
-
-function smoothstep(edge0, edge1, x) {
-  const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
-  return t * t * (3 - 2 * t);
 }
 
 function normalizeDirectionInput(direction) {
@@ -221,6 +223,7 @@ export function createCameraRigController(options = {}) {
   // --- Keyboard handlers ---
 
   function onKeyDown(event) {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (isEditableTarget(event.target)) return;
     if (!MOVE_KEYS.includes(event.code)) return;
     event.preventDefault();
@@ -232,6 +235,7 @@ export function createCameraRigController(options = {}) {
   }
 
   function onKeyUp(event) {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (!pressedKeys.has(event.code)) return;
     pressedKeys.delete(event.code);
     event.preventDefault();
@@ -333,6 +337,178 @@ export function createCameraRigController(options = {}) {
     };
   }
 
+  function beginFlyTo(targetPc, opts = {}) {
+    const target = normalizePoint(targetPc, null);
+    if (!target) return false;
+    const durationSecs = Number.isFinite(opts.durationSecs) && opts.durationSecs > 0
+      ? opts.durationSecs
+      : null;
+    movementAutomation = {
+      type: 'flyTo',
+      target,
+      speed: durationSecs == null ? positiveFinite(opts.speed, moveSpeed) : null,
+      durationSecs,
+      elapsedSecs: 0,
+      deceleration: positiveFinite(opts.deceleration, 2),
+      arrivalThreshold: positiveFinite(opts.arrivalThreshold, 0.01),
+      onArrive: typeof opts.onArrive === 'function' ? opts.onArrive : null,
+    };
+    return true;
+  }
+
+  function beginOrbit(centerPc, opts = {}) {
+    const center = normalizePoint(centerPc, null);
+    if (!center) return false;
+    const dx = rig.positionPc.x - center.x;
+    const dy = rig.positionPc.y - center.y;
+    const dz = rig.positionPc.z - center.z;
+    const currentRadius = Math.hypot(dx, dy, dz);
+    const initialAngle = Number.isFinite(opts.initialAngle)
+      ? Number(opts.initialAngle)
+      : deriveOrbitAngle(center, rig.positionPc, {
+        icrsToSceneTransform: rig.icrsToScene,
+      });
+    movementAutomation = {
+      type: 'orbit',
+      center,
+      radius: positiveFinite(opts.radius, currentRadius || 1),
+      angularSpeed: opts.angularSpeed ?? 0.1,
+      angle: initialAngle,
+    };
+    return true;
+  }
+
+  function beginOrbitalInsert(centerPc, opts = {}) {
+    const center = normalizePoint(centerPc, null);
+    if (!center) return false;
+
+    const dx = rig.positionPc.x - center.x;
+    const dy = rig.positionPc.y - center.y;
+    const dz = rig.positionPc.z - center.z;
+    const currentDistance = Math.hypot(dx, dy, dz);
+    const orbitRadius = positiveFinite(opts.orbitRadius, currentDistance || 1);
+    const angularSpeed = opts.angularSpeed ?? 0.1;
+    const approachSpeed = positiveFinite(opts.approachSpeed ?? opts.speed, moveSpeed);
+    const deceleration = positiveFinite(opts.deceleration, 2);
+    const onInserted = typeof opts.onInserted === 'function' ? opts.onInserted : null;
+
+    if (currentDistance <= orbitRadius * 1.01) {
+      const angle = deriveOrbitAngle(center, rig.positionPc, {
+        icrsToSceneTransform: rig.icrsToScene,
+      });
+      const radiusDelta = Math.abs(currentDistance - orbitRadius);
+
+      if (radiusDelta < orbitRadius * 0.03) {
+        movementAutomation = {
+          type: 'orbit',
+          center,
+          radius: orbitRadius,
+          angularSpeed,
+          angle,
+        };
+      } else {
+        movementAutomation = {
+          type: 'orbit',
+          center,
+          radius: currentDistance,
+          angularSpeed,
+          angle,
+          targetRadius: orbitRadius,
+          radiusSpeed: approachSpeed,
+          radiusDecel: deceleration,
+        };
+      }
+
+      onInserted?.();
+      return true;
+    }
+
+    const automation = createOrbitalInsertAutomation(rig.positionPc, {
+      ...opts,
+      centerPc: center,
+      sceneScale: rig.sceneScale,
+      sceneToIcrsTransform: rig.sceneToIcrs,
+      icrsToSceneTransform: rig.icrsToScene,
+    });
+    if (!automation) {
+      return false;
+    }
+
+    automation.onInserted = onInserted;
+    movementAutomation = automation;
+    return true;
+  }
+
+  function beginFlyPolyline(points, opts = {}) {
+    const path = buildPolylineRoute(points);
+    if (!Array.isArray(path.segments) || path.segments.length === 0 || !(path.totalLengthPc > 0)) {
+      return false;
+    }
+
+    const durationSecs = Number.isFinite(opts.durationSecs) && opts.durationSecs > 0
+      ? opts.durationSecs
+      : null;
+    const startPoint = path.points[0];
+    if (startPoint && clonePoint(rig.positionPc) && Math.hypot(
+      rig.positionPc.x - startPoint.x,
+      rig.positionPc.y - startPoint.y,
+      rig.positionPc.z - startPoint.z,
+    ) < 1e-3) {
+      rig.setPosition(startPoint);
+    }
+
+    movementAutomation = {
+      type: 'flyPolyline',
+      path,
+      distancePc: 0,
+      speed: durationSecs == null ? positiveFinite(opts.speed, moveSpeed) : null,
+      durationSecs,
+      elapsedSecs: 0,
+      deceleration: positiveFinite(opts.deceleration, 2),
+      arrivalThreshold: positiveFinite(opts.arrivalThreshold, 0.01),
+      arrivalAction: opts.arrivalAction ?? null,
+      onArrive: typeof opts.onArrive === 'function' ? opts.onArrive : null,
+    };
+    return true;
+  }
+
+  function finishMovementWithArrivalAction(action, callback) {
+    if (!action || typeof action !== 'object') {
+      movementAutomation = null;
+      callback?.();
+      return false;
+    }
+
+    if (action.type === 'orbit') {
+      const started = beginOrbit(action.centerPc ?? action.center, {
+        radius: action.radius,
+        angularSpeed: action.angularSpeed,
+        initialAngle: action.initialAngle,
+      });
+      if (!started) {
+        movementAutomation = null;
+      }
+      callback?.();
+      return started;
+    }
+
+    if (action.type === 'orbitalInsert') {
+      const started = beginOrbitalInsert(action.centerPc ?? action.center, {
+        ...action,
+        onInserted: callback,
+      });
+      if (!started) {
+        movementAutomation = null;
+        callback?.();
+      }
+      return started;
+    }
+
+    movementAutomation = null;
+    callback?.();
+    return false;
+  }
+
   // --- Automation ---
 
   function updateMovementAutomation(context) {
@@ -341,25 +517,73 @@ export function createCameraRigController(options = {}) {
     if (!(dt > 0)) return true;
 
     if (movementAutomation.type === 'flyTo') {
-      const t = movementAutomation.target;
+      const auto = movementAutomation;
+      const t = auto.target;
       const dx = t.x - rig.positionPc.x;
       const dy = t.y - rig.positionPc.y;
       const dz = t.z - rig.positionPc.z;
       const distance = Math.hypot(dx, dy, dz);
 
-      if (distance < (movementAutomation.arrivalThreshold ?? 0.01)) {
+      if (distance < (auto.arrivalThreshold ?? 0.01)) {
         rig.setPosition(t);
-        const cb = movementAutomation.onArrive;
+        const cb = auto.onArrive;
         movementAutomation = null;
         cb?.();
         return false;
       }
 
-      const speed = Math.min(movementAutomation.speed, distance * (movementAutomation.deceleration ?? 2));
+      let speed;
+      if (auto.durationSecs != null) {
+        auto.elapsedSecs += dt;
+        const remainingSecs = Math.max(auto.durationSecs - auto.elapsedSecs, 0.05);
+        // Remaining-time tracking: speed = distance/remaining gives linear approach
+        // (D(t) = D0*(1-t/T)) with no decel cap needed — step is clamped to distance below.
+        speed = distance / remainingSecs;
+      } else {
+        speed = Math.min(auto.speed, distance * auto.deceleration);
+      }
+
       const step = Math.min(speed * dt, distance);
       rig.positionPc.x += (dx / distance) * step;
       rig.positionPc.y += (dy / distance) * step;
       rig.positionPc.z += (dz / distance) * step;
+      return true;
+    }
+
+    if (movementAutomation.type === 'flyPolyline') {
+      const auto = movementAutomation;
+      const finalPoint = auto.path.points[auto.path.points.length - 1];
+      const remainingDistance = Math.max(auto.path.totalLengthPc - auto.distancePc, 0);
+
+      if (remainingDistance <= (auto.arrivalThreshold ?? 0.01)) {
+        if (finalPoint) {
+          rig.setPosition(finalPoint);
+        }
+        return finishMovementWithArrivalAction(auto.arrivalAction, auto.onArrive);
+      }
+
+      let speed;
+      if (auto.durationSecs != null) {
+        auto.elapsedSecs += dt;
+        const remainingSecs = Math.max(auto.durationSecs - auto.elapsedSecs, 0.05);
+        speed = remainingDistance / remainingSecs;
+      } else {
+        speed = Math.min(auto.speed, remainingDistance * auto.deceleration);
+      }
+
+      const step = Math.min(speed * dt, remainingDistance);
+      auto.distancePc = Math.min(auto.distancePc + step, auto.path.totalLengthPc);
+      const nextPosition = samplePolylineRoutePosition(auto.path, auto.distancePc);
+      if (nextPosition) {
+        rig.setPosition(nextPosition);
+      }
+
+      if ((auto.path.totalLengthPc - auto.distancePc) <= (auto.arrivalThreshold ?? 0.01)) {
+        if (finalPoint) {
+          rig.setPosition(finalPoint);
+        }
+        return finishMovementWithArrivalAction(auto.arrivalAction, auto.onArrive);
+      }
       return true;
     }
 
@@ -401,102 +625,23 @@ export function createCameraRigController(options = {}) {
 
     if (movementAutomation.type === 'orbitalInsert') {
       const auto = movementAutomation;
-      const {
-        center, orbitRadius, angularSpeed, approachSpeed,
-        deceleration, insertionRadius, normalIcrs,
-      } = auto;
-      const orbitalSpeed = Math.abs(angularSpeed) * orbitRadius;
-
-      const offX = rig.positionPc.x - center.x;
-      const offY = rig.positionPc.y - center.y;
-      const offZ = rig.positionPc.z - center.z;
-      const distance = Math.hypot(offX, offY, offZ);
-      if (distance < 1e-8) {
-        movementAutomation = null;
-        return false;
-      }
-
-      const rX = offX / distance;
-      const rY = offY / distance;
-      const rZ = offZ / distance;
-
-      const nX = normalIcrs.x;
-      const nY = normalIcrs.y;
-      const nZ = normalIcrs.z;
-
-      let tX = rY * nZ - rZ * nY;
-      let tY = rZ * nX - rX * nZ;
-      let tZ = rX * nY - rY * nX;
-      const tLen = Math.hypot(tX, tY, tZ);
-      if (tLen < 1e-10) {
-        movementAutomation = null;
-        return false;
-      }
-      tX /= tLen;
-      tY /= tLen;
-      tZ /= tLen;
-      if (angularSpeed < 0) { tX = -tX; tY = -tY; tZ = -tZ; }
-
-      const t = 1 - smoothstep(orbitRadius, insertionRadius, distance);
-
-      const excessDist = Math.max(0, distance - orbitRadius);
-      const radialSpeed = Math.min(approachSpeed, excessDist * deceleration);
-      const tangentialSpeed = orbitalSpeed * t;
-
-      rig.positionPc.x += (-rX * radialSpeed + tX * tangentialSpeed) * dt;
-      rig.positionPc.y += (-rY * radialSpeed + tY * tangentialSpeed) * dt;
-      rig.positionPc.z += (-rZ * radialSpeed + tZ * tangentialSpeed) * dt;
-
-      if (t > 0) {
-        const pOffX = rig.positionPc.x - center.x;
-        const pOffY = rig.positionPc.y - center.y;
-        const pOffZ = rig.positionPc.z - center.z;
-        const normalDot = pOffX * nX + pOffY * nY + pOffZ * nZ;
-        const planeAlpha = clamp(t * 4 * dt, 0, 1);
-        rig.positionPc.x -= normalDot * nX * planeAlpha;
-        rig.positionPc.y -= normalDot * nY * planeAlpha;
-        rig.positionPc.z -= normalDot * nZ * planeAlpha;
-      }
-
-      const newOffX = rig.positionPc.x - center.x;
-      const newOffY = rig.positionPc.y - center.y;
-      const newOffZ = rig.positionPc.z - center.z;
-      const newDist = Math.hypot(newOffX, newOffY, newOffZ);
-
-      if (newDist <= orbitRadius * 1.002 && newDist > 1e-8) {
-        const [sx, , sz] = rig.icrsToScene(newOffX, newOffY, newOffZ);
-        const angle = Math.atan2(sz, sx);
-
-        const cosA = Math.cos(angle);
-        const sinA = Math.sin(angle);
-        const [ix, iy, iz] = rig.sceneToIcrs(
-          cosA * orbitRadius * rig.sceneScale,
-          0,
-          sinA * orbitRadius * rig.sceneScale,
-        );
-        rig.positionPc.x = center.x + ix / rig.sceneScale;
-        rig.positionPc.y = center.y + iy / rig.sceneScale;
-        rig.positionPc.z = center.z + iz / rig.sceneScale;
-
+      const result = advanceOrbitalInsertAutomation(rig.positionPc, auto, dt);
+      if (result.enteredOrbit) {
         const cb = auto.onInserted;
         movementAutomation = {
           type: 'orbit',
-          center,
-          radius: orbitRadius,
-          angularSpeed,
-          angle,
+          center: auto.center,
+          radius: auto.orbitRadius,
+          angularSpeed: auto.angularSpeed,
+          angle: result.angle,
         };
         cb?.();
         return true;
       }
-
-      if (newDist < orbitRadius && newDist > 1e-8) {
-        const factor = orbitRadius / newDist;
-        rig.positionPc.x = center.x + newOffX * factor;
-        rig.positionPc.y = center.y + newOffY * factor;
-        rig.positionPc.z = center.z + newOffZ * factor;
+      if (!result.active) {
+        movementAutomation = null;
+        return false;
       }
-
       return true;
     }
 
@@ -601,111 +746,19 @@ export function createCameraRigController(options = {}) {
     rig,
 
     flyTo(targetPc, opts = {}) {
-      const target = normalizePoint(targetPc, null);
-      if (!target) return;
-      movementAutomation = {
-        type: 'flyTo',
-        target,
-        speed: positiveFinite(opts.speed, moveSpeed),
-        deceleration: positiveFinite(opts.deceleration, 2),
-        arrivalThreshold: positiveFinite(opts.arrivalThreshold, 0.01),
-        onArrive: typeof opts.onArrive === 'function' ? opts.onArrive : null,
-      };
+      beginFlyTo(targetPc, opts);
     },
 
     orbit(centerPc, opts = {}) {
-      const center = normalizePoint(centerPc, null);
-      if (!center) return;
-      const dx = rig.positionPc.x - center.x;
-      const dy = rig.positionPc.y - center.y;
-      const dz = rig.positionPc.z - center.z;
-      const currentRadius = Math.hypot(dx, dy, dz);
-      movementAutomation = {
-        type: 'orbit',
-        center,
-        radius: positiveFinite(opts.radius, currentRadius || 1),
-        angularSpeed: opts.angularSpeed ?? 0.1,
-        angle: opts.initialAngle ?? 0,
-      };
+      beginOrbit(centerPc, opts);
     },
 
     orbitalInsert(centerPc, opts = {}) {
-      const center = normalizePoint(centerPc, null);
-      if (!center) return;
+      beginOrbitalInsert(centerPc, opts);
+    },
 
-      const dx = rig.positionPc.x - center.x;
-      const dy = rig.positionPc.y - center.y;
-      const dz = rig.positionPc.z - center.z;
-      const currentDistance = Math.hypot(dx, dy, dz);
-
-      const orbitRadius = positiveFinite(opts.orbitRadius, currentDistance || 1);
-      const angularSpeed = opts.angularSpeed ?? 0.1;
-      const approachSpeed = positiveFinite(opts.approachSpeed ?? opts.speed, moveSpeed);
-      const deceleration = positiveFinite(opts.deceleration, 2);
-      const onInserted = typeof opts.onInserted === 'function' ? opts.onInserted : null;
-
-      const orbitalSpeed = Math.abs(angularSpeed) * orbitRadius;
-      const decelZone = deceleration > 0
-        ? (approachSpeed - orbitalSpeed) / deceleration
-        : 0;
-      const insertionRadius = positiveFinite(
-        opts.insertionRadius,
-        Math.max(orbitRadius * 3, orbitRadius + decelZone * 1.2),
-      );
-
-      let normalIcrs;
-      const userNormal = normalizeDirectionInput(opts.orbitNormal);
-      if (userNormal) {
-        normalIcrs = { x: userNormal[0], y: userNormal[1], z: userNormal[2] };
-      } else {
-        const [nx, ny, nz] = rig.sceneToIcrs(0, 1, 0);
-        const nLen = Math.hypot(nx, ny, nz);
-        normalIcrs = nLen > 0
-          ? { x: nx / nLen, y: ny / nLen, z: nz / nLen }
-          : { x: 0, y: 1, z: 0 };
-      }
-
-      if (currentDistance <= orbitRadius * 1.01) {
-        const [sx, , sz] = rig.icrsToScene(dx, dy, dz);
-        const angle = Math.atan2(sz, sx);
-        const radiusDelta = Math.abs(currentDistance - orbitRadius);
-
-        if (radiusDelta < orbitRadius * 0.03) {
-          movementAutomation = {
-            type: 'orbit',
-            center,
-            radius: orbitRadius,
-            angularSpeed,
-            angle,
-          };
-        } else {
-          movementAutomation = {
-            type: 'orbit',
-            center,
-            radius: currentDistance,
-            angularSpeed,
-            angle,
-            targetRadius: orbitRadius,
-            radiusSpeed: approachSpeed,
-            radiusDecel: deceleration,
-          };
-        }
-
-        onInserted?.();
-        return;
-      }
-
-      movementAutomation = {
-        type: 'orbitalInsert',
-        center,
-        orbitRadius,
-        angularSpeed,
-        approachSpeed,
-        deceleration,
-        insertionRadius,
-        normalIcrs,
-        onInserted,
-      };
+    flyPolyline(points, opts = {}) {
+      beginFlyPolyline(points, opts);
     },
 
     lookAt(targetPc, opts = {}) {

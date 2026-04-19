@@ -23,7 +23,9 @@ import {
   formatDistancePc,
   getDatasetSession,
   SCALE,
+  serializeStarDataId,
   SOLAR_ORIGIN_PC,
+  toStarDataId,
 } from '../index.js';
 import { createSpeedReadout, createDistanceReadout, createFlyToAction, createLookAtAction } from '../presets/navigation-presets.js';
 import { createFullscreenPreset } from '../presets/fullscreen-preset.js';
@@ -42,6 +44,9 @@ const AV_TO_TAU = Math.LN10 / 2.5;
 const DUST_AV_PER_CM3_PC = PC_TO_CM / NH_PER_AV_CM2;
 const DEFAULT_DUST_AV_SCALE = 0.01;
 const DEFAULT_EXTINCTION_MAP_GAIN = 0.5;
+const URL_STAR_PARAM = 'star';
+const URL_ICRS_PARAM = 'icrs';
+const URL_ICRS_DECIMALS = 6;
 
 const GALACTIC_TO_ICRS_ROTATION = [
   [-0.0548755604, +0.4941094279, -0.8676661490],
@@ -114,8 +119,170 @@ function sceneToIcrsPc(pos) {
   return { x: ix / SCALE, y: iy / SCALE, z: iz / SCALE };
 }
 
+function approachTargetFromObserver(targetPc, observerPc, distancePc) {
+  const dx = targetPc.x - observerPc.x;
+  const dy = targetPc.y - observerPc.y;
+  const dz = targetPc.z - observerPc.z;
+  const len = Math.hypot(dx, dy, dz);
+  if (!(len > distancePc)) {
+    return clonePoint(observerPc);
+  }
+  const factor = distancePc / len;
+  return {
+    x: targetPc.x - dx * factor,
+    y: targetPc.y - dy * factor,
+    z: targetPc.z - dz * factor,
+  };
+}
+
 function fmt(value, decimals = 2) {
   return Number.isFinite(value) ? value.toFixed(decimals) : '—';
+}
+
+function formatIcrsCoordinateObject(point, decimals = 1) {
+  if (!point) {
+    return '—';
+  }
+  return `{x:${fmt(point.x, decimals)},y:${fmt(point.y, decimals)},z:${fmt(point.z, decimals)}}`;
+}
+
+function computeApparentMagnitude(observerPc, positionPc, absoluteMagnitude) {
+  if (!Number.isFinite(absoluteMagnitude)) {
+    return null;
+  }
+  const dx = positionPc.x - observerPc.x;
+  const dy = positionPc.y - observerPc.y;
+  const dz = positionPc.z - observerPc.z;
+  const distancePc = Math.max(Math.hypot(dx, dy, dz), 1e-6);
+  return absoluteMagnitude + 5 * (Math.log10(distancePc) - 1);
+}
+
+function icrsPcToScenePosition(point) {
+  const [x, y, z] = ORION_SCENE_TRANSFORM(
+    point.x * SCALE,
+    point.y * SCALE,
+    point.z * SCALE,
+  );
+  return { x, y, z };
+}
+
+function formatUrlCoordinate(value, decimals = URL_ICRS_DECIMALS) {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+  return value.toFixed(decimals).replace(/\.?0+$/, '');
+}
+
+function parseFiniteNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseIcrsCoordinatesFromSearchParams(searchParams) {
+  const packed = searchParams.get(URL_ICRS_PARAM);
+  if (packed) {
+    const parts = packed.split(',').map((part) => parseFiniteNumber(part.trim()));
+    if (parts.length === 3 && parts.every((value) => value != null)) {
+      return { x: parts[0], y: parts[1], z: parts[2] };
+    }
+  }
+
+  const x = parseFiniteNumber(searchParams.get('x'));
+  const y = parseFiniteNumber(searchParams.get('y'));
+  const z = parseFiniteNumber(searchParams.get('z'));
+  if (x != null && y != null && z != null) {
+    return { x, y, z };
+  }
+
+  return null;
+}
+
+function readSelectionMarkerFromUrl(urlValue = window.location.href) {
+  const url = new URL(urlValue, window.location.href);
+  const bookmarkId = url.searchParams.get(URL_STAR_PARAM)?.trim();
+  if (bookmarkId) {
+    return { kind: 'bookmark', bookmarkId };
+  }
+
+  const icrsPc = parseIcrsCoordinatesFromSearchParams(url.searchParams);
+  if (icrsPc) {
+    return { kind: 'icrs', icrsPc };
+  }
+
+  return null;
+}
+
+function writeSelectionMarkerToUrl(marker, urlValue = window.location.href) {
+  const url = new URL(urlValue, window.location.href);
+  url.searchParams.delete(URL_STAR_PARAM);
+  url.searchParams.delete(URL_ICRS_PARAM);
+  url.searchParams.delete('x');
+  url.searchParams.delete('y');
+  url.searchParams.delete('z');
+
+  if (marker?.kind === 'bookmark' && marker.bookmarkId) {
+    url.searchParams.set(URL_STAR_PARAM, marker.bookmarkId);
+  } else if (marker?.kind === 'icrs' && marker.icrsPc) {
+    url.searchParams.set(
+      URL_ICRS_PARAM,
+      [
+        formatUrlCoordinate(marker.icrsPc.x),
+        formatUrlCoordinate(marker.icrsPc.y),
+        formatUrlCoordinate(marker.icrsPc.z),
+      ].join(','),
+    );
+  }
+
+  return url.toString();
+}
+
+function getSelectionMarkerFromResult(result) {
+  if (!result) {
+    return null;
+  }
+  if (result.bookmarkId) {
+    return {
+      kind: 'bookmark',
+      bookmarkId: result.bookmarkId,
+    };
+  }
+  if (result.position) {
+    return {
+      kind: 'icrs',
+      icrsPc: sceneToIcrsPc(result.position),
+    };
+  }
+  return null;
+}
+
+function updateSelectionUrl(result, historyMode = 'push') {
+  if (historyMode === 'none') {
+    return;
+  }
+
+  const nextUrl = writeSelectionMarkerToUrl(getSelectionMarkerFromResult(result));
+  if (nextUrl === window.location.href) {
+    return;
+  }
+
+  if (historyMode === 'replace') {
+    window.history.replaceState(null, '', nextUrl);
+    return;
+  }
+
+  window.history.pushState(null, '', nextUrl);
+}
+
+function createBookmarkId(pickMeta) {
+  if (!pickMeta || !datasetSession?.datasetUuid) {
+    return null;
+  }
+
+  try {
+    return serializeStarDataId(toStarDataId(pickMeta, { datasetUuid: datasetSession.datasetUuid }));
+  } catch {
+    return null;
+  }
 }
 
 function scoreLabel(score) {
@@ -145,6 +312,129 @@ function formatDegrees(value) {
     return '—';
   }
   return `${value.toFixed(2)}°`;
+}
+
+function setFlyStatus(message) {
+  if (flyStatusValue) {
+    flyStatusValue.textContent = message;
+  }
+}
+
+function normalizeAngleToken(input) {
+  return String(input ?? '')
+    .trim()
+    .replace(/[hmsd°′″]/gi, ':')
+    .replace(/[^0-9+\-:. ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseSexagesimalParts(input) {
+  const normalized = normalizeAngleToken(input);
+  if (!normalized) {
+    return null;
+  }
+  const tokens = normalized.includes(':')
+    ? normalized.split(':')
+    : normalized.split(' ');
+  const parts = tokens
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .map((token) => Number(token));
+  if (parts.length < 1 || parts.length > 3 || parts.some((value) => !Number.isFinite(value))) {
+    return null;
+  }
+  return parts;
+}
+
+function parseRightAscensionDegrees(input) {
+  const raw = String(input ?? '').trim();
+  if (!raw) {
+    throw new TypeError('RA is required.');
+  }
+
+  if (/deg/i.test(raw) || /°/.test(raw)) {
+    const degrees = Number(raw.replace(/[^0-9+\-.]/g, ''));
+    if (!Number.isFinite(degrees)) {
+      throw new TypeError('RA degrees are not a valid number.');
+    }
+    return ((degrees % 360) + 360) % 360;
+  }
+
+  const parts = parseSexagesimalParts(raw);
+  if (parts && parts.length > 1) {
+    const sign = parts[0] < 0 ? -1 : 1;
+    const hours = Math.abs(parts[0]) + (Math.abs(parts[1] ?? 0) / 60) + (Math.abs(parts[2] ?? 0) / 3600);
+    return (((sign * hours * 15) % 360) + 360) % 360;
+  }
+
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric)) {
+    throw new TypeError('RA must be decimal hours, decimal degrees, or sexagesimal.');
+  }
+
+  if (numeric >= 0 && numeric <= 24) {
+    return (numeric * 15) % 360;
+  }
+  return ((numeric % 360) + 360) % 360;
+}
+
+function parseDeclinationDegrees(input) {
+  const raw = String(input ?? '').trim();
+  if (!raw) {
+    throw new TypeError('Dec is required.');
+  }
+
+  const parts = parseSexagesimalParts(raw);
+  if (parts && parts.length > 1) {
+    const sign = raw.startsWith('-') ? -1 : 1;
+    const degrees = Math.abs(parts[0]) + (Math.abs(parts[1] ?? 0) / 60) + (Math.abs(parts[2] ?? 0) / 3600);
+    const dec = sign * degrees;
+    if (dec < -90 || dec > 90) {
+      throw new RangeError('Dec must be between -90 and +90 degrees.');
+    }
+    return dec;
+  }
+
+  const numeric = Number(raw.replace(/[^0-9+\-.]/g, ''));
+  if (!Number.isFinite(numeric)) {
+    throw new TypeError('Dec must be decimal degrees or sexagesimal.');
+  }
+  if (numeric < -90 || numeric > 90) {
+    throw new RangeError('Dec must be between -90 and +90 degrees.');
+  }
+  return numeric;
+}
+
+function icrsDirectionFromRaDec(raDeg, decDeg) {
+  const raRad = THREE.MathUtils.degToRad(raDeg);
+  const decRad = THREE.MathUtils.degToRad(decDeg);
+  const cosDec = Math.cos(decRad);
+  return {
+    x: cosDec * Math.cos(raRad),
+    y: cosDec * Math.sin(raRad),
+    z: Math.sin(decRad),
+  };
+}
+
+function icrsTargetFromRaDecDistance(raInput, decInput, distanceInput) {
+  const raDeg = parseRightAscensionDegrees(raInput);
+  const decDeg = parseDeclinationDegrees(decInput);
+  const distancePc = Number(distanceInput);
+  if (!Number.isFinite(distancePc) || distancePc < 0) {
+    throw new RangeError('Distance must be a finite number >= 0 parsecs.');
+  }
+  const direction = icrsDirectionFromRaDec(raDeg, decDeg);
+  return {
+    targetPc: {
+      x: direction.x * distancePc,
+      y: direction.y * distancePc,
+      z: direction.z * distancePc,
+    },
+    raDeg,
+    decDeg,
+    distancePc,
+  };
 }
 
 function summarizeViewer(snapshot) {
@@ -701,6 +991,7 @@ function observerPcToSceneWorld(observerPc) {
   return _dustObserverWorld.set(sx, sy, sz);
 }
 
+const asideEl = document.querySelector('aside');
 const mount = document.querySelector('[data-skykit-viewer-root]');
 const magLimitInput = document.querySelector('[data-mag-limit]');
 const fovInput = document.querySelector('[data-fov-deg]');
@@ -726,6 +1017,11 @@ const dustGridExtentsValue = document.querySelector('[data-dust-grid-extents]');
 const dustCellSizeValue = document.querySelector('[data-dust-cell-size]');
 const dustDensityMaxValue = document.querySelector('[data-dust-density-max]');
 const toleranceInput = document.querySelector('[data-pick-tolerance]');
+const flyRaInput = document.querySelector('[data-fly-ra]');
+const flyDecInput = document.querySelector('[data-fly-dec]');
+const flyDistanceInput = document.querySelector('[data-fly-distance]');
+const flyCoordsButton = document.querySelector('[data-fly-coords]');
+const flyStatusValue = document.querySelector('[data-fly-status]');
 const pickInfoEl = document.querySelector('[data-pick-info]');
 const constellationIauValue = document.querySelector('[data-constellation-iau]');
 const constellationNameValue = document.querySelector('[data-constellation-name]');
@@ -748,6 +1044,7 @@ const datasetSession = getDatasetSession(createFoundInSpaceDatasetOptions({
 let viewer = null;
 let starFieldLayer = null;
 let pickControllerRef = null;
+let cameraControllerRef = null;
 let constellationArtLayer = null;
 let constellationCompassController = null;
 let constellationInfoByIau = new Map();
@@ -762,6 +1059,7 @@ let galacticPlaneGuide = null;
 let pickUi = null;
 let lastPickResult = null;
 let pickGeneration = 0;
+let selectionResolveGeneration = 0;
 let snapshotTimer = null;
 let activeMagLimit = Number.isFinite(Number(magLimitInput?.value)) ? Number(magLimitInput.value) : 7.5;
 let activeFovDeg = Number.isFinite(Number(fovInput?.value)) ? Number(fovInput.value) : 60;
@@ -1026,12 +1324,16 @@ function bindPickUi() {
     empty: pickInfoEl.querySelector('[data-pick-empty]'),
     detail: pickInfoEl.querySelector('[data-pick-detail]'),
     timing: pickInfoEl.querySelector('[data-pick-timing]'),
+    actions: {
+      flyTo: pickInfoEl.querySelector('[data-pick-action="flyTo"]'),
+    },
     meta: {
       proper: pickInfoEl.querySelector('[data-pick-meta="proper"]'),
       bayer: pickInfoEl.querySelector('[data-pick-meta="bayer"]'),
       hd: pickInfoEl.querySelector('[data-pick-meta="hd"]'),
       hip: pickInfoEl.querySelector('[data-pick-meta="hip"]'),
       gaia: pickInfoEl.querySelector('[data-pick-meta="gaia"]'),
+      bookmark: pickInfoEl.querySelector('[data-pick-meta="bookmark"]'),
     },
     obs: {
       icrs: pickInfoEl.querySelector('[data-pick-obs="icrs"]'),
@@ -1070,6 +1372,9 @@ function renderPickInfo(result) {
 
   ui.empty.hidden = true;
   ui.detail.hidden = false;
+  if (ui.actions.flyTo) {
+    ui.actions.flyTo.disabled = !result?.position;
+  }
 
   const fields = result.sidecarFields;
   ui.meta.proper.textContent = fields?.properName || '—';
@@ -1077,6 +1382,7 @@ function renderPickInfo(result) {
   ui.meta.hd.textContent = fields?.hd || '—';
   ui.meta.hip.textContent = fields?.hip || '—';
   ui.meta.gaia.textContent = fields?.gaia || '—';
+  ui.meta.bookmark.textContent = result.bookmarkId || '—';
 
   const simbad = buildSimbadBasicSearch(fields);
   if (ui.simbadLink && ui.simbadEmpty) {
@@ -1100,7 +1406,7 @@ function renderPickInfo(result) {
     icrsPc.z - observerPc.z,
   );
 
-  ui.obs.icrs.textContent = `(${fmt(icrsPc.x, 1)}, ${fmt(icrsPc.y, 1)}, ${fmt(icrsPc.z, 1)}) pc`;
+  ui.obs.icrs.textContent = formatIcrsCoordinateObject(icrsPc, 1);
   ui.obs.distance.textContent = formatDistancePc(distFromObserver);
   ui.obs.absMag.textContent = fmt(result.absoluteMagnitude);
   ui.obs.appMag.textContent = fmt(result.apparentMagnitude);
@@ -1120,9 +1426,15 @@ function renderPickInfo(result) {
       ? fmt(result.apparentMagnitudeAfterDust, 3)
       : 'off';
   }
-  ui.obs.score.innerHTML = `${fmt(result.score)} ${scoreLabel(result.score)}`;
-  ui.obs.offset.textContent = `${fmt(result.angularDistanceDeg, 3)}°`;
-  ui.obs.bufferIndex.textContent = String(result.index);
+  ui.obs.score.innerHTML = Number.isFinite(result.score)
+    ? `${fmt(result.score)} ${scoreLabel(result.score)}`
+    : '—';
+  ui.obs.offset.textContent = Number.isFinite(result.angularDistanceDeg)
+    ? `${fmt(result.angularDistanceDeg, 3)}°`
+    : '—';
+  ui.obs.bufferIndex.textContent = Number.isInteger(result.index)
+    ? String(result.index)
+    : '—';
 
   if (ui.timing) {
     if (Number.isFinite(result._pickTimeMs)) {
@@ -1135,23 +1447,32 @@ function renderPickInfo(result) {
   }
 }
 
-function handlePick(result) {
+function handlePick(result, options = {}) {
+  const { historyMode = 'push' } = options;
   pickGeneration += 1;
   const generation = pickGeneration;
   lastPickResult = result;
+  const starData = starFieldLayer?.getStarData?.();
+  const pickMeta = result
+    ? result.pickMeta ?? starData?.pickMeta?.[result.index]
+    : null;
   if (result) {
+    result.bookmarkId = createBookmarkId(pickMeta);
     updatePickDustMetrics(result);
     delete result.sidecarFields;
   }
+  if (result?.position) {
+    pickControllerRef?.setSelectionPosition?.(result.position);
+  } else {
+    pickControllerRef?.clearSelection?.();
+  }
   renderPickInfo(result);
+  updateSelectionUrl(result, historyMode);
   renderSnapshot();
 
   if (!result) {
     return;
   }
-
-  const starData = starFieldLayer?.getStarData?.();
-  const pickMeta = starData?.pickMeta?.[result.index];
   if (!pickMeta || !datasetSession.getSidecarService('meta')) {
     return;
   }
@@ -1169,6 +1490,132 @@ function handlePick(result) {
       /* sidecar unavailable or incompatible */
     }
   })();
+}
+
+async function resolveSelectionMarker(marker) {
+  if (!marker) {
+    return null;
+  }
+
+  if (marker.kind === 'bookmark' && marker.bookmarkId) {
+    const resolved = await datasetSession.resolveStarById(marker.bookmarkId, {
+      includeSidecars: datasetSession.getSidecarService('meta') ? ['meta'] : [],
+    });
+    if (!resolved) {
+      return null;
+    }
+
+    const observerPc = viewer?.getSnapshotState?.()?.state?.observerPc ?? { x: 0, y: 0, z: 0 };
+    const positionPc = {
+      x: resolved.positionPc[0],
+      y: resolved.positionPc[1],
+      z: resolved.positionPc[2],
+    };
+    const position = icrsPcToScenePosition(positionPc);
+
+    return {
+      index: null,
+      position,
+      pickMeta: resolved.pickMeta,
+      bookmarkId: marker.bookmarkId,
+      absoluteMagnitude: resolved.absoluteMagnitude,
+      apparentMagnitude: computeApparentMagnitude(observerPc, positionPc, resolved.absoluteMagnitude),
+      temperatureK: resolved.temperatureK ?? null,
+      visualRadiusPx: null,
+      score: null,
+      angularDistanceDeg: null,
+      sidecarFields: resolved.sidecars?.meta ?? null,
+    };
+  }
+
+  if (marker.kind === 'icrs' && marker.icrsPc) {
+    return {
+      index: null,
+      position: icrsPcToScenePosition(marker.icrsPc),
+      pickMeta: null,
+      bookmarkId: null,
+      absoluteMagnitude: null,
+      apparentMagnitude: null,
+      temperatureK: null,
+      visualRadiusPx: null,
+      score: null,
+      angularDistanceDeg: null,
+      sidecarFields: null,
+    };
+  }
+
+  return null;
+}
+
+async function syncSelectionFromUrl(options = {}) {
+  const { historyMode = 'none' } = options;
+  const generation = ++selectionResolveGeneration;
+  const marker = readSelectionMarkerFromUrl();
+
+  if (!marker) {
+    handlePick(null, { historyMode });
+    return;
+  }
+
+  try {
+    const result = await resolveSelectionMarker(marker);
+    if (generation !== selectionResolveGeneration) {
+      return;
+    }
+    handlePick(result, { historyMode });
+    if (marker.kind === 'bookmark' && result?.position) {
+      cameraControllerRef?.lookAt(sceneToIcrsPc(result.position), { blend: 0.06 });
+    }
+  } catch (error) {
+    if (generation !== selectionResolveGeneration) {
+      return;
+    }
+    console.warn('[free-roam-demo] failed to restore selection from URL', error);
+    handlePick(null, { historyMode: 'replace' });
+  }
+}
+
+function flyToPickedStar() {
+  if (!lastPickResult?.position || !cameraControllerRef) {
+    return;
+  }
+
+  const targetPc = sceneToIcrsPc(lastPickResult.position);
+  const observerPc = viewer?.getSnapshotState?.()?.state?.observerPc ?? { x: 0, y: 0, z: 0 };
+  const arrivalTarget = approachTargetFromObserver(targetPc, observerPc, 0.25);
+  cameraControllerRef.lookAt(targetPc, { blend: 0.06 });
+  cameraControllerRef.flyTo(arrivalTarget, {
+    durationSecs: 3,
+    arrivalThreshold: 0.01,
+  });
+}
+
+function flyToIcrsCoordinateTarget(targetPc, options = {}) {
+  if (!cameraControllerRef || !targetPc) {
+    return;
+  }
+
+  handlePick({
+    index: null,
+    position: icrsPcToScenePosition(targetPc),
+    pickMeta: null,
+    bookmarkId: null,
+    absoluteMagnitude: null,
+    apparentMagnitude: null,
+    temperatureK: null,
+    visualRadiusPx: null,
+    score: null,
+    angularDistanceDeg: null,
+    sidecarFields: null,
+  }, {
+    historyMode: options.historyMode ?? 'push',
+  });
+
+  cameraControllerRef.lookAt(targetPc, { blend: 0.06 });
+  cameraControllerRef.flyTo(targetPc, {
+    durationSecs: 3,
+    arrivalThreshold: 0.01,
+  });
 }
 
 function renderSummary(snapshot, datasetDescription) {
@@ -1202,13 +1649,34 @@ function renderSummary(snapshot, datasetDescription) {
   }, null, 2);
 }
 
+function hasSidebarTextSelection() {
+  if (!asideEl || typeof window.getSelection !== 'function') {
+    return false;
+  }
+
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || selection.rangeCount < 1) {
+    return false;
+  }
+
+  const anchorNode = selection.anchorNode;
+  const focusNode = selection.focusNode;
+  return (
+    (anchorNode instanceof Node && asideEl.contains(anchorNode))
+    || (focusNode instanceof Node && asideEl.contains(focusNode))
+  );
+}
+
 function renderSnapshot() {
   const snapshot = viewer?.getSnapshotState?.() ?? null;
   const datasetDescription = datasetSession.describe();
 
   statusValue.textContent = viewer?.runtime?.running ? 'running' : 'idle';
-  syncConstellationPanelFromController();
-  renderSummary(snapshot, datasetDescription);
+  if (!hasSidebarTextSelection()) {
+    renderPickInfo(lastPickResult);
+    syncConstellationPanelFromController();
+    renderSummary(snapshot, datasetDescription);
+  }
 
   snapshotValue.textContent = JSON.stringify({
     mDesired: activeMagLimit,
@@ -1296,6 +1764,7 @@ async function mountViewer() {
     lookAtPc: ORION_CENTER_PC,
     moveSpeed: 18,
   });
+  cameraControllerRef = cameraController;
 
   const fullscreen = createFullscreenPreset();
   const manifest = await loadConstellationArtManifest({ manifestUrl: DEFAULT_ART_MANIFEST_URL });
@@ -1474,6 +1943,46 @@ if (toleranceInput) {
 }
 setActiveConstellationPanel(null);
 renderPickInfo(null);
+setFlyStatus('—');
+pickInfoEl?.querySelector('[data-pick-action="flyTo"]')?.addEventListener('click', () => {
+  flyToPickedStar();
+});
+flyCoordsButton?.addEventListener('click', () => {
+  try {
+    const { targetPc, raDeg, decDeg, distancePc } = icrsTargetFromRaDecDistance(
+      flyRaInput?.value,
+      flyDecInput?.value,
+      flyDistanceInput?.value,
+    );
+    flyToIcrsCoordinateTarget(targetPc, { historyMode: 'push' });
+    setFlyStatus(
+      `Flying to RA ${raDeg.toFixed(4)} deg, Dec ${decDeg.toFixed(4)} deg, ${distancePc.toFixed(2)} pc.`,
+    );
+  } catch (error) {
+    setFlyStatus(error instanceof Error ? error.message : String(error));
+  }
+});
+flyRaInput?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    flyCoordsButton?.click();
+  }
+});
+flyDecInput?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    flyCoordsButton?.click();
+  }
+});
+flyDistanceInput?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    flyCoordsButton?.click();
+  }
+});
+window.addEventListener('popstate', () => {
+  void syncSelectionFromUrl({ historyMode: 'none' });
+});
 
 magLimitInput?.addEventListener('input', () => {
   const parsed = Number(magLimitInput.value);
@@ -1729,8 +2238,10 @@ window.addEventListener('beforeunload', () => {
 
 snapshotTimer = window.setInterval(renderSnapshot, 500);
 renderSnapshot();
-mountViewer().catch((error) => {
-  statusValue.textContent = 'error';
-  snapshotValue.textContent = error.stack ?? error.message;
-  console.error('[free-roam-demo] initial mount failed', error);
-});
+mountViewer()
+  .then(() => syncSelectionFromUrl({ historyMode: 'none' }))
+  .catch((error) => {
+    statusValue.textContent = 'error';
+    snapshotValue.textContent = error.stack ?? error.message;
+    console.error('[free-roam-demo] initial mount failed', error);
+  });
