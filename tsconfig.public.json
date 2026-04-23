@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "noImplicitAny": false,
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": false,
+    "verbatimModuleSyntax": true,
+    "esModuleInterop": true,
+    "skipLibCheck": false,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@found-in-space/skykit": ["./src/index.d.ts"],
+      "@found-in-space/skykit/coords": ["./src/coords/index.d.ts"],
+      "@found-in-space/skykit/loading": ["./src/loading/index.d.ts"],
+      "@found-in-space/skykit/movement": ["./src/movement/index.d.ts"],
+      "@found-in-space/skykit/presets": ["./src/presets/index.d.ts"],
+      "@found-in-space/skykit/query": ["./src/query/index.d.ts"],
+      "@found-in-space/skykit/render2d": ["./src/render2d/index.d.ts"],
+      "@found-in-space/skykit/render3d": ["./src/render3d/index.d.ts"]
+    }
+  },
+  "include": [
+    "src/**/*.d.ts",
+    "src/core/snapshot-controller.js",
+    "src/core/viewer-runtime.js",
+    "src/loading/create-dataset.js",
+    "src/presets/journey-controller.js",
+    "test-types/**/*.ts"
+  ]
+}

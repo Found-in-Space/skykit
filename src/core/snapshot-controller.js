@@ -1,3 +1,10 @@
+// @ts-check
+
+/** @typedef {import('../types/public.js').CommandBase} CommandBase */
+/** @typedef {import('../types/public.js').EventBase<Record<string, unknown>>} SnapshotEvent */
+/** @typedef {import('../types/public.js').SkyKitBuiltinHookMap<Record<string, unknown>, CommandBase, SnapshotEvent>} SnapshotHookMap */
+/** @typedef {import('../types/public.js').SnapshotController<Record<string, unknown>, CommandBase, SnapshotEvent, SnapshotHookMap>} SnapshotController */
+
 function cloneValue(value) {
   if (typeof structuredClone === 'function') {
     return structuredClone(value);
@@ -46,6 +53,10 @@ function normalizeCommand(command) {
   };
 }
 
+/**
+ * @param {import('../types/public.js').SnapshotControllerOptions<Record<string, unknown>, CommandBase, SnapshotEvent, SnapshotHookMap>} [options]
+ * @returns {SnapshotController}
+ */
 export function createSnapshotController(options = {}) {
   let snapshot = normalizeSnapshot(options.initialSnapshot);
   const listeners = new Set();

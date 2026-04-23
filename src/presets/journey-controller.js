@@ -1,15 +1,32 @@
+// @ts-check
+
+/** @typedef {import('../types/public.js').JourneyCommand} JourneyCommand */
+/** @typedef {import('../types/public.js').JourneyController} JourneyController */
+/** @typedef {import('../types/public.js').JourneyGraph} JourneyGraph */
+/** @typedef {import('../types/public.js').JourneyResolvedSceneSpec} JourneyResolvedSceneSpec */
+
 import { createSnapshotController } from '../core/snapshot-controller.js';
 
+/**
+ * @param {any} [spec]
+ */
 function cloneSceneSpec(spec = {}) {
   return {
     ...spec,
   };
 }
 
+/**
+ * @param {string | null | undefined} fromSceneId
+ * @param {string | null | undefined} toSceneId
+ */
 function createTransitionKey(fromSceneId, toSceneId) {
   return `${fromSceneId}->${toSceneId}`;
 }
 
+/**
+ * @param {any} [options]
+ */
 export function createJourneyGraph({
   initialSceneId = null,
   scenes = {},
@@ -47,10 +64,15 @@ export function createJourneyGraph({
     ]),
   );
 
+  /** @param {string} sceneId */
   function getScene(sceneId) {
     return sceneMap.get(sceneId) ?? null;
   }
 
+  /**
+   * @param {string | null | undefined} fromSceneId
+   * @param {string | null | undefined} toSceneId
+   */
   function getTransition(fromSceneId, toSceneId) {
     if (typeof fromSceneId !== 'string' || typeof toSceneId !== 'string') {
       return null;
@@ -58,6 +80,10 @@ export function createJourneyGraph({
     return transitionMap.get(createTransitionKey(fromSceneId, toSceneId)) ?? null;
   }
 
+  /**
+   * @param {string} toSceneId
+   * @param {{ fromSceneId?: string | null }} [options]
+   */
   function resolve(toSceneId, { fromSceneId = null } = {}) {
     const scene = getScene(toSceneId);
     if (!scene) {
@@ -65,11 +91,11 @@ export function createJourneyGraph({
     }
 
     const transition = getTransition(fromSceneId, toSceneId);
-    const resolved = {
+    const resolved = /** @type {any} */ ({
       ...cloneSceneSpec(scene),
       ...(transition ? cloneSceneSpec(transition) : {}),
       sceneId: toSceneId,
-    };
+    });
 
     if (transition) {
       resolved.transitionId = transition.id;
@@ -84,7 +110,7 @@ export function createJourneyGraph({
     return transitionList
       .map((transition) =>
         resolve(transition.toSceneId, { fromSceneId: transition.fromSceneId }))
-      .filter(Boolean);
+      .filter((value) => Boolean(value));
   }
 
   return {
@@ -98,6 +124,11 @@ export function createJourneyGraph({
   };
 }
 
+/**
+ * @param {any} graph
+ * @param {string} sceneId
+ * @param {string | null} [fromSceneId]
+ */
 export function resolveSceneSpec(graph, sceneId, fromSceneId = null) {
   if (!graph || typeof graph.resolveSceneSpec !== 'function') {
     throw new TypeError('resolveSceneSpec() requires a journey graph');
@@ -106,6 +137,10 @@ export function resolveSceneSpec(graph, sceneId, fromSceneId = null) {
   return graph.resolveSceneSpec(sceneId, { fromSceneId });
 }
 
+/**
+ * @param {any} scene
+ * @param {any} [context]
+ */
 function buildSceneCommands(scene, context = {}) {
   if (Array.isArray(scene?.commands) && scene.commands.length > 0) {
     return scene.commands.map((command) => ({
@@ -126,6 +161,9 @@ function buildSceneCommands(scene, context = {}) {
   }];
 }
 
+/**
+ * @param {any} options
+ */
 export function createJourneyController(options = {}) {
   const graph = options.graph;
   if (!graph || typeof graph.resolveSceneSpec !== 'function') {
@@ -138,7 +176,7 @@ export function createJourneyController(options = {}) {
     throw new TypeError('createJourneyController() requires a dispatch or applyScene function');
   }
 
-  const controller = createSnapshotController({
+  const controller = /** @type {any} */ (createSnapshotController({
     initialSnapshot: {
       journey: {
         activeSceneId: graph.initialSceneId ?? null,
@@ -147,7 +185,7 @@ export function createJourneyController(options = {}) {
         lastSource: 'init',
       },
     },
-  });
+  }));
 
   controller.addCommandHandler('journey/go-to-scene', async ({
     command,

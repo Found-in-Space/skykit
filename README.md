@@ -38,6 +38,12 @@ For more control, import by responsibility:
 
 Journeys are supported as a public API through `@found-in-space/skykit/presets`, including `createJourneyGraph()` and `createJourneyController()`.
 
+## TypeScript
+
+SkyKit now ships declaration-first TypeScript support for the root package and every public subpath. Public command, event, snapshot, journey, and plugin surfaces are typed for autocomplete and safer extension work, while the runtime stays in plain JS.
+
+For package validation we run `npm run typecheck:public`, which checks the published declaration surface and TS consumer fixtures against the real export map.
+
 ## Architecture
 
 Source lives under `src/` and is organised into purpose-driven sections.

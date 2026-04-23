@@ -5,6 +5,7 @@
   "license": "MIT",
   "type": "module",
   "main": "./src/index.js",
+  "types": "./src/index.d.ts",
   "repository": {
     "type": "git",
     "url": "https://github.com/Found-in-Space/skykit.git"
@@ -14,14 +15,66 @@
     "url": "https://github.com/Found-in-Space/skykit/issues"
   },
   "exports": {
-    ".": "./src/index.js",
-    "./coords": "./src/coords/index.js",
-    "./loading": "./src/loading/index.js",
-    "./movement": "./src/movement/index.js",
-    "./presets": "./src/presets/index.js",
-    "./query": "./src/query/index.js",
-    "./render2d": "./src/render2d/index.js",
-    "./render3d": "./src/render3d/index.js"
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./coords": {
+      "types": "./src/coords/index.d.ts",
+      "default": "./src/coords/index.js"
+    },
+    "./loading": {
+      "types": "./src/loading/index.d.ts",
+      "default": "./src/loading/index.js"
+    },
+    "./movement": {
+      "types": "./src/movement/index.d.ts",
+      "default": "./src/movement/index.js"
+    },
+    "./presets": {
+      "types": "./src/presets/index.d.ts",
+      "default": "./src/presets/index.js"
+    },
+    "./query": {
+      "types": "./src/query/index.d.ts",
+      "default": "./src/query/index.js"
+    },
+    "./render2d": {
+      "types": "./src/render2d/index.d.ts",
+      "default": "./src/render2d/index.js"
+    },
+    "./render3d": {
+      "types": "./src/render3d/index.d.ts",
+      "default": "./src/render3d/index.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "coords": [
+        "src/coords/index.d.ts"
+      ],
+      "loading": [
+        "src/loading/index.d.ts"
+      ],
+      "movement": [
+        "src/movement/index.d.ts"
+      ],
+      "presets": [
+        "src/presets/index.d.ts"
+      ],
+      "query": [
+        "src/query/index.d.ts"
+      ],
+      "render2d": [
+        "src/render2d/index.d.ts"
+      ],
+      "render3d": [
+        "src/render3d/index.d.ts"
+      ],
+      "*": [
+        "src/index.d.ts"
+      ]
+    }
   },
   "files": [
     "src",
@@ -41,12 +94,15 @@
     "diag:observer-shell": "node ./scripts/observer-shell-diagnostic.js",
     "lookup:bookmark-star": "node ./scripts/bookmark-star-lookup.js",
     "test": "node --test",
-    "test:watch": "node --test --watch"
+    "test:watch": "node --test --watch",
+    "typecheck:public": "tsc -p ./tsconfig.public.json --noEmit"
   },
   "dependencies": {
     "three": "^0.170.0"
   },
   "devDependencies": {
+    "@types/three": "^0.184.0",
+    "typescript": "^5.9.3",
     "vite": "^6.0.0"
   }
 }

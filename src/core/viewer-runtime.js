@@ -1,3 +1,10 @@
+// @ts-check
+
+/** @typedef {import('../types/public.js').ViewerCreateOptions<Record<string, unknown>>} ViewerCreateOptions */
+/** @typedef {import('../types/public.js').ViewerEvent<Record<string, unknown>>} ViewerEvent */
+/** @typedef {import('../types/public.js').ViewerNodeSelection} ViewerNodeSelection */
+/** @typedef {import('../types/public.js').ViewerSnapshot<Record<string, unknown>>} ViewerSnapshot */
+
 import * as THREE from 'three';
 import { RUNTIME_LIFECYCLE_METHODS } from './contracts.js';
 import { createDesktopRig } from './runtime-rig.js';
@@ -157,6 +164,10 @@ function applyRuntimeSize(runtime, size) {
   runtime.renderer.setSize(size.width, size.height, false);
 }
 
+/**
+ * @param {any} selection
+ * @param {string | null} [fallbackStrategy]
+ */
 function normalizeSelection(selection, fallbackStrategy = null) {
   if (!selection || typeof selection !== 'object') {
     return {
@@ -216,6 +227,9 @@ function createPerspectiveCamera(size) {
 }
 
 export class ViewerRuntime {
+  /**
+   * @param {ViewerCreateOptions} [options]
+   */
   constructor(options = {}) {
     this.id = options.id ?? `viewer-runtime-${++runtimeCount}`;
     this.datasetSession = options.datasetSession ?? options.dataset ?? null;
@@ -253,6 +267,7 @@ export class ViewerRuntime {
       canvas: this.canvas,
       antialias: options.antialias !== false,
       alpha: options.alpha === true,
+      // @ts-expect-error three accepts xrCompatible at runtime even though its type omits the option.
       xrCompatible: options.xrCompatible === true,
     });
     this.ownsRenderer = !options.renderer;
@@ -264,7 +279,7 @@ export class ViewerRuntime {
     this.size = resolveSize(this.hostElement, this.canvas);
     this.scene = options.scene ?? new THREE.Scene();
     this.camera = options.camera ?? createPerspectiveCamera(this.size);
-    const rig = options.rig ?? createDesktopRig(this.camera);
+    const rig = /** @type {any} */ (options.rig ?? createDesktopRig(this.camera));
     this.rigType = rig.type ?? 'desktop';
     this.navigationRoot = rig.navigationRoot;
     this.cameraMount = rig.cameraMount;
@@ -636,7 +651,7 @@ export class ViewerRuntime {
     return this;
   }
 
-  frame(timeMs, xrFrame = null) {
+  frame(timeMs, xrFrame) {
     if (!this.running || this.disposed) {
       return;
     }
@@ -747,7 +762,7 @@ export class ViewerRuntime {
       return false;
     }
 
-    const supported = await navigatorXr.isSessionSupported(normalizedMode);
+    const supported = await navigatorXr.isSessionSupported(/** @type {any} */ (normalizedMode));
     this.xrSupportCache.set(normalizedMode, supported);
     return supported;
   }
@@ -890,7 +905,7 @@ export class ViewerRuntime {
       state: { ...this.state },
       selection: normalizeSelection(this.selection),
       frameNumber: this.frameNumber,
-      datasetSession: this.datasetSession?.describe?.() ?? null,
+      datasetSession: /** @type {any} */ (this.datasetSession)?.describe?.() ?? null,
       xr: {
         enabled: xrState.enabled,
         presenting: xrState.presenting,

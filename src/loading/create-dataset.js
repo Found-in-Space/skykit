@@ -1,7 +1,15 @@
+// @ts-check
+
+/** @typedef {import('../types/public.js').DatasetHandle} DatasetHandle */
+/** @typedef {import('../types/public.js').DatasetSessionOptions} DatasetSessionOptions */
+
 import { DatasetSession, getDatasetSession } from '../core/dataset-session.js';
 import { createSnapshotController } from '../core/snapshot-controller.js';
 import { createFoundInSpaceDatasetOptions } from '../found-in-space-dataset.js';
 
+/**
+ * @param {any} [input]
+ */
 function resolveDatasetSession(input = {}) {
   if (input instanceof DatasetSession) {
     return input;
@@ -18,6 +26,10 @@ function resolveDatasetSession(input = {}) {
   return getDatasetSession(createFoundInSpaceDatasetOptions(input));
 }
 
+/**
+ * @param {DatasetSession} session
+ * @param {any} [loading]
+ */
 function buildDatasetSnapshot(session, loading = {}) {
   return {
     kind: 'dataset',
@@ -29,6 +41,9 @@ function buildDatasetSnapshot(session, loading = {}) {
   };
 }
 
+/**
+ * @param {DatasetSessionOptions | DatasetSession | { session?: DatasetSession | null, datasetSession?: DatasetSession | null }} [options]
+ */
 export function createDataset(options = {}) {
   const session = resolveDatasetSession(options);
   let loadingState = {
@@ -36,10 +51,13 @@ export function createDataset(options = {}) {
     rootShard: 'idle',
   };
 
-  const controller = createSnapshotController({
+  const controller = /** @type {any} */ (createSnapshotController({
     initialSnapshot: buildDatasetSnapshot(session, loadingState),
-  });
+  }));
 
+  /**
+   * @param {any} [meta]
+   */
   function syncSnapshot(meta = {}) {
     controller.setSnapshot(
       buildDatasetSnapshot(session, loadingState),
@@ -174,6 +192,10 @@ export function createDataset(options = {}) {
   };
 }
 
+/**
+ * @param {any} value
+ * @returns {DatasetSession | null}
+ */
 export function unwrapDatasetSession(value) {
   if (value instanceof DatasetSession) {
     return value;
