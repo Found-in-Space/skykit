@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SkyKit Browser Quickstart</title>
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #02040b;
+        color: #dce7ff;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+
+      .shell {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        height: 100%;
+      }
+
+      .banner {
+        padding: 12px 16px;
+        border-bottom: 1px solid rgba(150, 190, 255, 0.18);
+        background: rgba(6, 12, 24, 0.92);
+      }
+
+      .banner strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+
+      #viewer {
+        min-height: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="banner">
+        <strong>SkyKit Browser Quickstart</strong>
+        Drag to look around. Use WASD / arrow keys or the on-screen controls to move.
+      </div>
+      <div id="viewer"></div>
+    </div>
+
+    <script type="module">
+      import { createFoundInSpaceDataset } from 'https://esm.sh/@found-in-space/skykit/loading';
+      import { createDesktopExplorerPreset } from 'https://esm.sh/@found-in-space/skykit/presets';
+      import { createViewer } from 'https://esm.sh/@found-in-space/skykit/render3d';
+
+      const mount = document.getElementById('viewer');
+
+      const dataset = createFoundInSpaceDataset();
+      await dataset.ensureRootShard();
+      await dataset.ensureBootstrap();
+
+      const explorer = createDesktopExplorerPreset({
+        fullscreen: true,
+        navigationHud: true,
+      });
+
+      const viewer = await createViewer(mount, {
+        dataset,
+        interestField: explorer.interestField,
+        controllers: explorer.controllers,
+        layers: explorer.layers,
+        state: explorer.state,
+        clearColor: 0x02040b,
+      });
+
+      window.skykitViewer = viewer;
+    </script>
+  </body>
+</html>

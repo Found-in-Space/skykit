@@ -151,6 +151,11 @@ export interface FoundInSpaceDatasetOptions extends DatasetSessionOptions {
   sidecars?: Record<string, string | DatasetSidecarDescriptor>;
 }
 
+export interface FoundInSpaceDatasetCreateOptions extends FoundInSpaceDatasetOptions {
+  search?: string | null;
+  resolveOverrides?: boolean;
+}
+
 export interface DatasetSnapshot {
   kind: 'dataset';
   dataset: DatasetDescription;
@@ -585,6 +590,48 @@ export interface DefaultViewerOptions<TState extends object = DefaultViewerState
   interestFieldId?: string;
 }
 
+export interface DesktopExplorerPresetOptions<TState extends object = DefaultViewerState> {
+  idPrefix?: string;
+  observerPc?: Point3Like | null;
+  targetPc?: Point3Like | null;
+  lookAtPc?: Point3Like | null;
+  mDesired?: number;
+  positionTransform?: (...args: number[]) => number[];
+  icrsToSceneTransform?: (...args: number[]) => number[];
+  sceneToIcrsTransform?: (...args: number[]) => number[];
+  materialFactory?: () => StarFieldMaterialProfile;
+  keyboardTarget?: EventTarget | null;
+  moveSpeed?: number;
+  interestFieldId?: string;
+  cameraControllerId?: string;
+  selectionRefreshControllerId?: string;
+  starFieldLayerId?: string;
+  interestField?: Record<string, unknown>;
+  cameraController?: Record<string, unknown>;
+  selectionRefresh?: Record<string, unknown>;
+  starFieldLayer?: Record<string, unknown>;
+  fullscreen?: boolean | Record<string, unknown>;
+  navigationHud?: boolean | Record<string, unknown>;
+  picking?: boolean | Record<string, unknown>;
+  controls?: readonly Record<string, unknown>[];
+  state?: TState;
+}
+
+export interface DesktopExplorerPreset<TState extends object = DefaultViewerState> {
+  interestField: ViewerRuntimePart;
+  cameraController: CameraRigController;
+  selectionRefreshController: SelectionRefreshController;
+  starFieldLayer: ViewerRuntimePart;
+  pickController: PickController | null;
+  hudController: ViewerRuntimePart | null;
+  fullscreenController: ViewerRuntimePart | null;
+  fullscreenControls: readonly Record<string, unknown>[];
+  controllers: readonly ViewerRuntimePart[];
+  layers: readonly ViewerRuntimePart[];
+  controls: readonly Record<string, unknown>[];
+  state: TState;
+}
+
 export interface ViewerHandle<TState extends object = Record<string, unknown>, TCommand extends CommandBase = ViewerCommand<TState>, TEvent extends EventBase<ViewerSnapshot<TState>> = ViewerEvent<TState, TCommand>> {
   runtime: unknown;
   camera: PerspectiveCamera;
@@ -926,6 +973,32 @@ export interface JourneyResolvedSceneSpec<TCommand extends CommandBase = Command
   toSceneId?: string | null;
 }
 
+export interface ViewerJourneySceneSpec<TCommand extends CommandBase = CommandBase> extends JourneyResolvedSceneSpec<TCommand> {
+  type?: string;
+  state?: Record<string, unknown>;
+  preload?: unknown;
+  observerPc?: Point3Like | null;
+  lookAtPc?: Point3Like | null;
+  centerPc?: Point3Like | null;
+  routePointsPc?: readonly Point3Like[];
+  flySpeed?: number;
+  speed?: number;
+  deceleration?: number;
+  orbitRadiusPc?: number;
+  orbitRadius?: number;
+  angularSpeed?: number;
+  dwellMs?: number;
+  recenterSpeed?: number;
+  unlockOnArrive?: boolean;
+  refreshSelection?: boolean;
+  cameraAction?: Record<string, unknown>;
+}
+
+export type ViewerJourneySceneInput<TCommand extends CommandBase = CommandBase> = Omit<
+  ViewerJourneySceneSpec<TCommand>,
+  'sceneId' | 'transitionId' | 'fromSceneId' | 'toSceneId'
+>;
+
 export type JourneyGoToSceneCommand = SkyKitCommand<'journey/go-to-scene', {
   sceneId?: string;
   toSceneId?: string;
@@ -1152,4 +1225,26 @@ export interface JourneyController<
   resolveSceneSpec(sceneId: string, fromSceneId?: string | null): TScene | null;
   activateScene(sceneId: string, options?: Omit<JourneyGoToSceneCommand, 'type' | 'sceneId' | '__resultType__'>): Promise<TScene | null>;
   registerPlugin(plugin: SkyKitPlugin<JourneySnapshot, JourneyCommand<TScene> | TExtraCommand, JourneyEvent<TScene, TExtraEvent>, THookMap>): unknown;
+}
+
+export interface ViewerJourneySceneContext<TScene extends ViewerJourneySceneSpec = ViewerJourneySceneSpec> {
+  viewer: {
+    setState(nextState: Partial<Record<string, unknown>>): unknown;
+    refreshSelection(): Promise<ViewerNodeSelection>;
+  };
+  cameraController: CameraRigController;
+  scene: TScene;
+}
+
+export interface ViewerJourneyControllerOptions<
+  TScene extends ViewerJourneySceneSpec = ViewerJourneySceneSpec,
+  TExtraCommand extends CommandBase = never,
+> extends Omit<JourneyControllerOptions<TScene, TExtraCommand>, 'applyScene'> {
+  viewer: {
+    setState(nextState: Partial<Record<string, unknown>>): unknown;
+    refreshSelection(): Promise<ViewerNodeSelection>;
+  };
+  cameraController: CameraRigController;
+  preloadScene?: (scene: TScene, context: ViewerJourneySceneContext<TScene>) => unknown | Promise<unknown>;
+  applySceneState?: (scene: TScene, context: ViewerJourneySceneContext<TScene>) => unknown | Promise<unknown>;
 }

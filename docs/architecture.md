@@ -37,6 +37,7 @@ We should periodically review the project against these success criteria.
 - A simple task should not require understanding the full runtime.
 - The root package should offer sensible defaults.
 - A user should be able to work headlessly without creating a canvas or a viewer.
+- A learner should be able to get a visible result quickly from a short browser-native ESM example.
 
 ### Architecture success
 
@@ -154,11 +155,13 @@ Apps / websites / games / lessons
   -> octree dataset + sidecars
 ```
 
-The package surface mirrors that structure.
+The package surface mirrors that structure, although the root barrel is still
+broader than the recommended beginner API below. That breadth is a current
+compatibility reality, not the teaching surface we should reinforce for v1.
 
-### Beginner-oriented root API
+### Recommended beginner root API
 
-The root package should stay focused on the common entrypoints:
+The beginner story at the root package is:
 
 - `createDataset(options?)`
 - `queryNearestStars(dataset, options)`
@@ -166,6 +169,20 @@ The root package should stay focused on the common entrypoints:
 - `createDefaultViewer(host, options)`
 
 These are the first APIs a beginner should find.
+
+The root barrel still re-exports many advanced helpers today. New docs and
+examples should treat that as compatibility and dogfooding, not as permission
+to collapse the subpath boundaries again.
+
+For the first rendered path beyond that minimal root surface, the public story
+should be explicit:
+
+- `createFoundInSpaceDataset()` from `loading`
+- `createViewer()` from `render3d`
+- `createDesktopExplorerPreset()` from `presets`
+
+That browser-native quickstart now exists in the README and in
+[browser-quickstart.html](./browser-quickstart.html).
 
 ### Advanced subpaths
 
@@ -181,6 +198,13 @@ For more control, the public module boundaries are:
 
 New work should prefer reinforcing these boundaries rather than expanding the root export surface indiscriminately.
 
+The learning path should be taught in this order:
+
+1. headless query quick win
+2. browser-native rendered quick win
+3. modular desktop explorer composition through public subpaths
+4. guided journeys and lesson-specific presets
+
 ## Areas Of Responsibility
 
 ### `loading`
@@ -193,10 +217,12 @@ Purpose:
 - sidecar access
 - prefetch and warmup entrypoints
 
-Primary boundary:
+Primary public surfaces:
 
 - `DatasetSession`
-- `createDataset()`
+- dataset handles from `createDataset()`
+- dataset handles from `createFoundInSpaceDataset()`
+- explicit warmup through `ensureRootShard()` and `ensureBootstrap()`
 
 Must not own:
 
@@ -264,12 +290,23 @@ Current examples:
 - `createViewer()`
 - `createDefaultViewer()`
 
+Important rule:
+
+- `createDefaultViewer()` stays intentionally small
+- the richer public desktop path is `createViewer()` plus `createDesktopExplorerPreset()`
+
 ### `movement`
 
 Purpose:
 
 - reusable camera and route math
-- locomotion and movement strategies
+- viewer-independent movement primitives
+
+Current public state:
+
+- the `movement` subpath is intentionally math-first today
+- `createCameraRig()`, `buildPolylineRoute()`, and `buildOrbitalInsertRoute()` live here
+- viewer-coupled controllers such as `createCameraRigController()` and `createXrLocomotionController()` currently live under `render3d` or the root barrel because they depend on runtime lifecycle and scene context
 
 Must stay separate from:
 
@@ -285,8 +322,13 @@ Purpose:
 
 Current examples:
 
+- `createDesktopExplorerPreset()`
+- `createConstellationPreset()`
 - `createJourneyGraph()`
 - `createJourneyController()`
+- `createViewerJourneyController()`
+- `applyViewerJourneyScene()`
+- `createParallaxPositionController()`
 
 Important rule:
 
@@ -298,12 +340,17 @@ SkyKit should use a stable language across services and viewers.
 
 ### Read/write contract
 
-Advanced surfaces should follow this pattern where appropriate:
+Current public surfaces break down like this:
 
 - `dispatch(command)`
 - `getSnapshot()`
 - `subscribe(listener)`
 - `select(selector)`
+
+Today that means:
+
+- `createSnapshotController()`, dataset handles from `loading`, and journey controllers from `presets` implement the full snapshot-driven pattern and named hook/plugin registration
+- viewer handles from `createViewer()` and `createDefaultViewer()`, plus `ViewerRuntime`, implement `dispatch`, `getSnapshot`, `subscribe`, and `select`, but they do not yet expose a generic `registerHook()` or `registerPlugin()` surface
 
 ### State model
 
@@ -359,7 +406,18 @@ Typical event areas include:
 
 ### Plugin rule
 
-Plugins are dispatch-oriented.
+Plugins are currently snapshot-controller-oriented.
+
+Current surfaces with named hooks/plugins are:
+
+- `createSnapshotController()`
+- dataset handles returned by `createDataset()` and `createFoundInSpaceDataset()`
+- journey controllers returned by `createJourneyController()` and `createViewerJourneyController()`
+
+Viewer handles are still dispatch-oriented, but they do not yet expose a
+generic hook/plugin registry.
+
+Where hooks/plugins exist, they are dispatch-oriented.
 
 They may:
 
@@ -380,7 +438,13 @@ If a new extension point is needed, add it explicitly and name it clearly. Do no
 
 ## Data, Identity, And Caching
 
-`DatasetSession` is the shared data boundary for one dataset identity.
+`DatasetSession` is the shared low-level data boundary for one dataset identity.
+
+`createDataset()` and `createFoundInSpaceDataset()` wrap a `DatasetSession` in a
+snapshot-driven public handle. For most app code, that handle is the
+recommended loading surface because it keeps warmup explicit through
+`ensureRootShard()` and `ensureBootstrap()` while adding snapshots, events,
+hooks, and plugins on top of the shared session.
 
 It should own:
 
@@ -432,9 +496,20 @@ The headless core should remain useful even if a user never creates a viewer.
 
 Desktop viewers are typically free-fly or guided 3D experiences using `render3d`, desktop controllers, and a desktop rig.
 
+The recommended public desktop path is:
+
+- `createFoundInSpaceDataset()` from `loading`
+- `createDesktopExplorerPreset()` from `presets`
+- `createViewer()` from `render3d`
+
+Many demos in this repo still compose that stack manually with lower-level
+helpers. That is an adoption gap, not a missing public API.
+
 ### Breakout: XR
 
 XR is a separate viewer product, not a desktop mode toggle.
+
+For v1, XR is an advanced supported path, not the main beginner entry point.
 
 Key rules:
 

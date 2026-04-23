@@ -1,5 +1,7 @@
 export {
+  applyViewerJourneyScene,
   createConstellationPreset,
+  createDesktopExplorerPreset,
   createDistanceReadout,
   createFlyToAction,
   createFullscreenPreset,
@@ -8,6 +10,7 @@ export {
   createLookAtAction,
   createParallaxPositionController,
   createSpeedReadout,
+  createViewerJourneyController,
   formatDistancePc,
   formatSpeedPcPerSec,
   resolveSceneSpec,

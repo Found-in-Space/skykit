@@ -1,4 +1,5 @@
 export { createDataset, unwrapDatasetSession } from './create-dataset.js';
+export { createFoundInSpaceDataset } from './create-found-in-space-dataset.js';
 export { DatasetSession, getDatasetSession } from '../core/dataset-session.js';
 export {
   createFoundInSpaceDatasetOptions,

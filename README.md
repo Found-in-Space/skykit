@@ -15,6 +15,125 @@ If you are reading this README on GitHub, you can open **[SkyKit experiments](ht
 npm install @found-in-space/skykit
 ```
 
+## Quick Wins
+
+### 1. Headless Query
+
+Use the standard Found in Space dataset helper from `loading` and keep warmup explicit:
+
+```js
+import { queryNearestStars } from '@found-in-space/skykit';
+import { createFoundInSpaceDataset } from '@found-in-space/skykit/loading';
+
+const dataset = createFoundInSpaceDataset();
+await dataset.ensureBootstrap();
+
+const result = await queryNearestStars(dataset, {
+  centerPc: { x: 0, y: 0, z: 0 },
+  count: 10,
+});
+
+console.table(result.stars.map((star) => ({
+  id: star.id?.mortonCode ?? 'unknown',
+  distancePc: star.distancePc,
+  absoluteMagnitude: star.absoluteMagnitude,
+})));
+```
+
+### 2. Raw Browser / JSFiddle Quickstart
+
+The fastest rendered path is a browser-native ESM import plus the new desktop explorer preset. A full single-file example lives in [docs/browser-quickstart.html](./docs/browser-quickstart.html).
+
+```html
+<script type="module">
+  import { createFoundInSpaceDataset } from 'https://esm.sh/@found-in-space/skykit/loading';
+  import { createDesktopExplorerPreset } from 'https://esm.sh/@found-in-space/skykit/presets';
+  import { createViewer } from 'https://esm.sh/@found-in-space/skykit/render3d';
+
+  const mount = document.getElementById('viewer');
+  const dataset = createFoundInSpaceDataset();
+  await dataset.ensureRootShard();
+  await dataset.ensureBootstrap();
+
+  const explorer = createDesktopExplorerPreset({
+    fullscreen: true,
+    navigationHud: true,
+  });
+
+  await createViewer(mount, {
+    dataset,
+    interestField: explorer.interestField,
+    controllers: explorer.controllers,
+    layers: explorer.layers,
+    state: explorer.state,
+    clearColor: 0x02040b,
+  });
+</script>
+```
+
+### 3. Modular Desktop Explorer
+
+For a more honest v1 rendered path, compose from focused subpaths:
+
+```js
+import { createFoundInSpaceDataset } from '@found-in-space/skykit/loading';
+import { createDesktopExplorerPreset } from '@found-in-space/skykit/presets';
+import { createViewer } from '@found-in-space/skykit/render3d';
+
+const dataset = createFoundInSpaceDataset({
+  id: 'my-desktop-explorer',
+});
+await dataset.ensureRootShard();
+await dataset.ensureBootstrap();
+
+const explorer = createDesktopExplorerPreset({
+  fullscreen: true,
+  navigationHud: true,
+});
+
+const viewer = await createViewer(document.getElementById('viewer'), {
+  dataset,
+  interestField: explorer.interestField,
+  controllers: explorer.controllers,
+  layers: explorer.layers,
+  state: explorer.state,
+});
+```
+
+### 4. Guided Journeys
+
+Use `createJourneyGraph()` with `createViewerJourneyController()` for the common viewer-driven tour cases:
+
+```js
+import { createJourneyGraph, createViewerJourneyController } from '@found-in-space/skykit/presets';
+
+const graph = createJourneyGraph({
+  initialSceneId: 'intro',
+  scenes: {
+    intro: {
+      type: 'flyAndLook',
+      observerPc: { x: 24, y: 8, z: -12 },
+      lookAtPc: { x: 0, y: 0, z: 0 },
+      flySpeed: 120,
+    },
+    roam: {
+      type: 'free-roam',
+      observerPc: { x: 48, y: 12, z: -30 },
+      lookAtPc: { x: 0, y: 0, z: 0 },
+      flySpeed: 150,
+    },
+  },
+});
+
+const journey = createViewerJourneyController({
+  graph,
+  viewer,
+  cameraController: explorer.cameraController,
+});
+
+await journey.activateScene('intro');
+```
+
 ## v1 Entry Points
 
 SkyKit v1 is moving toward a service-first core with a beginner-friendly root API and focused subpath exports.
@@ -36,7 +155,20 @@ For more control, import by responsibility:
 - `@found-in-space/skykit/movement`
 - `@found-in-space/skykit/presets`
 
-Journeys are supported as a public API through `@found-in-space/skykit/presets`, including `createJourneyGraph()` and `createJourneyController()`.
+Recommended v1 subpath helpers:
+
+- `@found-in-space/skykit/loading`
+  - `createFoundInSpaceDataset()`
+  - `createDataset()`
+- `@found-in-space/skykit/render3d`
+  - `createViewer()`
+- `@found-in-space/skykit/presets`
+  - `createDesktopExplorerPreset()`
+  - `createJourneyGraph()`
+  - `createJourneyController()`
+  - `createViewerJourneyController()`
+
+XR remains part of SkyKit, but for v1 it should be treated as an advanced supported path rather than the main beginner learning track.
 
 ## TypeScript
 
@@ -74,7 +206,7 @@ Data plumbing. `services/octree/` contains `OctreeFileService` (binary octree I/
 
 ### `embeds/`
 
-High-level convenience API. `createViewer()` wires up a `ViewerRuntime` with a `DatasetSession` in a single call.
+High-level convenience API. `createViewer()` wires up a `ViewerRuntime` with a `DatasetSession` in a single call. `createDefaultViewer()` stays intentionally small; the richer public desktop path is `createViewer()` plus `createDesktopExplorerPreset()`.
 
 ### `diagnostics/`
 
@@ -108,4 +240,5 @@ Override with `?constellationManifestUrl=...`. Dataset URLs can be overridden wi
 ## Docs
 
 - [`docs/architecture.md`](./docs/architecture.md): authoritative architecture, principles, boundaries, and review checklist
-- [`docs/viewer-roadmap.md`](./docs/viewer-roadmap.md): roadmap and phase notes
+- [`docs/browser-quickstart.html`](./docs/browser-quickstart.html): single-file browser quickstart using public ESM/CDN imports
+- [`docs/plans.md`](./docs/plans.md): v1 release planning, real-use-case lessons, and remaining work

@@ -19,6 +19,8 @@ import type {
   DatasetSessionOptions,
   DatasetSnapshot,
   DecodedStarsOptions,
+  DesktopExplorerPreset,
+  DesktopExplorerPresetOptions,
   DefaultViewerOptions,
   DefaultViewerState,
   DispatchResult,
@@ -67,6 +69,9 @@ import type {
   TouchDisplay,
   TouchDisplayHit,
   TouchDisplayItem,
+  ViewerJourneyControllerOptions,
+  ViewerJourneySceneContext,
+  ViewerJourneySceneSpec,
   ViewerCommand,
   ViewerCreateOptions,
   ViewerEvent,
@@ -337,6 +342,9 @@ export declare const SCENE_SCALE: number;
 export declare function createRadioBubbleMeshes(options?: Record<string, unknown>): Object3D;
 
 export declare function createConstellationPreset(options?: Record<string, unknown>): Record<string, unknown>;
+export declare function createDesktopExplorerPreset<TState extends object = DefaultViewerState>(
+  options?: DesktopExplorerPresetOptions<TState>,
+): DesktopExplorerPreset<TState>;
 export declare function createFullscreenPreset(options?: Record<string, unknown>): Record<string, unknown>;
 export declare function createJourneyController<
   TScene extends JourneyResolvedSceneSpec = JourneyResolvedSceneSpec,
@@ -354,6 +362,23 @@ export declare function resolveSceneSpec<TCommand extends CommandBase = CommandB
   sceneId: string,
   fromSceneId?: string | null,
 ): JourneyResolvedSceneSpec<TCommand> | null;
+export declare function applyViewerJourneyScene<
+  TScene extends ViewerJourneySceneSpec = ViewerJourneySceneSpec,
+>(
+  scene: TScene,
+  options: {
+    viewer: ViewerJourneySceneContext<TScene>['viewer'];
+    cameraController: CameraRigController;
+    preloadScene?: (scene: TScene, context: ViewerJourneySceneContext<TScene>) => unknown | Promise<unknown>;
+    applySceneState?: (scene: TScene, context: ViewerJourneySceneContext<TScene>) => unknown | Promise<unknown>;
+  },
+): Promise<TScene>;
+export declare function createViewerJourneyController<
+  TScene extends ViewerJourneySceneSpec = ViewerJourneySceneSpec,
+  TExtraCommand extends CommandBase = never,
+>(
+  options: ViewerJourneyControllerOptions<TScene, TExtraCommand>,
+): JourneyController<TScene, TExtraCommand>;
 export declare function createParallaxPositionController(options?: Record<string, unknown>): Record<string, unknown>;
 export declare function createDistanceReadout(cameraController: CameraRigController, targetPc: Point3Like, options?: Record<string, unknown>): Record<string, unknown>;
 export declare function createFlyToAction(cameraController: CameraRigController, targetPc: Point3Like, options?: Record<string, unknown>): Record<string, unknown>;

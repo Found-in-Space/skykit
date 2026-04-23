@@ -67,6 +67,7 @@ export function createFoundInSpaceDatasetOptions(options = {}) {
     ...rest,
     id,
     octreeUrl: resolvedOctreeUrl,
+    metaUrl: resolvedMetaUrl,
     sidecars: {
       ...nextSidecars,
       meta: {

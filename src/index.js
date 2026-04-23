@@ -114,12 +114,17 @@ export {
 export { SCALE as SCENE_SCALE } from './services/octree/scene-scale.js';
 export { createRadioBubbleMeshes } from './layers/radio-bubble-meshes.js';
 export { createConstellationPreset } from './presets/constellation-preset.js';
+export { createDesktopExplorerPreset } from './presets/desktop-explorer-preset.js';
 export { createFullscreenPreset } from './presets/fullscreen-preset.js';
 export {
   createJourneyController,
   createJourneyGraph,
   resolveSceneSpec,
 } from './presets/journey-controller.js';
+export {
+  applyViewerJourneyScene,
+  createViewerJourneyController,
+} from './presets/viewer-journey-controller.js';
 export { createParallaxPositionController } from './presets/parallax-position-controller.js';
 export {
   createDistanceReadout,

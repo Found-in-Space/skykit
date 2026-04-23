@@ -15,6 +15,7 @@ test('createFoundInSpaceDatasetOptions uses the hosted defaults when no URLs are
 
   assert.equal(options.id, 'demo-dataset');
   assert.equal(options.octreeUrl, DEFAULT_FOUND_IN_SPACE_OCTREE_URL);
+  assert.equal(options.metaUrl, DEFAULT_FOUND_IN_SPACE_META_OCTREE_URL);
   assert.equal(options.sidecars.meta.url, DEFAULT_FOUND_IN_SPACE_META_OCTREE_URL);
 });
 
