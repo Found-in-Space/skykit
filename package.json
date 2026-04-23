@@ -14,10 +14,23 @@
     "url": "https://github.com/Found-in-Space/skykit/issues"
   },
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./coords": "./src/coords/index.js",
+    "./loading": "./src/loading/index.js",
+    "./movement": "./src/movement/index.js",
+    "./presets": "./src/presets/index.js",
+    "./query": "./src/query/index.js",
+    "./render2d": "./src/render2d/index.js",
+    "./render3d": "./src/render3d/index.js"
   },
   "files": [
     "src",
+    "!src/demo",
+    "!src/demo/**",
+    "!src/**/__tests__",
+    "!src/**/__tests__/**",
+    "!src/**/*.test.js",
+    "!src/**/*.test.mjs",
     "README.md",
     "LICENSE"
   ],

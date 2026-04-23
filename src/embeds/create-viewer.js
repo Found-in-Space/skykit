@@ -1,21 +1,31 @@
 import { DatasetSession, getDatasetSession } from '../core/dataset-session.js';
 import { ViewerRuntime } from '../core/viewer-runtime.js';
 
+function unwrapDatasetSession(value) {
+  if (value instanceof DatasetSession) {
+    return value;
+  }
+
+  if (value?.session instanceof DatasetSession) {
+    return value.session;
+  }
+
+  if (value?.datasetSession instanceof DatasetSession) {
+    return value.datasetSession;
+  }
+
+  return value ?? null;
+}
+
 function resolveDatasetSession(options) {
-  if (options.datasetSession instanceof DatasetSession) {
-    return options.datasetSession;
+  const directSession = unwrapDatasetSession(options.datasetSession);
+  if (directSession instanceof DatasetSession) {
+    return directSession;
   }
 
-  if (options.dataset instanceof DatasetSession) {
-    return options.dataset;
-  }
-
-  if (options.datasetSession) {
-    return options.datasetSession;
-  }
-
-  if (options.dataset) {
-    return options.dataset;
+  const datasetSession = unwrapDatasetSession(options.dataset);
+  if (datasetSession instanceof DatasetSession) {
+    return datasetSession;
   }
 
   if (options.datasetOptions) {
@@ -47,6 +57,10 @@ function createViewerHandle(runtime) {
     refreshSelection: () => runtime.refreshSelection(),
     setState: (nextState) => runtime.setState(nextState),
     getSnapshotState: () => runtime.getSnapshotState(),
+    getSnapshot: () => runtime.getSnapshot(),
+    dispatch: (command) => runtime.dispatch(command),
+    select: (selector) => runtime.select(selector),
+    subscribe: (listener) => runtime.subscribe(listener),
     dispose: () => runtime.dispose(),
   };
 }

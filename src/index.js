@@ -2,7 +2,17 @@ export { RUNTIME_LIFECYCLE_METHODS } from './core/contracts.js';
 export { DatasetSession, getDatasetSession } from './core/dataset-session.js';
 export { createDesktopRig, createXrRig } from './core/runtime-rig.js';
 export { ViewerRuntime } from './core/viewer-runtime.js';
+export { createSnapshotController } from './core/snapshot-controller.js';
 export { createViewer } from './embeds/create-viewer.js';
+export { createDefaultViewer } from './embeds/create-default-viewer.js';
+export {
+  createDataset,
+  unwrapDatasetSession,
+} from './loading/create-dataset.js';
+export {
+  queryNearestStars,
+  queryVisibleStars,
+} from './query/index.js';
 export {
   createFoundInSpaceDatasetOptions,
   DEFAULT_FOUND_IN_SPACE_META_OCTREE_URL,
@@ -105,6 +115,11 @@ export { SCALE as SCENE_SCALE } from './services/octree/scene-scale.js';
 export { createRadioBubbleMeshes } from './layers/radio-bubble-meshes.js';
 export { createConstellationPreset } from './presets/constellation-preset.js';
 export { createFullscreenPreset } from './presets/fullscreen-preset.js';
+export {
+  createJourneyController,
+  createJourneyGraph,
+  resolveSceneSpec,
+} from './presets/journey-controller.js';
 export { createParallaxPositionController } from './presets/parallax-position-controller.js';
 export {
   createDistanceReadout,

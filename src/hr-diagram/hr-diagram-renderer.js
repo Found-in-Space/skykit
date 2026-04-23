@@ -5,6 +5,7 @@ const DEFAULT_HOT_K = 40000;
 const DEFAULT_MARGIN_PX = 34;
 const DEFAULT_MIN_MAG = -6;
 const DEFAULT_MAX_MAG = 17;
+const DEFAULT_VOLUME_RADIUS_PC = 1e9;
 const SCENE_SCALE = 0.001;
 
 // ── Shader ──────────────────────────────────────────────────────────────────
@@ -23,6 +24,7 @@ function createHRMaterial(opts) {
       uWidth: { value: 480 },
       uHeight: { value: 320 },
       uMode: { value: opts.mode },
+      uVolumeRadiusPc: { value: opts.volumeRadiusPc ?? DEFAULT_VOLUME_RADIUS_PC },
       uViewProjection: { value: new THREE.Matrix4() },
     },
     vertexShader: /* glsl */ `
@@ -40,6 +42,7 @@ function createHRMaterial(opts) {
       uniform float uWidth;
       uniform float uHeight;
       uniform int   uMode;
+      uniform float uVolumeRadiusPc;
       uniform mat4  uViewProjection;
 
       varying vec3  vColor;
@@ -83,6 +86,13 @@ function createHRMaterial(opts) {
 
         // ── Mode 1: volume-complete (show every star in the geometry) ───
         else if (uMode == 1) {
+          float dPc = max(length(worldPos - uCameraPosition) / uScale, 0.001);
+          if (dPc > uVolumeRadiusPc) {
+            gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
+            gl_PointSize = 0.0;
+            vAlpha = 0.0;
+            return;
+          }
           vAlpha = 0.5;
         }
 
@@ -215,6 +225,7 @@ export class HRDiagramRenderer {
     this.maxMag = options.maxMag ?? DEFAULT_MAX_MAG;
     this.appMagLimit = options.appMagLimit ?? 6.5;
     this.mode = options.mode ?? 1;
+    this.volumeRadiusPc = options.volumeRadiusPc ?? DEFAULT_VOLUME_RADIUS_PC;
     this.highlightRegion = options.highlightRegion ?? null;
     this.starCount = 0;
     this.width = 480;
@@ -266,6 +277,7 @@ export class HRDiagramRenderer {
       maxMag: this.maxMag,
       marginPx: this.marginPx,
       mode: this.mode,
+      volumeRadiusPc: this.volumeRadiusPc,
       minLogT: this.minLogT,
       maxLogT: this.maxLogT,
     });
@@ -301,6 +313,13 @@ export class HRDiagramRenderer {
   setAppMagLimit(limit) {
     this.appMagLimit = limit;
     this.hrMaterial.uniforms.uMagLimit.value = limit;
+  }
+
+  setVolumeRadiusPc(radiusPc) {
+    this.volumeRadiusPc = Number.isFinite(radiusPc) && radiusPc > 0
+      ? Number(radiusPc)
+      : DEFAULT_VOLUME_RADIUS_PC;
+    this.hrMaterial.uniforms.uVolumeRadiusPc.value = this.volumeRadiusPc;
   }
 
   setHighlightRegion(region) {

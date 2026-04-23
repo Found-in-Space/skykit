@@ -1,0 +1,4 @@
+src/demo
+src/**/__tests__
+src/**/*.test.js
+src/**/*.test.mjs

@@ -16,6 +16,16 @@ const PART_KIND_PRIORITY = Object.freeze({
   layer: 2,
   overlay: 3,
 });
+const VIEWER_COMMAND_HANDLERS = Object.freeze({
+  'state/merge': 'handleStateMergeCommand',
+  'selection/refresh': 'handleSelectionRefreshCommand',
+  'viewer/start': 'handleStartCommand',
+  'viewer/stop': 'handleStopCommand',
+  'viewer/render-once': 'handleRenderOnceCommand',
+  'viewer/resize': 'handleResizeCommand',
+  'xr/enter': 'handleEnterXrCommand',
+  'xr/exit': 'handleExitXrCommand',
+});
 
 function normalizeParts(value) {
   if (!value) return [];
@@ -163,6 +173,23 @@ function normalizeSelection(selection, fallbackStrategy = null) {
   };
 }
 
+function normalizeViewerEvent(event, snapshot) {
+  if (!event || typeof event !== 'object') {
+    throw new TypeError('viewer event must be an object');
+  }
+
+  if (typeof event.type !== 'string' || !event.type.trim()) {
+    throw new TypeError('viewer event.type must be a non-empty string');
+  }
+
+  return {
+    ...event,
+    type: event.type.trim(),
+    timeMs: Number.isFinite(event.timeMs) ? Number(event.timeMs) : Date.now(),
+    snapshot,
+  };
+}
+
 function validatePart(entry) {
   const { part, label } = entry;
   if (!part || typeof part !== 'object') {
@@ -256,6 +283,7 @@ export class ViewerRuntime {
     this.partEntries = this.createPartEntries();
     this.updateEntries = this.createUpdateEntries();
     this.boundFrame = this.frame.bind(this);
+    this.eventListeners = new Set();
   }
 
   createPartEntries() {
@@ -319,6 +347,153 @@ export class ViewerRuntime {
     if (this.disposed) {
       throw new Error(`ViewerRuntime "${this.id}" has already been disposed`);
     }
+  }
+
+  subscribe(listener) {
+    if (typeof listener !== 'function') {
+      throw new TypeError('listener must be a function');
+    }
+
+    this.eventListeners.add(listener);
+    return () => {
+      this.eventListeners.delete(listener);
+    };
+  }
+
+  emitEvent(event) {
+    const normalized = normalizeViewerEvent(event, this.getSnapshotState());
+    for (const listener of this.eventListeners) {
+      try {
+        listener(normalized);
+      } catch (error) {
+        console.error('[ViewerRuntime] event listener failed', error);
+      }
+    }
+    return normalized;
+  }
+
+  getSnapshot() {
+    return this.getSnapshotState();
+  }
+
+  select(selector) {
+    const snapshot = this.getSnapshotState();
+    if (typeof selector === 'function') {
+      return selector(snapshot);
+    }
+
+    if (typeof selector === 'string' && selector.trim()) {
+      return snapshot?.[selector];
+    }
+
+    return snapshot;
+  }
+
+  async dispatch(command) {
+    this.assertActive();
+    if (!command || typeof command !== 'object') {
+      throw new TypeError('command must be an object');
+    }
+    if (typeof command.type !== 'string' || !command.type.trim()) {
+      throw new TypeError('command.type must be a non-empty string');
+    }
+
+    const normalizedCommand = {
+      ...command,
+      type: command.type.trim(),
+    };
+    this.emitEvent({
+      type: 'command/dispatched',
+      command: normalizedCommand,
+    });
+
+    const handlerName = VIEWER_COMMAND_HANDLERS[normalizedCommand.type];
+    if (!handlerName || typeof this[handlerName] !== 'function') {
+      this.emitEvent({
+        type: 'diagnostic/warn',
+        code: 'unknown-command',
+        command: normalizedCommand,
+      });
+      return {
+        handled: false,
+        result: null,
+        snapshot: this.getSnapshotState(),
+      };
+    }
+
+    try {
+      const result = await this[handlerName](normalizedCommand);
+      this.emitEvent({
+        type: 'command/completed',
+        command: normalizedCommand,
+        result,
+      });
+      return {
+        handled: true,
+        result,
+        snapshot: this.getSnapshotState(),
+      };
+    } catch (error) {
+      this.emitEvent({
+        type: 'command/failed',
+        command: normalizedCommand,
+        error: {
+          message: error instanceof Error ? error.message : String(error),
+        },
+      });
+      throw error;
+    }
+  }
+
+  handleStateMergeCommand(command) {
+    return this.setState(command.state ?? command.patch ?? {});
+  }
+
+  async handleSelectionRefreshCommand() {
+    return this.refreshSelection();
+  }
+
+  async handleStartCommand() {
+    await this.start();
+    return {
+      running: this.running,
+    };
+  }
+
+  handleStopCommand() {
+    this.stop();
+    return {
+      running: this.running,
+    };
+  }
+
+  handleRenderOnceCommand() {
+    this.renderOnce();
+    return null;
+  }
+
+  async handleResizeCommand(command) {
+    return this.resize(command.size ?? {
+      width: command.width,
+      height: command.height,
+    });
+  }
+
+  async handleEnterXrCommand(command) {
+    const session = await this.enterXR(command.options ?? command);
+    return {
+      sessionMode: this.xrSessionMode,
+      presenting: this.getXrState().presenting,
+      session,
+    };
+  }
+
+  async handleExitXrCommand() {
+    const exited = await this.exitXR();
+    return {
+      exited,
+      presenting: this.getXrState().presenting,
+    };
   }
 
   getXrState() {
@@ -400,6 +575,10 @@ export class ViewerRuntime {
       this.renderOnce();
     }
 
+    this.emitEvent({
+      type: 'viewer/initialized',
+    });
+
     return this;
   }
 
@@ -433,6 +612,9 @@ export class ViewerRuntime {
     } else {
       this.animationFrameId = window.requestAnimationFrame(this.boundFrame);
     }
+    this.emitEvent({
+      type: 'viewer/started',
+    });
     return this;
   }
 
@@ -448,6 +630,9 @@ export class ViewerRuntime {
     this.running = false;
     this.previousFrameTimeMs = null;
     this.startedAtTimeMs = null;
+    this.emitEvent({
+      type: 'viewer/stopped',
+    });
     return this;
   }
 
@@ -502,6 +687,10 @@ export class ViewerRuntime {
 
     const selection = await this.interestField.selectNodes(this.createContext('select'));
     this.selection = normalizeSelection(selection, this.interestField.id ?? 'interestField');
+    this.emitEvent({
+      type: 'selection/changed',
+      selection: normalizeSelection(this.selection),
+    });
     this.renderOnce();
     return this.selection;
   }
@@ -520,6 +709,10 @@ export class ViewerRuntime {
     }
 
     this.renderOnce();
+    this.emitEvent({
+      type: 'viewer/resized',
+      size: { ...this.size },
+    });
     return { ...this.size };
   }
 
@@ -534,6 +727,10 @@ export class ViewerRuntime {
       ...nextState,
     };
 
+    this.emitEvent({
+      type: 'state/changed',
+      state: { ...this.state },
+    });
     this.renderOnce();
     return this.state;
   }
@@ -675,6 +872,9 @@ export class ViewerRuntime {
     this.renderer.xr.enabled = false;
 
     if (!this.disposed) {
+      this.emitEvent({
+        type: 'xr/session-ended',
+      });
       this.renderOnce();
     }
   }
@@ -788,5 +988,8 @@ export class ViewerRuntime {
     this.disposed = true;
     this.initialized = false;
     this.started = false;
+    this.emitEvent({
+      type: 'viewer/disposed',
+    });
   }
 }

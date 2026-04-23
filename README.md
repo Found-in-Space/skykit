@@ -15,6 +15,29 @@ If you are reading this README on GitHub, you can open **[SkyKit experiments](ht
 npm install @found-in-space/skykit
 ```
 
+## v1 Entry Points
+
+SkyKit v1 is moving toward a service-first core with a beginner-friendly root API and focused subpath exports.
+
+For simple tasks, start from the package root:
+
+- `createDataset(options?)`
+- `queryNearestStars(dataset, options)`
+- `queryVisibleStars(dataset, options)`
+- `createDefaultViewer(host, options)`
+
+For more control, import by responsibility:
+
+- `@found-in-space/skykit/loading`
+- `@found-in-space/skykit/query`
+- `@found-in-space/skykit/coords`
+- `@found-in-space/skykit/render2d`
+- `@found-in-space/skykit/render3d`
+- `@found-in-space/skykit/movement`
+- `@found-in-space/skykit/presets`
+
+Journeys are supported as a public API through `@found-in-space/skykit/presets`, including `createJourneyGraph()` and `createJourneyController()`.
+
 ## Architecture
 
 Source lives under `src/` and is organised into purpose-driven sections.
