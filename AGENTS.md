@@ -1,65 +1,152 @@
-# Agent Instructions
+# SkyKit Agent Guide
 
-## JavaScript / Node.js project
+Read [docs/architecture.md](./docs/architecture.md) before making substantial architectural changes. That file is the source of truth for project goals, design principles, boundaries, and review criteria.
+
+## Mission
+
+SkyKit is an extensible, simple-to-learn, powerful library for working with real-star octree datasets.
+
+Agents should optimize for:
+
+- simple use cases staying simple
+- advanced use cases staying possible
+- public APIs instead of deep imports
+- clear boundaries between loading, query, coordinates, rendering, movement, and journeys
+
+The common denominator is not "3D viewer". It is the ability to load, query, transform, and optionally render relevant star data.
+
+## Hard Rules
+
+### 1. Do not assume user intent
+
+- Do not make a query API assume rendering.
+- Do not make a render API assume a lesson, website topic, or journey.
+- Do not make a journey API bypass the normal data and viewer boundaries.
+
+### 2. Keep the architecture service-first
+
+Prefer strengthening these public areas:
+
+- `loading`
+- `query`
+- `coords`
+- `render2d`
+- `render3d`
+- `movement`
+- `presets`
+
+Do not blur boundaries just to land a feature quickly.
+
+### 3. Preserve the beginner path
+
+The root package should remain the obvious place for simple work:
+
+- `createDataset`
+- `queryNearestStars`
+- `queryVisibleStars`
+- `createDefaultViewer`
+
+If a change makes a beginner task noticeably harder, stop and reconsider.
+
+### 4. Prefer public APIs over deep imports
+
+- Do not reintroduce website-local shims for package behavior that should be public.
+- Do not import from `src/...` across package boundaries.
+- If a consumer needs an internal capability, promote it deliberately or keep the behavior local to that consumer.
+
+### 5. Use one-way flow
+
+When designing new runtime or service behavior, prefer:
+
+- commands down
+- events up
+- snapshots and selectors as the read model
+
+Do not introduce hidden cross-service mutation.
+
+### 6. Keep plugin and extension behavior explicit
+
+Plugins should work through:
+
+- `dispatch`
+- `getSnapshot`
+- `select`
+- `subscribe`
+- named hooks
+
+Do not treat private runtime objects as the extension API.
+
+### 7. Keep desktop and XR separate
+
+Desktop and XR may share a `DatasetSession`. They should not share scene-graph runtime objects.
+
+Strict XR rules:
+
+1. Never mutate the WebXR camera directly for orientation.
+2. Always use the XR rig model rather than repurposing the desktop rig.
+3. Parent XR controller visuals under the XR origin.
+4. Keep the deck offset structural and static.
+5. Use XR scale state such as `starFieldScale` for XR physical scale decisions.
+
+### 8. Treat journeys as first-class public use cases
+
+- Website topics should keep their authored prose.
+- Interactive journeys should run on public SkyKit APIs.
+- Do not solve a journey need with website-only internal shortcuts if it belongs in the library.
+
+### 9. Render is optional
+
+- Headless query and coordinate use cases are first-class.
+- Do not require a viewer, canvas, or 3D runtime to answer data questions.
+
+### 10. Update the docs when the architecture changes
+
+If you change:
+
+- a public boundary
+- the state/command/event model
+- the extension model
+- the desktop/XR split
+- the journey model
+
+then update [docs/architecture.md](./docs/architecture.md) in the same work.
+
+## Project Conventions
+
+### JavaScript / Node.js
 
 - Runtime: plain ES modules (`"type": "module"`).
-- No build step for library code — `src/index.js` is the package entry point.
-- Dependency on `three` (THREE.js).
+- No build step for library source entrypoints.
+- `src/index.js` is the main package entry.
+- Dependency on `three`.
 
 ### Standard commands
 
 - Install dependencies: `npm install`
 - Run tests: `node --test`
-- Run tests in watch mode: `node --test --watch`
-- Dev server (Vite): `npm run dev`
+- Watch tests: `node --test --watch`
+- Dev server: `npm run dev`
 - Build demos: `npm run build`
 
-### Demo pages
+### Demos
 
 - Demo HTML lives in `demos/`.
-- All demo pages link `demos/shared.css` for common styles — add page-specific CSS inline only when needed.
-- `index.html` at the project root is the demo directory page with links to each demo.
-- To add a new demo: create `demos/<name>.html` (link `shared.css`), add a `<script type="module">` pointing at a new entry in `src/demo/`, register the HTML file in `vite.config.js` under `rollupOptions.input`, and add a link in `index.html`. Example automation demo: `demos/fly-orbit.html` + `src/demo/fly-orbit.js`.
+- Demo entries live in `src/demo/`.
+- `index.html` is the demo directory page.
 
-### Star rendering
+### Useful constants
 
-- Default apparent magnitude limit is **6.5** — the naked-eye limit under good conditions.
-- `DEFAULT_MAG_LIMIT = 6.5` in `src/layers/star-field-materials.js` is the source of truth.
-- Magnitude scale: lower = brighter (Vega ≈ 0, Sirius ≈ −1.4, faintest naked-eye ≈ +6.5).
-- Scene scale: 1 parsec = 0.001 Three.js world units (`SCALE` in `src/services/octree/scene-scale.js`).
+- Default magnitude limit is `6.5`
+- Scene scale is `SCALE = 0.001` parsecs to scene units
 
-### Controllers
+## Architecture Review Prompts
 
-- `camera-rig.js` — pure camera state and quaternion math, no input or DOM.
-- `camera-rig-controller.js` — desktop-only: `direct` / `inertial` movement and automation (`flyTo`, `orbit`, `lookAt`). No XR code.
-- `xr-locomotion-controller.js` — XR-only: thumbstick locomotion, moves spaceship through the stationary universe. No desktop code.
-- `xr-pick-controller.js` — XR-only: laser pointer and trigger-based star picking, visuals parented to xrOrigin. No desktop code.
-- `pick-controller.js` — desktop-only: pointer click star picking with CSS highlight overlay. No XR code.
-- Desktop and XR controllers are fully separate — they share `camera-rig.js` math but never mix input concerns.
-- All orientation is quaternion-based to avoid gimbal lock.
+Before landing a non-trivial change, ask:
 
-### Rig factories
-
-- `createDesktopRig(camera)` — flat rig: `contentRoot` and `navigationRoot` as scene siblings.
-- `createXrRig(camera, options)` — spaceship rig: `contentRoot` (universe) and `navigationRoot` (spaceship) are siblings, same as desktop. Spaceship moves; universe stays at origin. `deck` → `xrOrigin` → camera hierarchy. Deck offset `(0, -eyeLevel, +forwardOffset)` is structural and static.
-- `ViewerRuntime` accepts a `rig` option — desktop viewers omit it (default), XR viewers pass the XR rig.
-
-### Documentation
-
-- `docs/viewer-architecture.md` — core architecture: runtime, data services, layers, fields, controllers, embedding API.
-- `docs/xr-architecture.md` — WebXR spaceship rig, scale conventions, input handling, depth planes, and XR-specific agent rules.
-
-### WebXR & Camera Constraints (STRICT)
-
-See `docs/xr-architecture.md` for the full spec. Desktop and XR are separate viewer instances with different rig topologies — there is no seamless transition between them. Critical rules:
-
-1. **Never mutate the camera directly for VR orientation.** WebXR overrides `camera.rotation`, `camera.quaternion`, `camera.lookAt()`, and `camera.up`.
-2. **Always use the spaceship rig for XR.** XR viewers must be created with the XR rig topology (universe and spaceship as siblings, with the deck/xrOrigin hierarchy inside the spaceship). Do not reuse the desktop rig.
-3. **Parent controllers inside `xrOrigin` / `cameraMount`.** Controller visuals must be children of the XR origin group inside the spaceship. Never add them to the scene root.
-4. **Keep the deck offset static.** The `deck` group position is set once at rig creation, not recalculated per frame from head pose.
-5. **Use `starFieldScale` for XR scale, not `SCALE`.** The octree constant `SCALE` (0.001) is for the data pipeline. XR code reads `state.starFieldScale` (default 1.0 m/pc).
-
-### Examples
-
-- `node --test src/controllers/__tests__/camera-rig.test.js`
-- `npm run dev` then open `http://localhost:5173/`
+- Does this assume a user goal that should stay optional?
+- Is the responsibility in the right module area?
+- Could a headless consumer still use this without a viewer?
+- Is the simplest API path still simple?
+- Are we creating a real public surface or sneaking in a deep hook?
+- Would this force desktop and XR to change together when they should not?
+- Should this update `docs/architecture.md`?

@@ -101,5 +101,5 @@ Override with `?constellationManifestUrl=...`. Dataset URLs can be overridden wi
 
 ## Docs
 
-- [`docs/viewer-architecture.md`](./docs/viewer-architecture.md): current architecture and migration context
+- [`docs/architecture.md`](./docs/architecture.md): authoritative architecture, principles, boundaries, and review checklist
 - [`docs/viewer-roadmap.md`](./docs/viewer-roadmap.md): roadmap and phase notes
