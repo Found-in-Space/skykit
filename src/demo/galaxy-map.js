@@ -1,12 +1,26 @@
 import * as THREE from 'three';
 import {
+  createButton,
+  createColumn,
+  createDPad,
+  createDockLayout,
+  createHoldButton,
+  createRuntime,
+  createSection,
+  createSlider,
+  createTextLabel,
+  createValueReadout,
+} from '@found-in-space/touch-os';
+import {
+  createHudPanelDriver,
+  createScenePanelDriver,
+} from '@found-in-space/touch-os/hosts/three';
+import {
   createCameraRigController,
   createDefaultStarFieldMaterialProfile,
   createFoundInSpaceDatasetOptions,
-  createHud,
   createObserverShellField,
   createPickController,
-  createSceneTouchDisplayController,
   createSelectionRefreshController,
   createStarFieldLayer,
   createViewer,
@@ -19,14 +33,18 @@ import {
   createSceneOrientationTransforms,
   SCALE,
   SOLAR_ORIGIN_PC,
-  createFlyToAction,
-  createLookAtAction,
 } from '../index.js';
+import { formatSpeedPcPerSec } from '../presets/navigation-presets.js';
 import {
   buildGalaxyMapValue,
   createGalaxyMapControl,
   deriveGalaxyMapScaleHint,
 } from '../ui/galaxy-map-control.js';
+import { createTouchOsRuntimePart } from './touch-os-runtime-part.js';
+import {
+  createTouchOsFullscreenButton,
+  handleNavigationTouchOsOutput,
+} from './touch-os-navigation.js';
 import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 const PROXIMA_CEN_PC = { x: -0.47, y: -0.36, z: -1.16 };
@@ -97,8 +115,7 @@ let viewer = null;
 let cameraController = null;
 let starFieldLayer = null;
 let pickControllerRef = null;
-let tabletDisplay = null;
-let snapshotTimer = null;
+let touchOsPartRef = null;
 let lastPickedResult = null;
 let pickGeneration = 0;
 let currentTabletPage = 'home';
@@ -108,123 +125,87 @@ let activeFlySpeed = 180;
 let activeExposure = DEFAULT_STAR_FIELD_STATE.starFieldExposure;
 let galaxyMapScaleHint = null;
 
-function buildTabletHomeItems(observerPc = { x: 0, y: 0, z: 0 }, selectedPc = null) {
-  const items = [
-    { id: 'page-rendering', label: 'Rendering', type: 'button' },
-    { id: 'page-waypoints', label: 'Waypoints', type: 'button' },
-    ...(lastPickedResult ? [{ id: 'page-selection', label: 'Selection', type: 'button' }] : []),
-    {
-      id: GALAXY_MAP_CONTROL_ID,
-      type: 'galaxy-map',
-      value: buildGalaxyMapValue(observerPc, selectedPc, galaxyMapScaleHint),
-    },
-  ];
-  return items;
+const HUD_SURFACE = Object.freeze({
+  width: 1280,
+  height: 720,
+  pixelDensity: 1,
+  safeArea: { top: 18, right: 18, bottom: 18, left: 18 },
+});
+
+const HUD_THEME = Object.freeze({
+  backgroundColor: '#08111d',
+  surfaceColor: '#132238',
+  borderColor: '#27405e',
+  accentColor: '#38bdf8',
+  focusColor: '#22c55e',
+  controlHeight: 42,
+  spacing: 8,
+  padding: 12,
+  radius: 10,
+  typography: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: 600,
+    fontFamily: 'Avenir Next, ui-sans-serif',
+  },
+});
+
+const TABLET_SURFACE = Object.freeze({
+  width: 420,
+  height: 588,
+  pixelDensity: 1,
+});
+
+const TABLET_THEME = Object.freeze({
+  backgroundColor: '#08111d',
+  surfaceColor: '#132238',
+  borderColor: '#27405e',
+  accentColor: '#38bdf8',
+  focusColor: '#22c55e',
+  controlHeight: 38,
+  spacing: 8,
+  padding: 12,
+  radius: 10,
+  typography: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: 600,
+    fontFamily: 'Avenir Next, ui-sans-serif',
+  },
+});
+
+function createMovementBinding(code, label) {
+  return {
+    label,
+    actionId: 'movement.key',
+    startPayload: { code, active: true },
+    stopPayload: { code, active: false },
+  };
 }
 
-function buildTabletSelectionItems() {
-  return [
-    { id: 'back-home', label: '< Back', type: 'button' },
-    {
-      id: 'star-info',
-      label: 'Selected Target',
-      type: 'display',
-      lines: [],
-      dismissible: true,
-      actionId: 'go-selected',
-      actionLabel: 'Go to Selected',
-    },
-    { id: 'look-selected', label: 'Look at Selected', type: 'button' },
-    { id: 'clear-selection', label: 'Clear Selection', type: 'button' },
-  ];
+function getObserverPc() {
+  return viewer?.getSnapshotState?.()?.state?.observerPc ?? { x: 0, y: 0, z: 0 };
 }
 
-function buildTabletRenderingItems() {
-  return [
-    { id: 'back-home', label: '< Back', type: 'button' },
-    {
-      id: 'mag-limit',
-      label: 'Mag Limit',
-      type: 'range',
-      value: activeMagLimit,
-      min: 0,
-      max: 25,
-      step: 0.1,
-      formatValue(value) {
-        return Number(value).toFixed(1);
-      },
-    },
-    {
-      id: 'exposure',
-      label: 'Exposure',
-      type: 'range',
-      value: Math.log10(Math.max(activeExposure, 1)),
-      min: 0,
-      max: 5,
-      step: 0.05,
-      formatValue(value) {
-        return Math.round(10 ** Number(value)).toLocaleString();
-      },
-    },
-    {
-      id: 'pick-tolerance',
-      label: 'Pick Tol. deg',
-      type: 'range',
-      value: activeTolerance,
-      min: 0.1,
-      max: 10,
-      step: 0.1,
-      formatValue(value) {
-        return Number(value).toFixed(1);
-      },
-    },
-    {
-      id: 'fly-speed',
-      label: 'Fly Speed',
-      type: 'range',
-      value: activeFlySpeed,
-      min: 1,
-      max: 2000,
-      step: 1,
-      formatValue(value) {
-        return `${Math.round(Number(value)).toLocaleString()} pc/s`;
-      },
-    },
-    { id: 'cancel-auto', label: 'Cancel Automation', type: 'button' },
-  ];
+function getSelectedPc() {
+  return lastPickedResult?.position ? sceneToIcrsPc(lastPickedResult.position) : null;
 }
 
-function buildTabletWaypointItems() {
-  return [
-    { id: 'back-home', label: '< Back', type: 'button' },
-    ...WAYPOINTS.map((waypoint, index) => ({
-      id: `wp-${index}`,
-      label: waypoint.label,
-      type: 'button',
-    })),
-  ];
-}
-
-function renderTabletDisplay() {
-  if (!tabletDisplay) {
-    return;
+function formatPoint(point, decimals = 1) {
+  if (!point) {
+    return '—';
   }
-  tabletDisplay.draw();
+  return `${fmt(point.x, decimals)}, ${fmt(point.y, decimals)}, ${fmt(point.z, decimals)}`;
 }
 
-function updateTabletStarInfo(result) {
-  if (!tabletDisplay) {
-    return;
-  }
-  if (!result) {
-    tabletDisplay.setDisplay('star-info', []);
-    renderTabletDisplay();
-    return;
+function buildSelectedStarLines(result = lastPickedResult) {
+  if (!result?.position) {
+    return [];
   }
 
   const fields = result.sidecarFields ?? {};
   const icrsPc = sceneToIcrsPc(result.position);
-  const observerPc = viewer?.getSnapshotState?.()?.state?.observerPc ?? { x: 0, y: 0, z: 0 };
+  const observerPc = getObserverPc();
   const dist = Math.hypot(
     icrsPc.x - observerPc.x,
     icrsPc.y - observerPc.y,
@@ -248,83 +229,282 @@ function updateTabletStarInfo(result) {
   if (Number.isFinite(result.temperatureK)) {
     lines.push(`Temp: ${Math.round(result.temperatureK).toLocaleString()} K`);
   }
-  tabletDisplay.setDisplay('star-info', lines);
-  renderTabletDisplay();
+  return lines;
 }
 
-function updateTabletGalaxyMap() {
-  if (!tabletDisplay || currentTabletPage !== 'home') {
-    return;
-  }
-  const observerPc = viewer?.getSnapshotState?.()?.state?.observerPc ?? { x: 0, y: 0, z: 0 };
-  const selectedPc = lastPickedResult?.position ? sceneToIcrsPc(lastPickedResult.position) : null;
-  tabletDisplay.setItemValue(GALAXY_MAP_CONTROL_ID, buildGalaxyMapValue(observerPc, selectedPc, galaxyMapScaleHint));
-  renderTabletDisplay();
+function createLineChildren(prefix, lines, emptyText) {
+  const source = lines.length > 0 ? lines : [emptyText];
+  return source.map((text, index) => createTextLabel(`${prefix}-${index}`, {
+    text,
+    tone: lines.length > 0 ? 'default' : 'muted',
+  }));
 }
 
 function setTabletPage(pageId) {
   currentTabletPage = pageId;
-  if (!tabletDisplay) {
-    return;
-  }
-
-  const observerPc = viewer?.getSnapshotState?.()?.state?.observerPc ?? { x: 0, y: 0, z: 0 };
-  const selectedPc = lastPickedResult?.position ? sceneToIcrsPc(lastPickedResult.position) : null;
-
-  if (pageId === 'rendering') {
-    tabletDisplay.setItems(buildTabletRenderingItems());
-    renderTabletDisplay();
-    return;
-  }
-  if (pageId === 'selection') {
-    tabletDisplay.setItems(buildTabletSelectionItems());
-    updateTabletStarInfo(lastPickedResult);
-    renderTabletDisplay();
-    return;
-  }
-  if (pageId === 'waypoints') {
-    tabletDisplay.setItems(buildTabletWaypointItems());
-    renderTabletDisplay();
-    return;
-  }
-
-  tabletDisplay.setItems(buildTabletHomeItems(observerPc, selectedPc));
-  updateTabletStarInfo(lastPickedResult);
-  updateTabletGalaxyMap();
 }
 
-function initSceneTablet() {
-  if (tabletDisplay) {
-    return;
+function createGalaxyMapHudRoot() {
+  const motion = cameraController?.getStats?.()?.motion ?? null;
+
+  return createDockLayout('galaxy-map-hud', {
+    padding: 0,
+    topRight: {
+      maxWidth: 260,
+      child: createSection('galaxy-map-hud-actions', {
+        title: 'Actions',
+        backgroundColor: '#0f1b2d',
+        children: [
+          createButton('galaxy-map-look-sun', {
+            label: 'Look at Sun',
+            actionId: 'camera.look-sun',
+          }),
+          createButton('galaxy-map-fly-sun', {
+            label: 'Fly to Sun',
+            actionId: 'camera.fly-sun',
+          }),
+          createTouchOsFullscreenButton('galaxy-map-fullscreen'),
+        ],
+      }),
+    },
+    bottomLeft: {
+      maxWidth: 240,
+      child: createSection('galaxy-map-hud-move', {
+        title: 'Move',
+        backgroundColor: '#0f1b2d',
+        children: [
+          createDPad('galaxy-map-hud-dpad', {
+            up: createMovementBinding('KeyW', 'Fwd'),
+            down: createMovementBinding('KeyS', 'Back'),
+            left: createMovementBinding('KeyA', 'Left'),
+            right: createMovementBinding('KeyD', 'Right'),
+          }),
+        ],
+      }),
+    },
+    bottomRight: {
+      maxWidth: 240,
+      child: createSection('galaxy-map-hud-status', {
+        title: 'Lift + Speed',
+        backgroundColor: '#0f1b2d',
+        children: [
+          createHoldButton('galaxy-map-hud-up', {
+            label: 'Up',
+            actionId: 'movement.key',
+            startPayload: { code: 'KeyQ', active: true },
+            stopPayload: { code: 'KeyQ', active: false },
+          }),
+          createHoldButton('galaxy-map-hud-down', {
+            label: 'Down',
+            actionId: 'movement.key',
+            startPayload: { code: 'KeyE', active: true },
+            stopPayload: { code: 'KeyE', active: false },
+          }),
+          createValueReadout('galaxy-map-hud-speed', {
+            label: 'Speed',
+            value: formatSpeedPcPerSec(motion?.speedPcPerSec ?? 0),
+          }),
+        ],
+      }),
+    },
+  });
+}
+
+function createGalaxyMapTabletRoot() {
+  const observerPc = getObserverPc();
+  const selectedPc = getSelectedPc();
+
+  if (currentTabletPage === 'selection') {
+    const lines = buildSelectedStarLines();
+    return createColumn('galaxy-map-tablet-selection', {
+      pointerOpaque: true,
+      padding: 10,
+      gap: 10,
+      backgroundColor: '#08111d',
+      children: [
+        createButton('galaxy-map-selection-back', {
+          label: '< Back',
+          actionId: 'tablet.page.home',
+        }),
+        createSection('galaxy-map-selection-target', {
+          title: 'Selected Target',
+          backgroundColor: '#0f1b2d',
+          children: [
+            ...createLineChildren('galaxy-map-selection-line', lines, 'No target selected.'),
+            createButton('galaxy-map-selection-go', {
+              label: 'Go to Selected',
+              actionId: 'tablet.go-selected',
+            }),
+            createButton('galaxy-map-selection-look', {
+              label: 'Look at Selected',
+              actionId: 'tablet.look-selected',
+            }),
+            createButton('galaxy-map-selection-clear', {
+              label: 'Clear Selection',
+              actionId: 'tablet.clear-selection',
+            }),
+          ],
+        }),
+      ],
+    });
   }
 
-  tabletDisplay = createSceneTouchDisplayController({
-    id: 'desktop-galaxy-map-tablet',
-    title: 'SkyKit',
-    items: buildTabletHomeItems(),
-    displayOptions: {
-      controls: {
-        'galaxy-map': createGalaxyMapControl(),
-      },
-    },
-    mouseControls: true,
-    parent(context) {
-      return context.camera ?? null;
-    },
+  if (currentTabletPage === 'rendering') {
+    return createColumn('galaxy-map-tablet-rendering', {
+      pointerOpaque: true,
+      padding: 10,
+      gap: 10,
+      backgroundColor: '#08111d',
+      children: [
+        createButton('galaxy-map-rendering-back', {
+          label: '< Back',
+          actionId: 'tablet.page.home',
+        }),
+        createSection('galaxy-map-rendering-controls', {
+          title: 'Rendering',
+          backgroundColor: '#0f1b2d',
+          children: [
+            createSlider('galaxy-map-mag-limit', {
+              label: 'Mag Limit',
+              value: activeMagLimit,
+              min: 0,
+              max: 25,
+              step: 0.1,
+              valueText: activeMagLimit.toFixed(1),
+            }),
+            createSlider('galaxy-map-exposure', {
+              label: 'Exposure',
+              value: Math.log10(Math.max(activeExposure, 1)),
+              min: 0,
+              max: 5,
+              step: 0.05,
+              valueText: Math.round(activeExposure).toLocaleString(),
+            }),
+            createSlider('galaxy-map-pick-tolerance', {
+              label: 'Pick Tol. deg',
+              value: activeTolerance,
+              min: 0.1,
+              max: 10,
+              step: 0.1,
+              valueText: activeTolerance.toFixed(1),
+            }),
+            createSlider('galaxy-map-fly-speed', {
+              label: 'Fly Speed',
+              value: activeFlySpeed,
+              min: 1,
+              max: 2000,
+              step: 1,
+              valueText: `${Math.round(activeFlySpeed).toLocaleString()} pc/s`,
+            }),
+            createButton('galaxy-map-cancel-auto', {
+              label: 'Cancel Automation',
+              actionId: 'tablet.cancel-auto',
+            }),
+          ],
+        }),
+      ],
+    });
+  }
+
+  if (currentTabletPage === 'waypoints') {
+    return createColumn('galaxy-map-tablet-waypoints', {
+      pointerOpaque: true,
+      padding: 10,
+      gap: 10,
+      backgroundColor: '#08111d',
+      children: [
+        createButton('galaxy-map-waypoints-back', {
+          label: '< Back',
+          actionId: 'tablet.page.home',
+        }),
+        createSection('galaxy-map-waypoints-list', {
+          title: 'Waypoints',
+          backgroundColor: '#0f1b2d',
+          children: WAYPOINTS.map((waypoint, index) => createButton(`galaxy-map-waypoint-${index}`, {
+            label: waypoint.label,
+            actionId: `tablet.waypoint.${index}`,
+          })),
+        }),
+      ],
+    });
+  }
+
+  return createColumn('galaxy-map-tablet-home', {
+    pointerOpaque: true,
+    padding: 10,
+    gap: 10,
+    backgroundColor: '#08111d',
+    children: [
+      createSection('galaxy-map-home-pages', {
+        title: 'Pages',
+        backgroundColor: '#0f1b2d',
+        children: [
+          createButton('galaxy-map-page-rendering', {
+            label: 'Rendering',
+            actionId: 'tablet.page.rendering',
+          }),
+          createButton('galaxy-map-page-waypoints', {
+            label: 'Waypoints',
+            actionId: 'tablet.page.waypoints',
+          }),
+          ...(lastPickedResult
+            ? [
+              createButton('galaxy-map-page-selection', {
+                label: 'Selection',
+                actionId: 'tablet.page.selection',
+              }),
+            ]
+            : []),
+        ],
+      }),
+      createSection('galaxy-map-home-observer', {
+        title: 'Observer',
+        backgroundColor: '#0f1b2d',
+        children: [
+          createValueReadout('galaxy-map-observer-position', {
+            label: 'ICRS pc',
+            value: formatPoint(observerPc),
+          }),
+          createValueReadout('galaxy-map-observer-fly-speed', {
+            label: 'Fly Speed',
+            value: `${Math.round(activeFlySpeed).toLocaleString()} pc/s`,
+          }),
+        ],
+      }),
+      createGalaxyMapControl(GALAXY_MAP_CONTROL_ID, {
+        value: buildGalaxyMapValue(observerPc, selectedPc, galaxyMapScaleHint),
+        height: 210,
+      }),
+    ],
+  });
+}
+
+function createGalaxyMapTouchOsPart() {
+  const tabletRuntime = createRuntime({
+    root: createGalaxyMapTabletRoot(),
+    surface: TABLET_SURFACE,
+    theme: TABLET_THEME,
+  });
+  const tabletDriver = createScenePanelDriver({
+    runtime: tabletRuntime,
+    surface: TABLET_SURFACE,
     panelWidth: 0.24,
     panelHeight: 0.336,
     depthTest: false,
-    updatePlacement(panelMesh, context) {
+    parent(frame) {
+      return frame.camera ?? null;
+    },
+    updatePlacement(panelMesh, frame) {
       const distance = 0.52;
       const tabletWidth = 0.24;
       const tabletHeight = 0.336;
-      const aspect = context.camera?.aspect ?? 16 / 9;
-      const fovDeg = context.camera?.isPerspectiveCamera ? context.camera.fov : 60;
+      const aspect = frame.camera?.aspect ?? 16 / 9;
+      const fovDeg = frame.camera?.isPerspectiveCamera ? frame.camera.fov : 60;
       const halfHeight = Math.tan((fovDeg * Math.PI / 180) * 0.5) * distance;
       const halfWidth = halfHeight * aspect;
       const hudPaddingPx = 12;
-      const viewportWidth = Math.max(1, context.size?.width ?? 1);
-      const viewportHeight = Math.max(1, context.size?.height ?? 1);
+      const viewportWidth = Math.max(1, frame.size?.width ?? 1);
+      const viewportHeight = Math.max(1, frame.size?.height ?? 1);
       const marginX = (halfWidth * 2) * (hudPaddingPx / viewportWidth);
       const marginY = (halfHeight * 2) * (hudPaddingPx / viewportHeight);
       const x = -halfWidth + tabletWidth * 0.5 + marginX;
@@ -334,79 +514,158 @@ function initSceneTablet() {
       panelMesh.rotation.set(0, 0, 0);
       return true;
     },
-    onChange(id, value, detail) {
-      if (id === 'star-info' && detail?.target?.targetType === 'dismiss') {
-        handlePick(null);
+  });
+
+  const hudRuntime = createRuntime({
+    root: createGalaxyMapHudRoot(),
+    surface: HUD_SURFACE,
+    theme: HUD_THEME,
+  });
+  const hudDriver = createHudPanelDriver({
+    runtime: hudRuntime,
+    surface: HUD_SURFACE,
+    distance: 0.68,
+    sizing: 'viewport',
+  });
+
+  return createTouchOsRuntimePart({
+    id: 'desktop-galaxy-map-touch-os',
+    panels: [
+      {
+        key: 'scene-tablet',
+        runtime: tabletRuntime,
+        driver: tabletDriver,
+        sync() {
+          tabletRuntime.setRoot(createGalaxyMapTabletRoot());
+        },
+        getFrame(context) {
+          return {
+            scene: context.scene,
+            camera: context.camera,
+            size: context.size,
+            surfaceMetrics: TABLET_SURFACE,
+          };
+        },
+      },
+      {
+        key: 'desktop-hud',
+        runtime: hudRuntime,
+        driver: hudDriver,
+        sync() {
+          hudRuntime.setRoot(createGalaxyMapHudRoot());
+        },
+        getFrame(context) {
+          return {
+            scene: context.scene,
+            camera: context.camera,
+            size: context.size,
+            surfaceMetrics: {
+              width: context.size.width,
+              height: context.size.height,
+              pixelDensity: globalThis.window?.devicePixelRatio ?? 1,
+            },
+          };
+        },
+      },
+    ],
+    onOutput(output, _panel, context) {
+      if (handleNavigationTouchOsOutput(output, {
+        cameraController,
+        fullscreenTarget: context.host,
+      })) {
+        return;
       }
-      if (id === 'go-selected') {
-        goToPickedStar();
-      }
-      if (id === 'look-selected') {
-        if (lastPickedResult?.position) {
-          cameraController?.lookAt(sceneToIcrsPc(lastPickedResult.position), { blend: 0.06 });
-          renderSnapshot();
+
+      if (output?.type === 'action') {
+        if (output.actionId === 'camera.look-sun') {
+          cameraController?.lookAt(SOLAR_ORIGIN_PC);
+          return;
         }
+        if (output.actionId === 'camera.fly-sun') {
+          cameraController?.flyTo(SOLAR_ORIGIN_PC, { speed: 120 });
+          return;
+        }
+        if (output.actionId === 'tablet.page.home') {
+          setTabletPage('home');
+          return;
+        }
+        if (output.actionId === 'tablet.page.selection') {
+          setTabletPage('selection');
+          return;
+        }
+        if (output.actionId === 'tablet.page.rendering') {
+          setTabletPage('rendering');
+          return;
+        }
+        if (output.actionId === 'tablet.page.waypoints') {
+          setTabletPage('waypoints');
+          return;
+        }
+        if (output.actionId === 'tablet.go-selected') {
+          goToPickedStar();
+          return;
+        }
+        if (output.actionId === 'tablet.look-selected') {
+          if (lastPickedResult?.position) {
+            cameraController?.lookAt(sceneToIcrsPc(lastPickedResult.position), { blend: 0.06 });
+          }
+          return;
+        }
+        if (output.actionId === 'tablet.clear-selection') {
+          handlePick(null);
+          return;
+        }
+        if (output.actionId === 'tablet.cancel-auto') {
+          cameraController?.cancelAutomation();
+          return;
+        }
+        const waypointMatch = output.actionId.match(/^tablet\.waypoint\.(\d+)$/);
+        if (waypointMatch) {
+          const waypoint = WAYPOINTS[Number.parseInt(waypointMatch[1], 10)];
+          if (waypoint) {
+            goToStarTarget(waypoint.targetPc);
+          }
+          setTabletPage('home');
+        }
+        return;
       }
-      if (id === 'clear-selection') {
-        handlePick(null);
+
+      if (output?.type !== 'change-request') {
+        return;
       }
-      if (id === 'page-selection') {
-        setTabletPage('selection');
-      }
-      if (id === 'page-rendering') {
-        setTabletPage('rendering');
-      }
-      if (id === 'page-waypoints') {
-        setTabletPage('waypoints');
-      }
-      if (id === 'back-home') {
-        setTabletPage('home');
-      }
-      if (id === 'mag-limit') {
-        const nextValue = Number(value);
+
+      if (output.componentId === 'galaxy-map-mag-limit') {
+        const nextValue = Number(output.value);
         if (Number.isFinite(nextValue)) {
           activeMagLimit = nextValue;
           applyViewerState({ refreshSelection: true });
         }
+        return;
       }
-      if (id === 'exposure') {
-        const nextValue = Number(value);
+      if (output.componentId === 'galaxy-map-exposure') {
+        const nextValue = Number(output.value);
         if (Number.isFinite(nextValue)) {
           activeExposure = 10 ** nextValue;
           applyViewerState();
         }
+        return;
       }
-      if (id === 'pick-tolerance') {
-        const nextValue = Number(value);
+      if (output.componentId === 'galaxy-map-pick-tolerance') {
+        const nextValue = Number(output.value);
         if (Number.isFinite(nextValue) && nextValue > 0) {
           activeTolerance = nextValue;
           pickControllerRef?.setToleranceDeg(activeTolerance);
-          renderSnapshot();
         }
+        return;
       }
-      if (id === 'fly-speed') {
-        const nextValue = Number(value);
+      if (output.componentId === 'galaxy-map-fly-speed') {
+        const nextValue = Number(output.value);
         if (Number.isFinite(nextValue) && nextValue > 0) {
           activeFlySpeed = nextValue;
-          renderSnapshot();
         }
-      }
-      if (id === 'cancel-auto') {
-        cameraController?.cancelAutomation();
-        renderSnapshot();
-      }
-      const waypointMatch = id.match(/^wp-(\d+)$/);
-      if (waypointMatch) {
-        const waypoint = WAYPOINTS[Number.parseInt(waypointMatch[1], 10)];
-        if (waypoint) {
-          goToStarTarget(waypoint.targetPc);
-        }
-        setTabletPage('home');
       }
     },
   });
-
-  renderTabletDisplay();
 }
 
 function handlePick(result) {
@@ -424,12 +683,7 @@ function handlePick(result) {
     setTabletPage('selection');
   } else if (currentTabletPage === 'selection') {
     setTabletPage('home');
-  } else if (currentTabletPage === 'home') {
-    setTabletPage('home');
-  } else {
-    updateTabletStarInfo(null);
   }
-  renderSnapshot();
 
   if (!result) {
     return;
@@ -448,8 +702,6 @@ function handlePick(result) {
         return;
       }
       result.sidecarFields = fields;
-      updateTabletStarInfo(result);
-      renderSnapshot();
     } catch {
       // Sidecar is optional for this demo.
     }
@@ -478,10 +730,8 @@ function goToStarTarget(targetPc) {
       viewer?.refreshSelection().catch((error) => {
         console.error('[galaxy-map-demo] refresh after flyTo failed', error);
       });
-      renderSnapshot();
     },
   });
-  renderSnapshot();
 }
 
 function goToPickedStar() {
@@ -489,20 +739,6 @@ function goToPickedStar() {
     return;
   }
   goToStarTarget(sceneToIcrsPc(lastPickedResult.position));
-}
-
-function renderSnapshot() {
-  const snapshot = viewer?.getSnapshotState?.() ?? null;
-  const observerPc = snapshot?.state?.observerPc ?? { x: 0, y: 0, z: 0 };
-  updateTabletGalaxyMap();
-  if (!tabletDisplay || currentTabletPage !== 'home') {
-    return;
-  }
-  const selectedPc = lastPickedResult?.position ? sceneToIcrsPc(lastPickedResult.position) : null;
-  tabletDisplay.setItemValue(
-    GALAXY_MAP_CONTROL_ID,
-    buildGalaxyMapValue(observerPc, selectedPc, galaxyMapScaleHint),
-  );
 }
 
 async function warmDatasetSession() {
@@ -556,8 +792,7 @@ async function mountViewer() {
       handlePick(result);
     },
   });
-
-  initSceneTablet();
+  touchOsPartRef = createGalaxyMapTouchOsPart();
 
   viewer = await createViewer(mount, {
     datasetSession,
@@ -567,7 +802,7 @@ async function mountViewer() {
       note: 'Desktop galaxy-map validation sandbox.',
     }),
     controllers: [
-      tabletDisplay,
+      touchOsPartRef,
       cameraController,
       createSelectionRefreshController({
         id: 'desktop-galaxy-map-selection-refresh',
@@ -576,24 +811,6 @@ async function mountViewer() {
         watchSize: false,
       }),
       pickControllerRef,
-      createHud({
-        cameraController,
-        controls: [
-          { preset: 'arrows', position: 'bottom-right' },
-          { preset: 'wasd-qe', position: 'bottom-left' },
-          createLookAtAction(cameraController, SOLAR_ORIGIN_PC, {
-            label: '⟳ Sun',
-            title: 'Look at Sun',
-            position: 'top-right',
-          }),
-          createFlyToAction(cameraController, SOLAR_ORIGIN_PC, {
-            label: '→ Sun',
-            title: 'Fly to Sun',
-            speed: 120,
-            position: 'top-right',
-          }),
-        ],
-      }),
     ],
     layers: [starFieldLayer],
     state: {
@@ -608,14 +825,11 @@ async function mountViewer() {
     clearColor: 0x02040b,
   });
   installDemoViewerDebugConsole(viewer, { id: 'galaxy-map' });
-
-  renderSnapshot();
   return viewer;
 }
 
 function applyViewerState(options = {}) {
   if (!viewer) {
-    renderSnapshot();
     return;
   }
 
@@ -626,25 +840,13 @@ function applyViewerState(options = {}) {
 
   if (options.refreshSelection) {
     viewer.refreshSelection()
-      .then(() => renderSnapshot())
       .catch((error) => {
         console.error('[galaxy-map-demo] state refresh failed', error);
       });
-    return;
   }
-
-  renderSnapshot();
 }
 
-globalThis.window?.addEventListener('resize', () => {
-  renderSnapshot();
-});
-
 globalThis.window?.addEventListener('beforeunload', () => {
-  if (snapshotTimer != null) {
-    globalThis.window.clearInterval(snapshotTimer);
-  }
-
   if (viewer) {
     viewer.dispose().catch((error) => {
       console.error('[galaxy-map-demo] cleanup failed', error);
@@ -652,9 +854,6 @@ globalThis.window?.addEventListener('beforeunload', () => {
   }
 });
 
-initSceneTablet();
-snapshotTimer = globalThis.window?.setInterval(renderSnapshot, 500) ?? null;
-renderSnapshot();
 mountViewer().catch((error) => {
   console.error('[galaxy-map-demo] initial mount failed', error);
 });

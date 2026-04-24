@@ -8,7 +8,6 @@ export { createPickController } from '../controllers/pick-controller.js';
 export { createXrPickController } from '../controllers/xr-pick-controller.js';
 export { createXrLocomotionController } from '../controllers/xr-locomotion-controller.js';
 export { createConstellationCompassController } from '../controllers/constellation-compass-controller.js';
-export { createSceneTouchDisplayController } from '../controllers/scene-touch-display-controller.js';
 export { createStarFieldLayer } from '../layers/star-field-layer.js';
 export { createConstellationArtLayer } from '../layers/constellation-art-layer.js';
 export { createMinimalSceneLayer } from '../layers/minimal-scene-layer.js';

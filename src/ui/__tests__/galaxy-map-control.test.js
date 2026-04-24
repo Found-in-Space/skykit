@@ -3,6 +3,7 @@ import test from 'node:test';
 import { GALACTIC_CENTER_PC } from '../../scene-targets.js';
 import {
   buildGalaxyMapValue,
+  createGalaxyMapControl,
   deriveGalaxyMapScaleHint,
   drawGalaxyMapGraphic,
 } from '../galaxy-map-control.js';
@@ -105,4 +106,11 @@ test('galaxy map radar renders semicircular distance guides', () => {
     assert.equal(arc.start, Math.PI);
     assert.equal(arc.end, Math.PI * 2);
   }
+});
+
+test('createGalaxyMapControl returns a native Touch OS display node', () => {
+  const control = createGalaxyMapControl('galaxy-map-node', { value: null, height: 200 });
+  assert.equal(control.id, 'galaxy-map-node');
+  assert.equal(control.component.kind, 'skykit-galaxy-map');
+  assert.equal(control.props.height, 200);
 });

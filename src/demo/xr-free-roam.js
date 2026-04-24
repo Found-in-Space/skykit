@@ -1,5 +1,16 @@
 import * as THREE from 'three';
 import {
+  createButton,
+  createColumn,
+  createRuntime,
+  createSection,
+  createSlider,
+  createTextLabel,
+  createToggle,
+  createValueReadout,
+} from '@found-in-space/touch-os';
+import { createPoseAnchoredPanelDriver } from '@found-in-space/touch-os/hosts/three';
+import {
   createConstellationArtLayer,
   createConstellationCompassController,
   createTunedStarFieldMaterialProfile,
@@ -22,7 +33,6 @@ import {
 } from '../index.js';
 import { createXrLocomotionController } from '../controllers/xr-locomotion-controller.js';
 import { createXrPickController } from '../controllers/xr-pick-controller.js';
-import { createXrTabletController } from '../controllers/xr-tablet-controller.js';
 import { DEFAULT_METERS_PER_PARSEC, SCALE } from '../services/octree/scene-scale.js';
 import { computeXrDepthRange } from '../services/render/xr-depth-range.js';
 import {
@@ -30,6 +40,7 @@ import {
   createGalaxyMapControl,
   deriveGalaxyMapScaleHint,
 } from '../ui/galaxy-map-control.js';
+import { createTouchOsRuntimePart } from './touch-os-runtime-part.js';
 import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 const PROXIMA_CEN_PC = { x: -0.47, y: -0.36, z: -1.16 };
@@ -52,6 +63,30 @@ const WORLD_SCALE_CONTROL = Object.freeze({
   step: 0.05,
 });
 const GALAXY_MAP_CONTROL_ID = 'galaxy-map';
+const XR_TABLET_HAND = 'left';
+const XR_TABLET_POINTER_HAND = 'right';
+const XR_TABLET_SURFACE = Object.freeze({
+  width: 420,
+  height: 588,
+  pixelDensity: 1,
+});
+const XR_TABLET_THEME = Object.freeze({
+  backgroundColor: '#08111d',
+  surfaceColor: '#132238',
+  borderColor: '#27405e',
+  accentColor: '#38bdf8',
+  focusColor: '#22c55e',
+  controlHeight: 38,
+  spacing: 8,
+  padding: 12,
+  radius: 10,
+  typography: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: 600,
+    fontFamily: 'Avenir Next, ui-sans-serif',
+  },
+});
 
 function approachTargetFromObserver(targetPc, observerPc, distancePc) {
   const dx = targetPc.x - observerPc.x;
@@ -382,7 +417,7 @@ let starFieldLayer = null;
 let constellationArtLayer = null;
 let constellationCompassControllerRef = null;
 let viewer = null;
-let tabletRef = null;
+let touchOsPartRef = null;
 let pickControllerRef = null;
 let xrLocomotionControllerRef = null;
 let snapshotTimer = null;
@@ -401,12 +436,16 @@ let currentConstellationIau = null;
 let currentTabletPage = 'home';
 let xrDepthRangeTelemetry = null;
 let galaxyMapScaleHint = null;
+let xrTabletTriggerPressed = false;
 
 let warmState = {
   bootstrap: 'idle',
   rootShard: 'idle',
   meta: 'idle',
 };
+
+const xrTabletDirection = new THREE.Vector3();
+const xrTabletQuaternion = new THREE.Quaternion();
 
 function sceneToIcrsPc(pos) {
   const [ix, iy, iz] = ORION_SCENE_TO_ICRS_TRANSFORM(pos.x, pos.y, pos.z);
@@ -449,12 +488,6 @@ function syncVisibilityControls() {
   if (magLimitInput) {
     magLimitInput.value = formatMagLimitValue(activeMagLimit);
   }
-  tabletRef?.setItemValue('tuned-shader', desktopShaderEnabled);
-  tabletRef?.setItemValue('world-scale', worldScaleToSliderValue(activeStarFieldScale));
-  tabletRef?.setItemValue('mag-limit', activeMagLimit);
-  tabletRef?.setItemValue('exposure', exposureToSliderValue(getActiveExposure()));
-  tabletRef?.setItemValue('near-distance-floor', nearDistanceFloorEnabled);
-  tabletRef?.setItemValue('constellation-art', artEnabled);
 }
 
 function syncWorldClipPlanes(snapshot = null) {
@@ -678,14 +711,62 @@ function renderPickInfo(result) {
   ui.obs.textContent = lines.join('\n');
 }
 
-function updateTabletStarInfo(result) {
-  if (!tabletRef) {
-    return;
+function setTabletPage(pageId) {
+  currentTabletPage = pageId;
+}
+
+function getInputSourcePose(xr, handedness, spaceKey) {
+  const { frame, referenceSpace, session } = xr ?? {};
+  if (!frame || !referenceSpace || !session) {
+    return null;
   }
 
-  if (!result) {
-    tabletRef.setDisplay('star-info', []);
-    return;
+  for (const source of session.inputSources) {
+    if (source.handedness !== handedness) {
+      continue;
+    }
+    const space = source?.[spaceKey];
+    if (!space) {
+      continue;
+    }
+    const pose = frame.getPose(space, referenceSpace);
+    if (pose) {
+      return pose;
+    }
+  }
+
+  return null;
+}
+
+function getGripPose(xr, handedness) {
+  return getInputSourcePose(xr, handedness, 'gripSpace');
+}
+
+function getTargetRayPose(xr, handedness) {
+  return getInputSourcePose(xr, handedness, 'targetRaySpace');
+}
+
+function isXrButtonPressed(xr, handedness, buttonIndex = 0) {
+  const session = xr?.session;
+  if (!session) {
+    return false;
+  }
+
+  for (const source of session.inputSources) {
+    if (source.handedness !== handedness) {
+      continue;
+    }
+    if (source.gamepad?.buttons?.[buttonIndex]?.pressed) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function buildTabletStarLines(result = lastPickedResult) {
+  if (!result?.position) {
+    return [];
   }
 
   const fields = result.sidecarFields;
@@ -709,109 +790,354 @@ function updateTabletStarInfo(result) {
   if (Number.isFinite(result.temperatureK)) {
     lines.push(`Temp: ${Math.round(result.temperatureK).toLocaleString()} K`);
   }
-  tabletRef.setDisplay('star-info', lines);
+  return lines;
 }
 
-function updateTabletGalaxyMap() {
-  if (!tabletRef || currentTabletPage !== 'home') {
-    return;
-  }
-  tabletRef.setItemValue(GALAXY_MAP_CONTROL_ID, getGalaxyMapValue());
+function createLineChildren(prefix, lines, emptyText) {
+  const source = lines.length > 0 ? lines : [emptyText];
+  return source.map((text, index) => createTextLabel(`${prefix}-${index}`, {
+    text,
+    tone: lines.length > 0 ? 'default' : 'muted',
+  }));
 }
 
-function buildHomeMenuItems() {
-  const items = [
-    { id: 'page-rendering', label: 'Rendering', type: 'button' },
-    { id: 'page-waypoints', label: 'Waypoints', type: 'button' },
-    {
-      id: GALAXY_MAP_CONTROL_ID,
-      type: 'galaxy-map',
-      value: getGalaxyMapValue(),
-    },
-  ];
-  if (lastPickedResult) {
-    items.push({
-      id: 'star-info',
-      label: 'Selected Target',
-      type: 'display',
-      lines: [],
-      dismissible: true,
-      actionId: 'go-selected',
-      actionLabel: 'Go to Selected',
+function createXrTabletRoot() {
+  if (currentTabletPage === 'rendering') {
+    return createColumn('xr-free-roam-tablet-rendering', {
+      pointerOpaque: true,
+      padding: 10,
+      gap: 10,
+      backgroundColor: '#08111d',
+      children: [
+        createButton('xr-free-roam-rendering-back', {
+          label: '< Back',
+          actionId: 'tablet.page.home',
+        }),
+        createSection('xr-free-roam-rendering-panel', {
+          title: 'Rendering',
+          backgroundColor: '#0f1b2d',
+          children: [
+            createToggle('xr-free-roam-tuned-shader', {
+              label: 'Desktop Shader',
+              value: desktopShaderEnabled,
+            }),
+            createSlider('xr-free-roam-world-scale', {
+              label: 'World Scale',
+              value: worldScaleToSliderValue(activeStarFieldScale),
+              min: WORLD_SCALE_CONTROL.minLog10,
+              max: WORLD_SCALE_CONTROL.maxLog10,
+              step: WORLD_SCALE_CONTROL.step,
+              valueText: formatWorldScaleSliderValue(worldScaleToSliderValue(activeStarFieldScale)),
+            }),
+            createSlider('xr-free-roam-mag-limit', {
+              label: 'Mag Limit',
+              value: activeMagLimit,
+              min: MAG_LIMIT_CONTROL.min,
+              max: MAG_LIMIT_CONTROL.max,
+              step: MAG_LIMIT_CONTROL.step,
+              valueText: formatMagLimitValue(activeMagLimit),
+            }),
+            createSlider('xr-free-roam-exposure', {
+              label: 'Exposure',
+              value: exposureToSliderValue(getActiveExposure()),
+              min: EXPOSURE_CONTROL.minLog10,
+              max: EXPOSURE_CONTROL.maxLog10,
+              step: EXPOSURE_CONTROL.step,
+              valueText: formatExposureSliderValue(exposureToSliderValue(getActiveExposure())),
+            }),
+            createToggle('xr-free-roam-near-distance-floor', {
+              label: 'Near 1pc floor',
+              value: nearDistanceFloorEnabled,
+            }),
+            createToggle('xr-free-roam-constellation-art', {
+              label: 'Constellation Art',
+              value: artEnabled,
+            }),
+          ],
+        }),
+      ],
     });
   }
-  return items;
+
+  if (currentTabletPage === 'waypoints') {
+    return createColumn('xr-free-roam-tablet-waypoints', {
+      pointerOpaque: true,
+      padding: 10,
+      gap: 10,
+      backgroundColor: '#08111d',
+      children: [
+        createButton('xr-free-roam-waypoints-back', {
+          label: '< Back',
+          actionId: 'tablet.page.home',
+        }),
+        createSection('xr-free-roam-waypoints-panel', {
+          title: 'Waypoints',
+          backgroundColor: '#0f1b2d',
+          children: WAYPOINTS.map((waypoint, index) => createButton(`xr-free-roam-waypoint-${index}`, {
+            label: waypoint.label,
+            actionId: `tablet.waypoint.${index}`,
+          })),
+        }),
+      ],
+    });
+  }
+
+  return createColumn('xr-free-roam-tablet-home', {
+    pointerOpaque: true,
+    padding: 10,
+    gap: 10,
+    backgroundColor: '#08111d',
+    children: [
+      createSection('xr-free-roam-home-pages', {
+        title: 'Pages',
+        backgroundColor: '#0f1b2d',
+        children: [
+          createButton('xr-free-roam-page-rendering', {
+            label: 'Rendering',
+            actionId: 'tablet.page.rendering',
+          }),
+          createButton('xr-free-roam-page-waypoints', {
+            label: 'Waypoints',
+            actionId: 'tablet.page.waypoints',
+          }),
+        ],
+      }),
+      createSection('xr-free-roam-home-status', {
+        title: 'Status',
+        backgroundColor: '#0f1b2d',
+        children: [
+          createValueReadout('xr-free-roam-status-scale', {
+            label: 'World Scale',
+            value: formatWorldScaleSliderValue(worldScaleToSliderValue(activeStarFieldScale)),
+          }),
+          createValueReadout('xr-free-roam-status-mag-limit', {
+            label: 'Mag Limit',
+            value: formatMagLimitValue(activeMagLimit),
+          }),
+        ],
+      }),
+      createGalaxyMapControl(GALAXY_MAP_CONTROL_ID, {
+        value: getGalaxyMapValue(),
+        height: 200,
+      }),
+      ...(lastPickedResult
+        ? [
+          createSection('xr-free-roam-selected-target', {
+            title: 'Selected Target',
+            backgroundColor: '#0f1b2d',
+            children: [
+              ...createLineChildren(
+                'xr-free-roam-selected-line',
+                buildTabletStarLines(),
+                'No target selected.',
+              ),
+              createButton('xr-free-roam-go-selected', {
+                label: 'Go to Selected',
+                actionId: 'tablet.go-selected',
+              }),
+              createButton('xr-free-roam-clear-selection', {
+                label: 'Clear Selection',
+                actionId: 'tablet.clear-selection',
+              }),
+            ],
+          }),
+        ]
+        : []),
+    ],
+  });
 }
 
-function buildRenderingMenuItems() {
-  return [
-    { id: 'back-home', label: '< Back', type: 'button' },
-    { id: 'tuned-shader', label: 'Desktop Shader', type: 'toggle', value: desktopShaderEnabled },
+function buildXrTabletSamples(context) {
+  const timestamp = context.frame?.timeMs ?? performance.now();
+  const pose = getTargetRayPose(context.xr, XR_TABLET_POINTER_HAND);
+  if (!pose) {
+    xrTabletTriggerPressed = false;
+    return [];
+  }
+
+  const position = pose.transform.position;
+  const orientation = pose.transform.orientation;
+  xrTabletQuaternion.set(orientation.x, orientation.y, orientation.z, orientation.w);
+  xrTabletDirection.set(0, 0, -1).applyQuaternion(xrTabletQuaternion).normalize();
+
+  const samples = [
     {
-      id: 'world-scale',
-      label: 'World Scale',
-      type: 'range',
-      value: worldScaleToSliderValue(activeStarFieldScale),
-      min: WORLD_SCALE_CONTROL.minLog10,
-      max: WORLD_SCALE_CONTROL.maxLog10,
-      step: WORLD_SCALE_CONTROL.step,
-      formatValue: formatWorldScaleSliderValue,
+      pointerId: 'xr-tablet-ray',
+      pointerType: 'ray',
+      transport: 'ray',
+      phase: 'move',
+      timestamp,
+      handedness: XR_TABLET_POINTER_HAND,
+      origin: { x: position.x, y: position.y, z: position.z },
+      direction: {
+        x: xrTabletDirection.x,
+        y: xrTabletDirection.y,
+        z: xrTabletDirection.z,
+      },
     },
-    {
-      id: 'mag-limit',
-      label: 'Mag Limit',
-      type: 'range',
-      value: activeMagLimit,
-      min: MAG_LIMIT_CONTROL.min,
-      max: MAG_LIMIT_CONTROL.max,
-      step: MAG_LIMIT_CONTROL.step,
-      formatValue: formatMagLimitValue,
-    },
-    {
-      id: 'exposure',
-      label: 'Exposure',
-      type: 'range',
-      value: exposureToSliderValue(getActiveExposure()),
-      min: EXPOSURE_CONTROL.minLog10,
-      max: EXPOSURE_CONTROL.maxLog10,
-      step: EXPOSURE_CONTROL.step,
-      formatValue: formatExposureSliderValue,
-    },
-    { id: 'near-distance-floor', label: 'Near 1pc floor', type: 'toggle', value: nearDistanceFloorEnabled },
-    { id: 'constellation-art', label: 'Constellation Art', type: 'toggle', value: artEnabled },
   ];
+
+  const pressed = isXrButtonPressed(context.xr, XR_TABLET_POINTER_HAND, 0);
+  if (pressed && !xrTabletTriggerPressed) {
+    samples.push({
+      pointerId: 'xr-tablet-ray',
+      pointerType: 'ray',
+      transport: 'ray',
+      phase: 'down',
+      timestamp,
+      handedness: XR_TABLET_POINTER_HAND,
+      origin: { x: position.x, y: position.y, z: position.z },
+      direction: {
+        x: xrTabletDirection.x,
+        y: xrTabletDirection.y,
+        z: xrTabletDirection.z,
+      },
+    });
+  }
+  if (!pressed && xrTabletTriggerPressed) {
+    samples.push({
+      pointerId: 'xr-tablet-ray',
+      pointerType: 'ray',
+      transport: 'ray',
+      phase: 'up',
+      timestamp,
+      handedness: XR_TABLET_POINTER_HAND,
+      origin: { x: position.x, y: position.y, z: position.z },
+      direction: {
+        x: xrTabletDirection.x,
+        y: xrTabletDirection.y,
+        z: xrTabletDirection.z,
+      },
+    });
+  }
+  xrTabletTriggerPressed = pressed;
+  return samples;
 }
 
-function buildWaypointMenuItems() {
-  return [
-    { id: 'back-home', label: '< Back', type: 'button' },
-    ...WAYPOINTS.map((waypoint, index) => ({
-      id: `wp-${index}`,
-      label: waypoint.label,
-      type: 'button',
-    })),
-  ];
-}
+function createXrTabletTouchOsPart(options = {}) {
+  const tabletRuntime = createRuntime({
+    root: createXrTabletRoot(),
+    surface: XR_TABLET_SURFACE,
+    theme: XR_TABLET_THEME,
+  });
+  const tabletDriver = createPoseAnchoredPanelDriver({
+    runtime: tabletRuntime,
+    surface: XR_TABLET_SURFACE,
+    panelWidth: 0.20,
+    panelHeight: 0.28,
+    depthTest: false,
+  });
 
-function setTabletPage(pageId) {
-  currentTabletPage = pageId;
-  if (!tabletRef) {
-    return;
-  }
+  return createTouchOsRuntimePart({
+    id: 'phase-5b-xr-touch-os',
+    panels: [
+      {
+        key: 'xr-tablet',
+        runtime: tabletRuntime,
+        driver: tabletDriver,
+        desktop: false,
+        sync() {
+          tabletRuntime.setRoot(createXrTabletRoot());
+        },
+        isEnabled(context) {
+          return context.xr?.presenting === true && getGripPose(context.xr, XR_TABLET_HAND) != null;
+        },
+        getFrame(context) {
+          return {
+            scene: context.scene,
+            camera: context.camera,
+            surfaceMetrics: XR_TABLET_SURFACE,
+            anchorPose: getGripPose(context.xr, XR_TABLET_HAND),
+          };
+        },
+      },
+    ],
+    getXrSamples(context) {
+      return buildXrTabletSamples(context);
+    },
+    onOutput(output) {
+      if (output?.type === 'action') {
+        if (output.actionId === 'tablet.page.home') {
+          setTabletPage('home');
+          return;
+        }
+        if (output.actionId === 'tablet.page.rendering') {
+          setTabletPage('rendering');
+          return;
+        }
+        if (output.actionId === 'tablet.page.waypoints') {
+          setTabletPage('waypoints');
+          return;
+        }
+        if (output.actionId === 'tablet.go-selected') {
+          goToPickedStar(lastPickedResult);
+          return;
+        }
+        if (output.actionId === 'tablet.clear-selection') {
+          pickControllerRef?.clearSelection();
+          handlePick(null);
+          return;
+        }
+        const waypointMatch = output.actionId.match(/^tablet\.waypoint\.(\d+)$/);
+        if (waypointMatch) {
+          const waypoint = WAYPOINTS[Number.parseInt(waypointMatch[1], 10)];
+          if (waypoint) {
+            goToStarTarget(waypoint.targetPc);
+          }
+          setTabletPage('home');
+        }
+        return;
+      }
 
-  if (pageId === 'rendering') {
-    tabletRef.setItems(buildRenderingMenuItems());
-    syncVisibilityControls();
-    return;
-  }
-  if (pageId === 'waypoints') {
-    tabletRef.setItems(buildWaypointMenuItems());
-    return;
-  }
+      if (output?.type !== 'change-request') {
+        return;
+      }
 
-  tabletRef.setItems(buildHomeMenuItems());
-  updateTabletStarInfo(lastPickedResult);
-  updateTabletGalaxyMap();
+      if (output.componentId === 'xr-free-roam-tuned-shader') {
+        desktopShaderEnabled = output.value === true;
+        options.onDesktopShaderChange?.(desktopShaderEnabled);
+        return;
+      }
+      if (output.componentId === 'xr-free-roam-world-scale') {
+        const nextValue = sliderValueToWorldScale(output.value);
+        if (nextValue != null) {
+          activeStarFieldScale = nextValue;
+          applyVisibilityState();
+        }
+        return;
+      }
+      if (output.componentId === 'xr-free-roam-mag-limit') {
+        const nextValue = normalizeMagLimit(output.value);
+        if (nextValue != null) {
+          activeMagLimit = nextValue;
+          applyVisibilityState({ refreshSelection: true });
+        }
+        return;
+      }
+      if (output.componentId === 'xr-free-roam-exposure') {
+        const nextExposure = sliderValueToExposure(output.value);
+        if (nextExposure != null) {
+          if (desktopShaderEnabled) {
+            activeDesktopExposure = nextExposure;
+          } else {
+            activeVrExposure = nextExposure;
+          }
+          applyVisibilityState();
+        }
+        return;
+      }
+      if (output.componentId === 'xr-free-roam-near-distance-floor') {
+        nearDistanceFloorEnabled = output.value === true;
+        applyVisibilityState();
+        return;
+      }
+      if (output.componentId === 'xr-free-roam-constellation-art') {
+        artEnabled = output.value === true;
+        syncConstellationArtVisibility();
+        renderSnapshot();
+      }
+    },
+  });
 }
 
 function handlePick(result) {
@@ -823,10 +1149,6 @@ function handlePick(result) {
     delete result.sidecarFields;
   }
   renderPickInfo(result);
-  if (currentTabletPage === 'home') {
-    tabletRef?.setItems(buildHomeMenuItems());
-  }
-  updateTabletStarInfo(result);
 
   if (!result) {
     return;
@@ -847,10 +1169,6 @@ function handlePick(result) {
       if (fields) {
         result.sidecarFields = fields;
         renderPickInfo(result);
-        if (currentTabletPage === 'home') {
-          tabletRef?.setItems(buildHomeMenuItems());
-        }
-        updateTabletStarInfo(result);
       }
     } catch {
       // Sidecar is optional in this demo.
@@ -896,9 +1214,7 @@ function renderSnapshot() {
   renderSummary(snapshot, datasetDescription);
   if (lastPickedResult) {
     renderPickInfo(lastPickedResult);
-    updateTabletStarInfo(lastPickedResult);
   }
-  updateTabletGalaxyMap();
 
   snapshotValue.textContent = JSON.stringify({
     xrSupported,
@@ -1057,92 +1373,23 @@ async function mountViewer() {
   });
   xrLocomotionControllerRef = xrLocomotionController;
 
-  const xrTabletController = createXrTabletController({
-    id: 'phase-5b-xr-tablet-controller',
-    items: buildHomeMenuItems(),
-    displayOptions: {
-      controls: {
-        'galaxy-map': createGalaxyMapControl(),
-      },
-    },
-    onChange(id, value) {
-      if (id === 'star-info') {
-        pickControllerRef?.clearSelection();
-        handlePick(null);
+  touchOsPartRef = createXrTabletTouchOsPart({
+    onDesktopShaderChange(enabled) {
+      if (enabled) {
+        starFieldLayer.setMaterialProfile(nonDisposable(tunedProfile));
+      } else {
+        starFieldLayer.setMaterialProfile(nonDisposable(vrProfile));
       }
-      if (id === 'go-selected') {
-        goToPickedStar(lastPickedResult);
-      }
-      if (id === 'page-rendering') {
-        setTabletPage('rendering');
-      }
-      if (id === 'page-waypoints') {
-        setTabletPage('waypoints');
-      }
-      if (id === 'back-home') {
-        setTabletPage('home');
-      }
-      if (id === 'tuned-shader') {
-        desktopShaderEnabled = value === true;
-        if (desktopShaderEnabled) {
-          starFieldLayer.setMaterialProfile(nonDisposable(tunedProfile));
-        } else {
-          starFieldLayer.setMaterialProfile(nonDisposable(vrProfile));
-        }
-        applyVisibilityState();
-      }
-      if (id === 'mag-limit') {
-        const nextValue = normalizeMagLimit(value);
-        if (nextValue != null) {
-          activeMagLimit = nextValue;
-          applyVisibilityState({ refreshSelection: true });
-        }
-      }
-      if (id === 'world-scale') {
-        const nextValue = sliderValueToWorldScale(value);
-        if (nextValue != null) {
-          activeStarFieldScale = nextValue;
-          applyVisibilityState();
-        }
-      }
-      if (id === 'exposure') {
-        const nextExposure = sliderValueToExposure(value);
-        if (nextExposure != null) {
-          if (desktopShaderEnabled) {
-            activeDesktopExposure = nextExposure;
-          } else {
-            activeVrExposure = nextExposure;
-          }
-          applyVisibilityState();
-        }
-      }
-      if (id === 'near-distance-floor') {
-        nearDistanceFloorEnabled = value === true;
-        applyVisibilityState();
-      }
-      if (id === 'constellation-art') {
-        artEnabled = value === true;
-        syncConstellationArtVisibility();
-        renderSnapshot();
-      }
-      const waypointMatch = id.match(/^wp-(\d+)$/);
-      if (waypointMatch) {
-        const waypoint = WAYPOINTS[Number.parseInt(waypointMatch[1], 10)];
-        if (waypoint) {
-          goToStarTarget(waypoint.targetPc);
-        }
-        setTabletPage('home');
-      }
+      applyVisibilityState();
     },
   });
-  tabletRef = xrTabletController;
   syncVisibilityControls();
 
   const xrPickController = createXrPickController({
     id: 'phase-5b-xr-pick-controller',
     getStarData: () => starFieldLayer.getStarData(),
     toleranceDeg: 1.5,
-    getLaserOverride: () => xrTabletController.getHit(),
+    getLaserOverride: () => touchOsPartRef?.getPanelHit('xr-tablet') ?? null,
     onPick(result, _event, stats) {
       if (result) {
         result._pickTimeMs = stats?.pickTimeMs ?? null;
@@ -1171,7 +1418,7 @@ async function mountViewer() {
         watchSize: false,
       }),
       constellationCompassController,
-      xrTabletController,
+      touchOsPartRef,
       xrPickController,
     ],
     layers: [starFieldLayer, constellationArtLayer],

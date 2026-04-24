@@ -98,6 +98,7 @@
     "typecheck:public": "tsc -p ./tsconfig.public.json --noEmit"
   },
   "dependencies": {
+    "@found-in-space/touch-os": "^0.2.0-dev.0",
     "three": "^0.170.0"
   },
   "devDependencies": {

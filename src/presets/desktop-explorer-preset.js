@@ -9,9 +9,6 @@ import {
 } from '../layers/star-field-materials.js';
 import { createStarFieldLayer } from '../layers/star-field-layer.js';
 import { ORION_CENTER_PC, SOLAR_ORIGIN_PC } from '../scene-targets.js';
-import { createHud } from '../ui/hud.js';
-import { createFullscreenPreset } from './fullscreen-preset.js';
-import { createSpeedReadout } from './navigation-presets.js';
 
 function normalizeEnabledOptions(value, fallback = {}) {
   if (value === true) return { ...fallback };
@@ -30,11 +27,8 @@ function normalizeEnabledOptions(value, fallback = {}) {
  * - `layers`
  * - `state`
  *
- * The preset can also add a few explicit extras:
- *
- * - `fullscreen`
- * - `navigationHud`
- * - `picking`
+ * The preset can also add optional picking support. UI composition now lives
+ * in Touch OS-specific application code rather than inside this preset.
  *
  * @param {any} [options]
  */
@@ -94,54 +88,10 @@ export function createDesktopExplorerPreset(options = {}) {
     })
     : null;
 
-  const fullscreen = normalizeEnabledOptions(options.fullscreen)
-    ? createFullscreenPreset({
-      id: options.fullscreen?.id ?? `${idPrefix}-fullscreen`,
-      label: options.fullscreen?.label,
-      title: options.fullscreen?.title,
-      position: options.fullscreen?.position,
-    })
-    : null;
-
-  const navigationHud = normalizeEnabledOptions(options.navigationHud);
-  const controls = [];
-
-  if (navigationHud) {
-    controls.push(
-      { preset: navigationHud.primaryPreset ?? 'arrows', position: navigationHud.primaryPosition ?? 'bottom-right' },
-      { preset: navigationHud.secondaryPreset ?? 'wasd-qe', position: navigationHud.secondaryPosition ?? 'bottom-left' },
-      createSpeedReadout(cameraController, {
-        label: navigationHud.speedLabel ?? 'Speed',
-        position: navigationHud.readoutPosition ?? 'top-left',
-      }),
-    );
-
-    if (Array.isArray(navigationHud.controls)) {
-      controls.push(...navigationHud.controls);
-    }
-  }
-
-  if (fullscreen?.controls) {
-    controls.push(...fullscreen.controls);
-  }
-
-  if (Array.isArray(options.controls)) {
-    controls.push(...options.controls);
-  }
-
-  const hudController = controls.length > 0
-    ? createHud({
-      cameraController,
-      controls,
-    })
-    : null;
-
   const controllers = [
     cameraController,
     selectionRefreshController,
     ...(pickController ? [pickController] : []),
-    ...(fullscreen?.controller ? [fullscreen.controller] : []),
-    ...(hudController ? [hudController] : []),
   ];
 
   const state = {
@@ -159,12 +109,8 @@ export function createDesktopExplorerPreset(options = {}) {
     selectionRefreshController,
     starFieldLayer,
     pickController,
-    hudController,
-    fullscreenController: fullscreen?.controller ?? null,
-    fullscreenControls: fullscreen?.controls ?? [],
     controllers,
     layers: [starFieldLayer],
-    controls,
     state,
   };
 }

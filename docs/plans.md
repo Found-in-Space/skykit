@@ -50,7 +50,7 @@ That changes the v1 plan substantially. The main work left is less about inventi
 | Dataset setup and warmup | partial-to-strong | the helper path is shipped, but many demos still use manual session bootstrap |
 | Desktop explorer | strong public path, partial internal adoption | preset and browser quickstart exist, but repo demos still mostly hand-compose the stack |
 | Guided journeys | strong core, partial adoption | viewer-focused journey helpers are shipped, but the canonical public demo story is still thin |
-| Linked 2D/3D lessons | partial-to-strong | reusable `render2d` and touch-display pieces exist, but orchestration stays lesson-heavy |
+| Linked 2D/3D lessons | partial-to-strong | reusable `render2d` and Touch OS pieces exist, but orchestration stays lesson-heavy |
 | Overlays, picking, annotations | partial | good public primitives exist, but higher-level detail and annotation patterns remain local |
 | Constellation/parallax experiences | partial-to-strong | public preset/controller pieces exist, but no single high-level explorer preset ties them together |
 | XR | advanced supported path | the runtime and tests exist, but XR should stay outside the beginner story |
@@ -147,7 +147,7 @@ Plan status:
 Shipped now:
 
 - `render2d` exports for `HRDiagramRenderer`, `createVolumeHRLoader()`, and `createHRDiagramControl()`
-- touch-display support and the scene-touch-display controller pieces
+- Touch OS support across the demos and shared panel integrations
 - working HR diagram demos and tests
 
 Current gap:

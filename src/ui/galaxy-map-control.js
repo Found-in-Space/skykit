@@ -1,3 +1,4 @@
+import { createNode } from '@found-in-space/touch-os';
 import { GALACTIC_CENTER_PC } from '../scene-targets.js';
 import { runtimeNodeGeometry } from '../services/octree/octree-file-service.js';
 
@@ -391,7 +392,138 @@ export function drawGalaxyMapGraphic(ctx, rect, value, options = {}) {
   ctx.fillText(`Z ±${Math.round(verticalHalfSpanPc).toLocaleString()} pc`, barX - 6, y + height - 8);
 }
 
-export function createGalaxyMapControl(options = {}) {
+const GalaxyMapComponent = {
+  kind: 'skykit-galaxy-map',
+
+  mount() {
+    return {
+      bitmapSignature: null,
+    };
+  },
+
+  measure(ctx) {
+    return {
+      width: ctx.constraints.maxWidth,
+      height: ctx.props.height ?? 190,
+    };
+  },
+
+  layout(ctx) {
+    ctx.setContentBounds(ctx.bounds);
+
+    const width = Math.max(1, Math.round(ctx.bounds.width));
+    const height = Math.max(1, Math.round(ctx.bounds.height));
+    const theme = ctx.services.theme.getTokens();
+    const signature = {
+      width,
+      height,
+      value: ctx.props.value ?? null,
+      title: ctx.props.title ?? 'GALACTIC MAP (XY + Z)',
+      backgroundColor: theme.backgroundColor,
+      borderColor: theme.borderColor,
+      mutedTextColor: theme.mutedTextColor,
+      accentColor: theme.accentColor,
+    };
+    const previous = ctx.state.bitmapSignature;
+    if (
+      previous &&
+      previous.width === signature.width &&
+      previous.height === signature.height &&
+      previous.value === signature.value &&
+      previous.title === signature.title &&
+      previous.backgroundColor === signature.backgroundColor &&
+      previous.borderColor === signature.borderColor &&
+      previous.mutedTextColor === signature.mutedTextColor &&
+      previous.accentColor === signature.accentColor
+    ) {
+      return;
+    }
+
+    const canvas = createRasterCanvas(width, height);
+    const context2d = canvas?.getContext?.('2d');
+    if (!context2d) {
+      return;
+    }
+
+    drawGalaxyMapGraphic(context2d, { x: 0, y: 0, w: width, h: height }, signature.value ?? {}, {
+      bg: signature.backgroundColor,
+      border: signature.borderColor,
+      axis: signature.mutedTextColor,
+      text: signature.mutedTextColor,
+      accent: signature.accentColor,
+      title: signature.title,
+    });
+
+    const bitmapId = getBitmapId(ctx.id);
+    const existing = ctx.services.bitmaps.getHandle(bitmapId);
+    if (existing) {
+      ctx.services.bitmaps.update(bitmapId, {
+        image: canvas,
+        width,
+        height,
+      });
+    } else {
+      ctx.services.bitmaps.allocate(bitmapId, {
+        image: canvas,
+        width,
+        height,
+      });
+    }
+
+    ctx.state.bitmapSignature = signature;
+  },
+
+  render(ctx) {
+    const handle = ctx.services.bitmaps.getHandle(getBitmapId(ctx.id));
+    if (!handle) {
+      return [];
+    }
+
+    return [
+      {
+        type: 'bitmap',
+        componentId: ctx.id,
+        role: 'galaxy-map',
+        rect: ctx.bounds,
+        handle,
+        fit: 'stretch',
+        sampling: 'nearest',
+      },
+    ];
+  },
+
+  dispose(ctx) {
+    ctx.services.bitmaps.release(getBitmapId(ctx.id));
+  },
+};
+
+export function createGalaxyMapControl(idOrOptions, props = {}) {
+  if (typeof idOrOptions !== 'string') {
+    return createLegacyGalaxyMapControl(idOrOptions ?? {});
+  }
+
+  return createNode(idOrOptions, GalaxyMapComponent, props);
+}
+
+function getBitmapId(componentId) {
+  return `${componentId}:bitmap`;
+}
+
+function createRasterCanvas(width, height) {
+  const scope = globalThis;
+  if (typeof scope.OffscreenCanvas === 'function') {
+    return new scope.OffscreenCanvas(width, height);
+  }
+  if (scope.document?.createElement) {
+    const canvas = scope.document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+  }
+  return null;
+}
+
+function createLegacyGalaxyMapControl(options = {}) {
   return {
     getHeight() {
       return options.height ?? 190;

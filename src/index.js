@@ -44,7 +44,6 @@ export {
   buildPolylineRoute,
   samplePolylineRoutePosition,
 } from './controllers/camera-routes.js';
-export { createSceneTouchDisplayController } from './controllers/scene-touch-display-controller.js';
 export {
   createXrLocomotionController,
   readXrAxes,
@@ -81,8 +80,6 @@ export { createDensityFieldMaterialProfile } from './layers/density-field-materi
 export { createHighlightStarFieldMaterialProfile } from './layers/highlight-star-field-materials.js';
 export { createDeviceTiltTracker } from './services/input/device-tilt-tracker.js';
 export { computeXrDepthRange } from './services/render/xr-depth-range.js';
-export { createHud } from './ui/hud.js';
-export { createTouchDisplay } from './ui/touch-display.js';
 export {
   buildHRDiagramValue,
   createHRDiagramControl,
@@ -91,14 +88,6 @@ export {
   magToY,
   tempToX,
 } from './ui/hr-diagram-control.js';
-export {
-  PRESET_ARROWS,
-  PRESET_QE,
-  PRESET_VERTICALS,
-  PRESET_WASD,
-  PRESET_WASD_QE,
-  resolvePreset,
-} from './ui/hud-presets.js';
 export {
   ALCYONE_PC,
   GALACTIC_CENTER_PC,
@@ -115,7 +104,6 @@ export { SCALE as SCENE_SCALE } from './services/octree/scene-scale.js';
 export { createRadioBubbleMeshes } from './layers/radio-bubble-meshes.js';
 export { createConstellationPreset } from './presets/constellation-preset.js';
 export { createDesktopExplorerPreset } from './presets/desktop-explorer-preset.js';
-export { createFullscreenPreset } from './presets/fullscreen-preset.js';
 export {
   createJourneyController,
   createJourneyGraph,
@@ -127,10 +115,6 @@ export {
 } from './presets/viewer-journey-controller.js';
 export { createParallaxPositionController } from './presets/parallax-position-controller.js';
 export {
-  createDistanceReadout,
-  createFlyToAction,
-  createLookAtAction,
-  createSpeedReadout,
   formatDistancePc,
   formatSpeedPcPerSec,
 } from './presets/navigation-presets.js';

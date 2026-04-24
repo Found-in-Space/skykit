@@ -117,18 +117,11 @@ test('drawHRDiagramGraphic renders low-count stars and axes into 2D canvas', () 
   assert.equal(calls.putImageData, 0, 'low-count branch should use direct fillRect rendering');
 });
 
-test('createHRDiagramControl exposes expected touch-display control contract', () => {
-  const { ctx } = createFakeContext();
-  const control = createHRDiagramControl({ height: 230 });
-  assert.equal(control.getHeight(), 230);
-
-  control.render(
-    ctx,
-    { x: 0, y: 0, w: 260, h: 220 },
-    { id: 'hr', type: 'hr-diagram', value: null },
-    {},
-    { theme: {} },
-  );
+test('createHRDiagramControl returns a native Touch OS display node', () => {
+  const control = createHRDiagramControl('hr-node', { height: 230, value: null });
+  assert.equal(control.id, 'hr-node');
+  assert.equal(control.component.kind, 'skykit-hr-diagram');
+  assert.equal(control.props.height, 230);
 });
 
 test('decodeTeff preserves solar sentinel encoding', () => {

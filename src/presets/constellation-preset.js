@@ -6,11 +6,6 @@ const DEFAULT_COMPASS_ID = 'constellation-compass';
 const DEFAULT_ART_OPACITY = 0.3;
 const DEFAULT_ART_FADE_DURATION_SECS = 0.4;
 const DEFAULT_COMPASS_HYSTERESIS_SECS = 0.2;
-const DEFAULT_HUD_POSITION = 'top-right';
-
-const HUD_CONSTELLATION_LABEL_PREFIX = '✦ ';
-const HUD_CONSTELLATION_LABEL_EMPTY = '✦ —';
-const HUD_CONSTELLATION_TOGGLE_TITLE = 'View-center constellation (toggle art)';
 
 /**
  * Feature preset: view-center constellation indicator with art toggle.
@@ -20,9 +15,8 @@ const HUD_CONSTELLATION_TOGGLE_TITLE = 'View-center constellation (toggle art)';
  * in space — constellations are projected onto the celestial sphere at
  * infinity and serve as fixed navigation anchors.
  *
- * Returns `{ artLayer, compassController, controls }`.
- * - `controls` contains a single toggle button whose dynamic label shows the
- *    current view-center constellation name. Clicking toggles art visibility.
+ * Returns astronomy-specific state and controllers. Touch OS consumers are
+ * expected to build their own UI directly from this state.
  *
  * @param {object} options
  * @param {object} options.manifest           Loaded constellation art manifest.
@@ -33,7 +27,6 @@ const HUD_CONSTELLATION_TOGGLE_TITLE = 'View-center constellation (toggle art)';
  * @param {number} [options.opacity]          Art layer opacity (default 0.22).
  * @param {number} [options.fadeDurationSecs] Fade speed (default 0.8).
  * @param {number} [options.hysteresisSecs]   Compass hysteresis (default 0.5).
- * @param {string} [options.position]         HUD position for the toggle button.
  */
 export function createConstellationPreset(options) {
   const {
@@ -75,30 +68,25 @@ export function createConstellationPreset(options) {
     },
   });
 
-  const position = options.position ?? DEFAULT_HUD_POSITION;
-
   return {
     artLayer,
     compassController,
-    controls: [
-      {
-        label: () =>
-          currentName
-            ? `${HUD_CONSTELLATION_LABEL_PREFIX}${currentName}`
-            : HUD_CONSTELLATION_LABEL_EMPTY,
-        title: HUD_CONSTELLATION_TOGGLE_TITLE,
-        toggle: true,
-        initialActive: true,
-        position,
-        onPress: (active) => {
-          artEnabled = active;
-          if (!active) {
-            artLayer.hideAll();
-          } else if (currentIau) {
-            artLayer.show(currentIau);
-          }
-        },
-      },
-    ],
+    getCurrentIau() {
+      return currentIau;
+    },
+    getCurrentName() {
+      return currentName;
+    },
+    isArtEnabled() {
+      return artEnabled;
+    },
+    setArtEnabled(active) {
+      artEnabled = active === true;
+      if (!artEnabled) {
+        artLayer.hideAll();
+      } else if (currentIau) {
+        artLayer.show(currentIau);
+      }
+    },
   };
 }

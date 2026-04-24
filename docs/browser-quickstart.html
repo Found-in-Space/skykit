@@ -55,10 +55,7 @@
       await dataset.ensureRootShard();
       await dataset.ensureBootstrap();
 
-      const explorer = createDesktopExplorerPreset({
-        fullscreen: true,
-        navigationHud: true,
-      });
+      const explorer = createDesktopExplorerPreset();
 
       const viewer = await createViewer(mount, {
         dataset,

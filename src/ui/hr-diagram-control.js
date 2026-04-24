@@ -1,3 +1,4 @@
+import { createNode } from '@found-in-space/touch-os';
 import { SCALE as SCENE_SCALE } from '../services/octree/scene-scale.js';
 
 const DEFAULT_COOL_K = 2500;
@@ -423,7 +424,156 @@ export function drawHRDiagramGraphic(ctx, rect, value, options = {}) {
   return visibleCount;
 }
 
-export function createHRDiagramControl(options = {}) {
+const HRDiagramComponent = {
+  kind: 'skykit-hr-diagram',
+
+  mount() {
+    return {
+      bitmapSignature: null,
+    };
+  },
+
+  measure(ctx) {
+    return {
+      width: ctx.constraints.maxWidth,
+      height: ctx.props.height ?? DEFAULT_HEIGHT,
+    };
+  },
+
+  layout(ctx) {
+    ctx.setContentBounds(ctx.bounds);
+
+    const width = Math.max(1, Math.round(ctx.bounds.width));
+    const height = Math.max(1, Math.round(ctx.bounds.height));
+    const theme = ctx.services.theme.getTokens();
+    const signature = {
+      width,
+      height,
+      value: ctx.props.value ?? null,
+      coolK: ctx.props.coolK ?? DEFAULT_COOL_K,
+      hotK: ctx.props.hotK ?? DEFAULT_HOT_K,
+      minMag: ctx.props.minMag ?? DEFAULT_MIN_MAG,
+      maxMag: ctx.props.maxMag ?? DEFAULT_MAX_MAG,
+      margin: ctx.props.margin ?? DEFAULT_MARGIN_PX,
+      backgroundColor: theme.backgroundColor,
+      borderColor: theme.borderColor,
+      mutedTextColor: theme.mutedTextColor,
+      accentColor: theme.accentColor,
+    };
+    const previous = ctx.state.bitmapSignature;
+    if (
+      previous &&
+      previous.width === signature.width &&
+      previous.height === signature.height &&
+      previous.value === signature.value &&
+      previous.coolK === signature.coolK &&
+      previous.hotK === signature.hotK &&
+      previous.minMag === signature.minMag &&
+      previous.maxMag === signature.maxMag &&
+      previous.margin === signature.margin &&
+      previous.backgroundColor === signature.backgroundColor &&
+      previous.borderColor === signature.borderColor &&
+      previous.mutedTextColor === signature.mutedTextColor &&
+      previous.accentColor === signature.accentColor
+    ) {
+      return;
+    }
+
+    const canvas = createRasterCanvas(width, height);
+    const context2d = canvas?.getContext?.('2d');
+    if (!context2d) {
+      return;
+    }
+
+    drawHRDiagramGraphic(
+      context2d,
+      { x: 0, y: 0, w: width, h: height },
+      signature.value,
+      {
+        coolK: signature.coolK,
+        hotK: signature.hotK,
+        minMag: signature.minMag,
+        maxMag: signature.maxMag,
+        margin: signature.margin,
+        theme: {
+          itemBg: signature.backgroundColor,
+          border: signature.borderColor,
+          textDim: signature.mutedTextColor,
+          accent: signature.accentColor,
+        },
+      },
+    );
+
+    const bitmapId = getBitmapId(ctx.id);
+    const existing = ctx.services.bitmaps.getHandle(bitmapId);
+    if (existing) {
+      ctx.services.bitmaps.update(bitmapId, {
+        image: canvas,
+        width,
+        height,
+      });
+    } else {
+      ctx.services.bitmaps.allocate(bitmapId, {
+        image: canvas,
+        width,
+        height,
+      });
+    }
+
+    ctx.state.bitmapSignature = signature;
+  },
+
+  render(ctx) {
+    const handle = ctx.services.bitmaps.getHandle(getBitmapId(ctx.id));
+    if (!handle) {
+      return [];
+    }
+
+    return [
+      {
+        type: 'bitmap',
+        componentId: ctx.id,
+        role: 'hr-diagram',
+        rect: ctx.bounds,
+        handle,
+        fit: 'stretch',
+        sampling: 'nearest',
+      },
+    ];
+  },
+
+  dispose(ctx) {
+    ctx.services.bitmaps.release(getBitmapId(ctx.id));
+  },
+};
+
+export function createHRDiagramControl(idOrOptions, props = {}) {
+  if (typeof idOrOptions !== 'string') {
+    return createLegacyHRDiagramControl(idOrOptions ?? {});
+  }
+
+  return createNode(idOrOptions, HRDiagramComponent, props);
+}
+
+function getBitmapId(componentId) {
+  return `${componentId}:bitmap`;
+}
+
+function createRasterCanvas(width, height) {
+  const scope = globalThis;
+  if (typeof scope.OffscreenCanvas === 'function') {
+    return new scope.OffscreenCanvas(width, height);
+  }
+  if (scope.document?.createElement) {
+    const canvas = scope.document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+  }
+  return null;
+}
+
+function createLegacyHRDiagramControl(options = {}) {
   const config = {
     height: options.height ?? DEFAULT_HEIGHT,
     coolK: options.coolK ?? DEFAULT_COOL_K,

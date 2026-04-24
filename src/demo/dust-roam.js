@@ -1,4 +1,11 @@
 import * as THREE from 'three';
+import {
+  createButton,
+  createRuntime,
+  createTextLabel,
+  createValueReadout,
+} from '@found-in-space/touch-os';
+import { createHudPanelDriver } from '@found-in-space/touch-os/hosts/three';
 import { loadDustMapNgVolume } from '../dust/load-dust-map-ng.js';
 import { DEFAULT_DUST_MAP_NG_URL } from '../found-in-space-dataset.js';
 import { SCALE } from '../services/octree/scene-scale.js';
@@ -8,7 +15,6 @@ import {
   DEFAULT_MAG_LIMIT,
   DEFAULT_STAR_FIELD_STATE,
   createFoundInSpaceDatasetOptions,
-  createHud,
   createObserverShellField,
   loadConstellationArtManifest,
   ORION_CENTER_PC,
@@ -21,8 +27,13 @@ import {
   SOLAR_ORIGIN_PC,
 } from '../index.js';
 import { createConstellationPreset } from '../presets/constellation-preset.js';
-import { createSpeedReadout, createDistanceReadout, createFlyToAction, createLookAtAction } from '../presets/navigation-presets.js';
-import { createFullscreenPreset } from '../presets/fullscreen-preset.js';
+import { formatDistancePc, formatSpeedPcPerSec } from '../presets/navigation-presets.js';
+import { createTouchOsRuntimePart } from './touch-os-runtime-part.js';
+import {
+  createNavigationTouchOsRoot,
+  createTouchOsFullscreenButton,
+  handleNavigationTouchOsOutput,
+} from './touch-os-navigation.js';
 import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -677,6 +688,31 @@ let viewer = null;
 let snapshotTimer = null;
 let volumeMesh = null;
 let galacticPlaneGuide = null;
+
+const HUD_SURFACE = Object.freeze({
+  width: 1280,
+  height: 720,
+  pixelDensity: 1,
+  safeArea: { top: 18, right: 18, bottom: 18, left: 18 },
+});
+
+const HUD_THEME = Object.freeze({
+  backgroundColor: '#08111d',
+  surfaceColor: '#132238',
+  borderColor: '#27405e',
+  accentColor: '#38bdf8',
+  focusColor: '#22c55e',
+  controlHeight: 42,
+  spacing: 8,
+  padding: 12,
+  radius: 10,
+  typography: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: 600,
+    fontFamily: 'Avenir Next, ui-sans-serif',
+  },
+});
 let activeVoxelInfo = null;
 let starFieldLayer = null;
 let pickControllerRef = null;
@@ -1130,13 +1166,68 @@ async function mountViewer() {
     moveSpeed: 18,
   });
 
-  const fullscreen = createFullscreenPreset();
   const constellation = createConstellationPreset({
     manifest,
     manifestUrl: DEFAULT_ART_MANIFEST_URL,
     sceneToIcrsTransform: SCENE_TO_ICRS,
     transformDirection: ICRS_TO_SCENE,
-    position: 'top-right',
+  });
+  const hudRuntime = createRuntime({
+    root: createDustRoamHudRoot(cameraController, constellation),
+    surface: HUD_SURFACE,
+    theme: HUD_THEME,
+  });
+  const hudDriver = createHudPanelDriver({
+    runtime: hudRuntime,
+    surface: HUD_SURFACE,
+    distance: 0.68,
+    sizing: 'viewport',
+  });
+  const touchOsPart = createTouchOsRuntimePart({
+    id: 'dust-roam-touch-os',
+    panels: [
+      {
+        key: 'desktop-hud',
+        runtime: hudRuntime,
+        driver: hudDriver,
+        sync() {
+          hudRuntime.setRoot(createDustRoamHudRoot(cameraController, constellation));
+        },
+        getFrame(context) {
+          return {
+            scene: context.scene,
+            camera: context.camera,
+            surfaceMetrics: {
+              width: context.size.width,
+              height: context.size.height,
+              pixelDensity: globalThis.window?.devicePixelRatio ?? 1,
+            },
+          };
+        },
+      },
+    ],
+    onOutput(output, _panel, context) {
+      if (handleNavigationTouchOsOutput(output, {
+        cameraController,
+        fullscreenTarget: context.host,
+      })) {
+        return;
+      }
+
+      if (output?.type !== 'action') {
+        return;
+      }
+
+      if (output.actionId === 'camera.look-sun') {
+        cameraController.lookAt(SOLAR_ORIGIN_PC);
+      }
+      if (output.actionId === 'camera.fly-sun') {
+        cameraController.flyTo(SOLAR_ORIGIN_PC, { speed: 120 });
+      }
+      if (output.actionId === 'constellation.toggle-art') {
+        constellation.setArtEnabled(!constellation.isArtEnabled());
+      }
+    },
   });
 
   starFieldLayer = createStarFieldLayer({
@@ -1192,26 +1283,7 @@ async function mountViewer() {
       }),
       pickControllerRef,
       constellation.compassController,
-      fullscreen.controller,
-      createHud({
-        cameraController,
-        controls: [
-          { preset: 'arrows', position: 'bottom-right' },
-          { preset: 'wasd-qe', position: 'bottom-left' },
-          ...constellation.controls,
-          createLookAtAction(cameraController, SOLAR_ORIGIN_PC, {
-            label: '⟳ Sun', title: 'Look at Sun', position: 'top-right',
-          }),
-          createFlyToAction(cameraController, SOLAR_ORIGIN_PC, {
-            label: '→ Sun', title: 'Fly to Sun', speed: 120, position: 'top-right',
-          }),
-          ...fullscreen.controls,
-          createSpeedReadout(cameraController, { position: 'top-left' }),
-          createDistanceReadout(cameraController, SOLAR_ORIGIN_PC, {
-            label: 'Distance to Sun', position: 'top-left',
-          }),
-        ],
-      }),
+      touchOsPart,
     ],
     layers: [
       constellation.artLayer,
@@ -1238,6 +1310,57 @@ async function mountViewer() {
 
   renderSnapshot();
   return viewer;
+}
+
+function createDustRoamHudRoot(cameraController, constellation) {
+  const stats = cameraController.getStats?.() ?? {};
+  const motion = stats.motion ?? null;
+  const observerPc = motion?.observerPc ?? stats.observerPc ?? { x: 0, y: 0, z: 0 };
+  const distancePc = Math.hypot(
+    observerPc.x - SOLAR_ORIGIN_PC.x,
+    observerPc.y - SOLAR_ORIGIN_PC.y,
+    observerPc.z - SOLAR_ORIGIN_PC.z,
+  );
+  const constellationName = constellation.getCurrentName?.() ?? null;
+
+  return createNavigationTouchOsRoot({
+    id: 'dust-roam-hud',
+    title: 'Dust Roam',
+    overviewChildren: [
+      createTextLabel('dust-roam-help-1', {
+        text: 'Navigate the dusty local sky with Touch OS movement controls.',
+        tone: 'muted',
+      }),
+      createTextLabel('dust-roam-help-2', {
+        text: constellationName ? `Constellation: ${constellationName}` : 'Constellation: —',
+      }),
+    ],
+    statusChildren: [
+      createValueReadout('dust-roam-speed', {
+        label: 'Speed',
+        value: formatSpeedPcPerSec(motion?.speedPcPerSec ?? 0),
+      }),
+      createValueReadout('dust-roam-distance', {
+        label: 'Distance to Sun',
+        value: formatDistancePc(distancePc),
+      }),
+    ],
+    actionChildren: [
+      createButton('dust-roam-look-sun', {
+        label: 'Look at Sun',
+        actionId: 'camera.look-sun',
+      }),
+      createButton('dust-roam-fly-sun', {
+        label: 'Fly to Sun',
+        actionId: 'camera.fly-sun',
+      }),
+      createButton('dust-roam-toggle-art', {
+        label: constellation.isArtEnabled?.() ? 'Hide Constellation Art' : 'Show Constellation Art',
+        actionId: 'constellation.toggle-art',
+      }),
+      createTouchOsFullscreenButton('dust-roam-fullscreen'),
+    ],
+  });
 }
 
 // ── Controls ────────────────────────────────────────────────────────────────

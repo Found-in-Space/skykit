@@ -1,10 +1,16 @@
 import * as THREE from 'three';
 import {
+  createButton,
+  createRuntime,
+  createTextLabel,
+  createValueReadout,
+} from '@found-in-space/touch-os';
+import { createHudPanelDriver } from '@found-in-space/touch-os/hosts/three';
+import {
   createCameraRigController,
   createDefaultStarFieldMaterialProfile,
   DEFAULT_STAR_FIELD_STATE,
   createFoundInSpaceDatasetOptions,
-  createHud,
   createObserverShellField,
   ORION_CENTER_PC,
   createSceneOrientationTransforms,
@@ -16,13 +22,16 @@ import {
   SOLAR_ORIGIN_PC,
 } from '../index.js';
 import {
-  createDistanceReadout,
-  createFlyToAction,
-  createLookAtAction,
-  createSpeedReadout,
+  formatDistancePc,
+  formatSpeedPcPerSec,
 } from '../presets/navigation-presets.js';
-import { createFullscreenPreset } from '../presets/fullscreen-preset.js';
 import { createRadioBubbleMeshes } from '../layers/radio-bubble-meshes.js';
+import { createTouchOsRuntimePart } from './touch-os-runtime-part.js';
+import {
+  createNavigationTouchOsRoot,
+  createTouchOsFullscreenButton,
+  handleNavigationTouchOsOutput,
+} from './touch-os-navigation.js';
 import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 const {
@@ -56,6 +65,31 @@ let activeMagLimit = Number.isFinite(Number(magLimitInput?.value))
   ? Number(magLimitInput.value)
   : 6.5;
 
+const HUD_SURFACE = Object.freeze({
+  width: 1280,
+  height: 720,
+  pixelDensity: 1,
+  safeArea: { top: 18, right: 18, bottom: 18, left: 18 },
+});
+
+const HUD_THEME = Object.freeze({
+  backgroundColor: '#08111d',
+  surfaceColor: '#132238',
+  borderColor: '#27405e',
+  accentColor: '#38bdf8',
+  focusColor: '#22c55e',
+  controlHeight: 42,
+  spacing: 8,
+  padding: 12,
+  radius: 10,
+  typography: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: 600,
+    fontFamily: 'Avenir Next, ui-sans-serif',
+  },
+});
+
 async function warmDatasetSession() {
   try {
     await datasetSession.ensureRenderRootShard();
@@ -79,8 +113,60 @@ async function mountViewer() {
     lookAtPc: ORION_CENTER_PC,
     moveSpeed: 18,
   });
+  const hudRuntime = createRuntime({
+    root: createRadioBubbleHudRoot(cameraController),
+    surface: HUD_SURFACE,
+    theme: HUD_THEME,
+  });
+  const hudDriver = createHudPanelDriver({
+    runtime: hudRuntime,
+    surface: HUD_SURFACE,
+    distance: 0.68,
+    sizing: 'viewport',
+  });
+  const touchOsPart = createTouchOsRuntimePart({
+    id: 'radio-bubble-touch-os',
+    panels: [
+      {
+        key: 'desktop-hud',
+        runtime: hudRuntime,
+        driver: hudDriver,
+        sync() {
+          hudRuntime.setRoot(createRadioBubbleHudRoot(cameraController));
+        },
+        getFrame(context) {
+          return {
+            scene: context.scene,
+            camera: context.camera,
+            surfaceMetrics: {
+              width: context.size.width,
+              height: context.size.height,
+              pixelDensity: globalThis.window?.devicePixelRatio ?? 1,
+            },
+          };
+        },
+      },
+    ],
+    onOutput(output, _panel, context) {
+      if (handleNavigationTouchOsOutput(output, {
+        cameraController,
+        fullscreenTarget: context.host,
+      })) {
+        return;
+      }
 
-  const fullscreen = createFullscreenPreset();
+      if (output?.type !== 'action') {
+        return;
+      }
+
+      if (output.actionId === 'camera.look-sun') {
+        cameraController.lookAt(SOLAR_ORIGIN_PC);
+      }
+      if (output.actionId === 'camera.fly-sun') {
+        cameraController.flyTo(SOLAR_ORIGIN_PC, { speed: 120 });
+      }
+    },
+  });
 
   viewer = await createViewer(mount, {
     datasetSession,
@@ -97,31 +183,7 @@ async function mountViewer() {
         minIntervalMs: 250,
         watchSize: false,
       }),
-      fullscreen.controller,
-      createHud({
-        cameraController,
-        controls: [
-          { preset: 'arrows', position: 'bottom-right' },
-          { preset: 'wasd-qe', position: 'bottom-left' },
-          createLookAtAction(cameraController, SOLAR_ORIGIN_PC, {
-            label: '⟳ Sun',
-            title: 'Look at Sun',
-            position: 'top-right',
-          }),
-          createFlyToAction(cameraController, SOLAR_ORIGIN_PC, {
-            label: '→ Sun',
-            title: 'Fly to Sun',
-            speed: 120,
-            position: 'top-right',
-          }),
-          ...fullscreen.controls,
-          createSpeedReadout(cameraController, { position: 'top-left' }),
-          createDistanceReadout(cameraController, SOLAR_ORIGIN_PC, {
-            label: 'Distance to Sun',
-            position: 'top-left',
-          }),
-        ],
-      }),
+      touchOsPart,
     ],
     layers: [
       createStarFieldLayer({
@@ -149,6 +211,53 @@ async function mountViewer() {
   }
 
   return viewer;
+}
+
+function createRadioBubbleHudRoot(cameraController) {
+  const stats = cameraController.getStats?.() ?? {};
+  const motion = stats.motion ?? null;
+  const observerPc = motion?.observerPc ?? stats.observerPc ?? { x: 0, y: 0, z: 0 };
+  const distancePc = Math.hypot(
+    observerPc.x - SOLAR_ORIGIN_PC.x,
+    observerPc.y - SOLAR_ORIGIN_PC.y,
+    observerPc.z - SOLAR_ORIGIN_PC.z,
+  );
+
+  return createNavigationTouchOsRoot({
+    id: 'radio-bubble-hud',
+    title: 'Radio Bubble',
+    overviewChildren: [
+      createTextLabel('radio-bubble-help-1', {
+        text: 'Use the HUD or keyboard to drift through the shell.',
+        tone: 'muted',
+      }),
+      createTextLabel('radio-bubble-help-2', {
+        text: 'The bubble stays astronomy-specific; the HUD is Touch OS.',
+        tone: 'muted',
+      }),
+    ],
+    statusChildren: [
+      createValueReadout('radio-bubble-speed', {
+        label: 'Speed',
+        value: formatSpeedPcPerSec(motion?.speedPcPerSec ?? 0),
+      }),
+      createValueReadout('radio-bubble-distance', {
+        label: 'Distance to Sun',
+        value: formatDistancePc(distancePc),
+      }),
+    ],
+    actionChildren: [
+      createButton('radio-bubble-look-sun', {
+        label: 'Look at Sun',
+        actionId: 'camera.look-sun',
+      }),
+      createButton('radio-bubble-fly-sun', {
+        label: 'Fly to Sun',
+        actionId: 'camera.fly-sun',
+      }),
+      createTouchOsFullscreenButton('radio-bubble-fullscreen'),
+    ],
+  });
 }
 
 magLimitInput?.addEventListener('change', () => {

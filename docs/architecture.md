@@ -266,7 +266,7 @@ Must stay:
 Purpose:
 
 - 2D visualizations and panel-friendly renderers
-- touch-display-compatible controls
+- Touch OS-ready controls
 - diagnostic graphics that do not require a 3D viewer
 
 Current examples:
@@ -544,13 +544,14 @@ Website topics are authored content and should keep their prose structure. The i
 
 A game or highly authored experience is allowed to compose services directly and then layer custom logic on top. That is a supported model, not an escape hatch.
 
-## Breakout: Touch Display And HR Diagram
+<a id="breakout-touch-display-and-hr-diagram"></a>
+## Breakout: Touch OS And HR Diagram
 
-The touch display is a single 2D canvas UI surface. Custom controls should fit into that model rather than trying to smuggle in extra WebGL contexts or app-specific assumptions.
+Touch OS panels are single 2D canvas UI surfaces. Custom controls should fit into that model rather than trying to smuggle in extra WebGL contexts or app-specific assumptions.
 
-### Touch display rules
+### Touch OS rules
 
-- controls render into a shared 2D canvas
+- Touch OS controls render into a shared 2D canvas
 - item values should be plain data payloads
 - controls may optionally expose hit targets and press behavior
 - custom controls should preprocess heavy data outside the hot render path when possible
@@ -560,11 +561,11 @@ The touch display is a single 2D canvas UI surface. Custom controls should fit i
 The HR diagram exists in two useful forms:
 
 - a dedicated renderer
-- a touch-display control
+- a Touch OS control
 
 Important constraints:
 
-- touch-display integration should not require a second WebGL context
+- Touch OS integration should not require a second WebGL context
 - the control should consume star geometry data in a plain value object
 - filtering modes should remain explicit rather than inferred
 
@@ -578,7 +579,7 @@ src/
   loading/     dataset-first public loading surface
   query/       headless query helpers and decoding
   coords/      targets and coordinate transforms
-  render2d/    2D renderers and touch-display-friendly controls
+  render2d/    2D renderers and Touch OS-friendly controls
   render3d/    viewer runtime, layers, and 3D helpers
   movement/    camera and route math
   presets/     journeys and preset helpers
@@ -647,6 +648,6 @@ Update `docs/architecture.md` whenever a change affects:
 - the extension model
 - desktop/XR separation
 - the journey model
-- the touch-display or render2d/render3d contract
+- the Touch OS or render2d/render3d contract
 
 If a change is important enough to guide future work, it belongs here.

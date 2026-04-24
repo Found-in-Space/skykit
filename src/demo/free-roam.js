@@ -1,4 +1,11 @@
 import * as THREE from 'three';
+import {
+  createButton,
+  createRuntime,
+  createTextLabel,
+  createValueReadout,
+} from '@found-in-space/touch-os';
+import { createHudPanelDriver } from '@found-in-space/touch-os/hosts/three';
 import { loadDustMapNgVolume } from '../dust/load-dust-map-ng.js';
 import { DEFAULT_DUST_MAP_NG_URL } from '../found-in-space-dataset.js';
 import {
@@ -9,7 +16,6 @@ import {
   createConstellationArtLayer,
   DEFAULT_STAR_FIELD_STATE,
   createFoundInSpaceDatasetOptions,
-  createHud,
   createObserverShellField,
   createPickController,
   loadConstellationArtManifest,
@@ -27,8 +33,13 @@ import {
   SOLAR_ORIGIN_PC,
   toStarDataId,
 } from '../index.js';
-import { createSpeedReadout, createDistanceReadout, createFlyToAction, createLookAtAction } from '../presets/navigation-presets.js';
-import { createFullscreenPreset } from '../presets/fullscreen-preset.js';
+import { formatSpeedPcPerSec } from '../presets/navigation-presets.js';
+import { createTouchOsRuntimePart } from './touch-os-runtime-part.js';
+import {
+  createNavigationTouchOsRoot,
+  createTouchOsFullscreenButton,
+  handleNavigationTouchOsOutput,
+} from './touch-os-navigation.js';
 import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 const DEFAULT_ART_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stellarium-skycultures-western@0.1.0/dist/manifest.json';
@@ -1062,6 +1073,31 @@ let pickGeneration = 0;
 let selectionResolveGeneration = 0;
 let snapshotTimer = null;
 let activeMagLimit = Number.isFinite(Number(magLimitInput?.value)) ? Number(magLimitInput.value) : 7.5;
+
+const HUD_SURFACE = Object.freeze({
+  width: 1280,
+  height: 720,
+  pixelDensity: 1,
+  safeArea: { top: 18, right: 18, bottom: 18, left: 18 },
+});
+
+const HUD_THEME = Object.freeze({
+  backgroundColor: '#08111d',
+  surfaceColor: '#132238',
+  borderColor: '#27405e',
+  accentColor: '#38bdf8',
+  focusColor: '#22c55e',
+  controlHeight: 42,
+  spacing: 8,
+  padding: 12,
+  radius: 10,
+  typography: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: 600,
+    fontFamily: 'Avenir Next, ui-sans-serif',
+  },
+});
 let activeFovDeg = Number.isFinite(Number(fovInput?.value)) ? Number(fovInput.value) : 60;
 let activeHysteresisSecs = Number.isFinite(Number(hysteresisInput?.value)) ? Number(hysteresisInput.value) : 0.2;
 let activeArtFadeSecs = Number.isFinite(Number(artFadeInput?.value)) ? Number(artFadeInput.value) : 0.4;
@@ -1765,8 +1801,6 @@ async function mountViewer() {
     moveSpeed: 18,
   });
   cameraControllerRef = cameraController;
-
-  const fullscreen = createFullscreenPreset();
   const manifest = await loadConstellationArtManifest({ manifestUrl: DEFAULT_ART_MANIFEST_URL });
   indexManifest(manifest);
 
@@ -1812,24 +1846,69 @@ async function mountViewer() {
     materialFactory: () => createDefaultStarFieldMaterialProfile(),
   });
 
-  const constellationControls = [
-    {
-      label: () => (currentConstellationName ? `✦ ${currentConstellationName}` : '✦ —'),
-      title: 'View-center constellation (toggle art)',
-      toggle: true,
-      initialActive: true,
-      position: 'top-right',
-      onPress(active) {
-        artEnabled = active;
-        if (!active) {
+  const hudRuntime = createRuntime({
+    root: createFreeRoamHudRoot(cameraController),
+    surface: HUD_SURFACE,
+    theme: HUD_THEME,
+  });
+  const hudDriver = createHudPanelDriver({
+    runtime: hudRuntime,
+    surface: HUD_SURFACE,
+    distance: 0.68,
+    sizing: 'viewport',
+  });
+  const touchOsPart = createTouchOsRuntimePart({
+    id: 'free-roam-touch-os',
+    panels: [
+      {
+        key: 'desktop-hud',
+        runtime: hudRuntime,
+        driver: hudDriver,
+        sync() {
+          hudRuntime.setRoot(createFreeRoamHudRoot(cameraController));
+        },
+        getFrame(context) {
+          return {
+            scene: context.scene,
+            camera: context.camera,
+            surfaceMetrics: {
+              width: context.size.width,
+              height: context.size.height,
+              pixelDensity: globalThis.window?.devicePixelRatio ?? 1,
+            },
+          };
+        },
+      },
+    ],
+    onOutput(output, _panel, context) {
+      if (handleNavigationTouchOsOutput(output, {
+        cameraController,
+        fullscreenTarget: context.host,
+      })) {
+        return;
+      }
+
+      if (output?.type !== 'action') {
+        return;
+      }
+
+      if (output.actionId === 'camera.look-sun') {
+        cameraController.lookAt(SOLAR_ORIGIN_PC);
+      }
+      if (output.actionId === 'camera.fly-sun') {
+        cameraController.flyTo(SOLAR_ORIGIN_PC, { speed: 120 });
+      }
+      if (output.actionId === 'constellation.toggle-art') {
+        artEnabled = !artEnabled;
+        if (!artEnabled) {
           constellationArtLayer.hideAll();
         } else if (currentConstellationIau) {
           constellationArtLayer.show(currentConstellationIau);
         }
         requestRender();
-      },
+      }
     },
-  ];
+  });
 
   pickControllerRef = createPickController({
     id: 'phase-5-free-roam-pick-controller',
@@ -1865,32 +1944,7 @@ async function mountViewer() {
       }),
       pickControllerRef,
       constellationCompassController,
-      fullscreen.controller,
-      createHud({
-        cameraController,
-        controls: [
-          { preset: 'arrows', position: 'bottom-right' },
-          { preset: 'wasd-qe', position: 'bottom-left' },
-          ...constellationControls,
-          createLookAtAction(cameraController, SOLAR_ORIGIN_PC, {
-            label: '⟳ Sun',
-            title: 'Look at Sun',
-            position: 'top-right',
-          }),
-          createFlyToAction(cameraController, SOLAR_ORIGIN_PC, {
-            label: '→ Sun',
-            title: 'Fly to Sun',
-            speed: 120,
-            position: 'top-right',
-          }),
-          ...fullscreen.controls,
-          createSpeedReadout(cameraController, { position: 'top-left' }),
-          createDistanceReadout(cameraController, SOLAR_ORIGIN_PC, {
-            label: 'Distance to Sun',
-            position: 'top-left',
-          }),
-        ],
-      }),
+      touchOsPart,
     ],
     layers: [
       constellationArtLayer,
@@ -1918,6 +1972,61 @@ async function mountViewer() {
 
   renderSnapshot();
   return viewer;
+}
+
+function createFreeRoamHudRoot(cameraController) {
+  const stats = cameraController.getStats?.() ?? {};
+  const motion = stats.motion ?? null;
+  const observerPc = motion?.observerPc ?? stats.observerPc ?? { x: 0, y: 0, z: 0 };
+  const distancePc = Math.hypot(
+    observerPc.x - SOLAR_ORIGIN_PC.x,
+    observerPc.y - SOLAR_ORIGIN_PC.y,
+    observerPc.z - SOLAR_ORIGIN_PC.z,
+  );
+  const constellationLabel = currentConstellationName ? `Constellation: ${currentConstellationName}` : 'Constellation: —';
+
+  return createNavigationTouchOsRoot({
+    id: 'free-roam-hud',
+    title: 'Free Roam',
+    overviewChildren: [
+      createTextLabel('free-roam-help-1', {
+        text: 'Fly through the local star field with Touch OS movement controls.',
+        tone: 'muted',
+      }),
+      createTextLabel('free-roam-help-2', {
+        text: 'Selection and constellation state stay in SkyKit.',
+        tone: 'muted',
+      }),
+      createTextLabel('free-roam-constellation', {
+        text: constellationLabel,
+      }),
+    ],
+    statusChildren: [
+      createValueReadout('free-roam-speed', {
+        label: 'Speed',
+        value: formatSpeedPcPerSec(motion?.speedPcPerSec ?? 0),
+      }),
+      createValueReadout('free-roam-distance', {
+        label: 'Distance to Sun',
+        value: formatDistancePc(distancePc),
+      }),
+    ],
+    actionChildren: [
+      createButton('free-roam-look-sun', {
+        label: 'Look at Sun',
+        actionId: 'camera.look-sun',
+      }),
+      createButton('free-roam-fly-sun', {
+        label: 'Fly to Sun',
+        actionId: 'camera.fly-sun',
+      }),
+      createButton('free-roam-toggle-art', {
+        label: artEnabled ? 'Hide Constellation Art' : 'Show Constellation Art',
+        actionId: 'constellation.toggle-art',
+      }),
+      createTouchOsFullscreenButton('free-roam-fullscreen'),
+    ],
+  });
 }
 
 setReadout('mag-limit', activeMagLimit.toFixed(1));

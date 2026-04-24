@@ -10,7 +10,6 @@ export {
   createMinimalSceneLayer,
   createPickController,
   createRadioBubbleMeshes,
-  createSceneTouchDisplayController,
   createSelectionRefreshController,
   createStarFieldLayer,
   createViewer,

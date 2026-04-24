@@ -435,50 +435,7 @@ export interface SelectionRefreshController extends ViewerRuntimePart {
   captureSnapshot(snapshot: ViewerSnapshot): SelectionRefreshSnapshot;
 }
 
-export interface HudPresetKey {
-  code: string;
-  symbol: string;
-  gridArea: string;
-}
-
-export interface HudPreset {
-  id: string;
-  label: string;
-  gridTemplate: string;
-  gridColumns: string;
-  keys: HudPresetKey[];
-}
-
-export interface TouchDisplayItem extends Record<string, unknown> {
-  id: string;
-  label?: string;
-}
-
-export interface TouchDisplayHit {
-  itemId: string | null;
-  point: {
-    x: number;
-    y: number;
-  };
-}
-
-export interface TouchDisplay {
-  canvas: HTMLCanvasElement;
-  draw(): void;
-  getItem(id: string): TouchDisplayItem | null;
-  getRectForItem(id: string): DOMRect | null;
-  getItems(): TouchDisplayItem[];
-  handlePointer(hit: TouchDisplayHit | null, pressed?: boolean): unknown;
-  markDirty(): void;
-  emit(target?: EventTarget | null): void;
-  setDisplay(id: string, lines: readonly string[]): void;
-  setItems(nextItems: readonly TouchDisplayItem[]): void;
-  setItemValue(id: string, value: unknown): void;
-}
-
 export interface HRDiagramValue extends Record<string, unknown> {}
-
-export interface HRDiagramControl extends Record<string, unknown> {}
 
 export interface VolumeHrLoadProgress extends Record<string, unknown> {
   phase: string;
@@ -610,10 +567,7 @@ export interface DesktopExplorerPresetOptions<TState extends object = DefaultVie
   cameraController?: Record<string, unknown>;
   selectionRefresh?: Record<string, unknown>;
   starFieldLayer?: Record<string, unknown>;
-  fullscreen?: boolean | Record<string, unknown>;
-  navigationHud?: boolean | Record<string, unknown>;
   picking?: boolean | Record<string, unknown>;
-  controls?: readonly Record<string, unknown>[];
   state?: TState;
 }
 
@@ -623,12 +577,8 @@ export interface DesktopExplorerPreset<TState extends object = DefaultViewerStat
   selectionRefreshController: SelectionRefreshController;
   starFieldLayer: ViewerRuntimePart;
   pickController: PickController | null;
-  hudController: ViewerRuntimePart | null;
-  fullscreenController: ViewerRuntimePart | null;
-  fullscreenControls: readonly Record<string, unknown>[];
   controllers: readonly ViewerRuntimePart[];
   layers: readonly ViewerRuntimePart[];
-  controls: readonly Record<string, unknown>[];
   state: TState;
 }
 

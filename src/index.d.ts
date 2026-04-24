@@ -29,9 +29,7 @@ import type {
   FoundInSpaceDatasetOptions,
   HookMap,
   HookValueOf,
-  HRDiagramControl,
   HRDiagramValue,
-  HudPreset,
   JourneyCommand,
   JourneyController,
   JourneyControllerOptions,
@@ -66,9 +64,6 @@ import type {
   StarDataId,
   StarFieldMaterialProfile,
   StarFieldState,
-  TouchDisplay,
-  TouchDisplayHit,
-  TouchDisplayItem,
   ViewerJourneyControllerOptions,
   ViewerJourneySceneContext,
   ViewerJourneySceneSpec,
@@ -272,7 +267,6 @@ export declare function buildOrbitalInsertRoute(startPc: Point3Like, options?: R
 export declare function buildPolylineRoute(points?: readonly Point3Like[]): PolylineRoute;
 export declare function samplePolylineRoutePosition(route: PolylineRoute, distancePc: number): Point3;
 
-export declare function createSceneTouchDisplayController(options?: Record<string, unknown>): ViewerRuntimePart;
 export declare function createXrLocomotionController(options?: Record<string, unknown>): ViewerRuntimePart;
 export declare function readXrAxes(inputSources: readonly unknown[], options?: Record<string, unknown>): Record<string, unknown>;
 export declare function createConstellationCompassController(options?: Record<string, unknown>): ViewerRuntimePart;
@@ -306,10 +300,8 @@ export declare const DEFAULT_XR_STAR_FIELD_STATE: Readonly<StarFieldState>;
 export declare function createDeviceTiltTracker(options?: Record<string, unknown>): Record<string, unknown>;
 export declare function computeXrDepthRange(options?: Record<string, unknown>): { near: number; far: number };
 
-export declare function createHud(options?: Record<string, unknown>): ViewerRuntimePart;
-export declare function createTouchDisplay(options?: Record<string, unknown>): TouchDisplay;
 export declare function buildHRDiagramValue(geometry: BufferGeometry, options?: Record<string, unknown>): HRDiagramValue;
-export declare function createHRDiagramControl(options?: Record<string, unknown>): HRDiagramControl;
+export declare function createHRDiagramControl(id: string, props?: Record<string, unknown>): Record<string, unknown>;
 export declare function decodeTeff(log8Byte: number): number;
 export declare function drawHRDiagramGraphic(
   ctx: CanvasRenderingContext2D,
@@ -319,13 +311,6 @@ export declare function drawHRDiagramGraphic(
 ): void;
 export declare function magToY(mag: number, height: number, margin: number, minMag: number, maxMag: number): number;
 export declare function tempToX(tempK: number, width: number, margin: number, coolK: number, hotK: number): number;
-
-export declare const PRESET_ARROWS: Readonly<HudPreset>;
-export declare const PRESET_QE: Readonly<HudPreset>;
-export declare const PRESET_VERTICALS: Readonly<HudPreset>;
-export declare const PRESET_WASD: Readonly<HudPreset>;
-export declare const PRESET_WASD_QE: Readonly<HudPreset>;
-export declare function resolvePreset(name: string): HudPreset;
 
 export declare const ALCYONE_PC: Readonly<Point3>;
 export declare const GALACTIC_CENTER_PC: Readonly<Point3>;
@@ -345,7 +330,6 @@ export declare function createConstellationPreset(options?: Record<string, unkno
 export declare function createDesktopExplorerPreset<TState extends object = DefaultViewerState>(
   options?: DesktopExplorerPresetOptions<TState>,
 ): DesktopExplorerPreset<TState>;
-export declare function createFullscreenPreset(options?: Record<string, unknown>): Record<string, unknown>;
 export declare function createJourneyController<
   TScene extends JourneyResolvedSceneSpec = JourneyResolvedSceneSpec,
   TExtraCommand extends CommandBase = never,
@@ -380,10 +364,6 @@ export declare function createViewerJourneyController<
   options: ViewerJourneyControllerOptions<TScene, TExtraCommand>,
 ): JourneyController<TScene, TExtraCommand>;
 export declare function createParallaxPositionController(options?: Record<string, unknown>): Record<string, unknown>;
-export declare function createDistanceReadout(cameraController: CameraRigController, targetPc: Point3Like, options?: Record<string, unknown>): Record<string, unknown>;
-export declare function createFlyToAction(cameraController: CameraRigController, targetPc: Point3Like, options?: Record<string, unknown>): Record<string, unknown>;
-export declare function createLookAtAction(cameraController: CameraRigController, targetPc: Point3Like, options?: Record<string, unknown>): Record<string, unknown>;
-export declare function createSpeedReadout(cameraController: CameraRigController, options?: Record<string, unknown>): Record<string, unknown>;
 export declare function formatDistancePc(distancePc: number): string;
 export declare function formatSpeedPcPerSec(pcPerSec: number): string;
 

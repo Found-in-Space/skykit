@@ -1,11 +1,17 @@
 import * as THREE from 'three';
 import {
+  createButton,
+  createRuntime,
+  createTextLabel,
+  createValueReadout,
+} from '@found-in-space/touch-os';
+import { createHudPanelDriver } from '@found-in-space/touch-os/hosts/three';
+import {
   createCameraRigController,
   createDefaultStarFieldMaterialProfile,
   DEFAULT_STAR_FIELD_STATE,
   createFoundInSpaceDatasetOptions,
   createHaTiledVolumeLayer,
-  createHud,
   createObserverShellField,
   ORION_CENTER_PC,
   createSceneOrientationTransforms,
@@ -20,12 +26,15 @@ import {
   SCALE,
 } from '../index.js';
 import {
-  createDistanceReadout,
-  createFlyToAction,
-  createLookAtAction,
-  createSpeedReadout,
+  formatDistancePc,
+  formatSpeedPcPerSec,
 } from '../presets/navigation-presets.js';
-import { createFullscreenPreset } from '../presets/fullscreen-preset.js';
+import { createTouchOsRuntimePart } from './touch-os-runtime-part.js';
+import {
+  createNavigationTouchOsRoot,
+  createTouchOsFullscreenButton,
+  handleNavigationTouchOsOutput,
+} from './touch-os-navigation.js';
 import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 const DEFAULT_GAIN = 7.0;
@@ -140,6 +149,32 @@ let volumeStats = null;
 let activeMagLimit = Number.isFinite(Number(magLimitInput?.value))
   ? Number(magLimitInput.value)
   : 7.5;
+
+const HUD_SURFACE = Object.freeze({
+  width: 1280,
+  height: 720,
+  pixelDensity: 1,
+  safeArea: { top: 18, right: 18, bottom: 18, left: 18 },
+});
+
+const HUD_THEME = Object.freeze({
+  backgroundColor: '#08111d',
+  surfaceColor: '#132238',
+  borderColor: '#27405e',
+  accentColor: '#38bdf8',
+  focusColor: '#22c55e',
+  controlHeight: 42,
+  spacing: 8,
+  padding: 12,
+  radius: 10,
+  typography: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: 600,
+    fontFamily: 'Avenir Next, ui-sans-serif',
+  },
+});
+
 const volumeState = {
   gain: Number(gainInput?.value) || DEFAULT_GAIN,
   threshold: Number(thresholdInput?.value) || DEFAULT_THRESHOLD,
@@ -206,7 +241,60 @@ async function mountViewer() {
     lookAtPc: ORION_CENTER_PC,
     moveSpeed: 18,
   });
-  const fullscreen = createFullscreenPreset();
+  const hudRuntime = createRuntime({
+    root: createHAlphaHudRoot(cameraController),
+    surface: HUD_SURFACE,
+    theme: HUD_THEME,
+  });
+  const hudDriver = createHudPanelDriver({
+    runtime: hudRuntime,
+    surface: HUD_SURFACE,
+    distance: 0.68,
+    sizing: 'viewport',
+  });
+  const touchOsPart = createTouchOsRuntimePart({
+    id: 'h-alpha-touch-os',
+    panels: [
+      {
+        key: 'desktop-hud',
+        runtime: hudRuntime,
+        driver: hudDriver,
+        sync() {
+          hudRuntime.setRoot(createHAlphaHudRoot(cameraController));
+        },
+        getFrame(context) {
+          return {
+            scene: context.scene,
+            camera: context.camera,
+            surfaceMetrics: {
+              width: context.size.width,
+              height: context.size.height,
+              pixelDensity: globalThis.window?.devicePixelRatio ?? 1,
+            },
+          };
+        },
+      },
+    ],
+    onOutput(output, _panel, context) {
+      if (handleNavigationTouchOsOutput(output, {
+        cameraController,
+        fullscreenTarget: context.host,
+      })) {
+        return;
+      }
+
+      if (output?.type !== 'action') {
+        return;
+      }
+
+      if (output.actionId === 'camera.look-sun') {
+        cameraController.lookAt(SOLAR_ORIGIN_PC);
+      }
+      if (output.actionId === 'camera.fly-sun') {
+        cameraController.flyTo(SOLAR_ORIGIN_PC, { speed: 120 });
+      }
+    },
+  });
   const camera = createViewerCamera();
   volumeLayer = createHaTiledVolumeLayer({
     id: 'h-alpha-volume-layer',
@@ -247,31 +335,7 @@ async function mountViewer() {
         minIntervalMs: 250,
         watchSize: false,
       }),
-      fullscreen.controller,
-      createHud({
-        cameraController,
-        controls: [
-          { preset: 'arrows', position: 'bottom-right' },
-          { preset: 'wasd-qe', position: 'bottom-left' },
-          createLookAtAction(cameraController, SOLAR_ORIGIN_PC, {
-            label: 'Sun',
-            title: 'Look at Sun',
-            position: 'top-right',
-          }),
-          createFlyToAction(cameraController, SOLAR_ORIGIN_PC, {
-            label: 'Fly Sun',
-            title: 'Fly to Sun',
-            speed: 120,
-            position: 'top-right',
-          }),
-          ...fullscreen.controls,
-          createSpeedReadout(cameraController, { position: 'top-left' }),
-          createDistanceReadout(cameraController, SOLAR_ORIGIN_PC, {
-            label: 'Distance to Sun',
-            position: 'top-left',
-          }),
-        ],
-      }),
+      touchOsPart,
     ],
     layers: [
       createStarFieldLayer({
@@ -294,6 +358,53 @@ async function mountViewer() {
   installDemoViewerDebugConsole(viewer, { id: 'h-alpha-volume' });
 
   return viewer;
+}
+
+function createHAlphaHudRoot(cameraController) {
+  const stats = cameraController.getStats?.() ?? {};
+  const motion = stats.motion ?? null;
+  const observerPc = motion?.observerPc ?? stats.observerPc ?? { x: 0, y: 0, z: 0 };
+  const distancePc = Math.hypot(
+    observerPc.x - SOLAR_ORIGIN_PC.x,
+    observerPc.y - SOLAR_ORIGIN_PC.y,
+    observerPc.z - SOLAR_ORIGIN_PC.z,
+  );
+
+  return createNavigationTouchOsRoot({
+    id: 'h-alpha-volume-hud',
+    title: 'H-alpha Volume',
+    overviewChildren: [
+      createTextLabel('h-alpha-help-1', {
+        text: 'Explore the tiled volume with Touch OS movement controls.',
+        tone: 'muted',
+      }),
+      createTextLabel('h-alpha-help-2', {
+        text: 'SkyKit owns the data and rendering; Touch OS owns the HUD.',
+        tone: 'muted',
+      }),
+    ],
+    statusChildren: [
+      createValueReadout('h-alpha-speed', {
+        label: 'Speed',
+        value: formatSpeedPcPerSec(motion?.speedPcPerSec ?? 0),
+      }),
+      createValueReadout('h-alpha-distance', {
+        label: 'Distance to Sun',
+        value: formatDistancePc(distancePc),
+      }),
+    ],
+    actionChildren: [
+      createButton('h-alpha-look-sun', {
+        label: 'Look at Sun',
+        actionId: 'camera.look-sun',
+      }),
+      createButton('h-alpha-fly-sun', {
+        label: 'Fly to Sun',
+        actionId: 'camera.fly-sun',
+      }),
+      createTouchOsFullscreenButton('h-alpha-fullscreen'),
+    ],
+  });
 }
 
 magLimitInput?.addEventListener('change', () => {
