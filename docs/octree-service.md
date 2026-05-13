@@ -280,8 +280,6 @@ export interface StarOctreeProviderService {
 
   ensureBootstrap(): Promise<StarOctreeBootstrapProduct>;
 
-  ensureRootShard(): Promise<StarOctreeRootShardProduct>;
-
   createSession(
     options?: StarOctreeSessionOptions
   ): StarOctreeProviderSession;
@@ -354,14 +352,14 @@ export interface StarOctreeProviderDescriptor {
   >;
 
   capabilities: {
-    progressive: true;
-    rangeRequestable: true;
-    payloadBatching: true;
+    progressive: boolean;
+    rangeRequestable: boolean;
+    payloadBatching: boolean;
     persistentCache: boolean;
     decodedCache: boolean;
     borrowedBuffers: boolean;
     transferableBuffers: boolean;
-    sessions: true;
+    sessions: boolean;
   };
 
   limits: {
@@ -373,7 +371,7 @@ export interface StarOctreeProviderDescriptor {
 }
 ```
 
-Initial values should be derived from the package's own internal source/file-service snapshot state.
+Initial values should be derived from the package's own internal source/file-service snapshot state. Capabilities should describe implemented behavior, not future intent. During the byte-real bootstrap slice, URL range access, bootstrap loading, and sessions may be true, while payload batching and object streams should remain false/not implemented until the payload streaming slice.
 
 ---
 
@@ -803,27 +801,16 @@ export interface StarOctreeBootstrapProduct {
 }
 ```
 
-### 14.2 Root shard product
+### 14.2 Internal root shard
 
-```ts
-export interface StarOctreeRootShardProduct {
-  productType: 'index';
-  indexKind: 'star-octree-root-shard';
+The root shard is an internal index/traversal starting point, not a normal
+consumer-facing product. The provider may expose diagnostics about root-shard
+readiness through snapshots, but live sessions and bounded streams should load
+and navigate the root shard internally from the bootstrap `header.indexOffset`.
 
-  providerId: string;
-
-  rootShardOffset: number;
-
-  nodes: StarOctreeRuntimeNode[];
-
-  completeness: {
-    phase: 'complete';
-    stable: true;
-  };
-
-  metadata?: Record<string, unknown>;
-}
-```
+Applications should not need to request or inspect root shard records to use the
+provider. Runtime nodes are provider-produced facts consumed by strategies,
+traversal, payload fetching, and diagnostics.
 
 ### 14.3 Object batch product
 
@@ -1570,7 +1557,7 @@ Mock:
 
 ```txt
 ensureBootstrap()
-ensureRootShard()
+ensureRootShardLoaded()
 planDemandFromStrategy()
 fetchNodePayloadBatchProgressive()
 decodePayload()
@@ -1607,7 +1594,7 @@ Test:
 - provider.describe() returns expected capabilities
 - provider.getSnapshot() reports dataset/cache/work-item state
 - ensureBootstrap() returns bootstrap product
-- ensureRootShard() returns root shard product with provider-produced runtime nodes
+- internal root-shard loading parses provider-produced runtime nodes
 - built-in strategies use magnitude-shell traversal, not public max-level/detail controls
 - streamPayloads() emits payload/batch then payload/complete
 - streamObjectBatches() emits non-cumulative batch data/product-upsert
@@ -1661,7 +1648,7 @@ Sprint 1 is done when:
 1. `createStarOctreeProviderService()` exists.
 2. It is implemented inside `packages/star-octree-provider` without importing existing SkyKit `src/` services.
 3. `ensureBootstrap()` returns a bootstrap product.
-4. `ensureRootShard()` returns a root-shard product.
+4. Root-shard loading is internal and produces provider-owned runtime nodes for traversal.
 5. Provider/session code produces runtime nodes by loading and navigating the octree source.
 6. `streamObjectBatches({ strategy, view })` progressively emits non-cumulative batch `data/product-upsert` deltas.
 7. `fetchObjectBatch({ strategy, view })` returns a merged `StarObjectBatchProduct`.
@@ -1761,7 +1748,6 @@ const provider = createStarOctreeProviderService({
 });
 
 await provider.ensureBootstrap();
-await provider.ensureRootShard();
 
 for await (const delta of provider.streamObjectBatches({
   strategy: {

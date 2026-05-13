@@ -155,14 +155,14 @@ export interface StarOctreeProviderDescriptor {
     'position' | 'teffLog8' | 'magAbs' | 'objectRef' | 'pickMeta'
   >;
   capabilities: {
-    progressive: true;
-    rangeRequestable: true;
-    payloadBatching: true;
+    progressive: boolean;
+    rangeRequestable: boolean;
+    payloadBatching: boolean;
     persistentCache: boolean;
     decodedCache: boolean;
     borrowedBuffers: boolean;
     transferableBuffers: boolean;
-    sessions: true;
+    sessions: boolean;
   };
   limits: {
     memoryBudgetBytes?: number;
@@ -194,19 +194,6 @@ export interface StarOctreeBootstrapProduct {
     phase: 'complete';
     stable: true;
   };
-}
-
-export interface StarOctreeRootShardProduct {
-  productType: 'index';
-  indexKind: 'star-octree-root-shard';
-  providerId: string;
-  rootShardOffset: number;
-  nodes: StarOctreeRuntimeNode[];
-  completeness: {
-    phase: 'complete';
-    stable: true;
-  };
-  metadata?: Record<string, unknown>;
 }
 
 export interface CanonicalObjectRef {
@@ -513,7 +500,6 @@ export interface StarOctreeProviderService {
   describe(): StarOctreeProviderDescriptor;
   getSnapshot(): StarOctreeProviderSnapshot;
   ensureBootstrap(): Promise<StarOctreeBootstrapProduct>;
-  ensureRootShard(): Promise<StarOctreeRootShardProduct>;
   createSession(options?: StarOctreeSessionOptions): StarOctreeProviderSession;
   streamPayloads(
     options: StarOctreePayloadStreamOptions

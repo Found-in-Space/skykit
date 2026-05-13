@@ -1,4 +1,5 @@
 import { createDefaultDecodedStarSegment } from './star-octree-products.js';
+import { createStarOctreeIndexSource } from './star-octree-index-source.js';
 import { createStarOctreeProviderSession } from './star-octree-provider-session.js';
 
 /**
@@ -59,6 +60,10 @@ function createProviderService(options, internals) {
   nextProviderId += 1;
   /** @type {Map<string, ReturnType<typeof createStarOctreeProviderSession>>} */
   const sessions = new Map();
+  const indexSource = createStarOctreeIndexSource({
+    providerId,
+    options,
+  });
   let disposed = false;
 
   const source = {
@@ -80,19 +85,16 @@ function createProviderService(options, internals) {
     },
 
     describe() {
-      return createDescriptor(providerId, options);
+      return createDescriptor(providerId, options, indexSource);
     },
 
     getSnapshot() {
-      return createProviderSnapshot(providerId, options, sessions);
+      return createProviderSnapshot(providerId, options, sessions, indexSource);
     },
 
     async ensureBootstrap() {
-      throw createNotImplementedError('ensureBootstrap');
-    },
-
-    async ensureRootShard() {
-      throw createNotImplementedError('ensureRootShard');
+      assertActive();
+      return indexSource.ensureBootstrapLoaded();
     },
 
     createSession(sessionOptions = {}) {
@@ -160,23 +162,24 @@ function validateProviderOptions(options) {
 /**
  * @param {string} providerId
  * @param {StarOctreeProviderServiceOptions} options
+ * @param {ReturnType<typeof createStarOctreeIndexSource>} indexSource
  * @returns {StarOctreeProviderDescriptor}
  */
-function createDescriptor(providerId, options) {
+function createDescriptor(providerId, options, indexSource) {
   return {
     id: providerId,
     providerType: 'star-octree',
     datasetId: options.datasetId ?? null,
     datasetIdentitySource: null,
     url: options.url,
-    produces: ['index', 'object-batch'],
+    produces: ['index'],
     objectTypes: ['star'],
     attributes: ['position', 'teffLog8', 'magAbs', 'objectRef', 'pickMeta'],
     capabilities: {
       progressive: true,
       rangeRequestable: true,
-      payloadBatching: true,
-      persistentCache: options.persistentCache === 'on',
+      payloadBatching: false,
+      persistentCache: indexSource.persistentCacheAvailable,
       decodedCache: false,
       borrowedBuffers: true,
       transferableBuffers: false,
@@ -200,12 +203,14 @@ function createDescriptor(providerId, options) {
  * @param {string} providerId
  * @param {StarOctreeProviderServiceOptions} options
  * @param {Map<string, ReturnType<typeof createStarOctreeProviderSession>>} sessions
+ * @param {ReturnType<typeof createStarOctreeIndexSource>} indexSource
  * @returns {StarOctreeProviderSnapshot}
  */
-function createProviderSnapshot(providerId, options, sessions) {
+function createProviderSnapshot(providerId, options, sessions, indexSource) {
   const sessionSnapshots = Array.from(sessions.values()).map((session) =>
     session.getSnapshot(),
   );
+  const indexSnapshot = indexSource.getSnapshot();
   const liveProductBytes = sessionSnapshots.reduce(
     (sum, session) => sum + session.memory.liveBytes,
     0,
@@ -219,19 +224,13 @@ function createProviderSnapshot(providerId, options, sessions) {
     id: providerId,
     providerType: 'star-octree',
     dataset: {
-      datasetId: options.datasetId ?? null,
-      identitySource: null,
+      datasetId: indexSnapshot.datasetId,
+      identitySource: indexSnapshot.datasetIdentitySource,
       url: options.url,
-      bootstrapReady: false,
-      rootShardReady: false,
+      bootstrapReady: indexSnapshot.bootstrapReady,
+      rootShardReady: indexSnapshot.rootShardReady,
     },
-    cache: {
-      bootstrapHeaders: 0,
-      shardHeaders: 0,
-      payloads: 0,
-      decodedPayloads: 0,
-      products: 0,
-    },
+    cache: indexSnapshot.cache,
     sessions: sessionSnapshots.map((session) => ({
       id: session.id,
       status: session.demand.status,
@@ -250,15 +249,15 @@ function createProviderSnapshot(providerId, options, sessions) {
       evictableBytes: 0,
     },
     stats: {
-      rangeRequests: 0,
-      bytesRequested: 0,
+      rangeRequests: indexSnapshot.stats.rangeRequests,
+      bytesRequested: indexSnapshot.stats.bytesRequested,
       payloadBatchRequests: 0,
       payloadNodesFetched: 0,
       payloadCacheHits: 0,
-      shardCacheHits: 0,
-      headerCacheHits: 0,
-      persistentCacheHits: 0,
-      fetchTimeMs: 0,
+      shardCacheHits: indexSnapshot.stats.shardCacheHits,
+      headerCacheHits: indexSnapshot.stats.headerCacheHits,
+      persistentCacheHits: indexSnapshot.stats.persistentCacheHits,
+      fetchTimeMs: indexSnapshot.stats.fetchTimeMs,
     },
   };
 }

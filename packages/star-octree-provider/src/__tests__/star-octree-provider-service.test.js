@@ -6,6 +6,12 @@ import {
   createStarOctreeProviderServiceForTest,
   ERR_STAR_OCTREE_NOT_IMPLEMENTED,
 } from '../star-octree-provider-service.js';
+import {
+  concatBytes,
+  createMockFetch,
+  createOdscDescriptorBytes,
+  createStarHeaderBytes,
+} from './octree-byte-fixtures.js';
 
 test('factory creates a provider descriptor and empty snapshot', () => {
   const provider = createStarOctreeProviderService({
@@ -26,9 +32,11 @@ test('factory creates a provider descriptor and empty snapshot', () => {
   assert.equal(descriptor.datasetId, 'dataset-a');
   assert.equal(descriptor.url, '/data/stars.octree');
   assert.equal(descriptor.capabilities.sessions, true);
-  assert.equal(descriptor.capabilities.persistentCache, true);
+  assert.equal(descriptor.capabilities.rangeRequestable, true);
+  assert.equal(descriptor.capabilities.payloadBatching, false);
+  assert.equal(descriptor.capabilities.persistentCache, false);
   assert.equal(descriptor.limits.maxInflightPayloadBatches, 4);
-  assert.deepEqual(descriptor.produces, ['index', 'object-batch']);
+  assert.deepEqual(descriptor.produces, ['index']);
   assert.deepEqual(descriptor.objectTypes, ['star']);
 
   const snapshot = provider.getSnapshot();
@@ -69,12 +77,6 @@ test('byte-backed provider methods expose typed not-implemented stubs', async ()
     url: '/data/stars.octree',
   });
 
-  await assert.rejects(() => provider.ensureBootstrap(), {
-    code: ERR_STAR_OCTREE_NOT_IMPLEMENTED,
-  });
-  await assert.rejects(() => provider.ensureRootShard(), {
-    code: ERR_STAR_OCTREE_NOT_IMPLEMENTED,
-  });
   await assert.rejects(() => provider.fetchObjectBatch({}), {
     code: ERR_STAR_OCTREE_NOT_IMPLEMENTED,
   });
@@ -87,6 +89,51 @@ test('byte-backed provider methods expose typed not-implemented stubs', async ()
     provider.streamObjectBatches({})[Symbol.asyncIterator]().next(),
     { code: ERR_STAR_OCTREE_NOT_IMPLEMENTED },
   );
+});
+
+test('ensureBootstrap reads real octree header bytes and updates snapshots', async () => {
+  const datasetUuid = 'c56103e6-ad4c-41f9-be06-048b48ec632b';
+  const fileBytes = concatBytes([
+    createStarHeaderBytes({
+      indexOffset: 192,
+      worldHalfSize: 512,
+      magLimit: 7,
+    }),
+    createOdscDescriptorBytes({ datasetUuid }),
+  ]);
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fileBytes, requests);
+
+  try {
+    const provider = createStarOctreeProviderService({
+      id: 'provider-a',
+      url: 'memory://stars.octree',
+    });
+
+    assert.equal('ensureRootShard' in provider, false);
+
+    const bootstrap = await provider.ensureBootstrap();
+    const cachedBootstrap = await provider.ensureBootstrap();
+    const snapshot = provider.getSnapshot();
+
+    assert.equal(bootstrap, cachedBootstrap);
+    assert.equal(bootstrap.providerId, 'provider-a');
+    assert.equal(bootstrap.datasetId, datasetUuid);
+    assert.equal(bootstrap.datasetIdentitySource, 'octree-descriptor');
+    assert.equal(bootstrap.header.worldHalfSize, 512);
+    assert.equal(bootstrap.header.magLimit, 7);
+    assert.equal(snapshot.dataset.bootstrapReady, true);
+    assert.equal(snapshot.dataset.rootShardReady, false);
+    assert.equal(snapshot.dataset.datasetId, datasetUuid);
+    assert.equal(snapshot.dataset.identitySource, 'octree-descriptor');
+    assert.equal(snapshot.cache.bootstrapHeaders, 1);
+    assert.equal(snapshot.stats.rangeRequests, 1);
+    assert.equal(snapshot.stats.headerCacheHits, 1);
+    assert.equal(requests.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('factory requires URL source configuration', () => {
