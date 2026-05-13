@@ -1,0 +1,3 @@
+We have finished the proof-of-concept part of this project, and we're now going to start on the 'alpha' architecture. This means it's a clean re-write and we should take care not to port across bad-habits or experimental code that is no longer used. It's safe in github, so we do not need to be concerned about archeology.
+
+The approach we take is to create a copy with the right shape first, test it thoroughly, and then remove the old code. 
