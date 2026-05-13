@@ -47,9 +47,10 @@ export function createDecodedPayloadCache(options) {
     /**
      * @param {string} key
      * @param {StarOctreeRuntimeNode} node
+     * @param {string | null | undefined} datasetId
      * @returns {Promise<DecodedStarSegment | null>}
      */
-    async get(key, node) {
+    async get(key, node, datasetId = options.datasetId) {
       const entry = memory.get(key);
       if (entry) {
         hits += 1;
@@ -58,7 +59,7 @@ export function createDecodedPayloadCache(options) {
         return entry.segment;
       }
 
-      const persistent = await readPersistent(key, node);
+      const persistent = await readPersistent(key, node, datasetId);
       if (persistent) {
         persistentHits += 1;
         set(key, persistent);
@@ -141,16 +142,17 @@ export function createDecodedPayloadCache(options) {
   /**
    * @param {string} key
    * @param {StarOctreeRuntimeNode} node
+   * @param {string | null | undefined} datasetId
    * @returns {Promise<DecodedStarSegment | null>}
    */
-  async function readPersistent(key, node) {
+  async function readPersistent(key, node, datasetId) {
     const cache = await openPersistentCache();
     if (!cache) return null;
 
     try {
       const cached = await cache.match(createPersistentUrl(key));
       if (!cached) return null;
-      return decodePersistentSegment(await cached.arrayBuffer(), node, options.datasetId);
+      return decodePersistentSegment(await cached.arrayBuffer(), node, datasetId);
     } catch {
       return null;
     }

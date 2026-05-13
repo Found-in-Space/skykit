@@ -397,16 +397,19 @@ export function createStarOctreeIndexSource(createOptions) {
 
       for (const node of batch.nodes) {
         const cacheKey = createPayloadCacheKey(node);
-        payloadCache.set(
-          cacheKey,
-          batchPromise.then((decodedBuffers) => {
-            const buffer = decodedBuffers.get(cacheKey);
-            if (!buffer) {
-              throw new Error(`Missing decoded payload buffer for ${cacheKey}`);
-            }
-            return buffer;
-          }),
-        );
+        const payloadPromise = batchPromise.then((decodedBuffers) => {
+          const buffer = decodedBuffers.get(cacheKey);
+          if (!buffer) {
+            throw new Error(`Missing decoded payload buffer for ${cacheKey}`);
+          }
+          return buffer;
+        });
+        payloadPromise.catch(() => {
+          if (payloadCache.get(cacheKey) === payloadPromise) {
+            payloadCache.delete(cacheKey);
+          }
+        });
+        payloadCache.set(cacheKey, payloadPromise);
       }
 
       if (options.onBatch) {
@@ -422,14 +425,19 @@ export function createStarOctreeIndexSource(createOptions) {
       }
     });
 
-    const entries = await Promise.all(requestedNodes.map(async (node) => ({
-      node,
-      buffer: await /** @type {Promise<ArrayBuffer>} */ (
-        payloadCache.get(createPayloadCacheKey(node))
-      ),
-    })));
-    await Promise.all(notifyPromises);
-    return entries;
+    try {
+      const entries = await Promise.all(requestedNodes.map(async (node) => ({
+        node,
+        buffer: await /** @type {Promise<ArrayBuffer>} */ (
+          payloadCache.get(createPayloadCacheKey(node))
+        ),
+      })));
+      await Promise.all(notifyPromises);
+      return entries;
+    } catch (error) {
+      await Promise.allSettled(notifyPromises);
+      throw error;
+    }
   }
 }
 

@@ -157,13 +157,23 @@ test('persistent decoded cache can be reused by a new provider instance', async 
       url: 'memory://stars.octree',
       persistentCache: 'on',
     });
-    for await (const _delta of second.streamObjectBatches({
+    const secondDeltas = [];
+    for await (const delta of second.streamObjectBatches({
       view: { observerPc: { x: 0, y: 0, z: 0 }, limitingMagnitude: 6.5 },
+      attributes: ['position', 'objectRef'],
     })) {
-      // read from persistent cache
+      secondDeltas.push(delta);
     }
+    const secondRefs = secondDeltas
+      .filter((delta) => delta.type === 'data/product-upsert')
+      .flatMap((delta) => delta.product.refs);
 
     assert.equal(second.getSnapshot().stats.decodedPersistentCacheHits >= 2, true);
+    assert.equal(secondRefs.length, 3);
+    assert.deepEqual(
+      [...new Set(secondRefs.map((ref) => ref.datasetId))],
+      ['c56103e6-ad4c-41f9-be06-048b48ec632b'],
+    );
   } finally {
     globalThis.fetch = originalFetch;
     if (originalCaches === undefined) {
@@ -351,6 +361,118 @@ test('live sessions prefetch role warms caches without emitting products', async
 
     await waitFor(() => provider.getSnapshot().cache.decodedPayloads >= 2);
     assert.equal(provider.getSnapshot().stats.payloadNodesFetched, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('live sessions report current while prefetch work remains active', async () => {
+  const fixture = createObjectStreamFixture();
+  const originalFetch = globalThis.fetch;
+  const prefetchGate = deferred();
+  const prefetchStarted = deferred();
+  globalThis.fetch = createControlledMockFetch(fixture.fileBytes, [], {
+    delayRange: {
+      offset: fixture.runtimeNodes[1].payloadOffset,
+      started: prefetchStarted.resolve,
+      release: prefetchGate.promise,
+    },
+  });
+
+  try {
+    const provider = createStarOctreeProviderServiceForTest(
+      { id: 'provider-a', url: 'memory://stars.octree' },
+      {
+        useRealPipeline: true,
+        planDemand: () => ({
+          entries: [
+            { node: fixture.runtimeNodes[0], role: 'current', priority: 10 },
+            { node: fixture.runtimeNodes[1], role: 'prefetch', priority: 1 },
+          ],
+          signature: 'current-and-prefetch',
+        }),
+      },
+    );
+    const session = provider.createSession({ id: 'session-a' });
+    const iterator = session.deltas()[Symbol.asyncIterator]();
+
+    session.updateView({ observerPc: { x: 0, y: 0, z: 0 } });
+    await prefetchStarted.promise;
+    const deltas = await readUntilCurrent(iterator);
+    const upserts = deltas.filter((delta) => delta.type === 'data/product-upsert');
+    const sessionSnapshot = session.getSnapshot();
+    const providerSession = provider.getSnapshot().sessions.find(
+      (entry) => entry.id === 'session-a',
+    );
+
+    assert.equal(deltas.at(-1).type, 'data/representation-current');
+    assert.equal(upserts.length, 1);
+    assert.deepEqual(
+      upserts[0].product.nodes.map((node) => node.nodeKey),
+      [fixture.payloadNodeKeys[0]],
+    );
+    assert.equal(sessionSnapshot.demand.status, 'current');
+    assert.equal(sessionSnapshot.demand.activeWorkItemCount, 1);
+    assert.equal(providerSession.activeWorkItemCount, 1);
+    assert.equal(
+      provider.getSnapshot().workItems.some(
+        (item) =>
+          item.sessionId === 'session-a' &&
+          item.status !== 'finished' &&
+          item.status !== 'failed',
+      ),
+      true,
+    );
+
+    prefetchGate.resolve();
+    await waitFor(() => session.getSnapshot().demand.activeWorkItemCount === 0);
+    await waitFor(() => provider.getSnapshot().cache.decodedPayloads >= 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('live sessions keep current representation when prefetch fails', async () => {
+  const fixture = createObjectStreamFixture();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createControlledMockFetch(fixture.fileBytes, [], {
+    failRange: {
+      offset: fixture.runtimeNodes[1].payloadOffset,
+    },
+  });
+
+  try {
+    const provider = createStarOctreeProviderServiceForTest(
+      { id: 'provider-a', url: 'memory://stars.octree' },
+      {
+        useRealPipeline: true,
+        planDemand: () => ({
+          entries: [
+            { node: fixture.runtimeNodes[0], role: 'current', priority: 10 },
+            { node: fixture.runtimeNodes[1], role: 'prefetch', priority: 1 },
+          ],
+          signature: 'current-and-prefetch',
+        }),
+      },
+    );
+    const session = provider.createSession({ id: 'session-a' });
+    const iterator = session.deltas()[Symbol.asyncIterator]();
+
+    session.updateView({ observerPc: { x: 0, y: 0, z: 0 } });
+    const deltas = await readUntilCurrent(iterator);
+
+    await waitFor(() =>
+      provider.getSnapshot().workItems.some(
+        (item) => item.sessionId === 'session-a' && item.status === 'failed',
+      ),
+    );
+    assert.equal(deltas.at(-1).type, 'data/representation-current');
+    assert.equal(
+      deltas.some((delta) => delta.type === 'data/product-error'),
+      false,
+    );
+    assert.equal(session.getSnapshot().demand.status, 'current');
+    assert.equal(session.getSnapshot().demand.activeWorkItemCount, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -633,6 +755,57 @@ function createMemoryCaches() {
       };
     },
   };
+}
+
+function createControlledMockFetch(fileBytes, requests, options = {}) {
+  return async function mockFetch(url, fetchOptions = {}) {
+    const rangeHeader = fetchOptions.headers?.Range ?? '';
+    const match = /^bytes=(\d+)-(\d+)$/.exec(rangeHeader);
+    if (!match) {
+      throw new Error(`Unexpected range header: ${rangeHeader}`);
+    }
+
+    const start = Number(match[1]);
+    const end = Number(match[2]);
+    requests.push({ url, start, end });
+
+    if (rangeContainsOffset(start, end, options.failRange?.offset)) {
+      return {
+        ok: false,
+        status: 500,
+        async arrayBuffer() {
+          return new ArrayBuffer(0);
+        },
+      };
+    }
+
+    if (rangeContainsOffset(start, end, options.delayRange?.offset)) {
+      options.delayRange.started();
+      await options.delayRange.release;
+    }
+
+    const slice = fileBytes.slice(start, end + 1);
+    return {
+      ok: true,
+      status: 206,
+      async arrayBuffer() {
+        return toArrayBuffer(slice);
+      },
+    };
+  };
+}
+
+function rangeContainsOffset(start, end, offset) {
+  return offset !== undefined && start <= offset && end >= offset;
+}
+
+function deferred() {
+  /** @type {(value?: unknown) => void} */
+  let resolve;
+  const promise = new Promise((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
 }
 
 async function readUntilCurrent(iterator) {

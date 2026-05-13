@@ -195,6 +195,9 @@ function createProviderService(options, internals, sourceConfig = {}) {
         sessionId,
         options: sessionOptions,
         source,
+        getActiveWorkItemCount(id) {
+          return workTracker.countActive({ sessionId: id });
+        },
         onDispose(id) {
           sessions.delete(id);
         },
@@ -276,11 +279,12 @@ function getBlobName(file) {
  * @returns {StarOctreeProviderDescriptor}
  */
 function createDescriptor(providerId, options, indexSource, sourceConfig = {}) {
+  const indexSnapshot = indexSource.getSnapshot();
   return {
     id: providerId,
     providerType: 'star-octree',
-    datasetId: options.datasetId ?? null,
-    datasetIdentitySource: null,
+    datasetId: indexSnapshot.datasetId,
+    datasetIdentitySource: indexSnapshot.datasetIdentitySource,
     url: sourceConfig.url === null ? null : options.url,
     produces: ['index', 'object-batch'],
     objectTypes: ['star'],

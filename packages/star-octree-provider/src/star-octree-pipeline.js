@@ -405,7 +405,7 @@ export function createStarOctreePipeline(options) {
   async function decodePayloadEntry(node, buffer) {
     const datasetId = options.indexSource.getSnapshot().datasetId;
     const cacheKey = decodedCache.createKey(node, datasetId);
-    const cached = await decodedCache.get(cacheKey, node);
+    const cached = await decodedCache.get(cacheKey, node, datasetId);
     if (cached) {
       return cached;
     }

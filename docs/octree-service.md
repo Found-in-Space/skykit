@@ -1007,7 +1007,9 @@ export type StarOctreePayloadDelta =
 
 For progressive object-batch streams, product deltas maintain the session's current representation of the latest accepted `updateView()` state. `data/product-upsert` means "incorporate this product according to the consumer's policy." `data/product-remove` and `data/product-stale` mean previously emitted products are no longer current for the session's demand. The stream is not add-only.
 
-`data/representation-current` means the session is caught up for the referenced demand revision: there is no more fetching, pruning, or recalculation currently pending for that demand. It does not mean the entire octree or all stars are loaded, and it does not close the live session stream.
+`data/representation-current` means the session's display/current representation is caught up for the referenced demand revision: all `role: 'current'` planning, fetching, decoding, pruning, and product emission for that demand is complete. It does not mean the entire octree or all stars are loaded, and it does not close the live session stream.
+
+`role: 'prefetch'` entries are cache-warming freshness work. They must not emit products and they must not block `data/representation-current`; active or failed prefetch work should be visible through provider/session work snapshots instead.
 
 ```ts
 export type StarOctreeProductDelta =
@@ -1064,13 +1066,7 @@ export interface StarOctreeSessionSnapshot {
 
   strategy: StarOctreeFetchStrategy;
 
-  view: {
-    revision: number;
-
-    observerPc?: { x: number; y: number; z: number };
-    limitingMagnitude?: number;
-    targetPc?: { x: number; y: number; z: number };
-  };
+  view: StarOctreeViewState;
 
   demand: {
     revision: number;

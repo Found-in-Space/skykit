@@ -65,6 +65,25 @@ export function createStarOctreeWorkTracker() {
       return Array.from(items.values());
     },
 
+    /**
+     * @param {{ sessionId?: string }} [filter]
+     */
+    countActive(filter = {}) {
+      let count = 0;
+      for (const item of items.values()) {
+        if (
+          filter.sessionId !== undefined &&
+          item.sessionId !== filter.sessionId
+        ) {
+          continue;
+        }
+        if (item.status !== 'finished' && item.status !== 'failed') {
+          count += 1;
+        }
+      }
+      return count;
+    },
+
     clearFinished() {
       for (const [workId, item] of items) {
         if (item.status === 'finished' || item.status === 'failed') {

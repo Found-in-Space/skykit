@@ -58,6 +58,7 @@ const DEFAULT_COORDINATES = {
  *   sessionId: string;
  *   options?: StarOctreeSessionOptions;
  *   source: SessionSource;
+ *   getActiveWorkItemCount?: (sessionId: string) => number;
  *   onDispose?: (sessionId: string) => void;
  * }} CreateSessionOptions
  */
@@ -83,6 +84,8 @@ export function createStarOctreeProviderSession(createOptions) {
   const entriesByNodeKey = new Map();
   /** @type {Set<number>} */
   const activePlans = new Set();
+  /** @type {Set<Promise<void>>} */
+  const activePrefetches = new Set();
 
   /** @type {StarOctreeViewPatch} */
   let currentView = {};
@@ -306,8 +309,20 @@ export function createStarOctreeProviderSession(createOptions) {
     );
 
     if (prefetchEntries.length > 0 && createOptions.source.warmEntries) {
-      void createOptions.source.warmEntries(prefetchEntries, { sessionId })
-        .catch(() => {});
+      const prefetch = createOptions.source.warmEntries(prefetchEntries, {
+        sessionId,
+      });
+      activePrefetches.add(prefetch);
+      prefetch.then(
+        () => {
+          activePrefetches.delete(prefetch);
+        },
+        () => {
+          // Prefetch is cache-warming work; failures are reported via work
+          // snapshots but do not make the visible representation stale.
+          activePrefetches.delete(prefetch);
+        },
+      );
     }
 
     if (createOptions.source.streamObjectProducts) {
@@ -526,7 +541,7 @@ export function createStarOctreeProviderSession(createOptions) {
         status,
         demandNodeCount,
         currentProductCount: productsById.size,
-        activeWorkItemCount: activePlans.size,
+        activeWorkItemCount: getActiveWorkItemCount(),
       },
       products: productSummaries,
       memory: {
@@ -543,6 +558,11 @@ export function createStarOctreeProviderSession(createOptions) {
     if (disposed) {
       throw new Error(`Star octree provider session "${sessionId}" is disposed.`);
     }
+  }
+
+  function getActiveWorkItemCount() {
+    const sourceWorkCount = createOptions.getActiveWorkItemCount?.(sessionId);
+    return activePlans.size + (sourceWorkCount ?? activePrefetches.size);
   }
 }
 

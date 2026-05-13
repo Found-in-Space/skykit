@@ -112,6 +112,7 @@ test('ensureBootstrap reads real octree header bytes and updates snapshots', asy
 
     const bootstrap = await provider.ensureBootstrap();
     const cachedBootstrap = await provider.ensureBootstrap();
+    const descriptor = provider.describe();
     const snapshot = provider.getSnapshot();
 
     assert.equal(bootstrap, cachedBootstrap);
@@ -124,6 +125,8 @@ test('ensureBootstrap reads real octree header bytes and updates snapshots', asy
     assert.equal(snapshot.dataset.rootShardReady, false);
     assert.equal(snapshot.dataset.datasetId, datasetUuid);
     assert.equal(snapshot.dataset.identitySource, 'octree-descriptor');
+    assert.equal(descriptor.datasetId, datasetUuid);
+    assert.equal(descriptor.datasetIdentitySource, 'octree-descriptor');
     assert.equal(snapshot.cache.bootstrapHeaders, 1);
     assert.equal(snapshot.stats.rangeRequests, 1);
     assert.equal(snapshot.stats.headerCacheHits, 1);
