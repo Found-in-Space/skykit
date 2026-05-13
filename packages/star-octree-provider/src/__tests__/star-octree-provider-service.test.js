@@ -70,7 +70,7 @@ test('provider snapshots include independent live sessions', () => {
   second.dispose();
 });
 
-test('unsupported bounded stream strategies emit clear provider errors', async () => {
+test('target-frustum streams validate required view state clearly', async () => {
   const provider = createStarOctreeProviderService({
     id: 'provider-a',
     url: '/data/stars.octree',
@@ -84,7 +84,7 @@ test('unsupported bounded stream strategies emit clear provider errors', async (
   assert.equal(result.value.type, 'data/product-error');
   assert.equal(
     result.value.error.code,
-    'ERR_STAR_OCTREE_UNSUPPORTED_STRATEGY',
+    'ERR_STAR_OCTREE_INVALID_VIEW',
   );
 });
 

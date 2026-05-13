@@ -45,6 +45,10 @@ const DEFAULT_COORDINATES = {
  *       nextProductIndex: () => number;
  *     }
  *   ) => AsyncIterable<StarObjectBatchProduct>;
+ *   warmEntries?: (
+ *     entries: StarOctreeDemandEntry[],
+ *     options?: { sessionId?: string }
+ *   ) => Promise<void>;
  * }} SessionSource
  */
 
@@ -71,8 +75,12 @@ export function createStarOctreeProviderSession(createOptions) {
   const listeners = new Set();
   /** @type {Set<ReturnType<typeof createAsyncQueue<StarOctreeProductDelta>>>} */
   const deltaQueues = new Set();
-  /** @type {Map<string, { entry: StarOctreeDemandEntry; product: StarObjectBatchProduct; current: boolean }>} */
-  const productsByNodeKey = new Map();
+  /** @type {Map<string, { product: StarObjectBatchProduct; nodeKeys: Set<string>; current: boolean }>} */
+  const productsById = new Map();
+  /** @type {Map<string, string>} */
+  const productIdByNodeKey = new Map();
+  /** @type {Map<string, StarOctreeDemandEntry>} */
+  const entriesByNodeKey = new Map();
   /** @type {Set<number>} */
   const activePlans = new Set();
 
@@ -226,12 +234,16 @@ export function createStarOctreeProviderSession(createOptions) {
    */
   async function applyDemandPlan(plan, applyOptions) {
     const entries = normalizeDemandEntries(plan.entries);
+    const currentEntries = entries.filter(
+      (entry) => (entry.role ?? 'current') === 'current',
+    );
+    const prefetchEntries = entries.filter((entry) => entry.role === 'prefetch');
     const nextSignature = plan.signature ?? createDemandSignature(entries);
     const demandChanged = applyOptions.force || nextSignature !== demandSignature;
     lastReasons = plan.reasons?.length ? plan.reasons : applyOptions.reasons;
 
     if (!demandChanged) {
-      demandNodeCount = entries.length;
+      demandNodeCount = currentEntries.length;
       status = 'current';
       if (disposed || applyOptions.token !== latestPlanToken) {
         return;
@@ -242,42 +254,61 @@ export function createStarOctreeProviderSession(createOptions) {
 
     demandRevision += 1;
     demandSignature = nextSignature;
-    demandNodeCount = entries.length;
+    demandNodeCount = currentEntries.length;
     status = 'streaming';
 
     const nextEntriesByNodeKey = new Map(
-      entries.map((entry) => [entry.node.nodeKey, entry]),
+      currentEntries.map((entry) => [entry.node.nodeKey, entry]),
     );
+    const productsToRemove = new Map();
 
-    for (const [nodeKey, record] of productsByNodeKey) {
-      if (nextEntriesByNodeKey.has(nodeKey)) {
-        record.entry = /** @type {StarOctreeDemandEntry} */ (
-          nextEntriesByNodeKey.get(nodeKey)
-        );
+    for (const [productId, record] of productsById) {
+      const retainedNodeKeys = Array.from(record.nodeKeys)
+        .filter((nodeKey) => nextEntriesByNodeKey.has(nodeKey));
+      if (retainedNodeKeys.length === record.nodeKeys.size) {
+        for (const nodeKey of retainedNodeKeys) {
+          entriesByNodeKey.set(
+            nodeKey,
+            /** @type {StarOctreeDemandEntry} */ (nextEntriesByNodeKey.get(nodeKey)),
+          );
+        }
         continue;
       }
 
+      productsToRemove.set(productId, record);
+    }
+
+    for (const [productId, record] of productsToRemove) {
       record.current = false;
-      productsByNodeKey.delete(nodeKey);
+      productsById.delete(productId);
+      for (const nodeKey of record.nodeKeys) {
+        productIdByNodeKey.delete(nodeKey);
+        entriesByNodeKey.delete(nodeKey);
+      }
       emitDelta({
         type: 'data/product-stale',
         providerId,
         sessionId,
-        productId: record.product.id,
+        productId,
         reason: 'demand-excluded',
       });
       emitDelta({
         type: 'data/product-remove',
         providerId,
         sessionId,
-        productId: record.product.id,
+        productId,
         reason: 'demand-excluded',
       });
     }
 
-    const entriesToLoad = entries.filter(
-      (entry) => !productsByNodeKey.has(entry.node.nodeKey),
+    const entriesToLoad = currentEntries.filter(
+      (entry) => !productIdByNodeKey.has(entry.node.nodeKey),
     );
+
+    if (prefetchEntries.length > 0 && createOptions.source.warmEntries) {
+      void createOptions.source.warmEntries(prefetchEntries, { sessionId })
+        .catch(() => {});
+    }
 
     if (createOptions.source.streamObjectProducts) {
       status = entriesToLoad.length > 0 ? 'loading' : 'current';
@@ -291,7 +322,7 @@ export function createStarOctreeProviderSession(createOptions) {
           viewRevision: applyOptions.viewRevision,
           demandRevision,
           memoryOwnership: options.memory.ownership,
-          batchMode: 'node',
+          batchMode: 'payload-range',
           nextProductIndex() {
             productIndex += 1;
             return productIndex;
@@ -302,15 +333,7 @@ export function createStarOctreeProviderSession(createOptions) {
           return;
         }
 
-        for (const productNode of product.nodes) {
-          const entry = nextEntriesByNodeKey.get(productNode.nodeKey);
-          if (!entry) continue;
-          productsByNodeKey.set(productNode.nodeKey, {
-            entry,
-            product,
-            current: true,
-          });
-        }
+        storeProduct(product, nextEntriesByNodeKey);
 
         emitDelta({
           type: 'data/product-upsert',
@@ -337,11 +360,7 @@ export function createStarOctreeProviderSession(createOptions) {
           memoryOwnership: options.memory.ownership,
         });
 
-        productsByNodeKey.set(entry.node.nodeKey, {
-          entry,
-          product,
-          current: true,
-        });
+        storeProduct(product, nextEntriesByNodeKey);
         emitDelta({
           type: 'data/product-upsert',
           streamId,
@@ -372,17 +391,34 @@ export function createStarOctreeProviderSession(createOptions) {
       strategy: options.strategy,
       view: {
         revision: nextViewRevision,
-        ...(view.observerPc ? { observerPc: view.observerPc } : {}),
-        ...(view.limitingMagnitude !== undefined
-          ? { limitingMagnitude: view.limitingMagnitude }
-          : {}),
-        ...(view.targetPc ? { targetPc: view.targetPc } : {}),
+        ...view,
       },
       viewRevision: nextViewRevision,
       demandRevision,
       attributes: options.attributes,
       coordinates: options.coordinates,
     };
+  }
+
+  /**
+   * @param {StarObjectBatchProduct} product
+   * @param {Map<string, StarOctreeDemandEntry>} nextEntriesByNodeKey
+   */
+  function storeProduct(product, nextEntriesByNodeKey) {
+    const nodeKeys = new Set(product.nodes.map((node) => node.nodeKey));
+    productsById.set(product.id, {
+      product,
+      nodeKeys,
+      current: true,
+    });
+
+    for (const nodeKey of nodeKeys) {
+      productIdByNodeKey.set(nodeKey, product.id);
+      const entry = nextEntriesByNodeKey.get(nodeKey);
+      if (entry) {
+        entriesByNodeKey.set(nodeKey, entry);
+      }
+    }
   }
 
   /**
@@ -419,10 +455,10 @@ export function createStarOctreeProviderSession(createOptions) {
    * @param {number} currentViewRevision
    */
   function emitRepresentationCurrent(currentViewRevision) {
-    const productIds = Array.from(productsByNodeKey.values()).map(
+    const productIds = Array.from(productsById.values()).map(
       (record) => record.product.id,
     );
-    const loadedObjects = Array.from(productsByNodeKey.values()).reduce(
+    const loadedObjects = Array.from(productsById.values()).reduce(
       (sum, record) => sum + record.product.count,
       0,
     );
@@ -463,7 +499,7 @@ export function createStarOctreeProviderSession(createOptions) {
   }
 
   function createSnapshot() {
-    const productSummaries = Array.from(productsByNodeKey.values()).map(
+    const productSummaries = Array.from(productsById.values()).map(
       (record) => ({
         productId: record.product.id,
         nodeCount: record.product.nodes.length,
@@ -483,17 +519,13 @@ export function createStarOctreeProviderSession(createOptions) {
       strategy: options.strategy,
       view: {
         revision: viewRevision,
-        ...(currentView.observerPc ? { observerPc: currentView.observerPc } : {}),
-        ...(currentView.limitingMagnitude !== undefined
-          ? { limitingMagnitude: currentView.limitingMagnitude }
-          : {}),
-        ...(currentView.targetPc ? { targetPc: currentView.targetPc } : {}),
+        ...currentView,
       },
       demand: {
         revision: demandRevision,
         status,
         demandNodeCount,
-        currentProductCount: productsByNodeKey.size,
+        currentProductCount: productsById.size,
         activeWorkItemCount: activePlans.size,
       },
       products: productSummaries,
@@ -594,7 +626,9 @@ function normalizeDemandEntries(entries) {
  * @returns {string}
  */
 function createDemandSignature(entries) {
-  return entries.map((entry) => entry.node.nodeKey).join('|');
+  return entries
+    .map((entry) => `${entry.node.nodeKey}:${entry.role ?? 'current'}`)
+    .join('|');
 }
 
 /**

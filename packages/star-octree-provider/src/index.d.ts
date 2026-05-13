@@ -4,10 +4,18 @@ export interface StarOctreeProviderServiceOptions {
   datasetId?: string | null;
   persistentCache?: 'on' | 'off';
   limits?: {
+    memoryBudgetBytes?: number;
     maxInflightPayloadBatches?: number;
     payloadMaxGapBytes?: number;
     payloadMaxBatchBytes?: number;
   };
+}
+
+export interface StarOctreeFileProviderServiceOptions {
+  id?: string;
+  file: Blob;
+  datasetId?: string | null;
+  limits?: StarOctreeProviderServiceOptions['limits'];
 }
 
 export type StarOctreeFetchStrategy =
@@ -48,7 +56,7 @@ export interface StarOctreeSelectionContext {
   providerId: string;
   sessionId?: string;
   strategy: StarOctreeFetchStrategy;
-  view: StarOctreeSessionSnapshot['view'];
+  view: StarOctreeViewState;
   viewRevision: number;
   demandRevision: number;
   attributes: string[];
@@ -96,6 +104,7 @@ export interface StarOctreeViewPatch {
   limitingMagnitude?: number;
   targetPc?: { x: number; y: number; z: number };
   directionIcrs?: { x: number; y: number; z: number };
+  orientationIcrs?: { x: number; y: number; z: number; w: number };
   verticalFovDeg?: number;
   aspectRatio?: number;
   nearPc?: number;
@@ -107,6 +116,10 @@ export interface StarOctreeViewPatch {
     lookaheadSecs?: number;
   };
   params?: Record<string, unknown>;
+}
+
+export interface StarOctreeViewState extends StarOctreeViewPatch {
+  revision: number;
 }
 
 export interface ViewUpdateOptions {
@@ -361,12 +374,7 @@ export type StarOctreeProductDelta =
 export interface StarOctreeSessionSnapshot {
   id: string;
   strategy: StarOctreeFetchStrategy;
-  view: {
-    revision: number;
-    observerPc?: { x: number; y: number; z: number };
-    limitingMagnitude?: number;
-    targetPc?: { x: number; y: number; z: number };
-  };
+  view: StarOctreeViewState;
   demand: {
     revision: number;
     status:
@@ -450,6 +458,9 @@ export interface StarOctreeProviderSnapshot {
     shardCacheHits: number;
     headerCacheHits: number;
     persistentCacheHits: number;
+    decodedCacheHits?: number;
+    decodedPersistentCacheHits?: number;
+    decodedCacheEvictions?: number;
     fetchTimeMs: number;
   };
 }
@@ -515,4 +526,8 @@ export interface StarOctreeProviderService {
 
 export declare function createStarOctreeProviderService(
   options: StarOctreeProviderServiceOptions
+): StarOctreeProviderService;
+
+export declare function createStarOctreeFileProviderService(
+  options: StarOctreeFileProviderServiceOptions
 ): StarOctreeProviderService;

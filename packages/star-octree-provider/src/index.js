@@ -1,1 +1,4 @@
-export { createStarOctreeProviderService } from './star-octree-provider-service.js';
+export {
+  createStarOctreeFileProviderService,
+  createStarOctreeProviderService,
+} from './star-octree-provider-service.js';

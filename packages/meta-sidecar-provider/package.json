@@ -1,0 +1,24 @@
+{
+  "name": "@found-in-space/meta-sidecar-provider",
+  "version": "0.0.0-alpha.0",
+  "description": "Alpha metadata sidecar provider package for Found in Space datasets",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test"
+  }
+}

@@ -100,7 +100,7 @@ function assertValidRange(start, end) {
  * @param {number} end
  */
 function assertRangeResponse(response, url, start, end) {
-  if (response.ok || response.status === 206) {
+  if (response.status === 206) {
     return;
   }
 

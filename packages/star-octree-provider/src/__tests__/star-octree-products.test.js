@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   createStarObjectBatchProduct,
 } from '../star-octree-products.js';
+import { supportsTransferableBuffers } from '../star-octree-transfer.js';
 
 test('createStarObjectBatchProduct builds typed product arrays and metadata', () => {
   const node = createNode('node-a', { centerX: 10, centerY: 20, centerZ: 30 });
@@ -124,6 +125,32 @@ test('createStarObjectBatchProduct uses unique ids for progressive batches', () 
   });
 
   assert.notEqual(first.id, second.id);
+});
+
+test('createStarObjectBatchProduct supports transfer ownership when available', () => {
+  if (!supportsTransferableBuffers()) {
+    return;
+  }
+
+  const product = createStarObjectBatchProduct({
+    providerId: 'provider-a',
+    streamId: 'stream-a',
+    productIndex: 1,
+    entries: [{
+      node: createNode('node-a'),
+      decoded: {
+        count: 1,
+        positionsPc: new Float32Array([1, 2, 3]),
+        teffLog8: new Uint8Array([120]),
+      },
+    }],
+    attributes: ['position', 'teffLog8'],
+    memoryOwnership: 'transfer',
+  });
+
+  assert.equal(product.memory.ownership, 'transfer');
+  assert.deepEqual(Array.from(product.coordinates.primary.components), [1, 2, 3]);
+  assert.deepEqual(Array.from(product.attributes.teffLog8.values), [120]);
 });
 
 function oneStar() {

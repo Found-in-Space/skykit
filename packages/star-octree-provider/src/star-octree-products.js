@@ -1,3 +1,5 @@
+import { cloneWithTransferredBuffers } from './star-octree-transfer.js';
+
 /**
  * @typedef {import('./index.d.ts').CanonicalObjectRef} CanonicalObjectRef
  * @typedef {import('./index.d.ts').StarObjectBatchProduct} StarObjectBatchProduct
@@ -129,7 +131,8 @@ export function createStarObjectBatchProduct(options) {
   const attributeBytes =
     (teffLog8?.byteLength ?? 0) + (magAbs?.byteLength ?? 0);
 
-  return {
+  /** @type {StarObjectBatchProduct} */
+  const product = {
     productType: 'object-batch',
     id: createProductId(options.streamId, options.productIndex),
     providerId: options.providerId,
@@ -176,6 +179,17 @@ export function createStarObjectBatchProduct(options) {
       bytes: positions.byteLength + attributeBytes,
     },
   };
+
+  if (options.memoryOwnership === 'transfer') {
+    const transferBuffers = [
+      positions.buffer,
+      ...(teffLog8 ? [teffLog8.buffer] : []),
+      ...(magAbs ? [magAbs.buffer] : []),
+    ];
+    return cloneWithTransferredBuffers(product, transferBuffers);
+  }
+
+  return product;
 }
 
 /**

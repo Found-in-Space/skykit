@@ -62,15 +62,26 @@ const DEFAULT_SHARD_PREFETCH_BYTES = 65_536;
  * @param {{
  *   providerId: string;
  *   options: StarOctreeProviderServiceOptions;
+ *   rangeSource?: {
+ *     persistentCacheAvailable: boolean;
+ *     fetchRange(start: number, end: number): Promise<ArrayBuffer>;
+ *   };
+ *   createRangeSource?: (stats: StarOctreeIndexStats) => {
+ *     persistentCacheAvailable: boolean;
+ *     fetchRange(start: number, end: number): Promise<ArrayBuffer>;
+ *   };
+ *   sourceIdentity?: string;
  * }} createOptions
  */
 export function createStarOctreeIndexSource(createOptions) {
   const stats = createInitialStats();
-  const rangeSource = createUrlRangeSource({
-    url: createOptions.options.url,
-    persistentCache: createOptions.options.persistentCache,
-    stats,
-  });
+  const rangeSource = createOptions.rangeSource ??
+    createOptions.createRangeSource?.(stats) ??
+    createUrlRangeSource({
+      url: createOptions.options.url,
+      persistentCache: createOptions.options.persistentCache,
+      stats,
+    });
   /** @type {Promise<StarOctreeBootstrapProduct> | null} */
   let bootstrapPromise = null;
   /** @type {StarOctreeBootstrapProduct | null} */
@@ -97,6 +108,10 @@ export function createStarOctreeIndexSource(createOptions) {
 
   return {
     persistentCacheAvailable: rangeSource.persistentCacheAvailable,
+    sourceIdentity:
+      createOptions.sourceIdentity ??
+      createOptions.options.url ??
+      createOptions.providerId,
 
     async ensureBootstrapLoaded() {
       if (bootstrapPromise) {

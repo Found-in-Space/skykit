@@ -1,26 +1,35 @@
 import { planObserverShellDemand, normalizeObserverShellView } from './star-octree-observer-shell.js';
+import { createDecodedPayloadCache } from './star-octree-decoded-cache.js';
+import {
+  ERR_STAR_OCTREE_UNSUPPORTED_STRATEGY,
+  createStarOctreeError,
+  toDeltaError,
+} from './star-octree-errors.js';
 import { decodeStarPayload } from './star-octree-payloads.js';
 import { createStarObjectBatchProduct } from './star-octree-products.js';
 import { createAsyncQueue } from './star-octree-queue.js';
+import {
+  normalizeTargetFrustumView,
+  planTargetFrustumDemand,
+} from './star-octree-target-frustum.js';
 
 /**
- * @typedef {import('./index.d.ts').StarObjectBatchProduct} StarObjectBatchProduct
- * @typedef {import('./index.d.ts').StarOctreeCoordinateOutput} StarOctreeCoordinateOutput
- * @typedef {import('./index.d.ts').StarOctreeDemandEntry} StarOctreeDemandEntry
- * @typedef {import('./index.d.ts').StarOctreeDemandPlan} StarOctreeDemandPlan
- * @typedef {import('./index.d.ts').StarOctreeFetchStrategy} StarOctreeFetchStrategy
- * @typedef {import('./index.d.ts').StarOctreeObjectBatchStreamOptions} StarOctreeObjectBatchStreamOptions
- * @typedef {import('./index.d.ts').StarOctreePayloadDelta} StarOctreePayloadDelta
- * @typedef {import('./index.d.ts').StarOctreePayloadStreamOptions} StarOctreePayloadStreamOptions
- * @typedef {import('./index.d.ts').StarOctreeProductDelta} StarOctreeProductDelta
- * @typedef {import('./index.d.ts').StarOctreeRuntimeNode} StarOctreeRuntimeNode
- * @typedef {import('./index.d.ts').StarOctreeSelectionContext} StarOctreeSelectionContext
- * @typedef {import('./index.d.ts').StarOctreeViewPatch} StarOctreeViewPatch
+ * @typedef {import('./index.js').StarObjectBatchProduct} StarObjectBatchProduct
+ * @typedef {import('./index.js').StarOctreeCoordinateOutput} StarOctreeCoordinateOutput
+ * @typedef {import('./index.js').StarOctreeDemandEntry} StarOctreeDemandEntry
+ * @typedef {import('./index.js').StarOctreeDemandPlan} StarOctreeDemandPlan
+ * @typedef {import('./index.js').StarOctreeFetchStrategy} StarOctreeFetchStrategy
+ * @typedef {import('./index.js').StarOctreeObjectBatchStreamOptions} StarOctreeObjectBatchStreamOptions
+ * @typedef {import('./index.js').StarOctreePayloadDelta} StarOctreePayloadDelta
+ * @typedef {import('./index.js').StarOctreePayloadStreamOptions} StarOctreePayloadStreamOptions
+ * @typedef {import('./index.js').StarOctreeProductDelta} StarOctreeProductDelta
+ * @typedef {import('./index.js').StarOctreeRuntimeNode} StarOctreeRuntimeNode
+ * @typedef {import('./index.js').StarOctreeSelectionContext} StarOctreeSelectionContext
+ * @typedef {import('./index.js').StarOctreeViewPatch} StarOctreeViewPatch
  * @typedef {ReturnType<typeof import('./star-octree-index-source.js').createStarOctreeIndexSource>} StarOctreeIndexSource
  */
 
-export const ERR_STAR_OCTREE_UNSUPPORTED_STRATEGY =
-  'ERR_STAR_OCTREE_UNSUPPORTED_STRATEGY';
+export { ERR_STAR_OCTREE_UNSUPPORTED_STRATEGY };
 
 const DEFAULT_STRATEGY = /** @type {const} */ ({ kind: 'observer-shell' });
 const DEFAULT_ATTRIBUTES = ['position', 'teffLog8', 'magAbs'];
@@ -34,19 +43,33 @@ const DEFAULT_COORDINATES = {
  * @param {{
  *   providerId: string;
  *   indexSource: StarOctreeIndexSource;
+ *   persistentCache?: 'on' | 'off';
+ *   memoryBudgetBytes?: number;
+ *   workTracker?: ReturnType<typeof import('./star-octree-work-tracker.js').createStarOctreeWorkTracker>;
  * }} options
  */
 export function createStarOctreePipeline(options) {
   let nextStreamId = 1;
+  const decodedCache = createDecodedPayloadCache({
+    sourceIdentity: options.indexSource.sourceIdentity,
+    persistentCache: options.persistentCache,
+    memoryBudgetBytes: options.memoryBudgetBytes,
+  });
 
   return {
+    getDecodedCacheSnapshot,
     planDemandForContext,
     planDemandForStreamOptions,
     streamPayloads,
     streamObjectBatches,
     streamProductsForEntries,
+    warmEntries,
     fetchObjectBatch,
   };
+
+  function getDecodedCacheSnapshot() {
+    return decodedCache.getSnapshot();
+  }
 
   /**
    * @param {StarOctreeSelectionContext} context
@@ -60,11 +83,18 @@ export function createStarOctreePipeline(options) {
       });
     }
 
+    if (context.strategy.kind === 'target-frustum') {
+      return planTargetFrustumDemand({
+        indexSource: options.indexSource,
+        context,
+      });
+    }
+
     if (context.strategy.kind === 'custom') {
       return context.strategy.selectDemand(context);
     }
 
-    throw createUnsupportedStrategyError(context.strategy.kind);
+    throw createUnsupportedStrategyError('unknown');
   }
 
   /**
@@ -97,6 +127,10 @@ export function createStarOctreePipeline(options) {
         const { plan } = await planDemandForStreamOptions(streamOptions);
         const nodes = plan.entries.map((entry) => entry.node);
         totalNodes = nodes.length;
+        const work = options.workTracker?.start({
+          status: 'fetching',
+          nodeCount: totalNodes,
+        });
 
         await options.indexSource.fetchNodePayloadBatchProgressive(nodes, {
           emitCachedFirst: streamOptions.streaming?.emitCachedFirst,
@@ -123,15 +157,21 @@ export function createStarOctreePipeline(options) {
               totalNodes,
               loadedBytes,
             });
+            work?.update({
+              status: loadedNodes >= totalNodes ? 'streaming' : 'fetching',
+              bytesLoaded: loadedBytes,
+            });
           },
         });
 
+        work?.finish();
         queue.push({
           type: 'payload/complete',
           streamId,
           providerId: options.providerId,
         });
       } catch (error) {
+        // The queue is the public error channel for bounded streams.
         queue.push({
           type: 'payload/error',
           streamId,
@@ -232,38 +272,97 @@ export function createStarOctreePipeline(options) {
    */
   function streamProductsForEntries(entries, productOptions) {
     const queue = createAsyncQueue();
-    const nodes = entries.map((entry) => entry.node);
+    const currentEntries = entries.filter((entry) => (entry.role ?? 'current') === 'current');
+    const nodes = currentEntries.map((entry) => entry.node);
+    const work = options.workTracker?.start({
+      sessionId: productOptions.sessionId,
+      status: 'fetching',
+      nodeCount: nodes.length,
+    });
 
     void (async () => {
       try {
         await options.indexSource.fetchNodePayloadBatchProgressive(nodes, {
-          onBatch(payloadEntries) {
-            const productEntries = payloadEntries.map((entry) => ({
-              node: entry.node,
-              decoded: decodePayloadEntry(entry.node, entry.buffer),
-            }));
+          emitCachedFirst: true,
+          async onBatch(payloadEntries) {
+            work?.update({
+              status: 'decoding',
+              bytesLoaded: payloadEntries.reduce(
+                (sum, entry) => sum + entry.buffer.byteLength,
+                0,
+              ),
+            });
+            const productEntries = await Promise.all(
+              payloadEntries.map(async (entry) => ({
+                node: entry.node,
+                decoded: await decodePayloadEntry(entry.node, entry.buffer),
+              })),
+            );
 
             if (productOptions.batchMode === 'node') {
               for (const productEntry of productEntries) {
                 queue.push(createProduct([productEntry], productOptions));
               }
+              work?.update({ status: 'streaming' });
               return;
             }
 
             if (productEntries.length > 0) {
               queue.push(createProduct(productEntries, productOptions));
+              work?.update({ status: 'streaming' });
             }
           },
         });
       } catch (error) {
+        work?.fail();
         queue.fail(error);
         return;
       }
 
+      work?.finish();
       queue.close();
     })();
 
     return queue;
+  }
+
+  /**
+   * Warm payload and decoded caches for entries without emitting products.
+   *
+   * @param {StarOctreeDemandEntry[]} entries
+   * @param {{ sessionId?: string }} [warmOptions]
+   */
+  async function warmEntries(entries, warmOptions = {}) {
+    const nodes = entries
+      .filter((entry) => entry.node.payloadLength > 0)
+      .map((entry) => entry.node);
+    if (nodes.length === 0) {
+      return;
+    }
+
+    const work = options.workTracker?.start({
+      sessionId: warmOptions.sessionId,
+      status: 'fetching',
+      nodeCount: nodes.length,
+    });
+
+    try {
+      await options.indexSource.fetchNodePayloadBatchProgressive(nodes, {
+        emitCachedFirst: true,
+        async onBatch(payloadEntries) {
+          work?.update({ status: 'decoding' });
+          await Promise.all(
+            payloadEntries.map((entry) =>
+              decodePayloadEntry(entry.node, entry.buffer),
+            ),
+          );
+        },
+      });
+      work?.finish();
+    } catch (error) {
+      work?.fail();
+      throw error;
+    }
   }
 
   /**
@@ -274,12 +373,16 @@ export function createStarOctreePipeline(options) {
     const streamId = streamOptions.id ?? createStreamId('fetch');
     const { plan } = await planDemandForStreamOptions(streamOptions);
     const payloadEntries = await options.indexSource.fetchNodePayloadBatchProgressive(
-      plan.entries.map((entry) => entry.node),
+      plan.entries
+        .filter((entry) => (entry.role ?? 'current') === 'current')
+        .map((entry) => entry.node),
     );
-    const productEntries = payloadEntries.map((entry) => ({
-      node: entry.node,
-      decoded: decodePayloadEntry(entry.node, entry.buffer),
-    }));
+    const productEntries = await Promise.all(
+      payloadEntries.map(async (entry) => ({
+        node: entry.node,
+        decoded: await decodePayloadEntry(entry.node, entry.buffer),
+      })),
+    );
 
     return createStarObjectBatchProduct({
       providerId: options.providerId,
@@ -299,10 +402,17 @@ export function createStarOctreePipeline(options) {
    * @param {StarOctreeRuntimeNode} node
    * @param {ArrayBuffer} buffer
    */
-  function decodePayloadEntry(node, buffer) {
-    return decodeStarPayload(buffer, node, {
-      datasetId: options.indexSource.getSnapshot().datasetId,
-    });
+  async function decodePayloadEntry(node, buffer) {
+    const datasetId = options.indexSource.getSnapshot().datasetId;
+    const cacheKey = decodedCache.createKey(node, datasetId);
+    const cached = await decodedCache.get(cacheKey, node);
+    if (cached) {
+      return cached;
+    }
+
+    const decoded = decodeStarPayload(buffer, node, { datasetId });
+    decodedCache.set(cacheKey, decoded);
+    return decoded;
   }
 
   /**
@@ -356,9 +466,7 @@ export function createStarOctreePipeline(options) {
 function createSelectionContext(providerId, options, extras = {}) {
   const objectOptions = /** @type {Partial<StarOctreeObjectBatchStreamOptions>} */ (options);
   const strategy = options.strategy ?? DEFAULT_STRATEGY;
-  const view = strategy.kind === 'observer-shell'
-    ? normalizeObserverShellView(options.view)
-    : options.view ?? {};
+  const view = normalizeContextView(strategy, options.view);
   const viewRevision = extras.viewRevision ?? objectOptions.viewRevision ?? 0;
 
   return {
@@ -367,11 +475,7 @@ function createSelectionContext(providerId, options, extras = {}) {
     strategy,
     view: {
       revision: viewRevision,
-      ...(view.observerPc ? { observerPc: view.observerPc } : {}),
-      ...(view.limitingMagnitude !== undefined
-        ? { limitingMagnitude: view.limitingMagnitude }
-        : {}),
-      ...(view.targetPc ? { targetPc: view.targetPc } : {}),
+      ...view,
     },
     viewRevision,
     demandRevision: extras.demandRevision ?? objectOptions.demandRevision ?? 0,
@@ -388,20 +492,24 @@ function createSelectionContext(providerId, options, extras = {}) {
  * @returns {Error & { code: string }}
  */
 function createUnsupportedStrategyError(kind) {
-  const error = new Error(`Star octree strategy "${kind}" is not supported yet.`);
-  return Object.assign(error, {
-    code: ERR_STAR_OCTREE_UNSUPPORTED_STRATEGY,
-  });
+  return createStarOctreeError(
+    ERR_STAR_OCTREE_UNSUPPORTED_STRATEGY,
+    `Star octree strategy "${kind}" is not supported yet.`,
+  );
 }
 
 /**
- * @param {unknown} error
+ * @param {StarOctreeFetchStrategy} strategy
+ * @param {StarOctreeViewPatch | undefined} view
  */
-function toDeltaError(error) {
-  return {
-    message: error instanceof Error ? error.message : String(error),
-    ...(error && typeof error === 'object' && 'code' in error
-      ? { code: String(/** @type {{ code: unknown }} */ (error).code) }
-      : {}),
-  };
+function normalizeContextView(strategy, view) {
+  if (strategy.kind === 'observer-shell') {
+    return normalizeObserverShellView(view);
+  }
+
+  if (strategy.kind === 'target-frustum') {
+    return normalizeTargetFrustumView(view, strategy);
+  }
+
+  return view ?? {};
 }

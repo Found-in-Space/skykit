@@ -154,21 +154,21 @@ through the provider/session APIs, not through diagnostic side paths.
 | --- | --- | --- |
 | URL range source | Implemented | Range fetches, bootstrap/shard cache, and basic stats. |
 | Octree index reader | Implemented | STAR/ODSC header parsing, root shard loading, shard loading, runtime nodes. |
-| Traversal engine | First pass implemented | Root entries, same-shard children, frontier shards, deterministic traversal. |
-| observer-shell strategy | First pass implemented | Uses provider-native parsec view coordinates and header `magLimit` shell pruning. |
-| target-frustum strategy | Second pass | Type remains public, but alpha should emit/throw unsupported-strategy errors until implemented. |
-| Demand reconciler | First pass implemented | Node-key current/stale/remove semantics; richer retention metadata is second pass. |
-| Work scheduler | First pass implemented | Latest-view suppression and progressive payload work; fully interleaved traversal/fetch reprioritization is second pass. |
+| Traversal engine | Implemented | Root entries, same-shard children, frontier shards, deterministic traversal. |
+| observer-shell strategy | Implemented | Uses provider-native parsec view coordinates and header `magLimit` shell pruning. |
+| target-frustum strategy | Implemented | Requires exact plain-data camera orientation and projection state; applies shell pruning then frustum/AABB pruning. |
+| Demand reconciler | Second pass implemented | Product membership indexes support grouped live products, stale/remove, and replacement products for partial retention. |
+| Work scheduler | Second pass partial | Latest-view gating, role-aware prefetch warming, progressive payload work, and work snapshots are implemented. Fully interleaved traversal/fetch reprioritization remains a later tuning pass. |
 | Payload fetcher/cache | First pass implemented | Payload range batching, decompression, in-memory decompressed payload cache, payload stats. |
 | Payload decoder | First pass implemented | 16-byte star records into parsec `position`, `magAbs`, `teffLog8`, and object refs. |
 | Product builder | First pass implemented | Non-cumulative object batches and decode-time coordinate transforms. |
 | Live sessions | First pass implemented | `updateView()` stays synchronous; products stream through `session.deltas()`. |
 | Bounded streams | First pass implemented | `streamPayloads()`, `streamObjectBatches()`, and `fetchObjectBatch()` share the same pipeline. |
-| Persistent decoded cache | Second pass | Persistent range cache may exist; decoded payload/product cache remains memory-only. |
-| File-handle providers | Second pass | URL provider is the implemented source adapter. |
-| Transfer/workers/WASM | Second pass | Borrowed buffers are the implemented ownership mode. |
+| Persistent decoded cache | Second pass implemented | Memory LRU decoded payload cache is implemented; persistent decoded cache is used when browser Cache API is available and requested. |
+| File/blob providers | Second pass implemented | `createStarOctreeFileProviderService()` shares the provider/session API with a blob/file range source. |
+| Transfer/workers/WASM | Second pass partial | Transfer ownership is implemented for product buffers when transferable structured clone is available. Dedicated worker/WASM execution remains later. |
 | Extinction/dust | Second pass | Apparent visibility is geometric only in this provider slice. |
-| Sidecars/names/catalog labels | Second pass | Object refs are emitted; sidecar lookup is outside this slice. |
+| Sidecars/names/catalog labels | Second pass partial | A separate `@found-in-space/meta-sidecar-provider` boundary resolves facts from emitted refs/pick metadata. Sidecar octree byte loading remains outside the star provider. |
 
 The demand planner is the only component that should decide relevance. It may use the whole octree header, runtime node facts, limiting magnitude, indexing magnitude, extinction or falloff formulas, frustum tests, shell freshness policies, motion lookahead, or dataset-specific rules. Those are strategy concerns, not provider-wide assumptions.
 
@@ -273,6 +273,7 @@ export interface StarOctreeProviderServiceOptions {
   persistentCache?: 'on' | 'off';
 
   limits?: {
+    memoryBudgetBytes?: number;
     maxInflightPayloadBatches?: number;
     payloadMaxGapBytes?: number;
     payloadMaxBatchBytes?: number;
@@ -292,7 +293,22 @@ const provider = createStarOctreeProviderService({
 
 The common provider/session API is the important contract. Different source implementations may have different internal economics and should not be forced into one constructor.
 
-Future non-URL sources, such as browser file handles or other random-access local sources, should be exposed as separate factories or source-specific adapters with their own options. A file-handle source may not need persistent cache, HTTP range batching, range-gap optimization, or the same inflight controls.
+Non-URL sources should be exposed as separate factories or source-specific adapters with their own options. The alpha file/blob source is:
+
+```ts
+export interface StarOctreeFileProviderServiceOptions {
+  id?: string;
+  file: Blob;
+  datasetId?: string | null;
+  limits?: StarOctreeProviderServiceOptions['limits'];
+}
+
+export function createStarOctreeFileProviderService(
+  options: StarOctreeFileProviderServiceOptions
+): StarOctreeProviderService;
+```
+
+A file/blob source shares the common provider/session API, but it does not use HTTP range cache semantics or URL range-gap economics.
 
 ### 6.2 Provider service API
 
@@ -397,7 +413,7 @@ export interface StarOctreeProviderDescriptor {
 }
 ```
 
-Initial values should be derived from the package's own internal source/file-service snapshot state. Capabilities should describe implemented behavior, not future intent. During the byte-real bootstrap slice, URL range access, bootstrap loading, and sessions may be true, while payload batching and object streams should remain false/not implemented until the payload streaming slice.
+Values should be derived from the package's own internal source/cache/scheduler state. Capabilities describe implemented behavior, not future intent; for example `decodedCache` and `transferableBuffers` should only be true when those paths are active in the current runtime.
 
 ---
 
@@ -484,7 +500,8 @@ observer-shell:
   apply the magnitude-indexed shell predicate to provider-owned octree traversal
 
 target-frustum:
-  apply the same magnitude-indexed shell predicate, then prune by view volume
+  apply the same magnitude-indexed shell predicate, then prune by exact
+  quaternion/FOV/aspect frustum against node AABBs
 
 custom:
   may implement its own demand predicate, but should still treat runtime node level
@@ -562,6 +579,7 @@ export interface StarOctreeViewPatch {
   targetPc?: { x: number; y: number; z: number };
 
   directionIcrs?: { x: number; y: number; z: number };
+  orientationIcrs?: { x: number; y: number; z: number; w: number };
 
   verticalFovDeg?: number;
   aspectRatio?: number;
@@ -583,6 +601,8 @@ export interface ViewUpdateOptions {
   reason?: string;
 }
 ```
+
+`target-frustum` uses `orientationIcrs` as a plain-data quaternion in the same camera convention as `camera-rig.js`: local forward is `(0, 0, -1)`, right is `(1, 0, 0)`, and up is `(0, 1, 0)`. The provider must not import Three.js or camera objects. For exact frustum demand, `orientationIcrs`, `verticalFovDeg`, and `aspectRatio` are required. `nearPc` defaults to `0`; omitted `farPc` means there is no explicit far plane beyond the magnitude-shell predicate.
 
 Sprint 1 behavior:
 
@@ -1161,6 +1181,9 @@ export interface StarOctreeProviderSnapshot {
     shardCacheHits: number;
     headerCacheHits: number;
     persistentCacheHits: number;
+    decodedCacheHits?: number;
+    decodedPersistentCacheHits?: number;
+    decodedCacheEvictions?: number;
     fetchTimeMs: number;
   };
 }
@@ -1553,11 +1576,11 @@ This keeps the data contract physically meaningful by default while allowing Sky
 
 ---
 
-## 21. Sidecars in sprint 1
+## 21. Sidecars and fact providers
 
-Sidecars are out of scope.
+Sidecars are out of scope for the star provider.
 
-The provider should not resolve names, identifiers, or metadata.
+`StarOctreeProviderService` should not resolve names, identifiers, or metadata.
 
 Reason:
 
@@ -1569,7 +1592,9 @@ MetaSidecarProviderService
   → fact-batch products
 ```
 
-The current `MetaSidecarService` is already a distinct service with compatibility validation and cell lookup behavior. It should become a separate provider in Sprint 2, not be folded into this provider. 
+The alpha sidecar boundary is a separate `@found-in-space/meta-sidecar-provider` package. It accepts `CanonicalObjectRef` or `pickMeta`-shaped references emitted by star products, validates parent dataset identity, and resolves display facts without creating a dependency from the star provider back into labels/catalog UI.
+
+The sidecar package should evolve independently. Its byte-level sidecar octree source can reuse the same architectural boundaries as the star provider later, but it must not be folded into `packages/star-octree-provider`.
 
 ---
 
@@ -1818,7 +1843,7 @@ MetaSidecarProviderService
   emits FactBatchProduct
 ```
 
-Current `MetaSidecarService` already validates sidecar compatibility and resolves entries from pick metadata. 
+The alpha sidecar provider boundary exists as a separate package. The remaining migration work is to add its real sidecar octree byte source and compatibility checks against render dataset bootstrap data, using the old `MetaSidecarService` only as reference.
 
 ### Sprint 3: StarFieldLayer adapter
 
@@ -1846,7 +1871,7 @@ StarFieldLayer or Three adapter
 
 ### Sprint 4: Additional strategies
 
-Add more provider-owned loading strategies or tune existing ones, such as motion-adaptive observer shell and target-frustum demand.
+Add more provider-owned loading strategies or tune existing ones, such as motion-adaptive observer shell and target-frustum demand. Exact `target-frustum` demand now exists; later work should focus on motion/lookahead freshness policy, fully interleaved traversal/fetch reprioritization, and cache-aware prefetch.
 
 ### Sprint 5: Message bus wrapper
 

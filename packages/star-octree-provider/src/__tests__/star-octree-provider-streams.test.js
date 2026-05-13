@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { gzipSync } from 'node:zlib';
 
-import { createStarOctreeProviderService } from '../index.js';
+import {
+  createStarOctreeFileProviderService,
+  createStarOctreeProviderService,
+} from '../index.js';
+import {
+  createStarOctreeProviderServiceForTest,
+} from '../star-octree-provider-service.js';
 import { STAR_HAS_PAYLOAD } from '../star-octree-format.js';
 import {
   concatBytes,
@@ -99,6 +105,75 @@ test('streamPayloads reuses cached decompressed payloads', async () => {
   }
 });
 
+test('decoded cache avoids repeat decode and reports LRU eviction', async () => {
+  const fixture = createObjectStreamFixture();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fixture.fileBytes, []);
+
+  try {
+    const provider = createStarOctreeProviderService({
+      id: 'provider-a',
+      url: 'memory://stars.octree',
+      limits: {
+        memoryBudgetBytes: 1,
+      },
+    });
+
+    for await (const _delta of provider.streamObjectBatches({
+      view: { observerPc: { x: 0, y: 0, z: 0 }, limitingMagnitude: 6.5 },
+    })) {
+      // consume stream
+    }
+
+    const snapshot = provider.getSnapshot();
+    assert.equal(snapshot.cache.decodedPayloads, 0);
+    assert.equal(snapshot.stats.decodedCacheEvictions > 0, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('persistent decoded cache can be reused by a new provider instance', async () => {
+  const fixture = createObjectStreamFixture();
+  const originalFetch = globalThis.fetch;
+  const originalCaches = globalThis.caches;
+  globalThis.fetch = createMockFetch(fixture.fileBytes, []);
+  globalThis.caches = createMemoryCaches();
+
+  try {
+    const first = createStarOctreeProviderService({
+      id: 'provider-a',
+      url: 'memory://stars.octree',
+      persistentCache: 'on',
+    });
+    for await (const _delta of first.streamObjectBatches({
+      view: { observerPc: { x: 0, y: 0, z: 0 }, limitingMagnitude: 6.5 },
+    })) {
+      // warm persistent cache
+    }
+
+    const second = createStarOctreeProviderService({
+      id: 'provider-b',
+      url: 'memory://stars.octree',
+      persistentCache: 'on',
+    });
+    for await (const _delta of second.streamObjectBatches({
+      view: { observerPc: { x: 0, y: 0, z: 0 }, limitingMagnitude: 6.5 },
+    })) {
+      // read from persistent cache
+    }
+
+    assert.equal(second.getSnapshot().stats.decodedPersistentCacheHits >= 2, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalCaches === undefined) {
+      delete globalThis.caches;
+    } else {
+      globalThis.caches = originalCaches;
+    }
+  }
+});
+
 test('streamObjectBatches emits real non-cumulative object products', async () => {
   const fixture = createObjectStreamFixture();
   const originalFetch = globalThis.fetch;
@@ -138,6 +213,45 @@ test('streamObjectBatches emits real non-cumulative object products', async () =
     assert.equal(product.refs.length, 3);
     assert.equal(current.type, 'data/representation-current');
     assert.equal(current.completeness.loadedObjects, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('streamObjectBatches supports exact target-frustum demand', async () => {
+  const fixture = createObjectStreamFixture();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fixture.fileBytes, []);
+
+  try {
+    const provider = createStarOctreeProviderService({
+      id: 'provider-a',
+      url: 'memory://stars.octree',
+    });
+    const deltas = [];
+
+    for await (const delta of provider.streamObjectBatches({
+      strategy: { kind: 'target-frustum' },
+      view: {
+        observerPc: { x: 0, y: 0, z: 0 },
+        limitingMagnitude: 6.5,
+        orientationIcrs: { x: 0, y: 0, z: 0, w: 1 },
+        verticalFovDeg: 120,
+        aspectRatio: 1,
+        nearPc: 0,
+        farPc: 500,
+      },
+    })) {
+      deltas.push(delta);
+    }
+
+    const upserts = deltas.filter((delta) => delta.type === 'data/product-upsert');
+    assert.equal(upserts.length, 1);
+    assert.deepEqual(
+      upserts[0].product.nodes.map((node) => node.nodeKey),
+      fixture.payloadNodeKeys,
+    );
+    assert.equal(deltas.at(-1).type, 'data/representation-current');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -190,14 +304,103 @@ test('live sessions stream real observer-shell products through deltas', async (
     const upserts = deltas.filter((delta) => delta.type === 'data/product-upsert');
 
     assert.equal(receipt.demand, 'queued');
-    assert.equal(upserts.length, 2);
+    assert.equal(upserts.length, 1);
     assert.deepEqual(
-      upserts.map((delta) => delta.product.nodes[0].nodeKey),
+      upserts[0].product.nodes.map((node) => node.nodeKey),
       fixture.payloadNodeKeys,
     );
     assert.equal(deltas.at(-1).type, 'data/representation-current');
     assert.equal(session.getSnapshot().demand.status, 'current');
-    assert.equal(session.getSnapshot().demand.currentProductCount, 2);
+    assert.equal(session.getSnapshot().demand.currentProductCount, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('live sessions prefetch role warms caches without emitting products', async () => {
+  const fixture = createObjectStreamFixture();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fixture.fileBytes, []);
+
+  try {
+    const provider = createStarOctreeProviderServiceForTest(
+      { id: 'provider-a', url: 'memory://stars.octree' },
+      {
+        useRealPipeline: true,
+        planDemand: () => ({
+          entries: [
+            { node: fixture.runtimeNodes[0], role: 'current', priority: 10 },
+            { node: fixture.runtimeNodes[1], role: 'prefetch', priority: 1 },
+          ],
+          signature: 'current-and-prefetch',
+        }),
+      },
+    );
+    const session = provider.createSession({ id: 'session-a' });
+    const iterator = session.deltas()[Symbol.asyncIterator]();
+
+    session.updateView({ observerPc: { x: 0, y: 0, z: 0 } });
+    const deltas = await readUntilCurrent(iterator);
+    const upserts = deltas.filter((delta) => delta.type === 'data/product-upsert');
+
+    assert.equal(upserts.length, 1);
+    assert.deepEqual(
+      upserts[0].product.nodes.map((node) => node.nodeKey),
+      [fixture.payloadNodeKeys[0]],
+    );
+
+    await waitFor(() => provider.getSnapshot().cache.decodedPayloads >= 2);
+    assert.equal(provider.getSnapshot().stats.payloadNodesFetched, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('grouped live products are replaced when partially retained', async () => {
+  const fixture = createObjectStreamFixture();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fixture.fileBytes, []);
+  let demandedNodes = fixture.runtimeNodes;
+
+  try {
+    const provider = createStarOctreeProviderServiceForTest(
+      { id: 'provider-a', url: 'memory://stars.octree' },
+      {
+        useRealPipeline: true,
+        planDemand: () => ({
+          entries: demandedNodes.map((node, index) => ({
+            node,
+            role: 'current',
+            priority: 10 - index,
+          })),
+          signature: demandedNodes.map((node) => node.nodeKey).join('|'),
+        }),
+      },
+    );
+    const session = provider.createSession({ id: 'session-a' });
+    const iterator = session.deltas()[Symbol.asyncIterator]();
+
+    session.updateView({ observerPc: { x: 0, y: 0, z: 0 } });
+    const initial = await readUntilCurrent(iterator);
+    const initialProduct = initial.find((delta) => delta.type === 'data/product-upsert').product;
+    assert.equal(initialProduct.nodes.length, 2);
+
+    demandedNodes = [fixture.runtimeNodes[1]];
+    session.updateView({ observerPc: { x: 1, y: 0, z: 0 } });
+    const changed = await readUntilCurrent(iterator);
+    const stale = changed.filter((delta) => delta.type === 'data/product-stale');
+    const remove = changed.filter((delta) => delta.type === 'data/product-remove');
+    const upserts = changed.filter((delta) => delta.type === 'data/product-upsert');
+
+    assert.deepEqual(stale.map((delta) => delta.productId), [initialProduct.id]);
+    assert.deepEqual(remove.map((delta) => delta.productId), [initialProduct.id]);
+    assert.equal(upserts.length, 1);
+    assert.deepEqual(
+      upserts[0].product.nodes.map((node) => node.nodeKey),
+      [fixture.payloadNodeKeys[1]],
+    );
+    assert.equal(provider.getSnapshot().stats.payloadCacheHits >= 1, true);
+    assert.equal(provider.getSnapshot().stats.decodedCacheHits >= 1, true);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -240,6 +443,33 @@ test('streamObjectBatches applies coordinate transforms while packing', async ()
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('file provider streams the same object batches without URL cache economics', async () => {
+  const fixture = createObjectStreamFixture();
+  const provider = createStarOctreeFileProviderService({
+    id: 'file-provider',
+    file: new Blob([fixture.fileBytes], { type: 'application/octet-stream' }),
+  });
+  const deltas = [];
+
+  for await (const delta of provider.streamObjectBatches({
+    view: {
+      observerPc: { x: 0, y: 0, z: 0 },
+      limitingMagnitude: 6.5,
+    },
+  })) {
+    deltas.push(delta);
+  }
+
+  const upserts = deltas.filter((delta) => delta.type === 'data/product-upsert');
+  const snapshot = provider.getSnapshot();
+
+  assert.equal(upserts.length, 1);
+  assert.equal(upserts[0].product.count, 3);
+  assert.equal(snapshot.dataset.url, null);
+  assert.equal(snapshot.stats.rangeRequests > 0, true);
+  assert.equal(provider.describe().capabilities.persistentCache, false);
 });
 
 function createObjectStreamFixture() {
@@ -302,11 +532,67 @@ function createObjectStreamFixture() {
     fileBytes,
     payloadA,
     payloadB,
+    runtimeNodes: [
+      createRuntimeNode({
+        nodeKey: `${indexOffset}:2`,
+        centerX: -50,
+        centerY: -50,
+        centerZ: -50,
+        halfSize: 25,
+        payloadOffset: payloadOffsetA,
+        payloadLength: compressedA.length,
+      }),
+      createRuntimeNode({
+        nodeKey: `${indexOffset}:3`,
+        centerX: 50,
+        centerY: -50,
+        centerZ: -50,
+        halfSize: 25,
+        payloadOffset: payloadOffsetB,
+        payloadLength: compressedB.length,
+        nodeIndex: 3,
+      }),
+    ],
     payloadNodeKeys: [
       `${indexOffset}:2`,
       `${indexOffset}:3`,
     ],
   };
+}
+
+function createRuntimeNode(overrides) {
+  return {
+    nodeKey: 'node',
+    centerX: 0,
+    centerY: 0,
+    centerZ: 0,
+    halfSize: 1,
+    level: 2,
+    gridX: 0,
+    gridY: 0,
+    gridZ: 0,
+    flags: STAR_HAS_PAYLOAD,
+    childMask: 0,
+    payloadOffset: 0,
+    payloadLength: 0,
+    firstChild: 0,
+    localDepth: 2,
+    localPath: 0,
+    shardOffset: 192,
+    nodeIndex: 2,
+    ...overrides,
+  };
+}
+
+async function waitFor(predicate) {
+  const startedAt = Date.now();
+
+  while (!predicate()) {
+    if (Date.now() - startedAt > 500) {
+      throw new Error('Timed out waiting for condition.');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
 }
 
 function createPayloadBytes(records) {
@@ -323,6 +609,30 @@ function createPayloadBytes(records) {
   });
 
   return toArrayBuffer(bytes);
+}
+
+function createMemoryCaches() {
+  const stores = new Map();
+
+  return {
+    async open(name) {
+      if (!stores.has(name)) {
+        stores.set(name, new Map());
+      }
+      const store = stores.get(name);
+      return {
+        async match(request) {
+          const url = typeof request === 'string' ? request : request.url;
+          const buffer = store.get(url);
+          return buffer ? new Response(buffer.slice(0)) : undefined;
+        },
+        async put(request, response) {
+          const url = typeof request === 'string' ? request : request.url;
+          store.set(url, await response.arrayBuffer());
+        },
+      };
+    },
+  };
 }
 
 async function readUntilCurrent(iterator) {

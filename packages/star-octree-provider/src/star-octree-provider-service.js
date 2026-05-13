@@ -1,7 +1,10 @@
 import { createDefaultDecodedStarSegment } from './star-octree-products.js';
+import { createBlobRangeSource } from './star-octree-blob-source.js';
 import { createStarOctreeIndexSource } from './star-octree-index-source.js';
 import { createStarOctreePipeline } from './star-octree-pipeline.js';
 import { createStarOctreeProviderSession } from './star-octree-provider-session.js';
+import { supportsTransferableBuffers } from './star-octree-transfer.js';
+import { createStarOctreeWorkTracker } from './star-octree-work-tracker.js';
 
 /**
  * @typedef {import('./index.d.ts').StarOctreeDemandEntry} StarOctreeDemandEntry
@@ -25,7 +28,24 @@ let nextSessionId = 1;
  * @typedef {{
  *   planDemand?: (context: StarOctreeSelectionContext) => Promise<StarOctreeDemandPlan> | StarOctreeDemandPlan;
  *   decodeNode?: (entry: StarOctreeDemandEntry, context: StarOctreeSelectionContext) => DecodedStarSegment;
+ *   useRealPipeline?: boolean;
  * }} StarOctreeProviderTestInternals
+ */
+
+/**
+ * @typedef {{
+ *   url?: string | null;
+ *   sourceIdentity?: string;
+ *   createRangeSource?: (stats: {
+ *     rangeRequests: number;
+ *     bytesRequested: number;
+ *     persistentCacheHits: number;
+ *     fetchTimeMs: number;
+ *   }) => {
+ *     persistentCacheAvailable: boolean;
+ *     fetchRange(start: number, end: number): Promise<ArrayBuffer>;
+ *   };
+ * }} StarOctreeSourceConfig
  */
 
 /**
@@ -34,6 +54,36 @@ let nextSessionId = 1;
  */
 export function createStarOctreeProviderService(options) {
   return createProviderService(options, {});
+}
+
+/**
+ * @param {import('./index.d.ts').StarOctreeFileProviderServiceOptions} options
+ * @returns {StarOctreeProviderService}
+ */
+export function createStarOctreeFileProviderService(options) {
+  validateFileProviderOptions(options);
+  const fileName = getBlobName(options.file);
+
+  return createProviderService(
+    {
+      id: options.id,
+      url: `file://${fileName}`,
+      datasetId: options.datasetId,
+      persistentCache: 'off',
+      limits: options.limits,
+    },
+    {},
+    {
+      url: null,
+      sourceIdentity: `file:${fileName}:${options.file.size}`,
+      createRangeSource(stats) {
+        return createBlobRangeSource({
+          file: options.file,
+          stats,
+        });
+      },
+    },
+  );
 }
 
 /**
@@ -50,9 +100,10 @@ export function createStarOctreeProviderServiceForTest(options, internals = {}) 
 /**
  * @param {StarOctreeProviderServiceOptions} options
  * @param {StarOctreeProviderTestInternals} internals
+ * @param {StarOctreeSourceConfig} [sourceConfig]
  * @returns {StarOctreeProviderService}
  */
-function createProviderService(options, internals) {
+function createProviderService(options, internals, sourceConfig = {}) {
   validateProviderOptions(options);
 
   const providerId = options.id ?? `star-octree-provider-${nextProviderId}`;
@@ -62,10 +113,20 @@ function createProviderService(options, internals) {
   const indexSource = createStarOctreeIndexSource({
     providerId,
     options,
+    ...(sourceConfig.createRangeSource
+      ? { createRangeSource: sourceConfig.createRangeSource }
+      : {}),
+    ...(sourceConfig.sourceIdentity
+      ? { sourceIdentity: sourceConfig.sourceIdentity }
+      : {}),
   });
+  const workTracker = createStarOctreeWorkTracker();
   const pipeline = createStarOctreePipeline({
     providerId,
     indexSource,
+    persistentCache: options.persistentCache,
+    memoryBudgetBytes: options.limits?.memoryBudgetBytes,
+    workTracker,
   });
   let disposed = false;
 
@@ -76,7 +137,7 @@ function createProviderService(options, internals) {
     decodeNode:
       internals.decodeNode ??
       ((entry) => createDefaultDecodedStarSegment(entry.node)),
-    ...(internals.planDemand || internals.decodeNode
+    ...(!internals.useRealPipeline && (internals.planDemand || internals.decodeNode)
       ? {}
       : {
           /**
@@ -85,6 +146,13 @@ function createProviderService(options, internals) {
            */
           streamObjectProducts(entries, streamOptions) {
             return pipeline.streamProductsForEntries(entries, streamOptions);
+          },
+          /**
+           * @param {StarOctreeDemandEntry[]} entries
+           * @param {{ sessionId?: string }} [warmOptions]
+           */
+          warmEntries(entries, warmOptions) {
+            return pipeline.warmEntries(entries, warmOptions);
           },
         }),
   };
@@ -96,11 +164,19 @@ function createProviderService(options, internals) {
     },
 
     describe() {
-      return createDescriptor(providerId, options, indexSource);
+      return createDescriptor(providerId, options, indexSource, sourceConfig);
     },
 
     getSnapshot() {
-      return createProviderSnapshot(providerId, options, sessions, indexSource);
+      return createProviderSnapshot(
+        providerId,
+        options,
+        sessions,
+        indexSource,
+        pipeline,
+        workTracker,
+        sourceConfig,
+      );
     },
 
     async ensureBootstrap() {
@@ -174,18 +250,38 @@ function validateProviderOptions(options) {
 }
 
 /**
+ * @param {import('./index.d.ts').StarOctreeFileProviderServiceOptions} options
+ */
+function validateFileProviderOptions(options) {
+  if (!options?.file || typeof options.file.slice !== 'function') {
+    throw new TypeError('createStarOctreeFileProviderService() requires a Blob or File.');
+  }
+}
+
+/**
+ * @param {Blob} file
+ */
+function getBlobName(file) {
+  if ('name' in file && typeof file.name === 'string' && file.name.length > 0) {
+    return file.name;
+  }
+  return 'stars.octree';
+}
+
+/**
  * @param {string} providerId
  * @param {StarOctreeProviderServiceOptions} options
  * @param {ReturnType<typeof createStarOctreeIndexSource>} indexSource
+ * @param {StarOctreeSourceConfig} [sourceConfig]
  * @returns {StarOctreeProviderDescriptor}
  */
-function createDescriptor(providerId, options, indexSource) {
+function createDescriptor(providerId, options, indexSource, sourceConfig = {}) {
   return {
     id: providerId,
     providerType: 'star-octree',
     datasetId: options.datasetId ?? null,
     datasetIdentitySource: null,
-    url: options.url,
+    url: sourceConfig.url === null ? null : options.url,
     produces: ['index', 'object-batch'],
     objectTypes: ['star'],
     attributes: ['position', 'teffLog8', 'magAbs', 'objectRef', 'pickMeta'],
@@ -194,12 +290,15 @@ function createDescriptor(providerId, options, indexSource) {
       rangeRequestable: true,
       payloadBatching: true,
       persistentCache: indexSource.persistentCacheAvailable,
-      decodedCache: false,
+      decodedCache: true,
       borrowedBuffers: true,
-      transferableBuffers: false,
+      transferableBuffers: supportsTransferableBuffers(),
       sessions: true,
     },
     limits: {
+      ...(options.limits?.memoryBudgetBytes !== undefined
+        ? { memoryBudgetBytes: options.limits.memoryBudgetBytes }
+        : {}),
       ...(options.limits?.maxInflightPayloadBatches !== undefined
         ? { maxInflightPayloadBatches: options.limits.maxInflightPayloadBatches }
         : {}),
@@ -218,13 +317,25 @@ function createDescriptor(providerId, options, indexSource) {
  * @param {StarOctreeProviderServiceOptions} options
  * @param {Map<string, ReturnType<typeof createStarOctreeProviderSession>>} sessions
  * @param {ReturnType<typeof createStarOctreeIndexSource>} indexSource
+ * @param {ReturnType<typeof createStarOctreePipeline>} pipeline
+ * @param {ReturnType<typeof createStarOctreeWorkTracker>} workTracker
+ * @param {StarOctreeSourceConfig} [sourceConfig]
  * @returns {StarOctreeProviderSnapshot}
  */
-function createProviderSnapshot(providerId, options, sessions, indexSource) {
+function createProviderSnapshot(
+  providerId,
+  options,
+  sessions,
+  indexSource,
+  pipeline,
+  workTracker,
+  sourceConfig = {},
+) {
   const sessionSnapshots = Array.from(sessions.values()).map((session) =>
     session.getSnapshot(),
   );
   const indexSnapshot = indexSource.getSnapshot();
+  const decodedSnapshot = pipeline.getDecodedCacheSnapshot();
   const liveProductBytes = sessionSnapshots.reduce(
     (sum, session) => sum + session.memory.liveBytes,
     0,
@@ -240,11 +351,14 @@ function createProviderSnapshot(providerId, options, sessions, indexSource) {
     dataset: {
       datasetId: indexSnapshot.datasetId,
       identitySource: indexSnapshot.datasetIdentitySource,
-      url: options.url,
+      url: sourceConfig.url === null ? null : options.url,
       bootstrapReady: indexSnapshot.bootstrapReady,
       rootShardReady: indexSnapshot.rootShardReady,
     },
-    cache: indexSnapshot.cache,
+    cache: {
+      ...indexSnapshot.cache,
+      decodedPayloads: decodedSnapshot.decodedPayloads,
+    },
     sessions: sessionSnapshots.map((session) => ({
       id: session.id,
       status: session.demand.status,
@@ -253,14 +367,15 @@ function createProviderSnapshot(providerId, options, sessions, indexSource) {
       productCount: session.demand.currentProductCount,
       liveBytes: session.memory.liveBytes,
     })),
-    workItems: [],
+    workItems: workTracker.snapshot(),
     memory: {
-      usedBytes: liveProductBytes,
+      budgetBytes: decodedSnapshot.decodedCacheBudgetBytes,
+      usedBytes: liveProductBytes + decodedSnapshot.decodedPayloadBytes,
       rawPayloadBytes: 0,
-      decodedPayloadBytes: 0,
+      decodedPayloadBytes: decodedSnapshot.decodedPayloadBytes,
       liveProductBytes,
       borrowedBytes,
-      evictableBytes: 0,
+      evictableBytes: decodedSnapshot.decodedPayloadBytes,
     },
     stats: {
       rangeRequests: indexSnapshot.stats.rangeRequests,
@@ -271,6 +386,9 @@ function createProviderSnapshot(providerId, options, sessions, indexSource) {
       shardCacheHits: indexSnapshot.stats.shardCacheHits,
       headerCacheHits: indexSnapshot.stats.headerCacheHits,
       persistentCacheHits: indexSnapshot.stats.persistentCacheHits,
+      decodedCacheHits: decodedSnapshot.decodedCacheHits,
+      decodedPersistentCacheHits: decodedSnapshot.decodedPersistentCacheHits,
+      decodedCacheEvictions: decodedSnapshot.decodedCacheEvictions,
       fetchTimeMs: indexSnapshot.stats.fetchTimeMs,
     },
   };
