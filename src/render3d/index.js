@@ -1,6 +1,7 @@
 export { ViewerRuntime } from '../core/viewer-runtime.js';
 export { createViewer } from '../embeds/create-viewer.js';
 export { createDefaultViewer } from '../embeds/create-default-viewer.js';
+export { createTouchOsRuntimePart } from './touch-os-runtime-part.js';
 export { createDesktopRig, createXrRig } from '../core/runtime-rig.js';
 export { createCameraRigController } from '../controllers/camera-rig-controller.js';
 export { createSelectionRefreshController } from '../controllers/selection-refresh-controller.js';

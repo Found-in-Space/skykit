@@ -12,6 +12,7 @@ export {
   createRadioBubbleMeshes,
   createSelectionRefreshController,
   createStarFieldLayer,
+  createTouchOsRuntimePart,
   createViewer,
   createVrStarFieldMaterialProfile,
   createXrLocomotionController,

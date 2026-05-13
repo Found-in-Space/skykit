@@ -34,7 +34,7 @@ import {
   toStarDataId,
 } from '../index.js';
 import { formatSpeedPcPerSec } from '../presets/navigation-presets.js';
-import { createTouchOsRuntimePart } from './touch-os-runtime-part.js';
+import { createTouchOsRuntimePart } from '../render3d/touch-os-runtime-part.js';
 import {
   createNavigationTouchOsRoot,
   createTouchOsFullscreenButton,

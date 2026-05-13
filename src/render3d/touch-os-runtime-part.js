@@ -1,7 +1,11 @@
+import * as THREE from 'three';
+import { resolveCompositeSurfacePlacements } from '@found-in-space/touch-os/hosts/three';
+
 /**
  * Viewer runtime part that owns one or more Touch OS panels inside a SkyKit
- * demo. Demos provide Touch OS runtimes, drivers, and frame resolvers
- * explicitly rather than routing through a second UI abstraction.
+ * scene. Each panel provides its Touch OS runtime and Three host driver
+ * directly; this helper only coordinates lifecycle, input routing, and
+ * composite-surface attachments.
  */
 
 function blockEvent(event) {
@@ -64,7 +68,152 @@ function buildPanelState(descriptor) {
     ...descriptor,
     enabled: false,
     latestFrame: null,
+    compositeAttachments: new Map(),
   };
+}
+
+function isTextureHandle(handle) {
+  return Boolean(handle?.texture?.isTexture);
+}
+
+function isImageHandle(handle) {
+  return Boolean(handle?.image);
+}
+
+function resolveHandleRevision(handle, fallbackRevision = 0) {
+  if (Number.isFinite(handle?.revision)) {
+    return Number(handle.revision);
+  }
+  if (Number.isFinite(fallbackRevision)) {
+    return Number(fallbackRevision);
+  }
+  return 0;
+}
+
+function createCompositeAttachment(panel, placement) {
+  const hostMesh = panel.driver.host.mesh;
+  const hostMaterial = panel.driver.host.material;
+  const geometry = new THREE.PlaneGeometry(1, 1);
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    depthTest: hostMaterial.depthTest,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.z = 0.01;
+  mesh.visible = false;
+  hostMesh.add(mesh);
+
+  if (hostMaterial.depthWrite) {
+    hostMaterial.depthWrite = false;
+    hostMaterial.needsUpdate = true;
+  }
+
+  let ownedTexture = null;
+  let ownedTextureRevision = -1;
+  let ownedTextureImage = null;
+
+  function resolveTexture(handle, surfaceRevision) {
+    if (isTextureHandle(handle)) {
+      return handle.texture;
+    }
+
+    if (!isImageHandle(handle)) {
+      return null;
+    }
+
+    if (!ownedTexture) {
+      ownedTexture = new THREE.CanvasTexture(handle.image);
+      ownedTexture.colorSpace = THREE.SRGBColorSpace;
+      ownedTexture.needsUpdate = true;
+      ownedTextureImage = handle.image;
+      ownedTextureRevision = resolveHandleRevision(handle, surfaceRevision);
+      return ownedTexture;
+    }
+
+    const nextRevision = resolveHandleRevision(handle, surfaceRevision);
+    if (ownedTextureImage !== handle.image) {
+      ownedTexture.image = handle.image;
+      ownedTextureImage = handle.image;
+      ownedTexture.needsUpdate = true;
+    }
+    if (ownedTextureRevision !== nextRevision) {
+      ownedTextureRevision = nextRevision;
+      ownedTexture.needsUpdate = true;
+    }
+    return ownedTexture;
+  }
+
+  return {
+    update(nextPlacement) {
+      const texture = resolveTexture(
+        nextPlacement.command.handle,
+        nextPlacement.command.surfaceRevision ?? 0,
+      );
+      if (!texture) {
+        mesh.visible = false;
+        return;
+      }
+
+      if (material.map !== texture) {
+        material.map = texture;
+        material.needsUpdate = true;
+      }
+
+      mesh.renderOrder = hostMesh.renderOrder + 1;
+      mesh.position.set(nextPlacement.localCenter.x, nextPlacement.localCenter.y, 0.01);
+      mesh.scale.set(
+        nextPlacement.mirrorX ? -nextPlacement.size.width : nextPlacement.size.width,
+        nextPlacement.size.height,
+        1,
+      );
+      mesh.visible = true;
+    },
+
+    dispose() {
+      hostMesh.remove(mesh);
+      geometry.dispose();
+      material.dispose();
+      ownedTexture?.dispose?.();
+    },
+  };
+}
+
+function syncCompositeAttachments(panel) {
+  const placements = resolveCompositeSurfacePlacements(panel.driver.host);
+  const seen = new Set();
+
+  for (const placement of placements) {
+    const handle = placement.command.handle;
+    if (!isTextureHandle(handle) && !isImageHandle(handle)) {
+      continue;
+    }
+
+    seen.add(placement.componentId);
+    let attachment = panel.compositeAttachments.get(placement.componentId);
+    if (!attachment) {
+      attachment = createCompositeAttachment(panel, placement);
+      panel.compositeAttachments.set(placement.componentId, attachment);
+    }
+    attachment.update(placement);
+  }
+
+  for (const [componentId, attachment] of panel.compositeAttachments.entries()) {
+    if (seen.has(componentId)) {
+      continue;
+    }
+    attachment.dispose();
+    panel.compositeAttachments.delete(componentId);
+  }
+}
+
+function disposeCompositeAttachments(panel) {
+  for (const attachment of panel.compositeAttachments.values()) {
+    attachment.dispose();
+  }
+  panel.compositeAttachments.clear();
 }
 
 export function createTouchOsRuntimePart(options = {}) {
@@ -187,6 +336,7 @@ export function createTouchOsRuntimePart(options = {}) {
   function hidePanel(panel) {
     panel.driver.clearPointer();
     panel.driver.host.mesh.visible = false;
+    disposeCompositeAttachments(panel);
     panel.enabled = false;
     panel.latestFrame = null;
   }
@@ -253,6 +403,7 @@ export function createTouchOsRuntimePart(options = {}) {
         panel.runtime.tick(timestamp);
         flushPanelOutputs(panel, context, options.onOutput);
         panel.driver.render();
+        syncCompositeAttachments(panel);
         flushPanelOutputs(panel, context, options.onOutput);
       }
     },
@@ -264,6 +415,7 @@ export function createTouchOsRuntimePart(options = {}) {
       suppressClick = false;
 
       for (const panel of panelStates) {
+        disposeCompositeAttachments(panel);
         try {
           panel.driver.detach();
         } finally {

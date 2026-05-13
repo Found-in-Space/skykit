@@ -40,7 +40,7 @@ import {
   createGalaxyMapControl,
   deriveGalaxyMapScaleHint,
 } from '../ui/galaxy-map-control.js';
-import { createTouchOsRuntimePart } from './touch-os-runtime-part.js';
+import { createTouchOsRuntimePart } from '../render3d/touch-os-runtime-part.js';
 import {
   createTouchOsFullscreenButton,
   handleNavigationTouchOsOutput,

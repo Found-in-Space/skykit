@@ -385,6 +385,7 @@ export declare class HRDiagramRenderer {
   setViewProjection(matrix: Matrix4): void;
   dispose(): void;
 }
+export declare function createTouchOsRuntimePart(options?: Record<string, unknown>): ViewerRuntimePart;
 
 export declare const DEFAULT_MCCALLUM_HA_TILED_VOLUME_URL: string;
 export declare function loadHaTiledVolume(...args: any[]): Promise<any>;

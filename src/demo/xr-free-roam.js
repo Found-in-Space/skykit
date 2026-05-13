@@ -40,7 +40,7 @@ import {
   createGalaxyMapControl,
   deriveGalaxyMapScaleHint,
 } from '../ui/galaxy-map-control.js';
-import { createTouchOsRuntimePart } from './touch-os-runtime-part.js';
+import { createTouchOsRuntimePart } from '../render3d/touch-os-runtime-part.js';
 import { installDemoViewerDebugConsole } from './viewer-debug-console.js';
 
 const PROXIMA_CEN_PC = { x: -0.47, y: -0.36, z: -1.16 };

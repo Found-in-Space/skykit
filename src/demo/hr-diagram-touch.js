@@ -40,7 +40,7 @@ import {
   formatDistancePc,
   formatSpeedPcPerSec,
 } from '../presets/navigation-presets.js';
-import { createTouchOsRuntimePart } from './touch-os-runtime-part.js';
+import { createTouchOsRuntimePart } from '../render3d/touch-os-runtime-part.js';
 import {
   createTouchOsFullscreenButton,
   handleNavigationTouchOsOutput,
