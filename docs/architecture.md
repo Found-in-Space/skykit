@@ -271,9 +271,8 @@ Purpose:
 
 Current examples:
 
-- `HRDiagramRenderer`
+- GPU-backed `createHRDiagramControl`
 - `createVolumeHRLoader`
-- `createHRDiagramControl`
 
 ### `render3d`
 

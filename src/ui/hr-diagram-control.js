@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { createNode } from '@found-in-space/touch-os';
 import { SCALE as SCENE_SCALE } from '../services/octree/scene-scale.js';
 
@@ -9,9 +10,7 @@ const DEFAULT_MARGIN_PX = 28;
 const DEFAULT_HEIGHT = 220;
 const TEMP_TICKS = [3000, 5000, 8000, 15000, 30000];
 const MAG_TICK_STEP = 4;
-const DIRECT_DRAW_THRESHOLD = 2000;
 const INVALID_TEFF_LOG8 = 255;
-const PLOT_BG_RGBA = [1, 6, 16, 255];
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -38,20 +37,6 @@ function resolveStarCount(starCount, positions, teffLog8, magAbs) {
   );
   const requested = Number.isFinite(starCount) ? Math.floor(starCount) : maxCount;
   return clamp(requested, 0, maxCount);
-}
-
-function createImageDataBuffer(ctx, width, height) {
-  if (typeof ctx?.createImageData === 'function') {
-    return ctx.createImageData(width, height);
-  }
-  if (typeof ImageData === 'function') {
-    return new ImageData(width, height);
-  }
-  return {
-    width,
-    height,
-    data: new Uint8ClampedArray(width * height * 4),
-  };
 }
 
 export function decodeTeff(log8Byte) {
@@ -103,114 +88,267 @@ export function magToY(mag, height, margin, minMag, maxMag) {
   return margin + mNorm * (height - 2 * margin);
 }
 
-function passesVisibilityFilter(value, index, wx, wy, wz) {
-  if (value.mode !== 0 && value.mode !== 2) {
-    return true;
+function createCanvas(width, height, preferDom = false) {
+  const scope = globalThis;
+
+  if (preferDom && scope.document?.createElement) {
+    const canvas = scope.document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
   }
 
-  const dx = wx - value.observerX;
-  const dy = wy - value.observerY;
-  const dz = wz - value.observerZ;
-  const distancePc = Math.sqrt(dx * dx + dy * dy + dz * dz) / SCENE_SCALE;
-  const mApp = value.magAbs[index] + 5 * Math.log10(Math.max(distancePc, 0.001)) - 5;
-  if (mApp > value.appMagLimit) {
-    return false;
+  if (typeof scope.OffscreenCanvas === 'function') {
+    return new scope.OffscreenCanvas(width, height);
   }
 
-  if (value.mode !== 2 || !value.viewProjection) {
-    return true;
+  if (scope.document?.createElement) {
+    const canvas = scope.document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
   }
 
-  const vp = value.viewProjection;
-  const cx = vp[0] * wx + vp[4] * wy + vp[8] * wz + vp[12];
-  const cy = vp[1] * wx + vp[5] * wy + vp[9] * wz + vp[13];
-  const cz = vp[2] * wx + vp[6] * wy + vp[10] * wz + vp[14];
-  const cw = vp[3] * wx + vp[7] * wy + vp[11] * wz + vp[15];
-  if (!(cw > 0)) {
-    return false;
-  }
-
-  return !(cz < 0 || Math.abs(cx) > cw * 1.05 || Math.abs(cy) > cw * 1.05);
+  return null;
 }
 
-function drawStarsDirect(ctx, x, y, plotW, plotH, value, options) {
-  let visibleCount = 0;
-  for (let i = 0; i < value.starCount; i += 1) {
-    const wx = value.positions[i * 3];
-    const wy = value.positions[i * 3 + 1];
-    const wz = value.positions[i * 3 + 2];
+function createHRMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uScale: { value: SCENE_SCALE },
+      uCameraPosition: { value: new THREE.Vector3() },
+      uMagLimit: { value: 6.5 },
+      uMinLogT: { value: Math.log10(DEFAULT_COOL_K) },
+      uMaxLogT: { value: Math.log10(DEFAULT_HOT_K) },
+      uMinMag: { value: DEFAULT_MIN_MAG },
+      uMaxMag: { value: DEFAULT_MAX_MAG },
+      uMarginPx: { value: DEFAULT_MARGIN_PX },
+      uWidth: { value: 480 },
+      uHeight: { value: 320 },
+      uMode: { value: 1 },
+      uViewProjection: { value: new THREE.Matrix4() },
+    },
+    vertexShader: /* glsl */ `
+      attribute float teff_log8;
+      attribute float magAbs;
 
-    if (!passesVisibilityFilter(value, i, wx, wy, wz)) {
-      continue;
-    }
+      uniform float uScale;
+      uniform vec3  uCameraPosition;
+      uniform float uMagLimit;
+      uniform float uMinLogT;
+      uniform float uMaxLogT;
+      uniform float uMinMag;
+      uniform float uMaxMag;
+      uniform float uMarginPx;
+      uniform float uWidth;
+      uniform float uHeight;
+      uniform int   uMode;
+      uniform mat4  uViewProjection;
 
-    const teff = decodeTeff(value.teffLog8[i]);
-    if (!Number.isFinite(teff)) {
-      continue;
-    }
-    const px = Math.floor(tempToX(teff, plotW, 0, options.coolK, options.hotK));
-    const py = Math.floor(magToY(value.magAbs[i], plotH, 0, options.minMag, options.maxMag));
+      varying vec3  vColor;
+      varying float vAlpha;
 
-    if (px < 0 || px >= plotW || py < 0 || py >= plotH) {
-      continue;
-    }
+      float decodeTemperature(float log8) {
+        if (log8 >= 0.996) return 5800.0;
+        return 2000.0 * pow(25.0, log8);
+      }
 
-    const [r, g, b] = teffToRgbComponents(teff);
-    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.6)`;
-    ctx.fillRect(x + px, y + py, 1, 1);
-    visibleCount += 1;
-  }
+      vec3 blackbodyToRGB(float temp) {
+        float t = clamp(temp, 1000.0, 40000.0) / 100.0;
+        vec3 c;
+        if (t <= 66.0) c.r = 255.0;
+        else c.r = 329.698727446 * pow(t - 60.0, -0.1332047592);
+        if (t <= 66.0) c.g = 99.4708025861 * log(t) - 161.119568166;
+        else c.g = 288.1221695283 * pow(t - 60.0, -0.0755148492);
+        if (t >= 66.0) c.b = 255.0;
+        else if (t <= 19.0) c.b = 0.0;
+        else c.b = 138.5177312231 * log(t - 10.0) - 305.0447927307;
+        return clamp(c / 255.0, 0.0, 1.0);
+      }
 
-  return visibleCount;
+      void main() {
+        vec3 worldPos = position;
+
+        if (uMode == 0) {
+          float dPc = max(length(worldPos - uCameraPosition) / uScale, 0.001);
+          float mApp = magAbs + 5.0 * log(dPc) / log(10.0) - 5.0;
+          if (mApp > uMagLimit) {
+            gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
+            gl_PointSize = 0.0;
+            vAlpha = 0.0;
+            return;
+          }
+          float fade = 1.0 - smoothstep(uMagLimit - 1.5, uMagLimit, mApp);
+          vAlpha = 0.55 * fade;
+        } else if (uMode == 1) {
+          vAlpha = 0.5;
+        } else {
+          float dPc = max(length(worldPos - uCameraPosition) / uScale, 0.001);
+          float mApp = magAbs + 5.0 * log(dPc) / log(10.0) - 5.0;
+          if (mApp > uMagLimit) {
+            gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
+            gl_PointSize = 0.0;
+            vAlpha = 0.0;
+            return;
+          }
+          vec4 clip = uViewProjection * vec4(worldPos, 1.0);
+          if (abs(clip.x) > clip.w * 1.05 || abs(clip.y) > clip.w * 1.05 || clip.z < 0.0) {
+            gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
+            gl_PointSize = 0.0;
+            vAlpha = 0.0;
+            return;
+          }
+          float fade = 1.0 - smoothstep(uMagLimit - 1.5, uMagLimit, mApp);
+          vAlpha = 0.55 * fade;
+        }
+
+        float tempK = decodeTemperature(teff_log8);
+        vColor = blackbodyToRGB(tempK);
+
+        float logT = log(tempK) / log(10.0);
+        float tNorm = clamp((logT - uMinLogT) / (uMaxLogT - uMinLogT), 0.0, 1.0);
+        float plotW = uWidth - 2.0 * uMarginPx;
+        float xPx = uWidth - uMarginPx - tNorm * plotW;
+        float x = xPx / uWidth * 2.0 - 1.0;
+
+        float mNorm = clamp((magAbs - uMinMag) / (uMaxMag - uMinMag), 0.0, 1.0);
+        float plotH = uHeight - 2.0 * uMarginPx;
+        float yPx = uMarginPx + mNorm * plotH;
+        float y = 1.0 - yPx / uHeight * 2.0;
+
+        gl_Position = vec4(x, y, 0.0, 1.0);
+        gl_PointSize = 1.5;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying vec3  vColor;
+      varying float vAlpha;
+
+      void main() {
+        if (vAlpha <= 0.0) discard;
+        gl_FragColor = vec4(vColor, vAlpha);
+      }
+    `,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
 }
 
-function buildStarImageData(ctx, plotW, plotH, value, options) {
-  const imageData = createImageDataBuffer(ctx, plotW, plotH);
-  const data = imageData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    data[i] = PLOT_BG_RGBA[0];
-    data[i + 1] = PLOT_BG_RGBA[1];
-    data[i + 2] = PLOT_BG_RGBA[2];
-    data[i + 3] = PLOT_BG_RGBA[3];
-  }
-  let visibleCount = 0;
+function drawAxes(ctx, width, height, options) {
+  const {
+    margin,
+    coolK,
+    hotK,
+    minMag,
+    maxMag,
+    starCount,
+    highlightRegion,
+    placeholderText,
+    theme,
+  } = options;
 
-  for (let i = 0; i < value.starCount; i += 1) {
-    const wx = value.positions[i * 3];
-    const wy = value.positions[i * 3 + 1];
-    const wz = value.positions[i * 3 + 2];
+  ctx.fillStyle = theme.itemBg;
+  ctx.fillRect(0, 0, width, height);
 
-    if (!passesVisibilityFilter(value, i, wx, wy, wz)) {
+  ctx.strokeStyle = theme.border;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(margin, margin, width - margin * 2, height - margin * 2);
+
+  ctx.fillStyle = theme.textDim;
+  ctx.strokeStyle = 'rgba(236, 238, 246, 0.12)';
+  ctx.font = '10px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  for (const tempK of TEMP_TICKS) {
+    if (tempK < coolK || tempK > hotK) {
       continue;
     }
-
-    const teff = decodeTeff(value.teffLog8[i]);
-    if (!Number.isFinite(teff)) {
+    const x = tempToX(tempK, width, margin, coolK, hotK);
+    if (x < margin || x > width - margin) {
       continue;
     }
-    const px = Math.floor(tempToX(teff, plotW, 0, options.coolK, options.hotK));
-    const py = Math.floor(magToY(value.magAbs[i], plotH, 0, options.minMag, options.maxMag));
-
-    if (px < 0 || px >= plotW || py < 0 || py >= plotH) {
-      continue;
-    }
-
-    const idx = (py * plotW + px) * 4;
-    const [r, g, b] = teffToRgbComponents(teff);
-
-    data[idx] = Math.min(255, data[idx] + r * 0.55);
-    data[idx + 1] = Math.min(255, data[idx + 1] + g * 0.55);
-    data[idx + 2] = Math.min(255, data[idx + 2] + b * 0.55);
-    data[idx + 3] = Math.min(255, data[idx + 3] + 180);
-    visibleCount += 1;
+    ctx.beginPath();
+    ctx.moveTo(x, height - margin);
+    ctx.lineTo(x, height - margin + 4);
+    ctx.stroke();
+    ctx.fillText(tempK >= 1000 ? `${Math.round(tempK / 1000)}k` : String(tempK), x, height - margin + 15);
   }
 
-  return { imageData, visibleCount };
+  ctx.textAlign = 'right';
+  const startMag = Math.ceil(minMag / MAG_TICK_STEP) * MAG_TICK_STEP;
+  for (let mag = startMag; mag <= maxMag; mag += MAG_TICK_STEP) {
+    const y = magToY(mag, height, margin, minMag, maxMag);
+    if (y < margin || y > height - margin) {
+      continue;
+    }
+    ctx.beginPath();
+    ctx.moveTo(margin - 4, y);
+    ctx.lineTo(margin, y);
+    ctx.stroke();
+    ctx.fillText(String(mag), margin - 6, y + 3);
+  }
+
+  ctx.textAlign = 'start';
+  ctx.fillText('Hot', margin + 4, height - margin + 15);
+  ctx.fillText('Cool', width - margin - 26, height - margin + 15);
+  ctx.save();
+  ctx.translate(10, height / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Abs. magnitude', 0, 0);
+  ctx.restore();
+
+  if (starCount > 0) {
+    ctx.fillStyle = theme.accent;
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${starCount.toLocaleString()} stars`, width - margin, margin - 6);
+    ctx.textAlign = 'start';
+  } else if (placeholderText) {
+    ctx.fillStyle = theme.textDim;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(placeholderText, width / 2, height / 2);
+    ctx.textAlign = 'start';
+  }
+
+  if (!highlightRegion) {
+    return;
+  }
+
+  const {
+    teffMin,
+    teffMax,
+    magAbsMin,
+    magAbsMax,
+    color = '#8cffb8',
+    label,
+  } = highlightRegion;
+  const x0 = tempToX(teffMin, width, margin, coolK, hotK);
+  const x1 = tempToX(teffMax, width, margin, coolK, hotK);
+  const y0 = magToY(magAbsMin, height, margin, minMag, maxMag);
+  const y1 = magToY(magAbsMax, height, margin, minMag, maxMag);
+  const left = Math.min(x0, x1);
+  const top = Math.min(y0, y1);
+  const regionWidth = Math.abs(x1 - x0);
+  const regionHeight = Math.abs(y1 - y0);
+
+  ctx.fillStyle = `${color}33`;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.fillRect(left, top, regionWidth, regionHeight);
+  ctx.strokeRect(left, top, regionWidth, regionHeight);
+
+  if (label) {
+    ctx.fillStyle = color;
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.fillText(label, left + 6, Math.max(margin + 12, top + 14));
+  }
 }
 
-function drawSelectedStars(ctx, x, y, plotW, plotH, value, options) {
-  const selectedStars = Array.isArray(value?.selectedStars) ? value.selectedStars : null;
-  if (!selectedStars?.length) {
+function drawSelectedStars(ctx, width, height, options) {
+  const { margin, coolK, hotK, minMag, maxMag, selectedStars } = options;
+  if (!Array.isArray(selectedStars) || selectedStars.length === 0) {
     return;
   }
 
@@ -221,98 +359,320 @@ function drawSelectedStars(ctx, x, y, plotW, plotH, value, options) {
     if (!Number.isFinite(teff) || !Number.isFinite(magAbs)) {
       continue;
     }
-    const px = tempToX(teff, plotW, 0, options.coolK, options.hotK);
-    const py = magToY(magAbs, plotH, 0, options.minMag, options.maxMag);
-    const sx = x + px;
-    const sy = y + py;
+
+    const x = tempToX(teff, width, margin, coolK, hotK);
+    const y = magToY(magAbs, height, margin, minMag, maxMag);
     ctx.strokeStyle = 'rgba(255, 236, 138, 0.96)';
     ctx.lineWidth = 1.4;
     ctx.beginPath();
-    ctx.arc(sx, sy, 4, 0, Math.PI * 2);
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
     ctx.stroke();
     ctx.strokeStyle = 'rgba(21, 30, 51, 0.95)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(sx - 6, sy);
-    ctx.lineTo(sx + 6, sy);
-    ctx.moveTo(sx, sy - 6);
-    ctx.lineTo(sx, sy + 6);
+    ctx.moveTo(x - 6, y);
+    ctx.lineTo(x + 6, y);
+    ctx.moveTo(x, y - 6);
+    ctx.lineTo(x, y + 6);
     ctx.stroke();
   }
   ctx.restore();
 }
 
-function drawAxes(ctx, rect, options) {
-  const {
-    x,
-    y,
-    w,
-    h,
-    margin,
-    coolK,
-    hotK,
-    minMag,
-    maxMag,
-    starCount,
-    theme,
-  } = options;
+function createHRDiagramSurfaceHandle() {
+  const imageCanvas = createCanvas(1, 1);
+  const imageContext = imageCanvas?.getContext?.('2d');
+  const glCanvas = createCanvas(1, 1, true);
 
-  const border = theme?.border ?? 'rgba(242, 200, 121, 0.3)';
-  const text = theme?.textDim ?? 'rgba(236, 238, 246, 0.45)';
-  const label = theme?.text ?? 'rgba(236, 238, 246, 0.7)';
-  const accent = theme?.accent ?? 'rgba(159, 233, 255, 0.75)';
+  if (!imageCanvas || !imageContext || !glCanvas) {
+    return null;
+  }
 
-  ctx.strokeStyle = border;
-  ctx.lineWidth = 1;
-  ctx.strokeRect(x + margin, y + margin, w - margin * 2, h - margin * 2);
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({
+      canvas: glCanvas,
+      alpha: true,
+      antialias: false,
+    });
+  } catch {
+    return null;
+  }
 
-  ctx.fillStyle = text;
-  ctx.strokeStyle = text;
-  ctx.font = '9px system-ui, sans-serif';
-  ctx.textAlign = 'center';
+  renderer.setClearColor(0x000000, 0);
 
-  for (const temp of TEMP_TICKS) {
-    if (temp < coolK || temp > hotK) {
-      continue;
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1);
+  const scene = new THREE.Scene();
+  const material = createHRMaterial();
+  const geometry = new THREE.BufferGeometry();
+  const points = new THREE.Points(geometry, material);
+  points.frustumCulled = false;
+  scene.add(points);
+
+  let width = 1;
+  let height = 1;
+  let pixelDensity = 1;
+  let revision = 0;
+  let geometryRefs = {
+    positions: null,
+    teffLog8: null,
+    magAbs: null,
+  };
+
+  function syncSize(nextWidth, nextHeight, nextPixelDensity) {
+    width = Math.max(1, Math.round(nextWidth));
+    height = Math.max(1, Math.round(nextHeight));
+    pixelDensity = clamp(
+      Number.isFinite(nextPixelDensity) ? Number(nextPixelDensity) : 1,
+      1,
+      2,
+    );
+
+    const physicalWidth = Math.max(1, Math.round(width * pixelDensity));
+    const physicalHeight = Math.max(1, Math.round(height * pixelDensity));
+    imageCanvas.width = physicalWidth;
+    imageCanvas.height = physicalHeight;
+    renderer.setPixelRatio(pixelDensity);
+    renderer.setSize(width, height, false);
+    material.uniforms.uWidth.value = width;
+    material.uniforms.uHeight.value = height;
+  }
+
+  function syncGeometry(value) {
+    const positions = value?.positions ?? null;
+    const teffLog8 = value?.teffLog8 ?? null;
+    const magAbs = value?.magAbs ?? null;
+    const starCount = Number.isFinite(value?.starCount) ? Math.floor(value.starCount) : 0;
+
+    if (!positions || !teffLog8 || !magAbs || starCount <= 0) {
+      geometry.setDrawRange(0, 0);
+      return 0;
     }
-    const tx = x + tempToX(temp, w, margin, coolK, hotK);
-    ctx.beginPath();
-    ctx.moveTo(tx, y + h - margin);
-    ctx.lineTo(tx, y + h - margin + 3);
-    ctx.stroke();
-    ctx.fillText(temp >= 1000 ? `${Math.floor(temp / 1000)}k` : String(temp), tx, y + h - margin + 12);
+
+    if (geometryRefs.positions !== positions) {
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geometryRefs.positions = positions;
+    }
+    if (geometryRefs.teffLog8 !== teffLog8) {
+      geometry.setAttribute('teff_log8', new THREE.Uint8BufferAttribute(teffLog8, 1, true));
+      geometryRefs.teffLog8 = teffLog8;
+    }
+    if (geometryRefs.magAbs !== magAbs) {
+      geometry.setAttribute('magAbs', new THREE.BufferAttribute(magAbs, 1));
+      geometryRefs.magAbs = magAbs;
+    }
+
+    geometry.setDrawRange(0, starCount);
+    return starCount;
   }
 
-  ctx.textAlign = 'right';
-  const magStart = Math.ceil(minMag / MAG_TICK_STEP) * MAG_TICK_STEP;
-  for (let mag = magStart; mag <= maxMag; mag += MAG_TICK_STEP) {
-    const ty = y + magToY(mag, h, margin, minMag, maxMag);
-    ctx.beginPath();
-    ctx.moveTo(x + margin - 3, ty);
-    ctx.lineTo(x + margin, ty);
-    ctx.stroke();
-    ctx.fillText(String(mag), x + margin - 4, ty + 3);
+  function drawCompositeFrame(signature) {
+    syncSize(signature.width, signature.height, signature.pixelDensity);
+    const starCount = syncGeometry(signature.value);
+    const theme = signature.theme;
+    const placeholderText = signature.value ? '' : 'Awaiting star field';
+
+    material.uniforms.uCameraPosition.value.set(
+      signature.value?.observerX ?? 0,
+      signature.value?.observerY ?? 0,
+      signature.value?.observerZ ?? 0,
+    );
+    material.uniforms.uMagLimit.value = signature.value?.appMagLimit ?? 6.5;
+    material.uniforms.uMode.value = signature.value?.mode ?? 1;
+    material.uniforms.uMinLogT.value = Math.log10(signature.coolK);
+    material.uniforms.uMaxLogT.value = Math.log10(signature.hotK);
+    material.uniforms.uMinMag.value = signature.minMag;
+    material.uniforms.uMaxMag.value = signature.maxMag;
+    material.uniforms.uMarginPx.value = signature.margin;
+    material.uniforms.uViewProjection.value.fromArray(
+      signature.value?.viewProjection ?? IDENTITY_MATRIX,
+    );
+
+    imageContext.setTransform(pixelDensity, 0, 0, pixelDensity, 0, 0);
+    imageContext.clearRect(0, 0, width, height);
+    drawAxes(imageContext, width, height, {
+      margin: signature.margin,
+      coolK: signature.coolK,
+      hotK: signature.hotK,
+      minMag: signature.minMag,
+      maxMag: signature.maxMag,
+      starCount,
+      highlightRegion: signature.highlightRegion,
+      placeholderText,
+      theme,
+    });
+
+    if (starCount > 0) {
+      renderer.render(scene, camera);
+      imageContext.drawImage(glCanvas, 0, 0, width, height);
+      drawSelectedStars(imageContext, width, height, {
+        margin: signature.margin,
+        coolK: signature.coolK,
+        hotK: signature.hotK,
+        minMag: signature.minMag,
+        maxMag: signature.maxMag,
+        selectedStars: signature.value?.selectedStars ?? null,
+      });
+    }
+
+    revision += 1;
   }
 
-  ctx.textAlign = 'start';
-  ctx.fillStyle = label;
-  ctx.fillText('Hot', x + margin + 2, y + h - margin + 12);
-  ctx.fillText('Cool', x + w - margin - 22, y + h - margin + 12);
+  return {
+    kind: 'skykit-hr-diagram-surface',
+    image: imageCanvas,
+    width: 1,
+    height: 1,
+    revision: 0,
 
-  ctx.save();
-  ctx.translate(x + 8, y + h / 2);
-  ctx.rotate(-Math.PI / 2);
-  ctx.textAlign = 'center';
-  ctx.fillText('Abs. mag', 0, 0);
-  ctx.restore();
+    update(signature) {
+      drawCompositeFrame(signature);
+      this.width = imageCanvas.width;
+      this.height = imageCanvas.height;
+      this.revision = revision;
+    },
 
-  if (starCount > 0) {
-    ctx.fillStyle = accent;
-    ctx.textAlign = 'right';
-    ctx.fillText(`${starCount.toLocaleString()} stars`, x + w - margin, y + margin - 4);
-    ctx.textAlign = 'start';
-  }
+    draw(context, rect) {
+      if (typeof context.drawImage === 'function') {
+        context.drawImage(this.image, rect.x, rect.y, rect.width, rect.height);
+        return;
+      }
+      context.fillStyle = '#08111d';
+      context.fillRect(rect.x, rect.y, rect.width, rect.height);
+    },
+
+    dispose() {
+      renderer.dispose();
+      material.dispose();
+      geometry.dispose();
+    },
+  };
 }
+
+const IDENTITY_MATRIX = new Float32Array([
+  1, 0, 0, 0,
+  0, 1, 0, 0,
+  0, 0, 1, 0,
+  0, 0, 0, 1,
+]);
+
+const HRDiagramComponent = {
+  kind: 'skykit-hr-diagram',
+
+  mount() {
+    return {
+      surfaceHandle: createHRDiagramSurfaceHandle(),
+      signature: null,
+    };
+  },
+
+  measure(ctx) {
+    return {
+      width: ctx.constraints.maxWidth,
+      height: ctx.props.height ?? DEFAULT_HEIGHT,
+    };
+  },
+
+  layout(ctx) {
+    ctx.setContentBounds(ctx.bounds);
+
+    const width = Math.max(1, Math.round(ctx.bounds.width));
+    const height = Math.max(1, Math.round(ctx.bounds.height));
+    const pixelDensity = ctx.services.surface.getMetrics().pixelDensity ?? 1;
+    const themeTokens = ctx.services.theme.getTokens();
+    const signature = {
+      width,
+      height,
+      pixelDensity,
+      value: ctx.props.value ?? null,
+      coolK: ctx.props.coolK ?? DEFAULT_COOL_K,
+      hotK: ctx.props.hotK ?? DEFAULT_HOT_K,
+      minMag: ctx.props.minMag ?? DEFAULT_MIN_MAG,
+      maxMag: ctx.props.maxMag ?? DEFAULT_MAX_MAG,
+      margin: ctx.props.margin ?? DEFAULT_MARGIN_PX,
+      highlightRegion: ctx.props.highlightRegion ?? null,
+      compositionMode: ctx.props.compositionMode ?? 'composite',
+      theme: {
+        itemBg: themeTokens.backgroundColor,
+        border: themeTokens.borderColor,
+        textDim: themeTokens.mutedTextColor,
+        accent: themeTokens.accentColor,
+      },
+    };
+
+    const previous = ctx.state.signature;
+    if (
+      previous &&
+      previous.width === signature.width &&
+      previous.height === signature.height &&
+      previous.pixelDensity === signature.pixelDensity &&
+      previous.value === signature.value &&
+      previous.coolK === signature.coolK &&
+      previous.hotK === signature.hotK &&
+      previous.minMag === signature.minMag &&
+      previous.maxMag === signature.maxMag &&
+      previous.margin === signature.margin &&
+      previous.highlightRegion === signature.highlightRegion &&
+      previous.compositionMode === signature.compositionMode &&
+      previous.theme.itemBg === signature.theme.itemBg &&
+      previous.theme.border === signature.theme.border &&
+      previous.theme.textDim === signature.theme.textDim &&
+      previous.theme.accent === signature.theme.accent
+    ) {
+      return;
+    }
+
+    ctx.state.surfaceHandle?.update(signature);
+    ctx.state.signature = signature;
+  },
+
+  render(ctx) {
+    const handle = ctx.state.surfaceHandle;
+    const signature = ctx.state.signature;
+    if (!handle || !signature) {
+      return [
+        {
+          type: 'rect',
+          componentId: ctx.id,
+          role: 'hr-diagram-fallback',
+          rect: ctx.bounds,
+          fill: '#08111d',
+          stroke: '#27405e',
+          strokeWidth: 1,
+          radius: 10,
+        },
+        {
+          type: 'text',
+          componentId: ctx.id,
+          role: 'hr-diagram-fallback-label',
+          rect: ctx.bounds,
+          text: 'HR diagram requires WebGL',
+          color: '#93a3b8',
+          align: 'center',
+          verticalAlign: 'middle',
+          fontSize: 14,
+          fontWeight: 600,
+        },
+      ];
+    }
+
+    return [
+      {
+        type: 'surface',
+        componentId: ctx.id,
+        role: 'hr-diagram',
+        rect: ctx.bounds,
+        handle,
+        surfaceRevision: handle.revision,
+        compositionMode: signature.compositionMode,
+      },
+    ];
+  },
+
+  dispose(ctx) {
+    ctx.state.surfaceHandle?.dispose?.();
+  },
+};
 
 export function buildHRDiagramValue(geometry, options = {}) {
   const positions = geometry?.attributes?.position?.array;
@@ -351,325 +711,6 @@ export function buildHRDiagramValue(geometry, options = {}) {
   };
 }
 
-export function drawHRDiagramGraphic(ctx, rect, value, options = {}) {
-  if (!ctx || !rect) {
-    return 0;
-  }
-
-  const x = rect.x ?? 0;
-  const y = rect.y ?? 0;
-  const w = rect.w ?? 0;
-  const h = rect.h ?? 0;
-
-  const coolK = options.coolK ?? DEFAULT_COOL_K;
-  const hotK = options.hotK ?? DEFAULT_HOT_K;
-  const minMag = options.minMag ?? DEFAULT_MIN_MAG;
-  const maxMag = options.maxMag ?? DEFAULT_MAX_MAG;
-  const margin = options.margin ?? DEFAULT_MARGIN_PX;
-  const background = options.theme?.itemBg ?? 'rgba(1, 6, 16, 0.88)';
-
-  ctx.fillStyle = background;
-  ctx.fillRect(x, y, w, h);
-
-  if (!value) {
-    return 0;
-  }
-
-  const plotW = Math.floor(w - margin * 2);
-  const plotH = Math.floor(h - margin * 2);
-  if (!(plotW > 0 && plotH > 0)) {
-    return 0;
-  }
-
-  const drawOptions = { coolK, hotK, minMag, maxMag };
-
-  const visibleCount = value.starCount < DIRECT_DRAW_THRESHOLD
-    ? drawStarsDirect(ctx, x + margin, y + margin, plotW, plotH, value, drawOptions)
-    : (() => {
-      const { imageData, visibleCount: count } = buildStarImageData(
-        ctx,
-        plotW,
-        plotH,
-        value,
-        drawOptions,
-      );
-      ctx.putImageData(imageData, x + margin, y + margin);
-      return count;
-    })();
-
-  drawSelectedStars(
-    ctx,
-    x + margin,
-    y + margin,
-    plotW,
-    plotH,
-    value,
-    drawOptions,
-  );
-
-  drawAxes(ctx, { x, y, w, h }, {
-    x,
-    y,
-    w,
-    h,
-    margin,
-    coolK,
-    hotK,
-    minMag,
-    maxMag,
-    starCount: visibleCount,
-    theme: options.theme,
-  });
-
-  return visibleCount;
-}
-
-const HRDiagramComponent = {
-  kind: 'skykit-hr-diagram',
-
-  mount() {
-    return {
-      bitmapSignature: null,
-    };
-  },
-
-  measure(ctx) {
-    return {
-      width: ctx.constraints.maxWidth,
-      height: ctx.props.height ?? DEFAULT_HEIGHT,
-    };
-  },
-
-  layout(ctx) {
-    ctx.setContentBounds(ctx.bounds);
-
-    const width = Math.max(1, Math.round(ctx.bounds.width));
-    const height = Math.max(1, Math.round(ctx.bounds.height));
-    const theme = ctx.services.theme.getTokens();
-    const signature = {
-      width,
-      height,
-      value: ctx.props.value ?? null,
-      coolK: ctx.props.coolK ?? DEFAULT_COOL_K,
-      hotK: ctx.props.hotK ?? DEFAULT_HOT_K,
-      minMag: ctx.props.minMag ?? DEFAULT_MIN_MAG,
-      maxMag: ctx.props.maxMag ?? DEFAULT_MAX_MAG,
-      margin: ctx.props.margin ?? DEFAULT_MARGIN_PX,
-      backgroundColor: theme.backgroundColor,
-      borderColor: theme.borderColor,
-      mutedTextColor: theme.mutedTextColor,
-      accentColor: theme.accentColor,
-    };
-    const previous = ctx.state.bitmapSignature;
-    if (
-      previous &&
-      previous.width === signature.width &&
-      previous.height === signature.height &&
-      previous.value === signature.value &&
-      previous.coolK === signature.coolK &&
-      previous.hotK === signature.hotK &&
-      previous.minMag === signature.minMag &&
-      previous.maxMag === signature.maxMag &&
-      previous.margin === signature.margin &&
-      previous.backgroundColor === signature.backgroundColor &&
-      previous.borderColor === signature.borderColor &&
-      previous.mutedTextColor === signature.mutedTextColor &&
-      previous.accentColor === signature.accentColor
-    ) {
-      return;
-    }
-
-    const canvas = createRasterCanvas(width, height);
-    const context2d = canvas?.getContext?.('2d');
-    if (!context2d) {
-      return;
-    }
-
-    drawHRDiagramGraphic(
-      context2d,
-      { x: 0, y: 0, w: width, h: height },
-      signature.value,
-      {
-        coolK: signature.coolK,
-        hotK: signature.hotK,
-        minMag: signature.minMag,
-        maxMag: signature.maxMag,
-        margin: signature.margin,
-        theme: {
-          itemBg: signature.backgroundColor,
-          border: signature.borderColor,
-          textDim: signature.mutedTextColor,
-          accent: signature.accentColor,
-        },
-      },
-    );
-
-    const bitmapId = getBitmapId(ctx.id);
-    const existing = ctx.services.bitmaps.getHandle(bitmapId);
-    if (existing) {
-      ctx.services.bitmaps.update(bitmapId, {
-        image: canvas,
-        width,
-        height,
-      });
-    } else {
-      ctx.services.bitmaps.allocate(bitmapId, {
-        image: canvas,
-        width,
-        height,
-      });
-    }
-
-    ctx.state.bitmapSignature = signature;
-  },
-
-  render(ctx) {
-    const handle = ctx.services.bitmaps.getHandle(getBitmapId(ctx.id));
-    if (!handle) {
-      return [];
-    }
-
-    return [
-      {
-        type: 'bitmap',
-        componentId: ctx.id,
-        role: 'hr-diagram',
-        rect: ctx.bounds,
-        handle,
-        fit: 'stretch',
-        sampling: 'nearest',
-      },
-    ];
-  },
-
-  dispose(ctx) {
-    ctx.services.bitmaps.release(getBitmapId(ctx.id));
-  },
-};
-
-export function createHRDiagramControl(idOrOptions, props = {}) {
-  if (typeof idOrOptions !== 'string') {
-    return createLegacyHRDiagramControl(idOrOptions ?? {});
-  }
-
-  return createNode(idOrOptions, HRDiagramComponent, props);
-}
-
-function getBitmapId(componentId) {
-  return `${componentId}:bitmap`;
-}
-
-function createRasterCanvas(width, height) {
-  const scope = globalThis;
-  if (typeof scope.OffscreenCanvas === 'function') {
-    return new scope.OffscreenCanvas(width, height);
-  }
-  if (scope.document?.createElement) {
-    const canvas = scope.document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    return canvas;
-  }
-  return null;
-}
-
-function createLegacyHRDiagramControl(options = {}) {
-  const config = {
-    height: options.height ?? DEFAULT_HEIGHT,
-    coolK: options.coolK ?? DEFAULT_COOL_K,
-    hotK: options.hotK ?? DEFAULT_HOT_K,
-    minMag: options.minMag ?? DEFAULT_MIN_MAG,
-    maxMag: options.maxMag ?? DEFAULT_MAX_MAG,
-    margin: options.margin ?? DEFAULT_MARGIN_PX,
-  };
-
-  let cachedImageData = null;
-  let cacheMeta = null;
-
-  function canUseCache(value, plotW, plotH) {
-    if (!cacheMeta || !value || value.starCount < DIRECT_DRAW_THRESHOLD) {
-      return false;
-    }
-    return cacheMeta.plotW === plotW
-      && cacheMeta.plotH === plotH
-      && cacheMeta.value === value;
-  }
-
-  return {
-    getHeight() {
-      return config.height;
-    },
-
-    render(ctx, rect, item, _state, env) {
-      const value = item.value ?? null;
-      const x = rect.x ?? 0;
-      const y = rect.y ?? 0;
-      const w = rect.w ?? 0;
-      const h = rect.h ?? 0;
-      const plotW = Math.floor(w - config.margin * 2);
-      const plotH = Math.floor(h - config.margin * 2);
-      ctx.fillStyle = env.theme?.itemBg ?? 'rgba(1, 6, 16, 0.88)';
-      ctx.fillRect(x, y, w, h);
-
-      drawAxes(ctx, { x, y, w, h }, {
-        x,
-        y,
-        w,
-        h,
-        margin: config.margin,
-        coolK: config.coolK,
-        hotK: config.hotK,
-        minMag: config.minMag,
-        maxMag: config.maxMag,
-        starCount: 0,
-        theme: env.theme,
-      });
-
-      if (!value || !(plotW > 0 && plotH > 0)) {
-        cachedImageData = null;
-        cacheMeta = null;
-        return;
-      }
-
-      let visibleCount = 0;
-      if (value.starCount < DIRECT_DRAW_THRESHOLD) {
-        cachedImageData = null;
-        cacheMeta = null;
-        visibleCount = drawStarsDirect(ctx, x + config.margin, y + config.margin, plotW, plotH, value, config);
-      } else if (canUseCache(value, plotW, plotH) && cachedImageData) {
-        ctx.putImageData(cachedImageData, x + config.margin, y + config.margin);
-        visibleCount = cacheMeta.visibleCount;
-      } else {
-        const rendered = buildStarImageData(ctx, plotW, plotH, value, config);
-        cachedImageData = rendered.imageData;
-        cacheMeta = { value, plotW, plotH, visibleCount: rendered.visibleCount };
-        ctx.putImageData(cachedImageData, x + config.margin, y + config.margin);
-        visibleCount = rendered.visibleCount;
-      }
-
-      drawSelectedStars(
-        ctx,
-        x + config.margin,
-        y + config.margin,
-        plotW,
-        plotH,
-        value,
-        config,
-      );
-
-      drawAxes(ctx, { x, y, w, h }, {
-        x,
-        y,
-        w,
-        h,
-        margin: config.margin,
-        coolK: config.coolK,
-        hotK: config.hotK,
-        minMag: config.minMag,
-        maxMag: config.maxMag,
-        starCount: visibleCount,
-        theme: env.theme,
-      });
-    },
-  };
+export function createHRDiagramControl(id, props = {}) {
+  return createNode(id, HRDiagramComponent, props);
 }

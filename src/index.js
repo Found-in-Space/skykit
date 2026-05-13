@@ -84,7 +84,6 @@ export {
   buildHRDiagramValue,
   createHRDiagramControl,
   decodeTeff,
-  drawHRDiagramGraphic,
   magToY,
   tempToX,
 } from './ui/hr-diagram-control.js';
@@ -119,7 +118,6 @@ export {
   formatSpeedPcPerSec,
 } from './presets/navigation-presets.js';
 export { createVolumeHRLoader } from './hr-diagram/volume-hr-loader.js';
-export { HRDiagramRenderer } from './hr-diagram/hr-diagram-renderer.js';
 export { createTouchOsRuntimePart } from './render3d/touch-os-runtime-part.js';
 export {
   DEFAULT_MCCALLUM_HA_TILED_VOLUME_URL,

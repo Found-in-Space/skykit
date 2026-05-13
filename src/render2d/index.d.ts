@@ -1,10 +1,8 @@
 export {
-  HRDiagramRenderer,
   buildHRDiagramValue,
   createHRDiagramControl,
   createVolumeHRLoader,
   decodeTeff,
-  drawHRDiagramGraphic,
   magToY,
   tempToX,
 } from '../index.js';

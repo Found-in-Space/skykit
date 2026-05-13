@@ -8,7 +8,7 @@ import {
   type ViewerJourneySceneInput,
 } from '@found-in-space/skykit/presets';
 import { queryVisibleStars } from '@found-in-space/skykit/query';
-import { HRDiagramRenderer, createVolumeHRLoader } from '@found-in-space/skykit/render2d';
+import { createHRDiagramControl, createVolumeHRLoader } from '@found-in-space/skykit/render2d';
 import { ViewerRuntime, createViewer } from '@found-in-space/skykit/render3d';
 
 const dataset = createFoundInSpaceDataset();
@@ -43,7 +43,6 @@ const graph = createJourneyGraph({
 const host = document.createElement('div');
 const explorer = createDesktopExplorerPreset({
   observerPc: ORION_NEBULA_PC,
-  navigationHud: true,
 });
 const viewerPromise = createViewer(host, explorer);
 
@@ -67,7 +66,7 @@ async function verifySubpaths() {
   const runtime = new ViewerRuntime({
     host,
   });
-  const renderer = new HRDiagramRenderer(document.createElement('canvas'));
+  const hrControl = createHRDiagramControl('subpath-hr-control');
   const loader = createVolumeHRLoader();
 
   void transforms;
@@ -77,7 +76,7 @@ async function verifySubpaths() {
   void activeScene;
   void snapshot;
   void runtime;
-  void renderer;
+  void hrControl;
   void loader;
 }
 

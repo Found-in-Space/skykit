@@ -146,7 +146,7 @@ Plan status:
 
 Shipped now:
 
-- `render2d` exports for `HRDiagramRenderer`, `createVolumeHRLoader()`, and `createHRDiagramControl()`
+- `render2d` exports for `createVolumeHRLoader()` and the shared GPU `createHRDiagramControl()`
 - Touch OS support across the demos and shared panel integrations
 - working HR diagram demos and tests
 

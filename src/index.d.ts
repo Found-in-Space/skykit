@@ -303,12 +303,6 @@ export declare function computeXrDepthRange(options?: Record<string, unknown>): 
 export declare function buildHRDiagramValue(geometry: BufferGeometry, options?: Record<string, unknown>): HRDiagramValue;
 export declare function createHRDiagramControl(id: string, props?: Record<string, unknown>): Record<string, unknown>;
 export declare function decodeTeff(log8Byte: number): number;
-export declare function drawHRDiagramGraphic(
-  ctx: CanvasRenderingContext2D,
-  rect: DOMRect | { x: number; y: number; width: number; height: number },
-  value: HRDiagramValue,
-  options?: Record<string, unknown>,
-): void;
 export declare function magToY(mag: number, height: number, margin: number, minMag: number, maxMag: number): number;
 export declare function tempToX(tempK: number, width: number, margin: number, coolK: number, hotK: number): number;
 
@@ -371,20 +365,6 @@ export declare function createVolumeHRLoader(options?: {
   datasetSession?: DatasetSession;
   selectionMode?: 'sphere' | 'node-cache' | string;
 }): VolumeHRLoader;
-export declare class HRDiagramRenderer {
-  constructor(hostCanvas: HTMLCanvasElement, options?: Record<string, unknown>);
-  resize(): void;
-  setMode(mode: string): void;
-  setAppMagLimit(limit: number): void;
-  setVolumeRadiusPc(radiusPc: number): void;
-  setHighlightRegion(region: Record<string, unknown> | null): void;
-  setStarCount(count: number): void;
-  setGeometry(geometry: BufferGeometry): void;
-  drawAxes(): void;
-  render(cameraWorldPosition?: Point3Like | Vector3): void;
-  setViewProjection(matrix: Matrix4): void;
-  dispose(): void;
-}
 export declare function createTouchOsRuntimePart(options?: Record<string, unknown>): ViewerRuntimePart;
 
 export declare const DEFAULT_MCCALLUM_HA_TILED_VOLUME_URL: string;

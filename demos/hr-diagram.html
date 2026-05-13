@@ -8,10 +8,7 @@
     <style>
       /*
        * Page layout (two columns):
-       *   [ aside: controls  ] [ main.hr-demo-workspace: stacked views ]
-       *
-       * The "columns" in shared.css are only: sidebar | workspace. Inside the
-       * workspace, sky is above the HR diagram (vertical stack, 50% / 50% height).
+       *   [ aside: controls  ] [ main.hr-demo-workspace: viewer ]
        *
        * shared.css gives aside + main each min-height: 100vh. The grid row then
        * grows to the taller column, so a long sidebar stretched the workspace.
@@ -38,10 +35,6 @@
         height: 100%;
         max-height: 100%;
         overflow: hidden;
-        display: grid;
-        grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
-        gap: 16px;
-        align-content: stretch;
       }
 
       .hr-demo-workspace .viewer-shell {
@@ -49,15 +42,6 @@
         max-height: 100%;
         min-height: 0;
         overflow: hidden;
-      }
-
-      .hr-canvas {
-        width: 100%;
-        height: 100%;
-        min-height: 0;
-        border: 1px solid var(--panel-border);
-        border-radius: 18px;
-        background: rgba(1, 6, 16, 0.92);
       }
 
       .range-row {
@@ -109,7 +93,7 @@
       }
 
       @media (max-width: 960px) {
-        /* Sidebar on top, then workspace (still sky above HR inside main) */
+        /* Sidebar on top, then viewer workspace */
         body.hr-diagram-page {
           height: auto;
           max-height: none;
@@ -173,10 +157,8 @@
       <p class="status">Status: <span data-status>loading…</span></p>
       <pre class="meta-block" data-summary></pre>
     </aside>
-    <!-- Right column: skyview (top) + HR diagram (bottom), 50/50 height; stacked, not beside each other -->
     <main class="hr-demo-workspace">
       <div class="viewer-shell" data-skykit-viewer-root></div>
-      <canvas class="hr-canvas" data-hr-canvas aria-label="Live HR diagram"></canvas>
     </main>
     <script type="module" src="/src/demo/hr-diagram.js"></script>
   </body>

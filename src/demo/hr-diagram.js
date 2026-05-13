@@ -7,9 +7,11 @@ import {
 } from '@found-in-space/touch-os';
 import { createHudPanelDriver } from '@found-in-space/touch-os/hosts/three';
 import {
+  buildHRDiagramValue,
   createCameraRigController,
   createDefaultStarFieldMaterialProfile,
   createFoundInSpaceDatasetOptions,
+  createHRDiagramControl,
   createObserverShellField,
   createSceneOrientationTransforms,
   createSelectionRefreshController,
@@ -18,7 +20,6 @@ import {
   createVolumeHRLoader,
   DEFAULT_STAR_FIELD_STATE,
   getDatasetSession,
-  HRDiagramRenderer,
   ORION_CENTER_PC,
   resolveFoundInSpaceDatasetOverrides,
   SOLAR_ORIGIN_PC,
@@ -43,7 +44,6 @@ const {
 // ── DOM refs ────────────────────────────────────────────────────────────────
 
 const mount = document.querySelector('[data-skykit-viewer-root]');
-const hrCanvas = document.querySelector('[data-hr-canvas]');
 const radiusInput = document.querySelector('[data-radius]');
 const radiusValue = document.querySelector('[data-radius-value]');
 const magLimitInput = document.querySelector('[data-mag-limit]');
@@ -62,14 +62,16 @@ let activeMode = 1;
 let activeRadius = Number(radiusInput?.value) || 25;
 let activeMagLimit = Number(magLimitInput?.value) || 6.5;
 let viewer = null;
-let hrDiagram = null;
 let volumeLoader = null;
 let reloadQueued = false;
 let lastObserverPc = { x: 0, y: 0, z: 0 };
 /** Latest observer-shell star field geometry (always updated in onCommit). */
 let lastStarFieldGeometry = null;
 let lastStarFieldCount = 0;
-const cameraWorldPos = new THREE.Vector3();
+let volumeGeometry = null;
+let volumeStarCount = 0;
+let latestHrValue = null;
+let nextHrUpdateAtMs = 0;
 const vpMatrix = new THREE.Matrix4();
 
 const HUD_SURFACE = Object.freeze({
@@ -127,16 +129,8 @@ function setActiveMode(mode) {
   modeButtons.forEach((btn) => {
     btn.classList.toggle('active', Number(btn.dataset.mode) === mode);
   });
-  hrDiagram?.setMode(mode);
-}
-
-/** Apply cached star-field geometry to the HR plot (modes 0 & 2). */
-function syncHrFromStarField() {
-  if (!hrDiagram || !lastStarFieldGeometry) {
-    return;
-  }
-  hrDiagram.setGeometry(lastStarFieldGeometry);
-  hrDiagram.setStarCount(lastStarFieldCount);
+  latestHrValue = null;
+  nextHrUpdateAtMs = 0;
 }
 
 // ── Volume loader ───────────────────────────────────────────────────────────
@@ -160,8 +154,9 @@ async function loadVolumeHR() {
 
   if (!result) return;
 
-  hrDiagram?.setGeometry(result.geometry);
-  hrDiagram?.setStarCount(result.starCount);
+  volumeGeometry = result.geometry;
+  volumeStarCount = result.starCount;
+  nextHrUpdateAtMs = 0;
   updateStats({
     phase: 'done',
     starCount: result.starCount,
@@ -176,6 +171,48 @@ function queueVolumeReload() {
   requestAnimationFrame(() => {
     reloadQueued = false;
     loadVolumeHR().catch((err) => console.error('[hr-diagram-demo] volume load failed', err));
+  });
+}
+
+function updateHrDisplay(context) {
+  const observerPc = context.state?.observerPc ?? SOLAR_ORIGIN_PC;
+  updateObserverDisplay(observerPc);
+
+  if (activeMode === 1) {
+    const dx = observerPc.x - lastObserverPc.x;
+    const dy = observerPc.y - lastObserverPc.y;
+    const dz = observerPc.z - lastObserverPc.z;
+    const moved = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (moved > Math.max(2, activeRadius * 0.15)) {
+      queueVolumeReload();
+    }
+  }
+
+  const geometry = activeMode === 1 ? volumeGeometry : lastStarFieldGeometry;
+  const starCount = activeMode === 1 ? volumeStarCount : lastStarFieldCount;
+  if (!geometry || !(starCount > 0)) {
+    latestHrValue = null;
+    return;
+  }
+
+  const now = performance.now();
+  const updateIntervalMs = activeMode === 2 ? 90 : 140;
+  if (now < nextHrUpdateAtMs) {
+    return;
+  }
+  nextHrUpdateAtMs = now + updateIntervalMs;
+
+  latestHrValue = buildHRDiagramValue(geometry, {
+    starCount,
+    observerPc,
+    mode: activeMode,
+    appMagLimit: activeMagLimit,
+    viewProjection: activeMode === 2
+      ? vpMatrix.multiplyMatrices(
+        context.camera.projectionMatrix,
+        context.camera.matrixWorldInverse,
+      ).elements
+      : undefined,
   });
 }
 
@@ -214,7 +251,8 @@ async function mountViewer() {
         key: 'desktop-hud',
         runtime: hudRuntime,
         driver: hudDriver,
-        sync() {
+        sync(context) {
+          updateHrDisplay(context);
           hudRuntime.setRoot(createHrDiagramHudRoot(cameraController));
         },
         getFrame(context) {
@@ -259,8 +297,7 @@ async function mountViewer() {
       lastStarFieldGeometry = geometry;
       lastStarFieldCount = starCount;
       if (activeMode !== 1) {
-        hrDiagram?.setGeometry(geometry);
-        hrDiagram?.setStarCount(starCount);
+        nextHrUpdateAtMs = 0;
       }
     },
   });
@@ -281,36 +318,6 @@ async function mountViewer() {
       touchOsPart,
     ],
     layers: [starLayer],
-    overlays: [
-      {
-        id: 'hr-diagram-overlay',
-        update(context) {
-          context.camera.getWorldPosition(cameraWorldPos);
-
-          if (activeMode === 2) {
-            vpMatrix.multiplyMatrices(
-              context.camera.projectionMatrix,
-              context.camera.matrixWorldInverse,
-            );
-            hrDiagram?.setViewProjection(vpMatrix);
-          }
-
-          hrDiagram?.render(cameraWorldPos);
-
-          const obs = context.state?.observerPc;
-          if (obs && activeMode === 1) {
-            const dx = obs.x - lastObserverPc.x;
-            const dy = obs.y - lastObserverPc.y;
-            const dz = obs.z - lastObserverPc.z;
-            const moved = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            if (moved > Math.max(2, activeRadius * 0.15)) {
-              queueVolumeReload();
-            }
-            updateObserverDisplay(obs);
-          }
-        },
-      },
-    ],
     state: {
       ...DEFAULT_STAR_FIELD_STATE,
       observerPc: { ...SOLAR_ORIGIN_PC },
@@ -323,15 +330,7 @@ async function mountViewer() {
 
   statusSpan.textContent = 'running';
 
-  // Set up HR diagram
-  hrDiagram = new HRDiagramRenderer(hrCanvas, {
-    mode: activeMode,
-    maxMag: 17,
-  });
-
   volumeLoader = createVolumeHRLoader({ datasetSession });
-
-  window.addEventListener('resize', () => hrDiagram?.resize());
 
   if (activeMode === 1) {
     await loadVolumeHR();
@@ -357,8 +356,13 @@ function createHrDiagramHudRoot(cameraController) {
         tone: 'muted',
       }),
       createTextLabel('hr-diagram-help-2', {
-        text: 'The canvas plot stays local; the movement HUD is Touch OS.',
+        text: 'The HR plot is now the shared Touch OS GPU component.',
         tone: 'muted',
+      }),
+      createHRDiagramControl('hr-diagram-plot', {
+        value: latestHrValue,
+        height: 220,
+        maxMag: 17,
       }),
     ],
     statusChildren: [
@@ -393,8 +397,6 @@ modeButtons.forEach((btn) => {
     setActiveMode(mode);
     if (mode === 1) {
       queueVolumeReload();
-    } else {
-      syncHrFromStarField();
     }
   });
 });
