@@ -122,7 +122,6 @@ async function verifyRootConsumer() {
   void resizeWidth;
 
   const explorer = createDesktopExplorerPreset({
-    navigationHud: true,
     picking: true,
   });
   const modularViewer = await createViewer(document.createElement('div'), explorer);
