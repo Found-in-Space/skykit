@@ -5,6 +5,9 @@
   "license": "MIT",
   "type": "module",
   "main": "./src/index.js",
+  "workspaces": [
+    "packages/*"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/Found-in-Space/skykit.git"
@@ -28,12 +31,14 @@
     "diag:observer-shell": "node ./scripts/observer-shell-diagnostic.js",
     "lookup:bookmark-star": "node ./scripts/bookmark-star-lookup.js",
     "test": "node --test",
-    "test:watch": "node --test --watch"
+    "test:watch": "node --test --watch",
+    "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "dependencies": {
     "three": "^0.170.0"
   },
   "devDependencies": {
+    "typescript": "^5.9.3",
     "vite": "^6.0.0"
   }
 }
