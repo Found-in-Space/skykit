@@ -1,5 +1,6 @@
 import { createDefaultDecodedStarSegment } from './star-octree-products.js';
 import { createStarOctreeIndexSource } from './star-octree-index-source.js';
+import { createStarOctreePipeline } from './star-octree-pipeline.js';
 import { createStarOctreeProviderSession } from './star-octree-provider-session.js';
 
 /**
@@ -16,8 +17,6 @@ import { createStarOctreeProviderSession } from './star-octree-provider-session.
  * @typedef {import('./index.d.ts').StarOctreeSessionOptions} StarOctreeSessionOptions
  * @typedef {import('./star-octree-products.js').DecodedStarSegment} DecodedStarSegment
  */
-
-export const ERR_STAR_OCTREE_NOT_IMPLEMENTED = 'ERR_STAR_OCTREE_NOT_IMPLEMENTED';
 
 let nextProviderId = 1;
 let nextSessionId = 1;
@@ -64,18 +63,30 @@ function createProviderService(options, internals) {
     providerId,
     options,
   });
+  const pipeline = createStarOctreePipeline({
+    providerId,
+    indexSource,
+  });
   let disposed = false;
 
   const source = {
     planDemand:
       internals.planDemand ??
-      (() => ({
-        entries: [],
-        signature: '',
-      })),
+      ((context) => pipeline.planDemandForContext(context)),
     decodeNode:
       internals.decodeNode ??
       ((entry) => createDefaultDecodedStarSegment(entry.node)),
+    ...(internals.planDemand || internals.decodeNode
+      ? {}
+      : {
+          /**
+           * @param {StarOctreeDemandEntry[]} entries
+           * @param {Parameters<ReturnType<typeof createStarOctreePipeline>['streamProductsForEntries']>[1]} streamOptions
+           */
+          streamObjectProducts(entries, streamOptions) {
+            return pipeline.streamProductsForEntries(entries, streamOptions);
+          },
+        }),
   };
 
   /** @type {StarOctreeProviderService} */
@@ -118,15 +129,18 @@ function createProviderService(options, internals) {
     },
 
     streamPayloads(_options) {
-      return createThrowingAsyncIterable('streamPayloads');
+      assertActive();
+      return pipeline.streamPayloads(_options);
     },
 
     streamObjectBatches(_options) {
-      return createThrowingAsyncIterable('streamObjectBatches');
+      assertActive();
+      return pipeline.streamObjectBatches(_options);
     },
 
     async fetchObjectBatch(_options) {
-      throw createNotImplementedError('fetchObjectBatch');
+      assertActive();
+      return pipeline.fetchObjectBatch(_options);
     },
 
     dispose() {
@@ -172,13 +186,13 @@ function createDescriptor(providerId, options, indexSource) {
     datasetId: options.datasetId ?? null,
     datasetIdentitySource: null,
     url: options.url,
-    produces: ['index'],
+    produces: ['index', 'object-batch'],
     objectTypes: ['star'],
     attributes: ['position', 'teffLog8', 'magAbs', 'objectRef', 'pickMeta'],
     capabilities: {
       progressive: true,
       rangeRequestable: true,
-      payloadBatching: false,
+      payloadBatching: true,
       persistentCache: indexSource.persistentCacheAvailable,
       decodedCache: false,
       borrowedBuffers: true,
@@ -251,39 +265,13 @@ function createProviderSnapshot(providerId, options, sessions, indexSource) {
     stats: {
       rangeRequests: indexSnapshot.stats.rangeRequests,
       bytesRequested: indexSnapshot.stats.bytesRequested,
-      payloadBatchRequests: 0,
-      payloadNodesFetched: 0,
-      payloadCacheHits: 0,
+      payloadBatchRequests: indexSnapshot.stats.payloadBatchRequests,
+      payloadNodesFetched: indexSnapshot.stats.payloadNodesFetched,
+      payloadCacheHits: indexSnapshot.stats.payloadCacheHits,
       shardCacheHits: indexSnapshot.stats.shardCacheHits,
       headerCacheHits: indexSnapshot.stats.headerCacheHits,
       persistentCacheHits: indexSnapshot.stats.persistentCacheHits,
       fetchTimeMs: indexSnapshot.stats.fetchTimeMs,
-    },
-  };
-}
-
-/**
- * @param {string} methodName
- * @returns {Error & { code: string }}
- */
-function createNotImplementedError(methodName) {
-  const error = new Error(
-    `${methodName}() is not implemented in the contract-spine slice.`,
-  );
-  return Object.assign(error, {
-    code: ERR_STAR_OCTREE_NOT_IMPLEMENTED,
-  });
-}
-
-/**
- * @template T
- * @param {string} methodName
- * @returns {AsyncIterable<T>}
- */
-function createThrowingAsyncIterable(methodName) {
-  return {
-    async *[Symbol.asyncIterator]() {
-      throw createNotImplementedError(methodName);
     },
   };
 }

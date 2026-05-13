@@ -4,7 +4,6 @@ import test from 'node:test';
 import { createStarOctreeProviderService } from '../index.js';
 import {
   createStarOctreeProviderServiceForTest,
-  ERR_STAR_OCTREE_NOT_IMPLEMENTED,
 } from '../star-octree-provider-service.js';
 import {
   concatBytes,
@@ -33,10 +32,10 @@ test('factory creates a provider descriptor and empty snapshot', () => {
   assert.equal(descriptor.url, '/data/stars.octree');
   assert.equal(descriptor.capabilities.sessions, true);
   assert.equal(descriptor.capabilities.rangeRequestable, true);
-  assert.equal(descriptor.capabilities.payloadBatching, false);
+  assert.equal(descriptor.capabilities.payloadBatching, true);
   assert.equal(descriptor.capabilities.persistentCache, false);
   assert.equal(descriptor.limits.maxInflightPayloadBatches, 4);
-  assert.deepEqual(descriptor.produces, ['index']);
+  assert.deepEqual(descriptor.produces, ['index', 'object-batch']);
   assert.deepEqual(descriptor.objectTypes, ['star']);
 
   const snapshot = provider.getSnapshot();
@@ -71,23 +70,21 @@ test('provider snapshots include independent live sessions', () => {
   second.dispose();
 });
 
-test('byte-backed provider methods expose typed not-implemented stubs', async () => {
+test('unsupported bounded stream strategies emit clear provider errors', async () => {
   const provider = createStarOctreeProviderService({
     id: 'provider-a',
     url: '/data/stars.octree',
   });
 
-  await assert.rejects(() => provider.fetchObjectBatch({}), {
-    code: ERR_STAR_OCTREE_NOT_IMPLEMENTED,
-  });
+  const result = await provider.streamObjectBatches({
+    strategy: { kind: 'target-frustum' },
+  })[Symbol.asyncIterator]().next();
 
-  await assert.rejects(
-    provider.streamPayloads({})[Symbol.asyncIterator]().next(),
-    { code: ERR_STAR_OCTREE_NOT_IMPLEMENTED },
-  );
-  await assert.rejects(
-    provider.streamObjectBatches({})[Symbol.asyncIterator]().next(),
-    { code: ERR_STAR_OCTREE_NOT_IMPLEMENTED },
+  assert.equal(result.done, false);
+  assert.equal(result.value.type, 'data/product-error');
+  assert.equal(
+    result.value.error.code,
+    'ERR_STAR_OCTREE_UNSUPPORTED_STRATEGY',
   );
 });
 

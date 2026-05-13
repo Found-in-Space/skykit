@@ -42,6 +42,7 @@ const DEFAULT_COORDINATE_OUTPUT = {
  *   viewRevision?: number;
  *   demandRevision?: number;
  *   memoryOwnership?: 'borrowed' | 'copy' | 'transfer';
+ *   completenessPhase?: 'coarse' | 'partial' | 'complete' | 'stale';
  * }} options
  * @returns {StarObjectBatchProduct}
  */
@@ -165,7 +166,7 @@ export function createStarObjectBatchProduct(options) {
     ...(includeRefs ? { refs } : {}),
     ...(pickMeta ? { pickMeta } : {}),
     completeness: {
-      phase: 'partial',
+      phase: options.completenessPhase ?? 'partial',
       stable: true,
       loadedObjects: totalCount,
       loadedNodes: options.entries.length,

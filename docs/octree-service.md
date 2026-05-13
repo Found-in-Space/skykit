@@ -144,6 +144,32 @@ Diagnostics / snapshots
   implementation of strategy logic.
 ```
 
+### 4.0.1 Alpha implementation status
+
+This section tracks the alpha package implementation boundary. It is normative
+for the first real vertical slice: implemented items are expected to work
+through the provider/session APIs, not through diagnostic side paths.
+
+| Component | Alpha status | Notes |
+| --- | --- | --- |
+| URL range source | Implemented | Range fetches, bootstrap/shard cache, and basic stats. |
+| Octree index reader | Implemented | STAR/ODSC header parsing, root shard loading, shard loading, runtime nodes. |
+| Traversal engine | First pass implemented | Root entries, same-shard children, frontier shards, deterministic traversal. |
+| observer-shell strategy | First pass implemented | Uses provider-native parsec view coordinates and header `magLimit` shell pruning. |
+| target-frustum strategy | Second pass | Type remains public, but alpha should emit/throw unsupported-strategy errors until implemented. |
+| Demand reconciler | First pass implemented | Node-key current/stale/remove semantics; richer retention metadata is second pass. |
+| Work scheduler | First pass implemented | Latest-view suppression and progressive payload work; fully interleaved traversal/fetch reprioritization is second pass. |
+| Payload fetcher/cache | First pass implemented | Payload range batching, decompression, in-memory decompressed payload cache, payload stats. |
+| Payload decoder | First pass implemented | 16-byte star records into parsec `position`, `magAbs`, `teffLog8`, and object refs. |
+| Product builder | First pass implemented | Non-cumulative object batches and decode-time coordinate transforms. |
+| Live sessions | First pass implemented | `updateView()` stays synchronous; products stream through `session.deltas()`. |
+| Bounded streams | First pass implemented | `streamPayloads()`, `streamObjectBatches()`, and `fetchObjectBatch()` share the same pipeline. |
+| Persistent decoded cache | Second pass | Persistent range cache may exist; decoded payload/product cache remains memory-only. |
+| File-handle providers | Second pass | URL provider is the implemented source adapter. |
+| Transfer/workers/WASM | Second pass | Borrowed buffers are the implemented ownership mode. |
+| Extinction/dust | Second pass | Apparent visibility is geometric only in this provider slice. |
+| Sidecars/names/catalog labels | Second pass | Object refs are emitted; sidecar lookup is outside this slice. |
+
 The demand planner is the only component that should decide relevance. It may use the whole octree header, runtime node facts, limiting magnitude, indexing magnitude, extinction or falloff formulas, frustum tests, shell freshness policies, motion lookahead, or dataset-specific rules. Those are strategy concerns, not provider-wide assumptions.
 
 Strategy input coordinates should be explicit provider-native view coordinates. For the current star octree this means parsecs unless the source/index metadata declares a different native frame. Product output coordinate transforms are one-way decode/output transforms and must not be used implicitly as strategy input transforms.

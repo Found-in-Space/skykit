@@ -31,6 +31,20 @@ const DEFAULT_COORDINATES = {
  * @typedef {{
  *   planDemand(context: StarOctreeSelectionContext): Promise<StarOctreeDemandPlan> | StarOctreeDemandPlan;
  *   decodeNode(entry: StarOctreeDemandEntry, context: StarOctreeSelectionContext): DecodedStarSegment;
+ *   streamObjectProducts?: (
+ *     entries: StarOctreeDemandEntry[],
+ *     options: {
+ *       streamId: string;
+ *       sessionId?: string;
+ *       attributes?: string[];
+ *       coordinates?: StarOctreeCoordinateOutput;
+ *       viewRevision?: number;
+ *       demandRevision?: number;
+ *       memoryOwnership?: 'borrowed' | 'copy' | 'transfer';
+ *       batchMode?: 'payload-range' | 'node';
+ *       nextProductIndex: () => number;
+ *     }
+ *   ) => AsyncIterable<StarObjectBatchProduct>;
  * }} SessionSource
  */
 
@@ -180,11 +194,12 @@ export function createStarOctreeProviderSession(createOptions) {
           return;
         }
 
-        applyDemandPlan(plan, {
+        await applyDemandPlan(plan, {
           context,
           force: planOptions.force,
           reasons: planOptions.reasons,
           viewRevision: planOptions.viewRevision,
+          token,
         });
       })
       .catch((error) => {
@@ -206,9 +221,10 @@ export function createStarOctreeProviderSession(createOptions) {
    *   force: boolean;
    *   reasons: string[];
    *   viewRevision: number;
+   *   token: number;
    * }} applyOptions
    */
-  function applyDemandPlan(plan, applyOptions) {
+  async function applyDemandPlan(plan, applyOptions) {
     const entries = normalizeDemandEntries(plan.entries);
     const nextSignature = plan.signature ?? createDemandSignature(entries);
     const demandChanged = applyOptions.force || nextSignature !== demandSignature;
@@ -217,6 +233,9 @@ export function createStarOctreeProviderSession(createOptions) {
     if (!demandChanged) {
       demandNodeCount = entries.length;
       status = 'current';
+      if (disposed || applyOptions.token !== latestPlanToken) {
+        return;
+      }
       emitRepresentationCurrent(applyOptions.viewRevision);
       return;
     }
@@ -256,38 +275,85 @@ export function createStarOctreeProviderSession(createOptions) {
       });
     }
 
-    for (const entry of entries) {
-      if (productsByNodeKey.has(entry.node.nodeKey)) {
-        continue;
+    const entriesToLoad = entries.filter(
+      (entry) => !productsByNodeKey.has(entry.node.nodeKey),
+    );
+
+    if (createOptions.source.streamObjectProducts) {
+      status = entriesToLoad.length > 0 ? 'loading' : 'current';
+      for await (const product of createOptions.source.streamObjectProducts(
+        entriesToLoad,
+        {
+          streamId,
+          sessionId,
+          attributes: options.attributes,
+          coordinates: options.coordinates,
+          viewRevision: applyOptions.viewRevision,
+          demandRevision,
+          memoryOwnership: options.memory.ownership,
+          batchMode: 'node',
+          nextProductIndex() {
+            productIndex += 1;
+            return productIndex;
+          },
+        },
+      )) {
+        if (disposed || applyOptions.token !== latestPlanToken) {
+          return;
+        }
+
+        for (const productNode of product.nodes) {
+          const entry = nextEntriesByNodeKey.get(productNode.nodeKey);
+          if (!entry) continue;
+          productsByNodeKey.set(productNode.nodeKey, {
+            entry,
+            product,
+            current: true,
+          });
+        }
+
+        emitDelta({
+          type: 'data/product-upsert',
+          streamId,
+          providerId,
+          sessionId,
+          product,
+        });
       }
+    } else {
+      for (const entry of entriesToLoad) {
+        const decoded = createOptions.source.decodeNode(entry, applyOptions.context);
+        productIndex += 1;
+        const product = createStarObjectBatchProduct({
+          providerId,
+          sessionId,
+          streamId,
+          productIndex,
+          entries: [{ node: entry.node, decoded }],
+          attributes: options.attributes,
+          coordinates: options.coordinates,
+          viewRevision: applyOptions.viewRevision,
+          demandRevision,
+          memoryOwnership: options.memory.ownership,
+        });
 
-      const decoded = createOptions.source.decodeNode(entry, applyOptions.context);
-      productIndex += 1;
-      const product = createStarObjectBatchProduct({
-        providerId,
-        sessionId,
-        streamId,
-        productIndex,
-        entries: [{ node: entry.node, decoded }],
-        attributes: options.attributes,
-        coordinates: options.coordinates,
-        viewRevision: applyOptions.viewRevision,
-        demandRevision,
-        memoryOwnership: options.memory.ownership,
-      });
+        productsByNodeKey.set(entry.node.nodeKey, {
+          entry,
+          product,
+          current: true,
+        });
+        emitDelta({
+          type: 'data/product-upsert',
+          streamId,
+          providerId,
+          sessionId,
+          product,
+        });
+      }
+    }
 
-      productsByNodeKey.set(entry.node.nodeKey, {
-        entry,
-        product,
-        current: true,
-      });
-      emitDelta({
-        type: 'data/product-upsert',
-        streamId,
-        providerId,
-        sessionId,
-        product,
-      });
+    if (disposed || applyOptions.token !== latestPlanToken) {
+      return;
     }
 
     status = 'current';

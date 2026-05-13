@@ -8,6 +8,14 @@ import {
   STAR_HEADER_BLOCK_BYTES,
   STAR_HEADER_SIZE,
 } from './star-octree-format.js';
+import {
+  DEFAULT_MAX_INFLIGHT_PAYLOAD_BATCHES,
+  DEFAULT_PAYLOAD_MAX_BATCH_BYTES,
+  DEFAULT_PAYLOAD_MAX_GAP_BYTES,
+  decompressGzip,
+  planPayloadRangeBatches,
+  runWithConcurrency,
+} from './star-octree-payloads.js';
 import { createUrlRangeSource } from './star-octree-url-source.js';
 
 /**
@@ -26,6 +34,9 @@ const DEFAULT_SHARD_PREFETCH_BYTES = 65_536;
  *   headerCacheHits: number;
  *   shardFetches: number;
  *   shardCacheHits: number;
+ *   payloadBatchRequests: number;
+ *   payloadNodesFetched: number;
+ *   payloadCacheHits: number;
  *   rangeRequests: number;
  *   bytesRequested: number;
  *   persistentCacheHits: number;
@@ -38,6 +49,13 @@ const DEFAULT_SHARD_PREFETCH_BYTES = 65_536;
  *   shard: ResolvedStarOctreeShard;
  *   nodes: StarOctreeRuntimeNode[];
  * }} LoadedRootShard
+ */
+
+/**
+ * @typedef {{
+ *   node: StarOctreeRuntimeNode;
+ *   buffer: ArrayBuffer;
+ * }} StarOctreePayloadEntry
  */
 
 /**
@@ -65,6 +83,17 @@ export function createStarOctreeIndexSource(createOptions) {
   let rootShard = null;
   /** @type {Map<number, Promise<ResolvedStarOctreeShard>>} */
   const shardCache = new Map();
+  /** @type {Map<string, Promise<ArrayBuffer>>} */
+  const payloadCache = new Map();
+  const payloadMaxGapBytes =
+    createOptions.options.limits?.payloadMaxGapBytes ??
+    DEFAULT_PAYLOAD_MAX_GAP_BYTES;
+  const payloadMaxBatchBytes =
+    createOptions.options.limits?.payloadMaxBatchBytes ??
+    DEFAULT_PAYLOAD_MAX_BATCH_BYTES;
+  const maxInflightPayloadBatches =
+    createOptions.options.limits?.maxInflightPayloadBatches ??
+    DEFAULT_MAX_INFLIGHT_PAYLOAD_BATCHES;
 
   return {
     persistentCacheAvailable: rangeSource.persistentCacheAvailable,
@@ -98,6 +127,8 @@ export function createStarOctreeIndexSource(createOptions) {
 
     loadShard,
 
+    fetchNodePayloadBatchProgressive,
+
     getSnapshot() {
       return {
         datasetId: bootstrapProduct?.datasetId ?? createOptions.options.datasetId ?? null,
@@ -109,7 +140,7 @@ export function createStarOctreeIndexSource(createOptions) {
         cache: {
           bootstrapHeaders: bootstrapPromise ? 1 : 0,
           shardHeaders: shardCache.size,
-          payloads: 0,
+          payloads: payloadCache.size,
           decodedPayloads: 0,
           products: 0,
         },
@@ -274,6 +305,117 @@ export function createStarOctreeIndexSource(createOptions) {
 
     return primaryShard;
   }
+
+  /**
+   * @param {StarOctreeRuntimeNode[]} nodes
+   * @param {{
+   *   onBatch?: (entries: StarOctreePayloadEntry[]) => void | Promise<void>;
+   *   emitCachedFirst?: boolean;
+   * }} options
+   * @returns {Promise<StarOctreePayloadEntry[]>}
+   */
+  async function fetchNodePayloadBatchProgressive(nodes, options = {}) {
+    const requestedNodes = nodes.filter((node) => node && node.payloadLength > 0);
+    if (requestedNodes.length === 0) {
+      return [];
+    }
+
+    /** @type {StarOctreeRuntimeNode[]} */
+    const cachedNodes = [];
+    /** @type {StarOctreeRuntimeNode[]} */
+    const missingNodes = [];
+    /** @type {Promise<unknown>[]} */
+    const notifyPromises = [];
+
+    for (const node of requestedNodes) {
+      const cacheKey = createPayloadCacheKey(node);
+      if (payloadCache.has(cacheKey)) {
+        stats.payloadCacheHits += 1;
+        cachedNodes.push(node);
+      } else {
+        missingNodes.push(node);
+      }
+    }
+
+    if (options.emitCachedFirst !== false && cachedNodes.length > 0) {
+      notifyPromises.push(
+        Promise.all(cachedNodes.map(async (node) => ({
+          node,
+          buffer: await /** @type {Promise<ArrayBuffer>} */ (
+            payloadCache.get(createPayloadCacheKey(node))
+          ),
+        }))).then((entries) => options.onBatch?.(entries)),
+      );
+    }
+
+    const batches = planPayloadRangeBatches(missingNodes, {
+      maxGapBytes: payloadMaxGapBytes,
+      maxBatchBytes: payloadMaxBatchBytes,
+    });
+
+    const batchTasks = batches.map((batch) => async () => {
+      stats.payloadBatchRequests += 1;
+      stats.payloadNodesFetched += batch.nodes.length;
+      const batchBuffer = await rangeSource.fetchRange(batch.start, batch.end);
+      /** @type {Map<string, ArrayBuffer>} */
+      const decodedBuffers = new Map();
+
+      await Promise.all(batch.nodes.map(async (node) => {
+        const sliceStart = node.payloadOffset - batch.start;
+        const sliceEnd = sliceStart + node.payloadLength;
+        decodedBuffers.set(
+          createPayloadCacheKey(node),
+          await decompressGzip(batchBuffer.slice(sliceStart, sliceEnd)),
+        );
+      }));
+
+      return decodedBuffers;
+    });
+
+    const batchPromises = runWithConcurrency(
+      batchTasks,
+      maxInflightPayloadBatches,
+    );
+
+    batches.forEach((batch, batchIndex) => {
+      const batchPromise = batchPromises[batchIndex];
+
+      for (const node of batch.nodes) {
+        const cacheKey = createPayloadCacheKey(node);
+        payloadCache.set(
+          cacheKey,
+          batchPromise.then((decodedBuffers) => {
+            const buffer = decodedBuffers.get(cacheKey);
+            if (!buffer) {
+              throw new Error(`Missing decoded payload buffer for ${cacheKey}`);
+            }
+            return buffer;
+          }),
+        );
+      }
+
+      if (options.onBatch) {
+        notifyPromises.push(batchPromise
+          .then((decodedBuffers) => batch.nodes.map((node) => {
+            const buffer = decodedBuffers.get(createPayloadCacheKey(node));
+            if (!buffer) {
+              throw new Error(`Missing decoded payload buffer for ${node.nodeKey}`);
+            }
+            return { node, buffer };
+          }))
+          .then((entries) => options.onBatch?.(entries)));
+      }
+    });
+
+    const entries = await Promise.all(requestedNodes.map(async (node) => ({
+      node,
+      buffer: await /** @type {Promise<ArrayBuffer>} */ (
+        payloadCache.get(createPayloadCacheKey(node))
+      ),
+    })));
+    await Promise.all(notifyPromises);
+    return entries;
+  }
 }
 
 /**
@@ -285,11 +427,21 @@ function createInitialStats() {
     headerCacheHits: 0,
     shardFetches: 0,
     shardCacheHits: 0,
+    payloadBatchRequests: 0,
+    payloadNodesFetched: 0,
+    payloadCacheHits: 0,
     rangeRequests: 0,
     bytesRequested: 0,
     persistentCacheHits: 0,
     fetchTimeMs: 0,
   };
+}
+
+/**
+ * @param {StarOctreeRuntimeNode} node
+ */
+function createPayloadCacheKey(node) {
+  return `${node.payloadOffset}:${node.payloadLength}`;
 }
 
 /**
