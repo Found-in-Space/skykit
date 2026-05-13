@@ -98,6 +98,86 @@ test('unchanged demand emits no duplicate upserts', async () => {
   assert.equal(session.getSnapshot().demand.revision, 1);
 });
 
+test('session demand ordering defaults coarse-first and can be disabled', async () => {
+  const coarseNode = createNode('coarse-node', {
+    level: 1,
+  });
+  const nearDeepNode = createNode('near-deep-node', {
+    level: 3,
+  });
+
+  const coarseProvider = createStarOctreeProviderServiceForTest(
+    { id: 'provider-coarse', url: '/data/stars.octree' },
+    {
+      planDemand: () => ({
+        entries: [
+          {
+            node: nearDeepNode,
+            priority: 100,
+            role: 'current',
+            metadata: { distancePc: 1 },
+          },
+          {
+            node: coarseNode,
+            priority: 1,
+            role: 'current',
+            metadata: { distancePc: 100 },
+          },
+        ],
+        signature: 'coarse-order',
+      }),
+    },
+  );
+  const coarseSession = coarseProvider.createSession({ id: 'session-coarse' });
+  const coarseIterator = coarseSession.deltas()[Symbol.asyncIterator]();
+  coarseSession.updateView({ observerPc: { x: 0, y: 0, z: 0 } });
+  const coarseDeltas = await readUntilCurrent(coarseIterator);
+
+  assert.deepEqual(
+    coarseDeltas
+      .filter((delta) => delta.type === 'data/product-upsert')
+      .map((delta) => delta.product.nodes[0].nodeKey),
+    ['coarse-node', 'near-deep-node'],
+  );
+
+  const priorityProvider = createStarOctreeProviderServiceForTest(
+    { id: 'provider-priority', url: '/data/stars.octree' },
+    {
+      planDemand: () => ({
+        entries: [
+          {
+            node: nearDeepNode,
+            priority: 100,
+            role: 'current',
+            metadata: { distancePc: 1 },
+          },
+          {
+            node: coarseNode,
+            priority: 1,
+            role: 'current',
+            metadata: { distancePc: 100 },
+          },
+        ],
+        signature: 'priority-order',
+      }),
+    },
+  );
+  const prioritySession = priorityProvider.createSession({
+    id: 'session-priority',
+    streaming: { coarseFirst: false },
+  });
+  const priorityIterator = prioritySession.deltas()[Symbol.asyncIterator]();
+  prioritySession.updateView({ observerPc: { x: 0, y: 0, z: 0 } });
+  const priorityDeltas = await readUntilCurrent(priorityIterator);
+
+  assert.deepEqual(
+    priorityDeltas
+      .filter((delta) => delta.type === 'data/product-upsert')
+      .map((delta) => delta.product.nodes[0].nodeKey),
+    ['near-deep-node', 'coarse-node'],
+  );
+});
+
 test('changed demand retains shared nodes and stale-removes excluded products', async () => {
   const nodeA = createNode('node-a');
   const nodeB = createNode('node-b');

@@ -8,10 +8,12 @@ import {
 import { decodeStarPayload } from './star-octree-payloads.js';
 import { createStarObjectBatchProduct } from './star-octree-products.js';
 import { createAsyncQueue } from './star-octree-queue.js';
+import { STAR_HAS_PAYLOAD } from './star-octree-format.js';
 import {
   normalizeTargetFrustumView,
   planTargetFrustumDemand,
 } from './star-octree-target-frustum.js';
+import { traverseOctree } from './star-octree-traversal.js';
 
 /**
  * @typedef {import('./index.js').StarObjectBatchProduct} StarObjectBatchProduct
@@ -76,22 +78,24 @@ export function createStarOctreePipeline(options) {
    * @returns {Promise<StarOctreeDemandPlan>}
    */
   async function planDemandForContext(context) {
-    if (context.strategy.kind === 'observer-shell') {
+    const enrichedContext = withTraversalContext(context);
+
+    if (enrichedContext.strategy.kind === 'observer-shell') {
       return planObserverShellDemand({
         indexSource: options.indexSource,
-        context,
+        context: enrichedContext,
       });
     }
 
-    if (context.strategy.kind === 'target-frustum') {
+    if (enrichedContext.strategy.kind === 'target-frustum') {
       return planTargetFrustumDemand({
         indexSource: options.indexSource,
-        context,
+        context: enrichedContext,
       });
     }
 
-    if (context.strategy.kind === 'custom') {
-      return context.strategy.selectDemand(context);
+    if (enrichedContext.strategy.kind === 'custom') {
+      return enrichedContext.strategy.selectDemand(enrichedContext);
     }
 
     throw createUnsupportedStrategyError('unknown');
@@ -210,6 +214,7 @@ export function createStarOctreePipeline(options) {
           demandRevision: streamOptions.demandRevision,
           memoryOwnership: streamOptions.memory?.ownership,
           batchMode: streamOptions.streaming?.batchMode ?? 'payload-range',
+          emitCachedFirst: streamOptions.streaming?.emitCachedFirst,
           nextProductIndex() {
             productIndex += 1;
             return productIndex;
@@ -266,6 +271,7 @@ export function createStarOctreePipeline(options) {
    *   demandRevision?: number;
    *   memoryOwnership?: 'borrowed' | 'copy' | 'transfer';
    *   batchMode?: 'payload-range' | 'node';
+   *   emitCachedFirst?: boolean;
    *   nextProductIndex: () => number;
    * }} productOptions
    * @returns {AsyncIterable<StarObjectBatchProduct>}
@@ -283,7 +289,7 @@ export function createStarOctreePipeline(options) {
     void (async () => {
       try {
         await options.indexSource.fetchNodePayloadBatchProgressive(nodes, {
-          emitCachedFirst: true,
+          emitCachedFirst: productOptions.emitCachedFirst,
           async onBatch(payloadEntries) {
             work?.update({
               status: 'decoding',
@@ -330,7 +336,7 @@ export function createStarOctreePipeline(options) {
    * Warm payload and decoded caches for entries without emitting products.
    *
    * @param {StarOctreeDemandEntry[]} entries
-   * @param {{ sessionId?: string }} [warmOptions]
+   * @param {{ sessionId?: string; emitCachedFirst?: boolean }} [warmOptions]
    */
   async function warmEntries(entries, warmOptions = {}) {
     const nodes = entries
@@ -348,7 +354,7 @@ export function createStarOctreePipeline(options) {
 
     try {
       await options.indexSource.fetchNodePayloadBatchProgressive(nodes, {
-        emitCachedFirst: true,
+        emitCachedFirst: warmOptions.emitCachedFirst,
         async onBatch(payloadEntries) {
           work?.update({ status: 'decoding' });
           await Promise.all(
@@ -444,6 +450,87 @@ export function createStarOctreePipeline(options) {
   }
 
   /**
+   * @param {StarOctreeSelectionContext} context
+   * @returns {StarOctreeSelectionContext}
+   */
+  function withTraversalContext(context) {
+    return {
+      ...context,
+      traversal: createTraversalApi(context),
+    };
+  }
+
+  /**
+   * @param {StarOctreeSelectionContext} context
+   */
+  function createTraversalApi(context) {
+    const api = {
+      /**
+       * @param {{
+       *   distanceToNode?: (node: StarOctreeRuntimeNode) => number;
+       *   visit: (
+       *     node: StarOctreeRuntimeNode,
+       *     helpers: {
+       *       context: StarOctreeSelectionContext;
+       *       bootstrap: import('./index.js').StarOctreeBootstrapProduct;
+       *     }
+       *   ) => Promise<import('./index.js').StarOctreeTraversalDecision> | import('./index.js').StarOctreeTraversalDecision;
+       * }} selectionOptions
+       */
+      async select(selectionOptions) {
+        const bootstrap = await options.indexSource.ensureBootstrapLoaded();
+        /** @type {StarOctreeDemandEntry[]} */
+        const entries = [];
+        const traversalContext = /** @type {StarOctreeSelectionContext} */ ({
+          ...context,
+          traversal: api,
+        });
+        const traversal = await traverseOctree({
+          indexSource: options.indexSource,
+          bootstrap,
+          distanceToNode: selectionOptions.distanceToNode,
+          async visitor(node) {
+            const decision = await selectionOptions.visit(node, {
+              context: traversalContext,
+              bootstrap,
+            });
+            const include = decision.include === true;
+            const descend = decision.descend !== false;
+
+            if (
+              include &&
+              (node.flags & STAR_HAS_PAYLOAD) &&
+              node.payloadLength > 0
+            ) {
+              entries.push({
+                node,
+                priority: decision.priority,
+                relevance: decision.relevance,
+                role: decision.role ?? 'current',
+                reasons: decision.reasons,
+                metadata: decision.metadata,
+              });
+            }
+
+            return {
+              include,
+              descend: include && descend,
+              distancePc: decision.distancePc,
+            };
+          },
+        });
+
+        return {
+          entries,
+          stats: traversal.stats,
+        };
+      },
+    };
+
+    return api;
+  }
+
+  /**
    * @param {string} prefix
    */
   function createStreamId(prefix) {
@@ -483,6 +570,22 @@ function createSelectionContext(providerId, options, extras = {}) {
     coordinates: {
       ...DEFAULT_COORDINATES,
       ...(objectOptions.coordinates ?? {}),
+    },
+    streaming: {
+      progressive: options.streaming?.progressive ?? true,
+      emitCachedFirst: options.streaming?.emitCachedFirst ?? true,
+      ...(options.streaming?.coarseFirst !== undefined
+        ? { coarseFirst: options.streaming.coarseFirst }
+        : {}),
+    },
+    traversal: createUnavailableTraversal(),
+  };
+}
+
+function createUnavailableTraversal() {
+  return {
+    async select() {
+      throw new Error('Star octree traversal context is not initialized.');
     },
   };
 }

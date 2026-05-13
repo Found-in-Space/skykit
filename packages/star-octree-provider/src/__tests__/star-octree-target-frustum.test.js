@@ -15,13 +15,13 @@ test('quaternionToCameraBasis follows SkyKit camera orientation convention', () 
   assert.deepEqual(roundVector(basis.forward), { x: 0, y: 0, z: -1 });
 });
 
-test('target-frustum view validation requires exact orientation and projection state', () => {
+test('target-frustum view validation requires orientation, target, or direction', () => {
   assert.throws(
     () => normalizeTargetFrustumView(
       { verticalFovDeg: 70, aspectRatio: 1 },
       { kind: 'target-frustum' },
     ),
-    /orientationIcrs/,
+    /orientationIcrs, targetPc, or directionIcrs/,
   );
 
   assert.throws(
@@ -34,6 +34,45 @@ test('target-frustum view validation requires exact orientation and projection s
     ),
     /aspectRatio/,
   );
+});
+
+test('target-frustum derives a POC-parity target frustum with defaults', () => {
+  const view = normalizeTargetFrustumView(
+    {
+      observerPc: { x: 0, y: 0, z: 0 },
+      targetPc: { x: 0, y: 0, z: -10 },
+    },
+    { kind: 'target-frustum' },
+  );
+  const frustum = createFrustumTester(view);
+
+  assert.equal(view.frustumMode, 'target');
+  assert.equal(view.verticalFovDeg, 40);
+  assert.equal(view.overscanDeg, 8);
+  assert.equal(view.aspectRatio, 1);
+  assert.equal(view.targetRadiusPc, 96);
+  assert.equal(view.farPc, 106);
+  assert.deepEqual(roundVector(frustum.basis.forward), { x: 0, y: 0, z: -1 });
+  assert.equal(frustum.intersectsNode(createNode({ centerZ: -10 })), true);
+  assert.equal(frustum.intersectsNode(createNode({ centerZ: 10 })), false);
+});
+
+test('target-frustum can derive from directionIcrs without a target distance', () => {
+  const view = normalizeTargetFrustumView(
+    {
+      observerPc: { x: 0, y: 0, z: 0 },
+      directionIcrs: { x: 1, y: 0, z: 0 },
+      verticalFovDeg: 60,
+    },
+    { kind: 'target-frustum' },
+  );
+  const frustum = createFrustumTester(view);
+
+  assert.equal(view.frustumMode, 'direction');
+  assert.equal(view.farPc, undefined);
+  assert.deepEqual(roundVector(frustum.basis.forward), { x: 1, y: 0, z: 0 });
+  assert.equal(frustum.intersectsNode(createNode({ centerX: 10 })), true);
+  assert.equal(frustum.intersectsNode(createNode({ centerX: -10 })), false);
 });
 
 test('frustum tester intersects axis-aligned octree nodes exactly enough for pruning', () => {

@@ -42,12 +42,13 @@ const DEFAULT_COORDINATES = {
  *       demandRevision?: number;
  *       memoryOwnership?: 'borrowed' | 'copy' | 'transfer';
  *       batchMode?: 'payload-range' | 'node';
+ *       emitCachedFirst?: boolean;
  *       nextProductIndex: () => number;
  *     }
  *   ) => AsyncIterable<StarObjectBatchProduct>;
  *   warmEntries?: (
  *     entries: StarOctreeDemandEntry[],
- *     options?: { sessionId?: string }
+ *     options?: { sessionId?: string; emitCachedFirst?: boolean }
  *   ) => Promise<void>;
  * }} SessionSource
  */
@@ -236,7 +237,9 @@ export function createStarOctreeProviderSession(createOptions) {
    * }} applyOptions
    */
   async function applyDemandPlan(plan, applyOptions) {
-    const entries = normalizeDemandEntries(plan.entries);
+    const entries = normalizeDemandEntries(plan.entries, {
+      coarseFirst: options.streaming.coarseFirst !== false,
+    });
     const currentEntries = entries.filter(
       (entry) => (entry.role ?? 'current') === 'current',
     );
@@ -311,6 +314,7 @@ export function createStarOctreeProviderSession(createOptions) {
     if (prefetchEntries.length > 0 && createOptions.source.warmEntries) {
       const prefetch = createOptions.source.warmEntries(prefetchEntries, {
         sessionId,
+        emitCachedFirst: options.streaming.emitCachedFirst,
       });
       activePrefetches.add(prefetch);
       prefetch.then(
@@ -338,6 +342,7 @@ export function createStarOctreeProviderSession(createOptions) {
           demandRevision,
           memoryOwnership: options.memory.ownership,
           batchMode: 'payload-range',
+          emitCachedFirst: options.streaming.emitCachedFirst,
           nextProductIndex() {
             productIndex += 1;
             return productIndex;
@@ -412,6 +417,8 @@ export function createStarOctreeProviderSession(createOptions) {
       demandRevision,
       attributes: options.attributes,
       coordinates: options.coordinates,
+      streaming: options.streaming,
+      traversal: createUnavailableTraversal(),
     };
   }
 
@@ -631,14 +638,46 @@ function normalizeViewPatch(currentView, patch) {
 
 /**
  * @param {StarOctreeDemandEntry[]} entries
+ * @param {{ coarseFirst: boolean }} sortOptions
  * @returns {StarOctreeDemandEntry[]}
  */
-function normalizeDemandEntries(entries) {
+function normalizeDemandEntries(entries, sortOptions) {
   return [...entries].sort((a, b) => {
+    if (sortOptions.coarseFirst) {
+      const levelDelta = a.node.level - b.node.level;
+      if (levelDelta !== 0) return levelDelta;
+
+      const forwardDelta = compareMetadataNumber(a, b, 'forwardDistancePc');
+      if (forwardDelta !== 0) return forwardDelta;
+
+      const distanceDelta = compareMetadataNumber(a, b, 'distancePc');
+      if (distanceDelta !== 0) return distanceDelta;
+    }
+
     const priorityDelta = (b.priority ?? 0) - (a.priority ?? 0);
     if (priorityDelta !== 0) return priorityDelta;
     return a.node.nodeKey.localeCompare(b.node.nodeKey);
   });
+}
+
+/**
+ * @param {StarOctreeDemandEntry} left
+ * @param {StarOctreeDemandEntry} right
+ * @param {string} key
+ */
+function compareMetadataNumber(left, right, key) {
+  const leftValue = metadataNumber(left, key);
+  const rightValue = metadataNumber(right, key);
+  return leftValue === rightValue ? 0 : leftValue - rightValue;
+}
+
+/**
+ * @param {StarOctreeDemandEntry} entry
+ * @param {string} key
+ */
+function metadataNumber(entry, key) {
+  const value = Number(entry.metadata?.[key]);
+  return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
 }
 
 /**
@@ -664,6 +703,14 @@ function createDeltaIterable(queue, onReturn) {
       } finally {
         onReturn();
       }
+    },
+  };
+}
+
+function createUnavailableTraversal() {
+  return {
+    async select() {
+      throw new Error('Star octree traversal context is only available through the provider pipeline.');
     },
   };
 }

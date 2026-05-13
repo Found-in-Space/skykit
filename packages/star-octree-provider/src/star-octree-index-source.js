@@ -37,6 +37,9 @@ const DEFAULT_SHARD_PREFETCH_BYTES = 65_536;
  *   payloadBatchRequests: number;
  *   payloadNodesFetched: number;
  *   payloadCacheHits: number;
+ *   payloadCompressedBytesRequested: number;
+ *   payloadSpanBytesRequested: number;
+ *   payloadGapBytesRequested: number;
  *   rangeRequests: number;
  *   bytesRequested: number;
  *   persistentCacheHits: number;
@@ -371,6 +374,9 @@ export function createStarOctreeIndexSource(createOptions) {
     const batchTasks = batches.map((batch) => async () => {
       stats.payloadBatchRequests += 1;
       stats.payloadNodesFetched += batch.nodes.length;
+      stats.payloadCompressedBytesRequested += batch.payloadBytes;
+      stats.payloadSpanBytesRequested += batch.spanBytes;
+      stats.payloadGapBytesRequested += batch.gapBytes;
       const batchBuffer = await rangeSource.fetchRange(batch.start, batch.end);
       /** @type {Map<string, ArrayBuffer>} */
       const decodedBuffers = new Map();
@@ -391,6 +397,23 @@ export function createStarOctreeIndexSource(createOptions) {
       batchTasks,
       maxInflightPayloadBatches,
     );
+
+    if (
+      options.emitCachedFirst === false &&
+      cachedNodes.length > 0 &&
+      options.onBatch
+    ) {
+      notifyPromises.push(
+        Promise.all(batchPromises)
+          .then(() => Promise.all(cachedNodes.map(async (node) => ({
+            node,
+            buffer: await /** @type {Promise<ArrayBuffer>} */ (
+              payloadCache.get(createPayloadCacheKey(node))
+            ),
+          }))))
+          .then((entries) => options.onBatch?.(entries)),
+      );
+    }
 
     batches.forEach((batch, batchIndex) => {
       const batchPromise = batchPromises[batchIndex];
@@ -453,6 +476,9 @@ function createInitialStats() {
     payloadBatchRequests: 0,
     payloadNodesFetched: 0,
     payloadCacheHits: 0,
+    payloadCompressedBytesRequested: 0,
+    payloadSpanBytesRequested: 0,
+    payloadGapBytesRequested: 0,
     rangeRequests: 0,
     bytesRequested: 0,
     persistentCacheHits: 0,

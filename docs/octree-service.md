@@ -155,11 +155,11 @@ through the provider/session APIs, not through diagnostic side paths.
 | URL range source | Implemented | Range fetches, bootstrap/shard cache, and basic stats. |
 | Octree index reader | Implemented | STAR/ODSC header parsing, root shard loading, shard loading, runtime nodes. |
 | Traversal engine | Implemented | Root entries, same-shard children, frontier shards, deterministic traversal. |
-| observer-shell strategy | Implemented | Uses provider-native parsec view coordinates and header `magLimit` shell pruning. |
-| target-frustum strategy | Implemented | Requires exact plain-data camera orientation and projection state; applies shell pruning then frustum/AABB pruning. |
+| observer-shell strategy | POC-parity implemented | Uses provider-native parsec view coordinates, header `magLimit` shell pruning, deterministic coarse-first order, and optional motion lookahead from `view.motion`. |
+| target-frustum strategy | POC-parity implemented | Supports exact `orientationIcrs` demand and target/direction-derived demand. Applies shell pruning then frustum/AABB pruning without importing Three.js. |
 | Demand reconciler | Second pass implemented | Product membership indexes support grouped live products, stale/remove, and replacement products for partial retention. |
 | Work scheduler | Second pass partial | Latest-view gating, role-aware prefetch warming, progressive payload work, and work snapshots are implemented. Fully interleaved traversal/fetch reprioritization remains a later tuning pass. |
-| Payload fetcher/cache | First pass implemented | Payload range batching, decompression, in-memory decompressed payload cache, payload stats. |
+| Payload fetcher/cache | POC-parity implemented | Payload range batching, decompression, in-memory decompressed payload cache, cache-first/deferred-cache emission, and range span/gap stats. |
 | Payload decoder | First pass implemented | 16-byte star records into parsec `position`, `magAbs`, `teffLog8`, and object refs. |
 | Product builder | First pass implemented | Non-cumulative object batches and decode-time coordinate transforms. |
 | Live sessions | First pass implemented | `updateView()` stays synchronous; products stream through `session.deltas()`. |
@@ -428,6 +428,7 @@ export type StarOctreeFetchStrategy =
       kind: 'target-frustum';
       verticalFovDeg?: number;
       overscanDeg?: number;
+      targetRadiusPc?: number;
       nearPc?: number;
       farPc?: number;
     }
@@ -456,6 +457,66 @@ export interface StarOctreeDemandPlan {
   signature?: string;
   reasons?: StarOctreeViewReceipt['reasons'];
   metadata?: Record<string, unknown>;
+}
+
+export interface StarOctreeTraversalDecision {
+  include?: boolean;
+  descend?: boolean;
+  priority?: number;
+  relevance?: number;
+  role?: 'current' | 'prefetch';
+  reasons?: StarOctreeViewReceipt['reasons'];
+  metadata?: Record<string, unknown>;
+  distancePc?: number;
+}
+
+export interface StarOctreeTraversalSelectionResult {
+  entries: StarOctreeDemandEntry[];
+  stats: {
+    inspectedNodeCount: number;
+    selectedNodeCount: number;
+    prunedNodeCount: number;
+    payloadNodeCount: number;
+    frontierShardCount: number;
+    maxLevelInspected: number | null;
+  };
+}
+
+export interface StarOctreeSelectionContext {
+  providerId: string;
+  sessionId?: string;
+  strategy: StarOctreeFetchStrategy;
+  view: StarOctreeViewState;
+  viewRevision: number;
+  demandRevision: number;
+  attributes: string[];
+  coordinates: StarOctreeCoordinateOutput;
+
+  streaming?: {
+    progressive?: boolean;
+    emitCachedFirst?: boolean;
+    coarseFirst?: boolean;
+  };
+
+  /**
+   * Provider-owned traversal helper for custom strategies. Applications may
+   * choose relevance, descend/prune decisions, roles, priority, and metadata,
+   * but they do not construct root shards or runtime nodes themselves.
+   */
+  traversal: {
+    select(options: {
+      distanceToNode?: (node: StarOctreeRuntimeNode) => number;
+      visit: (
+        node: StarOctreeRuntimeNode,
+        helpers: {
+          context: StarOctreeSelectionContext;
+          bootstrap: StarOctreeBootstrapProduct;
+        }
+      ) =>
+        | Promise<StarOctreeTraversalDecision>
+        | StarOctreeTraversalDecision;
+    }): Promise<StarOctreeTraversalSelectionResult>;
+  };
 }
 
 export interface StarOctreeSessionOptions {
@@ -498,14 +559,20 @@ Built-in strategy semantics:
 ```txt
 observer-shell:
   apply the magnitude-indexed shell predicate to provider-owned octree traversal
+  and emit deterministic coarse-first demand by default. If `view.motion`
+  supplies positive speed and lookahead, the strategy may cap deeper traversal
+  using the POC-equivalent motion-adaptive formula. That cap is strategy
+  metadata, not a public `maxLevel` control.
 
 target-frustum:
-  apply the same magnitude-indexed shell predicate, then prune by exact
-  quaternion/FOV/aspect frustum against node AABBs
+  apply the same magnitude-indexed shell predicate, then prune by frustum/AABB
+  intersection. The frustum may be exact from `orientationIcrs`, or derived
+  from `targetPc`/`directionIcrs` using provider-owned plain-data math.
 
 custom:
-  may implement its own demand predicate, but should still treat runtime node level
-  as source metadata unless the custom strategy is explicitly dataset-specific
+  may implement its own demand predicate with the provider traversal helper,
+  but should still treat runtime node level as source metadata unless the custom
+  strategy is explicitly dataset-specific
 ```
 
 Normative magnitude-shell predicate:
@@ -602,7 +669,7 @@ export interface ViewUpdateOptions {
 }
 ```
 
-`target-frustum` uses `orientationIcrs` as a plain-data quaternion in the same camera convention as `camera-rig.js`: local forward is `(0, 0, -1)`, right is `(1, 0, 0)`, and up is `(0, 1, 0)`. The provider must not import Three.js or camera objects. For exact frustum demand, `orientationIcrs`, `verticalFovDeg`, and `aspectRatio` are required. `nearPc` defaults to `0`; omitted `farPc` means there is no explicit far plane beyond the magnitude-shell predicate.
+`target-frustum` uses the same camera convention as `camera-rig.js`: local forward is `(0, 0, -1)`, right is `(1, 0, 0)`, and up is `(0, 1, 0)`. The provider must not import Three.js or camera objects. For exact frustum demand, `orientationIcrs`, `verticalFovDeg`, and `aspectRatio` are required. For POC-parity target demand, `orientationIcrs` may be omitted when `targetPc` or `directionIcrs` is present. Target-derived demand defaults `verticalFovDeg` to `40`, `overscanDeg` to `8`, `aspectRatio` to `1`, and `targetRadiusPc` to `96`. `nearPc` defaults to `0`; omitted `farPc` means no explicit far plane for exact/direction demand, or `targetDistancePc + targetRadiusPc + preloadDistancePc` for target-derived demand.
 
 Sprint 1 behavior:
 
@@ -725,6 +792,7 @@ export interface StarOctreeObjectBatchStreamOptions {
     progressive?: boolean;
     batchMode?: 'payload-range' | 'node';
     emitCachedFirst?: boolean;
+    coarseFirst?: boolean;
     retainOrder?: boolean;
   };
 
@@ -753,6 +821,12 @@ Consequences:
 
 `fetchObjectBatch({ strategy, view })` is the required convenience API that returns one merged complete product for one-shot callers.
 
+`coarseFirst` defaults to `true` for built-in strategy demand ordering, matching
+the POC's useful "coarser spatial representation before deeper detail"
+streaming behavior. Set `coarseFirst: false` to prefer pure strategy priority
+or distance ordering. `retainOrder` is reserved for a later strict-order
+streaming mode; high-throughput payload-range batching is the current default.
+
 ### 12.3 Payload stream options
 
 ```ts
@@ -764,6 +838,7 @@ export interface StarOctreePayloadStreamOptions {
   streaming?: {
     progressive?: boolean;
     emitCachedFirst?: boolean;
+    coarseFirst?: boolean;
   };
 }
 ```
@@ -1174,6 +1249,9 @@ export interface StarOctreeProviderSnapshot {
     payloadBatchRequests: number;
     payloadNodesFetched: number;
     payloadCacheHits: number;
+    payloadCompressedBytesRequested?: number;
+    payloadSpanBytesRequested?: number;
+    payloadGapBytesRequested?: number;
     shardCacheHits: number;
     headerCacheHits: number;
     persistentCacheHits: number;
@@ -1867,7 +1945,7 @@ StarFieldLayer or Three adapter
 
 ### Sprint 4: Additional strategies
 
-Add more provider-owned loading strategies or tune existing ones, such as motion-adaptive observer shell and target-frustum demand. Exact `target-frustum` demand now exists; later work should focus on motion/lookahead freshness policy, fully interleaved traversal/fetch reprioritization, and cache-aware prefetch.
+The POC-parity provider now includes motion-adaptive observer-shell traversal and both exact and target/direction-derived `target-frustum` demand. Later work should focus on richer motion/lookahead freshness policy, fully interleaved traversal/fetch reprioritization, and cache-aware prefetch rather than adding diagnostic side APIs.
 
 ### Sprint 5: Message bus wrapper
 

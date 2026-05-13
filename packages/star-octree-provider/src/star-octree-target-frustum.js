@@ -20,6 +20,12 @@ import {
 
 const DEFAULT_OBSERVER_PC = Object.freeze({ x: 0, y: 0, z: 0 });
 const DEFAULT_LIMITING_MAGNITUDE = 6.5;
+const DEFAULT_TARGET_VERTICAL_FOV_DEG = 40;
+const DEFAULT_TARGET_OVERSCAN_DEG = 8;
+const DEFAULT_TARGET_RADIUS_PC = 96;
+const DEFAULT_TARGET_ASPECT_RATIO = 1;
+const TARGET_UP = Object.freeze({ x: 0, y: 0, z: 1 });
+const TARGET_UP_FALLBACK = Object.freeze({ x: 0, y: 1, z: 0 });
 
 /**
  * @param {{
@@ -34,6 +40,9 @@ export async function planTargetFrustumDemand(options) {
     options.context.view,
     options.context.strategy,
   );
+  const targetDistancePc = 'targetDistancePc' in view
+    ? view.targetDistancePc
+    : undefined;
   const frustum = createFrustumTester(view);
   const indexMagnitude = bootstrap.header.magLimit;
   /** @type {StarOctreeDemandEntry[]} */
@@ -75,6 +84,14 @@ export async function planTargetFrustumDemand(options) {
       }
 
       if ((node.flags & STAR_HAS_PAYLOAD) && node.payloadLength > 0) {
+        const relativeCenter = subtractVectors(
+          { x: node.centerX, y: node.centerY, z: node.centerZ },
+          view.observerPc,
+        );
+        const forwardDistancePc = dotVector(
+          frustum.basis.forward,
+          relativeCenter,
+        );
         entries.push({
           node,
           priority: -distancePc,
@@ -82,9 +99,11 @@ export async function planTargetFrustumDemand(options) {
           reasons: ['target-frustum'],
           metadata: {
             distancePc,
+            forwardDistancePc,
             loadRadiusPc,
             limitingMagnitude: view.limitingMagnitude,
             indexMagnitude,
+            frustumMode: view.frustumMode,
           },
         });
       }
@@ -97,11 +116,11 @@ export async function planTargetFrustumDemand(options) {
     },
   });
 
-  entries.sort((left, right) => {
-    const priorityDelta = (right.priority ?? 0) - (left.priority ?? 0);
-    if (priorityDelta !== 0) return priorityDelta;
-    return left.node.nodeKey.localeCompare(right.node.nodeKey);
-  });
+  entries.sort((left, right) =>
+    compareTargetFrustumEntries(left, right, {
+      coarseFirst: options.context.streaming?.coarseFirst !== false,
+    }),
+  );
 
   return {
     entries,
@@ -114,6 +133,11 @@ export async function planTargetFrustumDemand(options) {
       observerPc: view.observerPc,
       limitingMagnitude: view.limitingMagnitude,
       indexMagnitude,
+      frustumMode: view.frustumMode,
+      ...(view.targetPc ? { targetPc: view.targetPc } : {}),
+      ...(targetDistancePc !== undefined
+        ? { targetDistancePc }
+        : {}),
       inspectedNodeCount: traversal.stats.inspectedNodeCount,
       selectedNodeCount: traversal.stats.selectedNodeCount,
       payloadNodeCount: traversal.stats.payloadNodeCount,
@@ -142,22 +166,87 @@ export function normalizeTargetFrustumView(view = {}, strategy = { kind: 'target
     DEFAULT_LIMITING_MAGNITUDE,
   );
   const orientationIcrs = normalizeQuaternion(view.orientationIcrs);
-  const verticalFovDeg = normalizePositiveNumber(
+  const targetPc = normalizeOptionalPoint(view.targetPc);
+  const directionIcrs = normalizeOptionalVector(view.directionIcrs);
+  const targetVector = targetPc ? subtractVectors(targetPc, observerPc) : null;
+  const targetDistancePc = targetVector ? vectorLength(targetVector) : null;
+  const targetDirection =
+    directionIcrs ??
+    (
+      targetVector && targetDistancePc && targetDistancePc > 0
+        ? scaleVector(targetVector, 1 / targetDistancePc)
+        : null
+    );
+
+  if (orientationIcrs) {
+    const verticalFovDeg = normalizePositiveNumber(
+      view.verticalFovDeg ?? strategy.verticalFovDeg,
+      'verticalFovDeg',
+    );
+    const aspectRatio = normalizePositiveNumber(view.aspectRatio, 'aspectRatio');
+    const nearPc = normalizeNonNegativeNumber(
+      view.nearPc ?? strategy.nearPc ?? 0,
+      'nearPc',
+    );
+    const farPc = view.farPc ?? strategy.farPc;
+
+    if (farPc !== undefined && (!Number.isFinite(Number(farPc)) || Number(farPc) <= nearPc)) {
+      throw createInvalidViewError('target-frustum farPc must be greater than nearPc.');
+    }
+
+    return {
+      ...view,
+      observerPc,
+      limitingMagnitude,
+      orientationIcrs,
+      verticalFovDeg,
+      aspectRatio,
+      nearPc,
+      frustumMode: 'orientation',
+      ...(targetPc ? { targetPc } : {}),
+      ...(farPc !== undefined ? { farPc: Number(farPc) } : {}),
+      ...(strategy.overscanDeg !== undefined
+        ? { overscanDeg: Number(strategy.overscanDeg) }
+        : {}),
+    };
+  }
+
+  if (!targetDirection) {
+    throw createInvalidViewError(
+      'target-frustum requires orientationIcrs, targetPc, or directionIcrs.',
+    );
+  }
+
+  const verticalFovDeg = normalizeFinitePositiveNumber(
     view.verticalFovDeg ?? strategy.verticalFovDeg,
+    DEFAULT_TARGET_VERTICAL_FOV_DEG,
     'verticalFovDeg',
   );
-  const aspectRatio = normalizePositiveNumber(view.aspectRatio, 'aspectRatio');
+  const aspectRatio = normalizeFinitePositiveNumber(
+    view.aspectRatio,
+    DEFAULT_TARGET_ASPECT_RATIO,
+    'aspectRatio',
+  );
   const nearPc = normalizeNonNegativeNumber(
     view.nearPc ?? strategy.nearPc ?? 0,
     'nearPc',
   );
-  const farPc = view.farPc ?? strategy.farPc;
+  const explicitFarPc = view.farPc ?? strategy.farPc;
+  const targetRadiusPc = normalizeFinitePositiveNumber(
+    strategy.targetRadiusPc,
+    DEFAULT_TARGET_RADIUS_PC,
+    'targetRadiusPc',
+  );
+  const preloadDistancePc = normalizeFiniteNumber(view.preloadDistancePc, 0);
+  const farPc = explicitFarPc !== undefined
+    ? Number(explicitFarPc)
+    : (
+        targetDistancePc !== null
+          ? targetDistancePc + targetRadiusPc + Math.max(0, preloadDistancePc)
+          : undefined
+      );
 
-  if (!orientationIcrs) {
-    throw createInvalidViewError('target-frustum requires orientationIcrs.');
-  }
-
-  if (farPc !== undefined && (!Number.isFinite(Number(farPc)) || Number(farPc) <= nearPc)) {
+  if (farPc !== undefined && (!Number.isFinite(farPc) || farPc <= nearPc)) {
     throw createInvalidViewError('target-frustum farPc must be greater than nearPc.');
   }
 
@@ -165,14 +254,19 @@ export function normalizeTargetFrustumView(view = {}, strategy = { kind: 'target
     ...view,
     observerPc,
     limitingMagnitude,
-    orientationIcrs,
+    frustumBasis: cameraBasisFromForward(targetDirection),
+    frustumMode: targetPc ? 'target' : 'direction',
     verticalFovDeg,
     aspectRatio,
     nearPc,
+    overscanDeg: normalizeFiniteNumber(
+      strategy.overscanDeg,
+      DEFAULT_TARGET_OVERSCAN_DEG,
+    ),
+    ...(targetPc ? { targetPc } : {}),
+    ...(targetDistancePc !== null ? { targetDistancePc } : {}),
+    targetRadiusPc,
     ...(farPc !== undefined ? { farPc: Number(farPc) } : {}),
-    ...(strategy.overscanDeg !== undefined
-      ? { overscanDeg: Number(strategy.overscanDeg) }
-      : {}),
   };
 }
 
@@ -180,7 +274,11 @@ export function normalizeTargetFrustumView(view = {}, strategy = { kind: 'target
  * @param {ReturnType<typeof normalizeTargetFrustumView>} view
  */
 export function createFrustumTester(view) {
-  const basis = quaternionToCameraBasis(view.orientationIcrs);
+  const basis = 'frustumBasis' in view && view.frustumBasis
+    ? view.frustumBasis
+    : quaternionToCameraBasis(
+        /** @type {{ x: number; y: number; z: number; w: number }} */ (view.orientationIcrs),
+      );
   const halfVerticalRad = degreesToRadians(
     view.verticalFovDeg / 2 + (view.overscanDeg ?? 0),
   );
@@ -289,6 +387,36 @@ function normalizeQuaternion(value) {
 
 /**
  * @param {unknown} value
+ */
+function normalizeOptionalPoint(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const point = /** @type {{ x?: unknown; y?: unknown; z?: unknown }} */ (value);
+  const x = Number(point.x);
+  const y = Number(point.y);
+  const z = Number(point.z);
+  return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)
+    ? { x, y, z }
+    : null;
+}
+
+/**
+ * @param {unknown} value
+ */
+function normalizeOptionalVector(value) {
+  const point = normalizeOptionalPoint(value);
+  if (!point) {
+    return null;
+  }
+
+  const length = vectorLength(point);
+  return length > 0 ? scaleVector(point, 1 / length) : null;
+}
+
+/**
+ * @param {unknown} value
  * @param {{ x: number; y: number; z: number }} fallback
  */
 function normalizePoint(value, fallback) {
@@ -329,6 +457,18 @@ function normalizePositiveNumber(value, label) {
 
 /**
  * @param {unknown} value
+ * @param {number} fallback
+ * @param {string} label
+ */
+function normalizeFinitePositiveNumber(value, fallback, label) {
+  if (value === undefined) {
+    return fallback;
+  }
+  return normalizePositiveNumber(value, label);
+}
+
+/**
+ * @param {unknown} value
  * @param {string} label
  */
 function normalizeNonNegativeNumber(value, label) {
@@ -365,6 +505,18 @@ function dotVector(left, right) {
  * @param {{ x: number; y: number; z: number }} left
  * @param {{ x: number; y: number; z: number }} right
  */
+function subtractVectors(left, right) {
+  return {
+    x: left.x - right.x,
+    y: left.y - right.y,
+    z: left.z - right.z,
+  };
+}
+
+/**
+ * @param {{ x: number; y: number; z: number }} left
+ * @param {{ x: number; y: number; z: number }} right
+ */
 function addVectors(left, right) {
   return {
     x: left.x + right.x,
@@ -386,6 +538,44 @@ function scaleVector(vector, scalar) {
 }
 
 /**
+ * @param {{ x: number; y: number; z: number }} left
+ * @param {{ x: number; y: number; z: number }} right
+ */
+function crossVector(left, right) {
+  return {
+    x: left.y * right.z - left.z * right.y,
+    y: left.z * right.x - left.x * right.z,
+    z: left.x * right.y - left.y * right.x,
+  };
+}
+
+/**
+ * @param {{ x: number; y: number; z: number }} vector
+ */
+function vectorLength(vector) {
+  return Math.hypot(vector.x, vector.y, vector.z);
+}
+
+/**
+ * @param {{ x: number; y: number; z: number }} forward
+ */
+function cameraBasisFromForward(forward) {
+  const normalizedForward = normalizeVector(forward);
+  const preferredUp =
+    Math.abs(dotVector(normalizedForward, TARGET_UP)) > 0.98
+      ? TARGET_UP_FALLBACK
+      : TARGET_UP;
+  const right = normalizeVector(crossVector(normalizedForward, preferredUp));
+  const up = normalizeVector(crossVector(right, normalizedForward));
+
+  return {
+    right,
+    up,
+    forward: normalizedForward,
+  };
+}
+
+/**
  * @param {{ x: number; y: number; z: number }} vector
  */
 function normalizeVector(vector) {
@@ -398,4 +588,46 @@ function normalizeVector(vector) {
     y: vector.y / length,
     z: vector.z / length,
   };
+}
+
+/**
+ * @param {StarOctreeDemandEntry} left
+ * @param {StarOctreeDemandEntry} right
+ * @param {{ coarseFirst: boolean }} options
+ */
+function compareTargetFrustumEntries(left, right, options) {
+  if (options.coarseFirst) {
+    const levelDelta = left.node.level - right.node.level;
+    if (levelDelta !== 0) return levelDelta;
+
+    const forwardDelta = compareMetadataNumber(left, right, 'forwardDistancePc');
+    if (forwardDelta !== 0) return forwardDelta;
+
+    const distanceDelta = compareMetadataNumber(left, right, 'distancePc');
+    if (distanceDelta !== 0) return distanceDelta;
+  }
+
+  const priorityDelta = (right.priority ?? 0) - (left.priority ?? 0);
+  if (priorityDelta !== 0) return priorityDelta;
+  return left.node.nodeKey.localeCompare(right.node.nodeKey);
+}
+
+/**
+ * @param {StarOctreeDemandEntry} left
+ * @param {StarOctreeDemandEntry} right
+ * @param {string} key
+ */
+function compareMetadataNumber(left, right, key) {
+  const leftValue = metadataNumber(left, key);
+  const rightValue = metadataNumber(right, key);
+  return leftValue === rightValue ? 0 : leftValue - rightValue;
+}
+
+/**
+ * @param {StarOctreeDemandEntry} entry
+ * @param {string} key
+ */
+function metadataNumber(entry, key) {
+  const value = Number(entry.metadata?.[key]);
+  return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
 }

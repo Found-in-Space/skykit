@@ -68,6 +68,17 @@ test('streamPayloads emits provider-selected decompressed payload batches', asyn
     assert.equal(complete.type, 'payload/complete');
     assert.equal(provider.getSnapshot().stats.payloadBatchRequests, 1);
     assert.equal(provider.getSnapshot().stats.payloadNodesFetched, 2);
+    assert.equal(
+      provider.getSnapshot().stats.payloadCompressedBytesRequested,
+      fixture.runtimeNodes[0].payloadLength + fixture.runtimeNodes[1].payloadLength,
+    );
+    assert.equal(
+      provider.getSnapshot().stats.payloadSpanBytesRequested,
+      fixture.runtimeNodes[1].payloadOffset +
+        fixture.runtimeNodes[1].payloadLength -
+        fixture.runtimeNodes[0].payloadOffset,
+    );
+    assert.equal(provider.getSnapshot().stats.payloadGapBytesRequested, 24);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -228,6 +239,50 @@ test('streamObjectBatches emits real non-cumulative object products', async () =
   }
 });
 
+test('streamObjectBatches honors emitCachedFirst false without dropping cached payloads', async () => {
+  const fixture = createObjectStreamFixture();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fixture.fileBytes, []);
+
+  try {
+    const provider = createStarOctreeProviderService({
+      id: 'provider-a',
+      url: 'memory://stars.octree',
+    });
+
+    for await (const _delta of provider.streamObjectBatches({
+      view: {
+        observerPc: { x: 0, y: 0, z: 0 },
+        limitingMagnitude: 6.5,
+      },
+    })) {
+      // warm payload and decoded caches
+    }
+    const firstSnapshot = provider.getSnapshot();
+
+    const deltas = [];
+    for await (const delta of provider.streamObjectBatches({
+      view: {
+        observerPc: { x: 0, y: 0, z: 0 },
+        limitingMagnitude: 6.5,
+      },
+      streaming: {
+        emitCachedFirst: false,
+      },
+    })) {
+      deltas.push(delta);
+    }
+
+    const upserts = deltas.filter((delta) => delta.type === 'data/product-upsert');
+    assert.equal(upserts.length, 1);
+    assert.equal(upserts[0].product.count, 3);
+    assert.equal(provider.getSnapshot().stats.payloadBatchRequests, firstSnapshot.stats.payloadBatchRequests);
+    assert.equal(provider.getSnapshot().stats.payloadCacheHits, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('streamObjectBatches supports exact target-frustum demand', async () => {
   const fixture = createObjectStreamFixture();
   const originalFetch = globalThis.fetch;
@@ -262,6 +317,99 @@ test('streamObjectBatches supports exact target-frustum demand', async () => {
       fixture.payloadNodeKeys,
     );
     assert.equal(deltas.at(-1).type, 'data/representation-current');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('streamObjectBatches supports target-derived target-frustum demand', async () => {
+  const fixture = createObjectStreamFixture();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fixture.fileBytes, []);
+
+  try {
+    const provider = createStarOctreeProviderService({
+      id: 'provider-a',
+      url: 'memory://stars.octree',
+    });
+    const deltas = [];
+
+    for await (const delta of provider.streamObjectBatches({
+      strategy: { kind: 'target-frustum' },
+      view: {
+        observerPc: { x: 0, y: 0, z: 0 },
+        targetPc: { x: 0, y: 0, z: -50 },
+        limitingMagnitude: 6.5,
+        verticalFovDeg: 120,
+      },
+    })) {
+      deltas.push(delta);
+    }
+
+    const upserts = deltas.filter((delta) => delta.type === 'data/product-upsert');
+    assert.equal(upserts.length, 1);
+    assert.deepEqual(
+      upserts[0].product.nodes.map((node) => node.nodeKey),
+      fixture.payloadNodeKeys,
+    );
+    assert.equal(deltas.at(-1).type, 'data/representation-current');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('custom strategies select real nodes through provider traversal context', async () => {
+  const fixture = createObjectStreamFixture();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fixture.fileBytes, []);
+
+  try {
+    const provider = createStarOctreeProviderService({
+      id: 'provider-a',
+      url: 'memory://stars.octree',
+    });
+    const deltas = [];
+
+    for await (const delta of provider.streamObjectBatches({
+      strategy: {
+        kind: 'custom',
+        async selectDemand(context) {
+          const selection = await context.traversal.select({
+            visit(node) {
+              return {
+                include: true,
+                descend: true,
+                priority: -node.level,
+                reasons: ['custom-test'],
+              };
+            },
+          });
+
+          return {
+            entries: selection.entries,
+            signature: selection.entries
+              .map((entry) => entry.node.nodeKey)
+              .join('|'),
+            reasons: ['custom-test'],
+            metadata: {
+              inspectedNodeCount: selection.stats.inspectedNodeCount,
+            },
+          };
+        },
+      },
+      view: {
+        observerPc: { x: 0, y: 0, z: 0 },
+      },
+    })) {
+      deltas.push(delta);
+    }
+
+    const upserts = deltas.filter((delta) => delta.type === 'data/product-upsert');
+    assert.equal(upserts.length, 1);
+    assert.deepEqual(
+      upserts[0].product.nodes.map((node) => node.nodeKey),
+      fixture.payloadNodeKeys,
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

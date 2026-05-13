@@ -26,6 +26,7 @@ export type StarOctreeFetchStrategy =
       kind: 'target-frustum';
       verticalFovDeg?: number;
       overscanDeg?: number;
+      targetRadiusPc?: number;
       nearPc?: number;
       farPc?: number;
     }
@@ -52,6 +53,29 @@ export interface StarOctreeDemandPlan {
   metadata?: Record<string, unknown>;
 }
 
+export interface StarOctreeTraversalDecision {
+  include?: boolean;
+  descend?: boolean;
+  priority?: number;
+  relevance?: number;
+  role?: 'current' | 'prefetch';
+  reasons?: string[];
+  metadata?: Record<string, unknown>;
+  distancePc?: number;
+}
+
+export interface StarOctreeTraversalSelectionResult {
+  entries: StarOctreeDemandEntry[];
+  stats: {
+    inspectedNodeCount: number;
+    selectedNodeCount: number;
+    prunedNodeCount: number;
+    payloadNodeCount: number;
+    frontierShardCount: number;
+    maxLevelInspected: number | null;
+  };
+}
+
 export interface StarOctreeSelectionContext {
   providerId: string;
   sessionId?: string;
@@ -61,6 +85,25 @@ export interface StarOctreeSelectionContext {
   demandRevision: number;
   attributes: string[];
   coordinates: StarOctreeCoordinateOutput;
+  streaming?: {
+    progressive?: boolean;
+    emitCachedFirst?: boolean;
+    coarseFirst?: boolean;
+  };
+  traversal: {
+    select(options: {
+      distanceToNode?: (node: StarOctreeRuntimeNode) => number;
+      visit: (
+        node: StarOctreeRuntimeNode,
+        helpers: {
+          context: StarOctreeSelectionContext;
+          bootstrap: StarOctreeBootstrapProduct;
+        }
+      ) =>
+        | Promise<StarOctreeTraversalDecision>
+        | StarOctreeTraversalDecision;
+    }): Promise<StarOctreeTraversalSelectionResult>;
+  };
 }
 
 export interface StarOctreeSessionOptions {
@@ -455,6 +498,9 @@ export interface StarOctreeProviderSnapshot {
     payloadBatchRequests: number;
     payloadNodesFetched: number;
     payloadCacheHits: number;
+    payloadCompressedBytesRequested?: number;
+    payloadSpanBytesRequested?: number;
+    payloadGapBytesRequested?: number;
     shardCacheHits: number;
     headerCacheHits: number;
     persistentCacheHits: number;
@@ -477,6 +523,7 @@ export interface StarOctreeObjectBatchStreamOptions {
     progressive?: boolean;
     batchMode?: 'payload-range' | 'node';
     emitCachedFirst?: boolean;
+    coarseFirst?: boolean;
     retainOrder?: boolean;
   };
   memory?: {
@@ -491,6 +538,7 @@ export interface StarOctreePayloadStreamOptions {
   streaming?: {
     progressive?: boolean;
     emitCachedFirst?: boolean;
+    coarseFirst?: boolean;
   };
 }
 
