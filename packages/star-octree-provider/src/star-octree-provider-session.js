@@ -647,6 +647,13 @@ function normalizeDemandEntries(entries, sortOptions) {
       const levelDelta = a.node.level - b.node.level;
       if (levelDelta !== 0) return levelDelta;
 
+      const motionDelta = compareMetadataNumberDescending(
+        a,
+        b,
+        'motionPriorityBias',
+      );
+      if (motionDelta !== 0) return motionDelta;
+
       const forwardDelta = compareMetadataNumber(a, b, 'forwardDistancePc');
       if (forwardDelta !== 0) return forwardDelta;
 
@@ -672,12 +679,35 @@ function compareMetadataNumber(left, right, key) {
 }
 
 /**
+ * @param {StarOctreeDemandEntry} left
+ * @param {StarOctreeDemandEntry} right
+ * @param {string} key
+ */
+function compareMetadataNumberDescending(left, right, key) {
+  const leftValue = optionalMetadataNumber(left, key);
+  const rightValue = optionalMetadataNumber(right, key);
+  if (leftValue == null && rightValue == null) return 0;
+  if (leftValue == null) return 1;
+  if (rightValue == null) return -1;
+  return leftValue === rightValue ? 0 : rightValue - leftValue;
+}
+
+/**
  * @param {StarOctreeDemandEntry} entry
  * @param {string} key
  */
 function metadataNumber(entry, key) {
   const value = Number(entry.metadata?.[key]);
   return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * @param {StarOctreeDemandEntry} entry
+ * @param {string} key
+ */
+function optionalMetadataNumber(entry, key) {
+  const value = Number(entry.metadata?.[key]);
+  return Number.isFinite(value) ? value : null;
 }
 
 /**

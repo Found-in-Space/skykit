@@ -14,7 +14,6 @@ import {
 
 const DEFAULT_OBSERVER_PC = Object.freeze({ x: 0, y: 0, z: 0 });
 const DEFAULT_LIMITING_MAGNITUDE = 6.5;
-const DEFAULT_MOTION_MIN_LEVEL = 1;
 
 /**
  * @param {number} halfSize
@@ -47,15 +46,9 @@ export async function planObserverShellDemand(options) {
     DEFAULT_LIMITING_MAGNITUDE,
   );
   const indexMagnitude = bootstrap.header.magLimit;
-  const motion = resolveMotionAdaptiveTraversal({
-    view: options.context.view,
-    bootstrap,
-    limitingMagnitude,
-    indexMagnitude,
-  });
+  const motion = resolveMotionPriorityContext(options.context.view.motion);
   /** @type {StarOctreeDemandEntry[]} */
   const entries = [];
-  let motionCappedNodeCount = 0;
 
   const traversal = await traverseOctree({
     indexSource: options.indexSource,
@@ -69,20 +62,20 @@ export async function planObserverShellDemand(options) {
         indexMagnitude,
       );
       const include = distancePc <= loadRadiusPc;
-      const motionCapped =
-        include &&
-        motion.adaptiveMaxLevel !== null &&
-        node.level >= motion.adaptiveMaxLevel &&
-        node.childMask !== 0;
 
       if (
         include &&
         (node.flags & STAR_HAS_PAYLOAD) &&
         node.payloadLength > 0
       ) {
+        const motionScore = scoreMotionPriority({
+          node,
+          observerPc,
+          motion,
+        });
         entries.push({
           node,
-          priority: -distancePc,
+          priority: -distancePc + (motionScore?.motionPriorityBias ?? 0),
           role: 'current',
           reasons: ['observer-shell'],
           metadata: {
@@ -90,23 +83,14 @@ export async function planObserverShellDemand(options) {
             loadRadiusPc,
             limitingMagnitude,
             indexMagnitude,
-            ...(motion.enabled
-              ? {
-                  motionAdaptiveMaxLevel: motion.adaptiveMaxLevel,
-                  motionLookaheadDistancePc: motion.lookaheadDistancePc,
-                }
-              : {}),
+            ...(motionScore ?? {}),
           },
         });
       }
 
-      if (motionCapped) {
-        motionCappedNodeCount += 1;
-      }
-
       return {
         include,
-        descend: include && !motionCapped,
+        descend: include,
         distancePc,
       };
     },
@@ -120,7 +104,7 @@ export async function planObserverShellDemand(options) {
 
   return {
     entries,
-    signature: entries.map((entry) => entry.node.nodeKey).join('|'),
+    signature: createNodeSetSignature(entries),
     reasons: ['observer-shell'],
     metadata: {
       strategy: 'observer-shell',
@@ -131,8 +115,7 @@ export async function planObserverShellDemand(options) {
       selectedNodeCount: traversal.stats.selectedNodeCount,
       payloadNodeCount: traversal.stats.payloadNodeCount,
       prunedNodeCount: traversal.stats.prunedNodeCount,
-      motionCappedNodeCount,
-      motionAdaptive: motion,
+      motion,
       frontierShardCount: traversal.stats.frontierShardCount,
       maxLevelInspected: traversal.stats.maxLevelInspected,
     },
@@ -185,19 +168,15 @@ function normalizeFiniteNumber(value, fallback) {
 }
 
 /**
- * @param {{
- *   view: StarOctreeSelectionContext['view'];
- *   bootstrap: import('./index.d.ts').StarOctreeBootstrapProduct;
- *   limitingMagnitude: number;
- *   indexMagnitude: number;
- * }} options
+ * @param {StarOctreeSelectionContext['view']['motion']} motion
  */
-function resolveMotionAdaptiveTraversal(options) {
-  const speedPcPerSec = resolveMotionSpeed(options.view.motion);
+function resolveMotionPriorityContext(motion) {
+  const speedPcPerSec = resolveMotionSpeed(motion);
   const lookaheadSecs = normalizeFiniteNumber(
-    options.view.motion?.lookaheadSecs,
+    motion?.lookaheadSecs,
     0,
   );
+  const velocityDirection = resolveMotionDirection(motion);
 
   if (!(speedPcPerSec > 0) || !(lookaheadSecs > 0)) {
     return {
@@ -205,32 +184,18 @@ function resolveMotionAdaptiveTraversal(options) {
       speedPcPerSec,
       lookaheadSecs,
       lookaheadDistancePc: 0,
-      adaptiveMaxLevel: null,
-      sourceMaxLevel: options.bootstrap.header.maxLevel,
+      velocityDirection,
     };
   }
 
   const lookaheadDistancePc = speedPcPerSec * lookaheadSecs;
-  const visibilityScale = 10 ** (
-    (options.limitingMagnitude - options.indexMagnitude) / 5
-  );
-  const levelRatio =
-    (options.bootstrap.header.worldHalfSize * visibilityScale) /
-    lookaheadDistancePc;
-  const rawLevel =
-    levelRatio > 0 && Number.isFinite(levelRatio)
-      ? Math.floor(Math.log2(levelRatio))
-      : DEFAULT_MOTION_MIN_LEVEL;
-  const adaptiveMaxLevel = Math.max(DEFAULT_MOTION_MIN_LEVEL, rawLevel);
 
   return {
     enabled: true,
     speedPcPerSec,
     lookaheadSecs,
     lookaheadDistancePc,
-    visibilityScale,
-    adaptiveMaxLevel,
-    sourceMaxLevel: options.bootstrap.header.maxLevel,
+    velocityDirection,
   };
 }
 
@@ -256,6 +221,85 @@ function resolveMotionSpeed(motion) {
 }
 
 /**
+ * @param {StarOctreeSelectionContext['view']['motion']} motion
+ */
+function resolveMotionDirection(motion) {
+  const velocity = motion?.velocityPcPerSec;
+  if (!velocity) {
+    return null;
+  }
+
+  const x = Number(velocity.x);
+  const y = Number(velocity.y);
+  const z = Number(velocity.z);
+  const length = Math.hypot(x, y, z);
+  if (!(length > 0) || !Number.isFinite(length)) {
+    return null;
+  }
+
+  return {
+    x: x / length,
+    y: y / length,
+    z: z / length,
+  };
+}
+
+/**
+ * @param {{
+ *   node: import('./index.d.ts').StarOctreeRuntimeNode;
+ *   observerPc: { x: number; y: number; z: number };
+ *   motion: ReturnType<typeof resolveMotionPriorityContext>;
+ * }} options
+ */
+function scoreMotionPriority(options) {
+  if (!options.motion.enabled) {
+    return null;
+  }
+
+  const metadata = {
+    motionPriorityBias: 0,
+    motionLookaheadDistancePc: options.motion.lookaheadDistancePc,
+  };
+  const direction = options.motion.velocityDirection;
+  if (!direction) {
+    return metadata;
+  }
+
+  const deltaX = options.node.centerX - options.observerPc.x;
+  const deltaY = options.node.centerY - options.observerPc.y;
+  const deltaZ = options.node.centerZ - options.observerPc.z;
+  const centerDistancePc = Math.hypot(deltaX, deltaY, deltaZ);
+  const forwardDistancePc =
+    deltaX * direction.x + deltaY * direction.y + deltaZ * direction.z;
+  const lateralDistancePc = Math.max(
+    0,
+    Math.sqrt(Math.max(0, centerDistancePc ** 2 - forwardDistancePc ** 2)) -
+      options.node.halfSize,
+  );
+  const lookaheadErrorPc = Math.abs(
+    forwardDistancePc - options.motion.lookaheadDistancePc,
+  );
+  const behindPenaltyPc =
+    forwardDistancePc < 0
+      ? Math.abs(forwardDistancePc) + options.motion.lookaheadDistancePc
+      : 0;
+  const motionPriorityBias = -(
+    lateralDistancePc +
+    lookaheadErrorPc * 0.25 +
+    behindPenaltyPc
+  );
+
+  return {
+    ...metadata,
+    motionPriorityBias,
+    motionForwardDistancePc: forwardDistancePc,
+    motionLateralDistancePc: lateralDistancePc,
+    motionLookaheadErrorPc: lookaheadErrorPc,
+    motionBehindPenaltyPc: behindPenaltyPc,
+  };
+}
+
+/**
  * @param {StarOctreeDemandEntry} left
  * @param {StarOctreeDemandEntry} right
  * @param {{ coarseFirst: boolean }} options
@@ -264,6 +308,12 @@ function compareObserverShellEntries(left, right, options) {
   if (options.coarseFirst) {
     const levelDelta = left.node.level - right.node.level;
     if (levelDelta !== 0) return levelDelta;
+    const motionDelta = compareMetadataNumberDescending(
+      left,
+      right,
+      'motionPriorityBias',
+    );
+    if (motionDelta !== 0) return motionDelta;
     const distanceDelta = compareMetadataNumber(left, right, 'distancePc');
     if (distanceDelta !== 0) return distanceDelta;
   }
@@ -271,6 +321,16 @@ function compareObserverShellEntries(left, right, options) {
   const priorityDelta = (right.priority ?? 0) - (left.priority ?? 0);
   if (priorityDelta !== 0) return priorityDelta;
   return left.node.nodeKey.localeCompare(right.node.nodeKey);
+}
+
+/**
+ * @param {StarOctreeDemandEntry[]} entries
+ */
+function createNodeSetSignature(entries) {
+  return entries
+    .map((entry) => entry.node.nodeKey)
+    .sort()
+    .join('|');
 }
 
 /**
@@ -285,10 +345,33 @@ function compareMetadataNumber(left, right, key) {
 }
 
 /**
+ * @param {StarOctreeDemandEntry} left
+ * @param {StarOctreeDemandEntry} right
+ * @param {string} key
+ */
+function compareMetadataNumberDescending(left, right, key) {
+  const leftValue = optionalMetadataNumber(left, key);
+  const rightValue = optionalMetadataNumber(right, key);
+  if (leftValue == null && rightValue == null) return 0;
+  if (leftValue == null) return 1;
+  if (rightValue == null) return -1;
+  return leftValue === rightValue ? 0 : rightValue - leftValue;
+}
+
+/**
  * @param {StarOctreeDemandEntry} entry
  * @param {string} key
  */
 function metadataNumber(entry, key) {
   const value = Number(entry.metadata?.[key]);
   return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * @param {StarOctreeDemandEntry} entry
+ * @param {string} key
+ */
+function optionalMetadataNumber(entry, key) {
+  const value = Number(entry.metadata?.[key]);
+  return Number.isFinite(value) ? value : null;
 }

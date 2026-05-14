@@ -178,6 +178,57 @@ test('session demand ordering defaults coarse-first and can be disabled', async 
   );
 });
 
+test('session coarse-first ordering honors motion priority within the same level', async () => {
+  const trailingNode = createNode('trailing-node', {
+    level: 2,
+  });
+  const leadingNode = createNode('leading-node', {
+    level: 2,
+  });
+  const provider = createStarOctreeProviderServiceForTest(
+    { id: 'provider-motion-order', url: '/data/stars.octree' },
+    {
+      planDemand: () => ({
+        entries: [
+          {
+            node: trailingNode,
+            priority: 100,
+            role: 'current',
+            metadata: {
+              distancePc: 1,
+              motionPriorityBias: -100,
+            },
+          },
+          {
+            node: leadingNode,
+            priority: 1,
+            role: 'current',
+            metadata: {
+              distancePc: 100,
+              motionPriorityBias: 0,
+            },
+          },
+        ],
+        signature: 'motion-order',
+      }),
+    },
+  );
+  const session = provider.createSession({ id: 'session-motion-order' });
+  const iterator = session.deltas()[Symbol.asyncIterator]();
+  session.updateView({ observerPc: { x: 0, y: 0, z: 0 } });
+  const deltas = await readUntilCurrent(iterator);
+
+  assert.deepEqual(
+    deltas
+      .filter((delta) => delta.type === 'data/product-upsert')
+      .map((delta) => delta.product.nodes[0].nodeKey),
+    ['leading-node', 'trailing-node'],
+  );
+  const current = deltas.at(-1);
+  assert.equal(current.type, 'data/representation-current');
+  assert.equal(current.completeness.phase, 'complete');
+});
+
 test('changed demand retains shared nodes and stale-removes excluded products', async () => {
   const nodeA = createNode('node-a');
   const nodeB = createNode('node-b');

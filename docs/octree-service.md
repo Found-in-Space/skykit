@@ -155,10 +155,10 @@ through the provider/session APIs, not through diagnostic side paths.
 | URL range source | Implemented | Range fetches, bootstrap/shard cache, and basic stats. |
 | Octree index reader | Implemented | STAR/ODSC header parsing, root shard loading, shard loading, runtime nodes. |
 | Traversal engine | Implemented | Root entries, same-shard children, frontier shards, deterministic traversal. |
-| observer-shell strategy | POC-parity implemented | Uses provider-native parsec view coordinates, header `magLimit` shell pruning, deterministic coarse-first order, and optional motion lookahead from `view.motion`. |
+| observer-shell strategy | POC-parity implemented | Public strategy shape is pure `{ kind: 'observer-shell' }` and uses provider-native parsec view coordinates plus header `magLimit` shell pruning. `view.motion` may add priority metadata/order, but it does not exclude otherwise visible nodes. |
 | target-frustum strategy | POC-parity implemented | Supports exact `orientationIcrs` demand and target/direction-derived demand. Applies shell pruning then frustum/AABB pruning without importing Three.js. |
 | Demand reconciler | Second pass implemented | Product membership indexes support grouped live products, stale/remove, and replacement products for partial retention. |
-| Work scheduler | Second pass partial | Latest-view gating, role-aware prefetch warming, progressive payload work, and work snapshots are implemented. Fully interleaved traversal/fetch reprioritization remains a later tuning pass. |
+| Work scheduler | Second pass partial | Latest-view stale-work gating, duplicate demand-signature suppression, role-aware prefetch warming, progressive payload work, and work snapshots are implemented. Pre-planning demand-threshold gating and fully interleaved traversal/fetch reprioritization remain later work. |
 | Payload fetcher/cache | POC-parity implemented | Payload range batching, decompression, in-memory decompressed payload cache, cache-first/deferred-cache emission, and range span/gap stats. |
 | Payload decoder | First pass implemented | 16-byte star records into parsec `position`, `magAbs`, `teffLog8`, and object refs. |
 | Product builder | First pass implemented | Non-cumulative object batches and decode-time coordinate transforms. |
@@ -170,13 +170,75 @@ through the provider/session APIs, not through diagnostic side paths.
 | Extinction/dust | Second pass | Apparent visibility is geometric only in this provider slice. |
 | Sidecars/names/catalog labels | Second pass partial | A separate `@found-in-space/meta-sidecar-provider` boundary resolves facts from emitted refs/pick metadata. Sidecar octree byte loading remains outside the star provider. |
 
-The demand planner is the only component that should decide relevance. It may use the whole octree header, runtime node facts, limiting magnitude, indexing magnitude, extinction or falloff formulas, frustum tests, shell freshness policies, motion lookahead, or dataset-specific rules. Those are strategy concerns, not provider-wide assumptions.
+The demand planner is the only component that should decide relevance. It may use the whole octree header, runtime node facts, limiting magnitude, indexing magnitude, extinction or falloff formulas, frustum tests, view-volume tests, or dataset-specific rules. Those are strategy concerns, not provider-wide assumptions.
 
 Strategy input coordinates should be explicit provider-native view coordinates. For the current star octree this means parsecs unless the source/index metadata declares a different native frame. Product output coordinate transforms are one-way decode/output transforms and must not be used implicitly as strategy input transforms.
 
 A demand plan should be richer than a flat node list when the strategy needs it. It may carry priority, relevance, retention intent, reason codes, and strategy metadata per node. The reconciler and scheduler consume that plan generically; they should not need to know how the strategy calculated it.
 
-There is no universal `observerDistancePc` or single session-level movement threshold. If a strategy needs near/mid/far shells with different freshness policies, angular drift thresholds, velocity lookahead, or cache-aware refresh rules, those belong inside that strategy's configuration and metadata.
+There is no universal `observerDistancePc`. Future demand-threshold options should use explicit names such as `observerMoveThresholdPc`, `limitingMagnitudeDelta`, and `directionAngleDeg`, and they should decide when a session replans. They must not change what `observer-shell` means.
+
+### 4.0.2 Known gaps and next-sprint corrections
+
+This list separates current alpha behavior from planned cleanup so implementers
+do not accidentally treat POC-parity shortcuts as final architecture.
+
+Implemented today:
+
+- `observer-shell` is public API pure: `{ kind: 'observer-shell' }`.
+- `header.maxLevel` and runtime `node.level` are source/runtime metadata, not public detail controls.
+- Live sessions accept every `updateView()` synchronously and suppress stale async results from older view revisions.
+- Demand revisions increment only after planned node demand actually changes.
+- Bounded and live streams emit `data/representation-current` when current-role work for the latest accepted demand revision is caught up.
+- Motion hints can influence product ordering/priority metadata, but they do not truncate observer-shell demand.
+
+Known gaps:
+
+- **Demand-threshold gating.** Current alpha schedules full demand planning for every non-suppressed `updateView()` and only avoids downstream work after the demand signature is known. Next sprint should add pre-planning thresholds so tiny provider-relevant changes can be accepted without running full traversal.
+- **Budget/debug truncation metadata.** Explicit caps such as `budget.maxTraversalLevel`, `budget.maxPayloadNodes`, `budget.maxBytes`, or `debug.maxTraversalLevel` are not part of the current public API. If added, products, demand metadata, and `data/representation-current` completeness must say the representation is current only within a degraded/truncated budget.
+- **Motion prefetch policy.** Motion priority exists for current work ordering. Future motion prefetch should additionally warm likely-future caches through prefetch roles without changing current observer-shell demand.
+- **Fully interleaved scheduling.** Current streaming is progressive after demand planning. Fully interleaved traversal/fetch/decode reprioritization remains a later maturity pass.
+
+Planned option shape, not implemented yet:
+
+```ts
+interface StarOctreeSessionOptions {
+  demandThresholds?: {
+    observerMoveThresholdPc?: number;
+    limitingMagnitudeDelta?: number;
+    directionAngleDeg?: number;
+  };
+
+  streaming?: {
+    progressive?: boolean;
+    emitCachedFirst?: boolean;
+    coarseFirst?: boolean;
+    motionPrefetch?: {
+      enabled?: boolean;
+      lookaheadSecs?: number;
+    };
+  };
+
+  budget?: {
+    maxTraversalLevel?: number;
+    maxPayloadNodes?: number;
+    maxBytes?: number;
+  };
+
+  debug?: {
+    maxTraversalLevel?: number;
+  };
+}
+```
+
+If a budget/debug cap truncates demand, metadata should make it explicit:
+
+```ts
+metadata: {
+  truncatedBy: 'budget.maxTraversalLevel',
+  requestedLimitingMagnitude: 8.0,
+}
+```
 
 ### 4.1 Provider service
 
@@ -552,17 +614,16 @@ export interface StarOctreeSessionOptions {
 }
 ```
 
-`level` is octree source metadata, not a public quality or loading-control concept. Different valid star-octree files may use different subdivision limits and still represent the same physical demand. Public strategies must therefore select demand with physical and perceptual inputs such as observer position, limiting magnitude, view volume, and motion hints.
+`level` is octree source metadata, not a public quality or loading-control concept. Different valid star-octree files may use different subdivision limits and still represent the same physical demand. Public strategies must therefore select demand with physical and perceptual inputs such as observer position, limiting magnitude, and view volume. Motion may influence priority or prefetch policy, but it must not make normal observer-shell demand incomplete.
 
 Built-in strategy semantics:
 
 ```txt
 observer-shell:
   apply the magnitude-indexed shell predicate to provider-owned octree traversal
-  and emit deterministic coarse-first demand by default. If `view.motion`
-  supplies positive speed and lookahead, the strategy may cap deeper traversal
-  using the POC-equivalent motion-adaptive formula. That cap is strategy
-  metadata, not a public `maxLevel` control.
+  and emit deterministic coarse-first demand by default. The normal meaning is:
+  observer position + limiting magnitude + dataset index magnitude determine
+  potentially visible node demand.
 
 target-frustum:
   apply the same magnitude-indexed shell predicate, then prune by frustum/AABB
@@ -584,6 +645,12 @@ distanceToNodeAabbPc <= node.halfSize * 10 ** ((limitingMagnitude - header.magLi
 `header.magLimit` is the dataset indexing magnitude. `limitingMagnitude` / `mDesired` is the session's requested apparent-magnitude demand. `header.maxLevel` is only descriptive source metadata and an internal traversal boundary where the file has no deeper children; it must not be exposed as the strategy's detail control.
 
 The runtime node `halfSize`, center coordinates, and distance calculations in this predicate are in native parsecs.
+
+Current alpha behavior: `view.motion` can add ordering metadata such as
+`motionPriorityBias` and `motionLookaheadDistancePc`. It does not prevent
+descent into magnitude-shell-relevant nodes. If an explicit future budget/debug
+cap truncates traversal, that cap must be visible through degraded completeness
+and truncation metadata.
 
 Default sprint-1 options:
 
@@ -682,7 +749,8 @@ updateView()
   - uses provider-owned octree traversal to produce runtime nodes during planning
   - increments demandRevision only when planned node demand changes
   - streams product deltas for the current demand revision
-  - uses motion fields as strategy hints for predictive demand
+  - uses motion fields as priority hints only; they do not change
+    observer-shell eligibility
   - updates the session's current representation for the latest accepted view
 ```
 
@@ -702,7 +770,7 @@ export interface StarOctreeViewReceipt {
   reasons: Array<
     | 'initial'
     | 'demand-changed'
-    | 'observer-distance'
+    | 'observer-move-threshold'
     | 'limiting-magnitude'
     | 'strategy'
     | 'view-volume'
@@ -711,6 +779,12 @@ export interface StarOctreeViewReceipt {
   >;
 }
 ```
+
+Current alpha receipt behavior is simple: every non-suppressed automatic update
+returns `queued`, and forced updates return `forced`. Demand-threshold gating is
+not implemented yet. When it is added, the receipt shape may need an explicit
+`unchanged` or `deferred` demand state so callers are not told that planning was
+queued when the session only accepted a new view revision.
 
 Example:
 
@@ -731,7 +805,7 @@ if (receipt.demand === 'queued') {
 
 The provider package loads and navigates the octree. Applications do not supply runtime nodes. A session is configured with a loading strategy, and applications provide the state that strategy needs through `updateView()`.
 
-A live session is not a request/response API where each `updateView()` owns a discrete batch to await or cancel. `updateView()` is a current-state signal. It accepts state synchronously, returns a receipt, and lets provider work continue in the background. View state is expected to age immediately and update repeatedly while batches are still arriving. Strategies may use motion hints, such as velocity and lookahead, to fetch objects before the app has actually moved the view there.
+A live session is not a request/response API where each `updateView()` owns a discrete batch to await or cancel. `updateView()` is a current-state signal. It accepts state synchronously, returns a receipt, and lets provider work continue in the background. View state is expected to age immediately and update repeatedly while batches are still arriving. Current motion hints may influence work priority. Future motion prefetch may fetch objects before the app has actually moved the view there.
 
 Normal viewer flow:
 
@@ -740,7 +814,7 @@ Normal viewer flow:
 2. Batches start appearing.
 3. The app calls updateView() as navigation changes.
 4. More batches arrive while more view updates happen.
-5. The session uses the latest view state plus motion hints to plan current and near-future demand.
+5. The session uses the latest view state to plan current demand. Future motion policy may prefetch near-future demand without changing what is current.
 6. Deltas continue until the session representation is current for the latest accepted view.
 ```
 
@@ -749,7 +823,7 @@ Expected behavior for `session.updateView(patch, options)`:
 ```txt
 1. Normalize and store view patch.
 2. Increment viewRevision.
-3. Queue or reprioritize demand planning unless suppressed.
+3. Queue demand planning unless suppressed. Current alpha does this for every non-suppressed update; next sprint should add threshold gating before full traversal.
 4. Return a receipt immediately.
 5. Compute strategy demand asynchronously using provider-owned octree traversal.
 6. Normalize runtime nodes produced by the provider.
@@ -760,6 +834,23 @@ Expected behavior for `session.updateView(patch, options)`:
 ```
 
 This is the most important sprint-1 behavior.
+
+Priority 4 refinement for the next sprint:
+
+```txt
+Add demand-threshold gating before full traversal/planning.
+```
+
+Thresholds decide **when to replan**, not **what a strategy means**. For
+example, a live session may accept a tiny observer movement immediately,
+increment `viewRevision`, and keep the existing demand revision if the movement
+does not exceed `observerMoveThresholdPc`. A meaningful movement, limiting
+magnitude change, frustum direction change, strategy change, or budget/debug
+change should schedule planning.
+
+Coordinate output profile changes do not change node demand; they may require
+product repacking/re-emission, but they should not be treated as observer-shell
+traversal changes.
 
 ---
 
@@ -1943,9 +2034,23 @@ StarFieldLayer or Three adapter
   products → geometry
 ```
 
-### Sprint 4: Additional strategies
+### Sprint 4: Provider maturity and demand policy
 
-The POC-parity provider now includes motion-adaptive observer-shell traversal and both exact and target/direction-derived `target-frustum` demand. Later work should focus on richer motion/lookahead freshness policy, fully interleaved traversal/fetch reprioritization, and cache-aware prefetch rather than adding diagnostic side APIs.
+The POC-parity provider now includes pure public observer-shell strategy shape,
+exact and target/direction-derived `target-frustum` demand, progressive payload
+streaming, motion-hinted current-work prioritisation, and live session
+reconciliation. The next maturity pass should focus on replanning and prefetch
+policy before adding more API surface:
+
+1. Keep observer-shell semantically pure: magnitude shell demand should not be
+   silently truncated by a strategy-level max-level concept.
+2. Add demand-threshold gating before full traversal/planning.
+3. Extend motion lookahead into prefetch/freshness policy while preserving
+   current observer-shell demand.
+4. Add explicit budget/debug caps only with truncation metadata and degraded
+   completeness.
+5. Continue later with fully interleaved traversal/fetch reprioritization and
+   cache-aware prefetch.
 
 ### Sprint 5: Message bus wrapper
 

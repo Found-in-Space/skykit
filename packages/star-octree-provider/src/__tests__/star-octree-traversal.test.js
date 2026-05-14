@@ -201,7 +201,7 @@ test('observer-shell demand uses header magLimit for pruning', async () => {
   }
 });
 
-test('observer-shell motion hints cap deeper traversal without public maxLevel', async () => {
+test('observer-shell motion hints do not cap visible demand', async () => {
   const indexOffset = HEADER_SIZE + DESCRIPTOR_SIZE;
   const rootShard = createShardBytes({
     entryNodes: [1, 0, 0, 0, 0, 0, 0, 0],
@@ -280,10 +280,113 @@ test('observer-shell motion hints cap deeper traversal without public maxLevel',
       staticPlan.entries.map((entry) => entry.node.nodeKey),
       [`${indexOffset}:3`],
     );
-    assert.equal(motionPlan.entries.length, 0);
-    assert.equal(motionPlan.metadata.motionAdaptive.enabled, true);
-    assert.equal(motionPlan.metadata.motionAdaptive.adaptiveMaxLevel, 1);
-    assert.equal(motionPlan.metadata.motionCappedNodeCount, 1);
+    assert.deepEqual(
+      motionPlan.entries.map((entry) => entry.node.nodeKey),
+      [`${indexOffset}:3`],
+    );
+    assert.equal(motionPlan.signature, staticPlan.signature);
+    assert.equal(motionPlan.metadata.motion.enabled, true);
+    assert.equal(motionPlan.metadata.motion.lookaheadDistancePc, 200);
+    assert.equal(motionPlan.metadata.motionAdaptive, undefined);
+    assert.equal(motionPlan.metadata.motionCappedNodeCount, undefined);
+    assert.equal(motionPlan.entries[0].metadata.motionAdaptiveMaxLevel, undefined);
+    assert.equal(motionPlan.entries[0].metadata.motionPriorityBias, 0);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('observer-shell motion hints prioritize same-level nodes without changing demand', async () => {
+  const indexOffset = HEADER_SIZE + DESCRIPTOR_SIZE;
+  const rootShard = createShardBytes({
+    parentGlobalDepth: 0,
+    entryNodes: [1, 2, 0, 0, 0, 0, 0, 0],
+    nodes: [
+      createShardNodeRecord({
+        flags: STAR_HAS_PAYLOAD,
+        localDepth: 1,
+        localPath: 0,
+        payloadOffset: 1000,
+        payloadLength: 10,
+      }),
+      createShardNodeRecord({
+        flags: STAR_HAS_PAYLOAD,
+        localDepth: 1,
+        localPath: 1,
+        payloadOffset: 1010,
+        payloadLength: 10,
+      }),
+    ],
+  });
+  const { indexSource, restoreFetch } = createIndexSourceForBytes(concatBytes([
+    createStarHeaderBytes({
+      indexOffset,
+      indexLength: rootShard.length,
+      worldHalfSize: 100,
+      magLimit: 6.5,
+      maxLevel: 99,
+    }),
+    createOdscDescriptorBytes(),
+    rootShard,
+  ]));
+  const baseContext = {
+    providerId: 'provider-a',
+    strategy: { kind: 'observer-shell' },
+    viewRevision: 1,
+    demandRevision: 0,
+    attributes: ['position'],
+    coordinates: { units: ['pc', 'pc', 'pc'] },
+    streaming: { coarseFirst: true },
+  };
+
+  try {
+    const staticPlan = await planObserverShellDemand({
+      indexSource,
+      context: {
+        ...baseContext,
+        view: {
+          revision: 1,
+          observerPc: { x: 0, y: 0, z: 0 },
+          limitingMagnitude: 6.5,
+        },
+      },
+    });
+    const motionPlan = await planObserverShellDemand({
+      indexSource,
+      context: {
+        ...baseContext,
+        view: {
+          revision: 2,
+          observerPc: { x: 0, y: 0, z: 0 },
+          limitingMagnitude: 6.5,
+          motion: {
+            velocityPcPerSec: { x: 100, y: 0, z: 0 },
+            lookaheadSecs: 0.5,
+          },
+        },
+      },
+    });
+
+    assert.deepEqual(
+      staticPlan.entries.map((entry) => entry.node.nodeKey),
+      [`${indexOffset}:1`, `${indexOffset}:2`],
+    );
+    assert.deepEqual(
+      motionPlan.entries.map((entry) => entry.node.nodeKey),
+      [`${indexOffset}:2`, `${indexOffset}:1`],
+    );
+    assert.deepEqual(
+      new Set(motionPlan.entries.map((entry) => entry.node.nodeKey)),
+      new Set(staticPlan.entries.map((entry) => entry.node.nodeKey)),
+    );
+    assert.equal(motionPlan.signature, staticPlan.signature);
+    assert.equal(motionPlan.metadata.motion.enabled, true);
+    assert.equal(motionPlan.metadata.motion.lookaheadDistancePc, 50);
+    assert.equal(motionPlan.entries[0].metadata.motionForwardDistancePc, 50);
+    assert.ok(
+      motionPlan.entries[0].metadata.motionPriorityBias >
+        motionPlan.entries[1].metadata.motionPriorityBias,
+    );
   } finally {
     restoreFetch();
   }
