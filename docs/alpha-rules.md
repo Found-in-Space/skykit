@@ -1,3 +1,41 @@
-We have finished the proof-of-concept part of this project, and we're now going to start on the 'alpha' architecture. This means it's a clean re-write and we should take care not to port across bad-habits or experimental code that is no longer used. It's safe in github, so we do not need to be concerned about archeology.
+# Alpha Rules
 
-The approach we take is to create a copy with the right shape first, test it thoroughly, and then remove the old code. 
+Status: this is a current alpha-direction document.
+
+The proof-of-concept phase is complete. The project is now moving toward a
+first alpha architecture.
+
+Alpha work is a clean rewrite into the right package shape, not a migration of
+old experimental code. Old `src/` code may be read as reference material, but
+new alpha packages must not import it, copy its service structure wholesale, or
+preserve proof-of-concept habits just because they exist.
+
+The approach is:
+
+```txt
+1. Create the replacement with the right boundary.
+2. Test it thoroughly.
+3. Integrate it through a narrow adapter or teaching example.
+4. Remove the old code only after the alpha replacement is real.
+```
+
+Core `skykit` should become a slim teaching toolkit and composition layer over
+focused `@found-in-space/*` packages. Do not add new reusable capabilities to
+core `skykit` by default. Put them in a package with a clear responsibility and
+make `skykit` depend on that package when it needs the capability.
+
+Package boundaries should follow the learning architecture in
+[`package-learning-architecture.md`](./package-learning-architecture.md):
+
+```txt
+generic lifecycle mechanics
+  -> domain-specific product interpretation
+  -> renderer or analysis adapters
+  -> slim skykit composition examples
+```
+
+This applies beyond universe-data packages. If a feature is useful to Found in
+Space but not specific to stars, galaxies, solar-system bodies, H-alpha, dust,
+or another space-data product, it should still be split out when it can stand
+alone. `touch-os` is the model for this: it is a Found in Space project that
+`skykit` can use for interactive surfaces, but it is not itself a SkyKit module.

@@ -2,10 +2,12 @@
 
 Part of [Found in Space](https://foundin.space/), a project that turns real astronomical measurements into interactive explorations of the solar neighbourhood. See all repositories at [github.com/Found-in-Space](https://github.com/Found-in-Space).
 
-SkyKit is the reusable runtime for building interactive 3D sky experiences. It pulls together dataset services, loading and sharding strategies, scene and controller skeletons, rendering layers, and shader-based star rendering. It can be used as:
+SkyKit is currently the reusable runtime for building interactive 3D sky experiences. It pulls together dataset services, loading and sharding strategies, scene and controller skeletons, rendering layers, and shader-based star rendering. It can be used as:
 
 - a standalone viewer runtime for desktop or XR demos
 - a source-level library for custom visualizations, experiences, or games
+
+The proof-of-concept phase is complete. The alpha architecture is moving core `skykit` toward a slimmer teaching toolkit built from narrow-purpose, reusable `@found-in-space/*` modules. The goal is that students and builders can start with real astronomical data, then progressively learn how to stream it, analyse it, draw it, enrich it with sidecars, and compose it into interactive scenes without needing to adopt a large monolithic viewer.
 
 If you are reading this README on GitHub, you can open **[SkyKit experiments](https://foundin.space/skykit/)** on the Found in Space site to try the latest interactive demos in the browser—development sandboxes that exercise new ideas in the runtime before they settle into stable APIs.
 
@@ -18,6 +20,24 @@ npm install @found-in-space/skykit
 ## Architecture
 
 Source lives under `src/` and is organised into purpose-driven sections.
+
+The current `src/` runtime remains the working viewer implementation. New alpha work should prefer focused workspace packages under `packages/` when a capability can stand on its own. Core `skykit` should become the slim composition layer that brings those packages together for teaching and demos, while package code owns the reusable implementation.
+
+Examples of the intended package direction:
+
+- `@found-in-space/product-stream`: generic product delta/store lifecycle
+- `@found-in-space/star-products`: star product stores, iteration, math, projections, and display helpers
+- `@found-in-space/star-octree-provider`: star octree loading, streaming, sessions, and product emission
+- `@found-in-space/star-map-canvas`: lightweight 2D starmap rendering
+- `@found-in-space/star-kinematics-provider`: proper-motion and velocity sidecars for dynamic-universe lessons
+- `@found-in-space/solar-ephemeris`: time-aware solar-system and trajectory products
+- `@found-in-space/skykit`: friendly composition exports and teaching-oriented examples
+
+This split is not limited to "universe data" packages. Shared interaction or
+surface systems should also stand alone when they are broadly reusable. For
+example, [`touch-os`](https://github.com/found-in-Space/touch-os/) is a Found in
+Space project that `skykit` can depend on for interactive surfaces, but it
+should not be folded back into core `skykit`.
 
 ### `core/`
 
@@ -78,5 +98,9 @@ Override with `?constellationManifestUrl=...`. Dataset URLs can be overridden wi
 
 ## Docs
 
-- [`docs/viewer-architecture.md`](./docs/viewer-architecture.md): current architecture and migration context
-- [`docs/viewer-roadmap.md`](./docs/viewer-roadmap.md): roadmap and phase notes
+- [`docs/alpha-rules.md`](./docs/alpha-rules.md): current alpha rewrite rules and package-boundary guidance
+- [`docs/package-learning-architecture.md`](./docs/package-learning-architecture.md): alpha package direction for teaching-oriented modules
+- [`docs/octree-service.md`](./docs/octree-service.md): current alpha contract for `@found-in-space/star-octree-provider`
+- [`docs/viewer-architecture.md`](./docs/viewer-architecture.md): legacy proof-of-concept viewer architecture; may be stale
+- [`docs/xr-architecture.md`](./docs/xr-architecture.md): legacy proof-of-concept XR architecture; may be stale
+- [`docs/hr-diagram-touch-display.md`](./docs/hr-diagram-touch-display.md): legacy proof-of-concept touch-display design; may be stale

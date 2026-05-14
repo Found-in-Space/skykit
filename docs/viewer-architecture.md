@@ -1,5 +1,16 @@
 # SkyKit Architecture
 
+Status: legacy proof-of-concept architecture note.
+
+This document describes the current/old `src/` viewer runtime and may be stale
+relative to the alpha package direction. The proof-of-concept phase is complete:
+new reusable work should not be added to core `skykit` by default. Use
+[`alpha-rules.md`](./alpha-rules.md) and
+[`package-learning-architecture.md`](./package-learning-architecture.md) as the
+current direction for first-alpha package boundaries, and use
+[`octree-service.md`](./octree-service.md) for the star octree provider
+contract.
+
 ## Overview
 
 SkyKit is a viewer platform for interactive 3D star-field exploration across desktop, VR, and (eventually) AR. It is designed as a reusable library, not a single-purpose app.

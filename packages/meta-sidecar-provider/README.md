@@ -1,5 +1,7 @@
 # Meta Sidecar Provider
 
+Status: current alpha package boundary.
+
 Alpha metadata sidecar provider boundary for Found in Space datasets.
 
 This package is intentionally separate from `@found-in-space/star-octree-provider`.

@@ -1,5 +1,13 @@
 # HR Diagram Touch Display Control
 
+Status: legacy proof-of-concept design note.
+
+This document describes an older `src/` touch-display implementation path and
+may be stale relative to the alpha package direction. HR diagrams are still a
+valuable teaching use case, but reusable pieces should be factored through
+focused packages such as star products, product-stream stores, and standalone
+interaction/surface packages rather than added directly to core `skykit`.
+
 ## Purpose
 
 This document describes how to implement `createHRDiagramControl()` — a custom control type for the SkyKit touch display system that renders a live Hertzsprung–Russell diagram into the canvas-backed panel UI.

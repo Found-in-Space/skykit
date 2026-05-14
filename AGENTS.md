@@ -6,6 +6,17 @@
 - No build step for library code — `src/index.js` is the package entry point.
 - Dependency on `three` (THREE.js).
 
+## Alpha package direction
+
+- The proof-of-concept phase is complete. New work should be shaped for first alpha, not added to the old `src/` architecture by default.
+- Core `skykit` is being reshaped into a slim teaching toolkit built from narrow-purpose, reusable `@found-in-space/*` space-data modules.
+- Prefer focused workspace packages under `packages/` for new reusable capabilities. Use core `skykit` as a composition/convenience layer for teaching examples and demos.
+- Keep package boundaries clear: generic product lifecycle belongs in reusable product-stream style packages; star interpretation belongs in star-specific packages; rendering adapters should consume products/stores rather than owning data loading.
+- Do not fold sidecars, ephemerides, kinematics, H-alpha maps, galaxy models, or renderer-specific logic into the star octree provider. Those should remain separate product/provider lanes that can be composed by applications.
+- Not every Found in Space package has to be a universe-data module. Interaction/surface infrastructure such as `touch-os` should stay as a separate package that `skykit` can depend on rather than being folded into core `skykit`.
+- Follow `docs/alpha-rules.md`: alpha work is a clean rewrite into the new package shape. Old proof-of-concept code is reference-only unless the user explicitly asks otherwise.
+- Use `docs/package-learning-architecture.md` as the current package-learning direction when deciding where new teaching-oriented functionality should live.
+
 ### Standard commands
 
 - Install dependencies: `npm install`

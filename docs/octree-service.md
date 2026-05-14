@@ -1,6 +1,16 @@
 # Alpha Implementation Spec: Star Octree Provider Package
 
+Status: this is the current normative alpha spec for
+`@found-in-space/star-octree-provider`. It may lag slightly behind recent
+implementation planning, but it remains the contract anchor for the star octree
+provider package.
+
 This document is the normative implementation plan for the alpha **Star Octree Provider** package: `@found-in-space/star-octree-provider`, located at `packages/star-octree-provider`.
+
+The proof-of-concept phase is complete. This package is part of the first alpha
+rewrite and should remain independent from core `skykit` viewer code. Do not add
+viewer, renderer, UI, sidecar, kinematics, ephemeris, or other product-domain
+responsibilities here unless this document explicitly moves that boundary.
 
 ## 1. Goal
 

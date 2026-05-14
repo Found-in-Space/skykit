@@ -1,5 +1,13 @@
 # XR Architecture
 
+Status: legacy proof-of-concept XR architecture note.
+
+This document describes the current/old `src/` XR viewer runtime and may be
+stale relative to the alpha package direction. Keep using it when maintaining
+existing XR code, but do not treat it as a guide for where new reusable alpha
+functionality should live. New reusable pieces should become focused
+`@found-in-space/*` packages and be composed by slim `skykit` examples.
+
 This document covers WebXR-specific concepts in SkyKit. For the general viewer architecture (data services, interest fields, layers, embedding API), see [viewer-architecture.md](viewer-architecture.md).
 
 ## Why A Separate Document
