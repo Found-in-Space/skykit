@@ -8,9 +8,10 @@ tested thoroughly, and only then should old code be removed.
 
 ## Examples
 
-- `examples/minimal-stream/` is a small browser quickstart that creates a
-  provider, streams until the current representation is complete, and inspects
-  the product shape.
+- `examples/minimal-stream/` is a small browser scratchpad that creates a
+  provider, lets learners edit observer coordinates and magnitude inside
+  `streamObjectBatches()`, streams until the current representation is complete,
+  and inspects the product shape.
 - `examples/nearest-visible/` shows a browser page that creates an
   `observer-shell` provider session, streams object-batch deltas, and keeps a
   nearest-visible table as application-owned logic.

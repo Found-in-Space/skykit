@@ -3,37 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Star Octree Provider: Minimal Stream</title>
+    <title>Star Octree Provider: Browser Scratchpad</title>
     <link rel="stylesheet" href="../../../../demos/shared.css" />
     <link rel="stylesheet" href="./minimal-stream.css" />
   </head>
   <body>
-    <aside>
-      <nav class="breadcrumb">
-        <a href="../../../../index.html">SkyKit</a>
-        <span>/ Star Octree Provider</span>
-      </nav>
-      <h1>Minimal Stream</h1>
-      <p>A small guided example: create a provider, stream object batches, and inspect the completed result.</p>
-
-      <button type="button" data-run>Run example</button>
-      <p class="status">Status: <span data-status>ready</span></p>
-    </aside>
-
     <main>
-      <section class="tour">
-        <section class="step">
-          <h2>1. Create The Provider</h2>
-          <pre><code data-provider-code></code></pre>
-        </section>
+      <header class="page-header">
+        <div>
+          <nav class="breadcrumb">
+            <a href="../../../../index.html">SkyKit</a>
+            <span>/ Star Octree Provider</span>
+          </nav>
+          <h1>Provider Scratchpad</h1>
+        </div>
+        <div class="page-actions">
+          <button type="button" data-run-all>Run all cells</button>
+          <button type="button" data-reset>Reset cells</button>
+          <p class="status">Status: <span data-status>ready</span></p>
+        </div>
+      </header>
 
-        <section class="step">
-          <h2>2. Stream Until Current</h2>
-          <pre><code data-stream-code></code></pre>
-        </section>
+      <section class="scratchpad">
+        <section class="notebook" data-notebook></section>
 
-        <section class="step">
-          <h2>3. Review The Products</h2>
+        <section class="result-panel">
+          <h2>Rendered Rows</h2>
           <div class="product-summary" data-product-summary></div>
           <div class="table-scroll">
             <table>
@@ -50,7 +45,7 @@
               </thead>
               <tbody data-stars>
                 <tr>
-                  <td colspan="7" class="empty-row">Run the example to load products.</td>
+                  <td colspan="7" class="empty-row">Run the cells to render rows.</td>
                 </tr>
               </tbody>
             </table>
