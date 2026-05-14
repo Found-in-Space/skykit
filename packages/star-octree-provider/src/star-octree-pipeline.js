@@ -1,12 +1,14 @@
 import { planObserverShellDemand, normalizeObserverShellView } from './star-octree-observer-shell.js';
 import { createDecodedPayloadCache } from './star-octree-decoded-cache.js';
 import {
+  createStarObjectBatchProduct,
+} from '@found-in-space/star-products';
+import {
   ERR_STAR_OCTREE_UNSUPPORTED_STRATEGY,
   createStarOctreeError,
   toDeltaError,
 } from './star-octree-errors.js';
 import { decodeStarPayload } from './star-octree-payloads.js';
-import { createStarObjectBatchProduct } from './star-octree-products.js';
 import { createAsyncQueue } from './star-octree-queue.js';
 import { STAR_HAS_PAYLOAD } from './star-octree-format.js';
 import {
@@ -16,7 +18,8 @@ import {
 import { traverseOctree } from './star-octree-traversal.js';
 
 /**
- * @typedef {import('./index.js').StarObjectBatchProduct} StarObjectBatchProduct
+ * @typedef {import('@found-in-space/star-products').DecodedStarSegment} DecodedStarSegment
+ * @typedef {import('@found-in-space/star-products').StarObjectBatchProduct} StarObjectBatchProduct
  * @typedef {import('./index.js').StarOctreeCoordinateOutput} StarOctreeCoordinateOutput
  * @typedef {import('./index.js').StarOctreeDemandEntry} StarOctreeDemandEntry
  * @typedef {import('./index.js').StarOctreeDemandPlan} StarOctreeDemandPlan
@@ -422,7 +425,7 @@ export function createStarOctreePipeline(options) {
   }
 
   /**
-   * @param {Array<{ node: StarOctreeRuntimeNode; decoded: import('./star-octree-products.js').DecodedStarSegment }>} entries
+   * @param {Array<{ node: StarOctreeRuntimeNode; decoded: DecodedStarSegment }>} entries
    * @param {{
    *   streamId: string;
    *   sessionId?: string;

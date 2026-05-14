@@ -1,7 +1,7 @@
 /**
- * @typedef {import('./index.d.ts').CanonicalObjectRef} CanonicalObjectRef
+ * @typedef {import('@found-in-space/star-products').CanonicalObjectRef} CanonicalObjectRef
+ * @typedef {import('@found-in-space/star-products').DecodedStarSegment} DecodedStarSegment
  * @typedef {import('./index.d.ts').StarOctreeRuntimeNode} StarOctreeRuntimeNode
- * @typedef {import('./star-octree-products.js').DecodedStarSegment} DecodedStarSegment
  */
 
 export const PAYLOAD_RECORD_SIZE = 16;

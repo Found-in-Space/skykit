@@ -1,9 +1,8 @@
-import { createDefaultDecodedStarSegment } from './star-octree-products.js';
+import { supportsTransferableBuffers } from '@found-in-space/star-products';
 import { createBlobRangeSource } from './star-octree-blob-source.js';
 import { createStarOctreeIndexSource } from './star-octree-index-source.js';
 import { createStarOctreePipeline } from './star-octree-pipeline.js';
 import { createStarOctreeProviderSession } from './star-octree-provider-session.js';
-import { supportsTransferableBuffers } from './star-octree-transfer.js';
 import { createStarOctreeWorkTracker } from './star-octree-work-tracker.js';
 
 /**
@@ -18,7 +17,7 @@ import { createStarOctreeWorkTracker } from './star-octree-work-tracker.js';
  * @typedef {import('./index.d.ts').StarOctreeProviderSnapshot} StarOctreeProviderSnapshot
  * @typedef {import('./index.d.ts').StarOctreeSelectionContext} StarOctreeSelectionContext
  * @typedef {import('./index.d.ts').StarOctreeSessionOptions} StarOctreeSessionOptions
- * @typedef {import('./star-octree-products.js').DecodedStarSegment} DecodedStarSegment
+ * @typedef {import('@found-in-space/star-products').DecodedStarSegment} DecodedStarSegment
  */
 
 let nextProviderId = 1;
@@ -398,5 +397,20 @@ function createProviderSnapshot(
       decodedCacheEvictions: decodedSnapshot.decodedCacheEvictions,
       fetchTimeMs: indexSnapshot.stats.fetchTimeMs,
     },
+  };
+}
+
+/**
+ * Create deterministic fake decoded data for package-internal session tests.
+ *
+ * @param {import('./index.d.ts').StarOctreeRuntimeNode} node
+ * @returns {DecodedStarSegment}
+ */
+function createDefaultDecodedStarSegment(node) {
+  return {
+    count: 1,
+    positionsPc: new Float32Array([node.centerX, node.centerY, node.centerZ]),
+    teffLog8: new Uint8Array([128]),
+    magAbs: new Float32Array([0]),
   };
 }

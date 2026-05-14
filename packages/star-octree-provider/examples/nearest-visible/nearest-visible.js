@@ -1,4 +1,8 @@
 import { createStarOctreeProviderService } from '../../src/index.js';
+import {
+  apparentMagnitude as computeApparentMagnitude,
+  decodeTemperatureK,
+} from '@found-in-space/star-products';
 
 const DEFAULT_OCTREE_URL =
   'https://d1kwci8ql2abxm.cloudfront.net/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree';
@@ -27,7 +31,7 @@ const elements = {
  *   url: string;
  *   token: number;
  *   query: { observerPc: { x: number; y: number; z: number }; limitingMagnitude: number };
- *   products: Map<string, import('../../src/index.d.ts').StarObjectBatchProduct>;
+ *   products: Map<string, import('@found-in-space/star-products').StarObjectBatchProduct>;
  *   rowsByProductId: Map<string, Array<NearestStarRow>>;
  *   nearest: Array<NearestStarRow>;
  *   deltas: { upsert: number; stale: number; remove: number; current: number; error: number };
@@ -232,7 +236,7 @@ function recomputeNearest() {
 }
 
 /**
- * @param {import('../../src/index.d.ts').StarObjectBatchProduct} product
+ * @param {import('@found-in-space/star-products').StarObjectBatchProduct} product
  * @param {{ observerPc: { x: number; y: number; z: number }; limitingMagnitude: number }} query
  * @returns {Array<NearestStarRow>}
  */
@@ -253,8 +257,10 @@ function rowsFromProduct(product, query) {
       z: positions[index * 3 + 2],
     };
     const distancePc = distanceBetween(query.observerPc, positionPc);
-    const apparentMagnitude =
-      magAbs[index] + 5 * (Math.log10(Math.max(distancePc, 1e-6)) - 1);
+    const apparentMagnitude = computeApparentMagnitude({
+      magAbs: magAbs[index],
+      distancePc,
+    });
     if (apparentMagnitude > query.limitingMagnitude) {
       continue;
     }
@@ -281,7 +287,7 @@ function rowsFromProduct(product, query) {
 }
 
 /**
- * @param {import('../../src/index.d.ts').StarObjectBatchProduct} product
+ * @param {import('@found-in-space/star-products').StarObjectBatchProduct} product
  * @param {number} index
  */
 function nodeForProductIndex(product, index) {
@@ -425,14 +431,6 @@ function formatBytes(value) {
   if (value < 1024) return `${formatInteger(value)} B`;
   if (value < 1024 * 1024) return `${formatNumber(value / 1024, 1)} KiB`;
   return `${formatNumber(value / (1024 * 1024), 1)} MiB`;
-}
-
-function decodeTemperatureK(teffLog8) {
-  const log8 = teffLog8 / 255;
-  if (log8 >= 0.996) {
-    return 5800;
-  }
-  return 2000 * Math.pow(25, log8);
 }
 
 function formatTemperature(value) {

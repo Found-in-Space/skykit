@@ -1,5 +1,5 @@
 /**
- * @typedef {import('./index.d.ts').CanonicalObjectRef} CanonicalObjectRef
+ * @typedef {import('@found-in-space/star-products').CanonicalObjectRef} CanonicalObjectRef
  * @typedef {import('./index.d.ts').MetaSidecarEntry} MetaSidecarEntry
  * @typedef {import('./index.d.ts').MetaSidecarFactProduct} MetaSidecarFactProduct
  * @typedef {import('./index.d.ts').MetaSidecarProviderDescriptor} MetaSidecarProviderDescriptor

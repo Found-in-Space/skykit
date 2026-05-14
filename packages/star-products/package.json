@@ -1,7 +1,7 @@
 {
-  "name": "@found-in-space/star-octree-provider",
+  "name": "@found-in-space/star-products",
   "version": "0.0.0-alpha.0",
-  "description": "Alpha star octree provider package for Found in Space datasets",
+  "description": "Star product types, stores, and math helpers for Found in Space packages",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.js",
@@ -22,6 +22,6 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@found-in-space/star-products": "0.0.0-alpha.0"
+    "@found-in-space/product-stream": "0.0.0-alpha.0"
   }
 }

@@ -1,8 +1,6 @@
-export interface CanonicalObjectRef {
-  datasetId?: string | null;
-  nodeKey: string;
-  ordinal: number;
-}
+import type { CanonicalObjectRef } from '@found-in-space/star-products';
+
+export type { CanonicalObjectRef } from '@found-in-space/star-products';
 
 export interface PickMetaRef extends CanonicalObjectRef {
   level?: number;

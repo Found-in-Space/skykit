@@ -1,3 +1,8 @@
+import type {
+  StarCoordinateOutput,
+  StarObjectBatchProduct,
+} from '@found-in-space/star-products';
+
 export interface StarOctreeProviderServiceOptions {
   id?: string;
   url: string;
@@ -138,18 +143,7 @@ export interface StarOctreeSessionOptions {
   };
 }
 
-export interface StarOctreeCoordinateOutput {
-  name?: string;
-  frame?: 'icrs' | string;
-  units?: [string, string, string];
-  transformPosition?: (position: {
-    xPc: number;
-    yPc: number;
-    zPc: number;
-    node: StarOctreeRuntimeNode;
-    ordinal: number;
-  }) => [number, number, number] | { x: number; y: number; z: number };
-}
+export type StarOctreeCoordinateOutput = StarCoordinateOutput<StarOctreeRuntimeNode>;
 
 export interface StarOctreeViewPatch {
   observerPc?: { x: number; y: number; z: number };
@@ -275,85 +269,6 @@ export interface StarOctreeBootstrapProduct {
     phase: 'complete';
     stable: true;
   };
-}
-
-export interface CanonicalObjectRef {
-  datasetId?: string | null;
-  nodeKey: string;
-  ordinal: number;
-}
-
-export interface StarObjectBatchProduct {
-  productType: 'object-batch';
-  id: string;
-  providerId: string;
-  layerId: 'stars';
-  objectType: 'star';
-  streamId: string;
-  sessionId?: string;
-  viewRevision?: number;
-  demandRevision?: number;
-  count: number;
-  nodes: Array<{
-    nodeKey: string;
-    level: number;
-    gridX: number;
-    gridY: number;
-    gridZ: number;
-    centerX: number;
-    centerY: number;
-    centerZ: number;
-    halfSize: number;
-    count: number;
-    offset: number;
-  }>;
-  coordinates: {
-    primary: {
-      name: string;
-      frame: string;
-      representation: 'cartesian3';
-      units: [string, string, string];
-      stride: 3;
-      components: Float32Array;
-    };
-  };
-  attributes: {
-    teffLog8?: {
-      name: 'teffLog8';
-      kind: 'number';
-      values: Uint8Array;
-    };
-    magAbs?: {
-      name: 'magAbs';
-      kind: 'number';
-      unit: 'mag';
-      values: Float32Array;
-    };
-  };
-  refs?: CanonicalObjectRef[];
-  pickMeta?: Array<{
-    nodeKey: string;
-    ordinal: number;
-    level: number;
-    gridX: number;
-    gridY: number;
-    gridZ: number;
-    centerX: number;
-    centerY: number;
-    centerZ: number;
-  }>;
-  completeness: {
-    phase: 'coarse' | 'partial' | 'complete' | 'stale';
-    stable: boolean;
-    loadedObjects: number;
-    loadedNodes: number;
-    totalNodes?: number;
-  };
-  memory: {
-    ownership: 'borrowed' | 'copy' | 'transfer';
-    bytes: number;
-  };
-  metadata?: Record<string, unknown>;
 }
 
 export type StarOctreePayloadDelta =

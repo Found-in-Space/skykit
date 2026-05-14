@@ -1,4 +1,5 @@
 import { createStarOctreeProviderService } from '../../src/index.js';
+import { decodeTemperatureK } from '@found-in-space/star-products';
 
 const OCTREE_URL =
   'https://d1kwci8ql2abxm.cloudfront.net/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree';
@@ -271,7 +272,7 @@ function disposeProvider() {
 }
 
 /**
- * @param {Array<import('../../src/index.d.ts').StarObjectBatchProduct>} products
+ * @param {Array<import('@found-in-space/star-products').StarObjectBatchProduct>} products
  */
 function showProgress(products) {
   renderSummary(summarizeProducts(products));
@@ -279,7 +280,7 @@ function showProgress(products) {
 }
 
 /**
- * @param {Array<import('../../src/index.d.ts').StarObjectBatchProduct>} products
+ * @param {Array<import('@found-in-space/star-products').StarObjectBatchProduct>} products
  */
 function summarizeProducts(products) {
   return {
@@ -310,14 +311,14 @@ function renderTable(rows) {
 }
 
 /**
- * @param {Array<import('../../src/index.d.ts').StarObjectBatchProduct>} products
+ * @param {Array<import('@found-in-space/star-products').StarObjectBatchProduct>} products
  */
 function rowsFromProducts(products) {
   return products.flatMap(rowsFromProduct);
 }
 
 /**
- * @param {import('../../src/index.d.ts').StarObjectBatchProduct} product
+ * @param {import('@found-in-space/star-products').StarObjectBatchProduct} product
  */
 function rowsFromProduct(product) {
   const positions = product.coordinates.primary.components;
@@ -347,7 +348,7 @@ function rowsFromProduct(product) {
 }
 
 /**
- * @param {import('../../src/index.d.ts').StarObjectBatchProduct} product
+ * @param {import('@found-in-space/star-products').StarObjectBatchProduct} product
  * @param {number} index
  */
 function nodeForProductIndex(product, index) {
@@ -456,14 +457,6 @@ function summarizeForOutput(value, depth = 0) {
       summarizeForOutput(nested, depth + 1),
     ]),
   );
-}
-
-function decodeTemperatureK(teffLog8) {
-  const log8 = teffLog8 / 255;
-  if (log8 >= 0.996) {
-    return 5800;
-  }
-  return 2000 * Math.pow(25, log8);
 }
 
 function formatVector(vector) {

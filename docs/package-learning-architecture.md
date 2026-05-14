@@ -53,10 +53,10 @@ Recommended package direction:
 
 ```txt
 @found-in-space/product-stream
-  generic product delta/store lifecycle
+  implemented generic product delta/store lifecycle
 
 @found-in-space/star-products
-  StarObjectBatchProduct types, star representation store, star math,
+  implemented StarObjectBatchProduct types, star representation store, star math,
   star iteration, projections, color helpers
 
 @found-in-space/star-octree-provider
@@ -182,9 +182,9 @@ stores and adapters.
 
 ## 4. Star Product Layer
 
-`@found-in-space/star-products` should be the first specialization.
+`@found-in-space/star-products` is the first specialization.
 
-It should understand `StarObjectBatchProduct` and provide:
+It understands `StarObjectBatchProduct` and provides:
 
 ```ts
 export interface StarRepresentationStore {
@@ -467,17 +467,16 @@ adapter, combined by a higher-level scene/composition layer.
 
 ## 10. Suggested Next Sprint
 
-Build the reusable foundations needed for the next learning example:
+The product lifecycle and star product foundations now exist. The next useful
+learning slice should prove the first visual layer on top of them:
 
 ```txt
-1. Create @found-in-space/product-stream.
-2. Create @found-in-space/star-products.
-3. Move or re-export star product types so star-octree-provider can depend on
-   star-products rather than defining all star interpretation locally.
-4. Add createStarRepresentationStore().
-5. Add star iteration, apparent magnitude, temperature, and sky projection
-   helpers.
-6. Build a static 2D canvas starmap example on top of these packages.
+1. Build a static 2D canvas starmap example using:
+   star-octree-provider -> star-products store -> canvas rendering.
+2. Let that example teach the minimum adapter API needed for
+   @found-in-space/star-map-canvas.
+3. Extract @found-in-space/star-map-canvas only after the example proves the
+   helper surface.
 ```
 
 Do not extract `@found-in-space/star-map-canvas` until the first starmap example

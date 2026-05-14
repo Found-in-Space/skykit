@@ -1,4 +1,4 @@
-import { createStarObjectBatchProduct } from './star-octree-products.js';
+import { createStarObjectBatchProduct } from '@found-in-space/star-products';
 import { createAsyncQueue } from './star-octree-queue.js';
 import {
   evaluateDemandGate,
@@ -6,7 +6,8 @@ import {
 } from './star-octree-demand-gate.js';
 
 /**
- * @typedef {import('./index.d.ts').StarObjectBatchProduct} StarObjectBatchProduct
+ * @typedef {import('@found-in-space/star-products').DecodedStarSegment} DecodedStarSegment
+ * @typedef {import('@found-in-space/star-products').StarObjectBatchProduct} StarObjectBatchProduct
  * @typedef {import('./index.d.ts').StarOctreeCoordinateOutput} StarOctreeCoordinateOutput
  * @typedef {import('./index.d.ts').StarOctreeDemandEntry} StarOctreeDemandEntry
  * @typedef {import('./index.d.ts').StarOctreeDemandPlan} StarOctreeDemandPlan
@@ -22,7 +23,6 @@ import {
  * @typedef {import('./index.d.ts').StarOctreeViewReceipt} StarOctreeViewReceipt
  * @typedef {import('./index.d.ts').StarOctreeViewState} StarOctreeViewState
  * @typedef {import('./index.d.ts').ViewUpdateOptions} ViewUpdateOptions
- * @typedef {import('./star-octree-products.js').DecodedStarSegment} DecodedStarSegment
  */
 
 const DEFAULT_STRATEGY = /** @type {const} */ ({ kind: 'observer-shell' });

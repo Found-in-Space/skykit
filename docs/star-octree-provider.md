@@ -474,7 +474,8 @@ transforms.
 
 ## 11. Product Contract
 
-The primary consumer-visible product is `StarObjectBatchProduct`.
+The primary consumer-visible product is `StarObjectBatchProduct`, owned by
+`@found-in-space/star-products`.
 
 ```ts
 interface StarObjectBatchProduct {
@@ -522,7 +523,8 @@ pickMeta
 They are not label lookups and they are not renderer state.
 
 `teffLog8` is the encoded temperature attribute from the star payload. Decoding
-to Kelvin belongs in a star product/helper package, not in the octree provider.
+to Kelvin belongs in `@found-in-space/star-products`, not in the octree
+provider.
 
 ---
 
@@ -621,7 +623,8 @@ Payload decoder
   16-byte star records into parsec positions, magAbs, teffLog8, refs, pickMeta.
 
 Product builder
-  Non-cumulative StarObjectBatchProduct batches and output coordinate transforms.
+  Uses @found-in-space/star-products to pack non-cumulative
+  StarObjectBatchProduct batches and output coordinate transforms.
 
 Diagnostics / snapshots
   Dataset, session, cache, memory, work, and source statistics.
@@ -653,7 +656,9 @@ Implemented:
 - In-memory payload and decoded payload cache.
 - Browser Cache API persistent decoded cache when requested and available.
 - 16-byte star payload decode.
-- Object batch product building.
+- Object batch product building through `@found-in-space/star-products`.
+- Generic product lifecycle and star product helpers split into
+  `@found-in-space/product-stream` and `@found-in-space/star-products`.
 - Live session deltas.
 - Bounded payload/object streams.
 - One-shot merged object batch fetch.
@@ -668,8 +673,6 @@ Known later work:
 - Dedicated worker/WASM decode execution.
 - Extinction/dust visibility through a separate strategy/provider boundary.
 - Sidecar octree byte loading in the sidecar provider package.
-- Moving generic lifecycle helpers into `@found-in-space/product-stream`.
-- Moving star interpretation helpers into `@found-in-space/star-products`.
 
 ---
 

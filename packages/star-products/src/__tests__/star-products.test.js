@@ -2,9 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  apparentMagnitude,
+  consumeProductDeltas,
   createStarObjectBatchProduct,
-} from '../star-octree-products.js';
-import { supportsTransferableBuffers } from '../star-octree-transfer.js';
+  createStarRepresentationStore,
+  decodeTemperatureK,
+  icrsToRaDec,
+  projectEquirectangular,
+  supportsTransferableBuffers,
+  temperatureToRgb,
+} from '../index.js';
 
 test('createStarObjectBatchProduct builds typed product arrays and metadata', () => {
   const node = createNode('node-a', { centerX: 10, centerY: 20, centerZ: 30 });
@@ -153,6 +160,80 @@ test('createStarObjectBatchProduct supports transfer ownership when available', 
   assert.deepEqual(Array.from(product.attributes.teffLog8.values), [120]);
 });
 
+test('createStarRepresentationStore applies deltas and exposes star helpers', async () => {
+  const store = createStarRepresentationStore();
+  const product = createStarObjectBatchProduct({
+    providerId: 'provider-a',
+    streamId: 'stream-a',
+    productIndex: 1,
+    entries: [{
+      node: createNode('node-a'),
+      decoded: {
+        count: 2,
+        positionsPc: new Float32Array([1, 2, 3, 4, 5, 6]),
+        teffLog8: new Uint8Array([100, 120]),
+        magAbs: new Float32Array([1.5, 2.5]),
+        refs: [
+          { datasetId: 'dataset-a', nodeKey: 'node-a', ordinal: 0 },
+          { datasetId: 'dataset-a', nodeKey: 'node-a', ordinal: 1 },
+        ],
+      },
+    }],
+    attributes: ['position', 'teffLog8', 'magAbs', 'objectRef', 'pickMeta'],
+  });
+
+  const result = await consumeProductDeltas(createDeltas([
+    { type: 'data/product-upsert', product },
+    { type: 'data/representation-current', demandRevision: 1 },
+  ]), store, { stopOnCurrent: true });
+
+  assert.equal(result.stoppedOn, 'current');
+  assert.equal(store.getStarCount(), 2);
+  assert.equal(store.getObjectRef(product.id, 1)?.ordinal, 1);
+  assert.equal(store.getPickMeta(product.id, 1)?.gridZ, 3);
+  assert.equal(store.getSnapshot().starCount, 2);
+
+  const rows = Array.from(store.stars());
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[1].position, { x: 4, y: 5, z: 6 });
+  assert.equal(rows[1].teffLog8, 120);
+  assert.equal(rows[1].magAbs, 2.5);
+});
+
+test('star math helpers compute apparent magnitude, temperatures, colors, and sky projection', () => {
+  assert.equal(apparentMagnitude({ magAbs: 5, distancePc: 10 }), 5);
+  assert.equal(decodeTemperatureK(255), 5800);
+
+  const cool = decodeTemperatureK(0);
+  const hot = decodeTemperatureK(200);
+  assert.ok(cool < hot);
+
+  const rgb = temperatureToRgb(5800, { input: 'kelvin' });
+  assert.equal(rgb.length, 3);
+  assert.ok(rgb.every((channel) => channel >= 0 && channel <= 255));
+
+  assert.deepEqual(icrsToRaDec([1, 0, 0]), {
+    raDeg: 0,
+    raHours: 0,
+    decDeg: 0,
+  });
+  assert.deepEqual(icrsToRaDec([0, 1, 0]), {
+    raDeg: 90,
+    raHours: 6,
+    decDeg: 0,
+  });
+
+  assert.deepEqual(projectEquirectangular({
+    raDeg: 180,
+    decDeg: 0,
+    width: 360,
+    height: 180,
+  }), {
+    x: 180,
+    y: 90,
+  });
+});
+
 function oneStar() {
   return {
     count: 1,
@@ -171,15 +252,6 @@ function createNode(nodeKey, overrides = {}) {
     gridX: 1,
     gridY: 2,
     gridZ: 3,
-    flags: 0,
-    childMask: 0,
-    payloadOffset: 0,
-    payloadLength: 1,
-    firstChild: -1,
-    localDepth: 0,
-    localPath: 0,
-    shardOffset: 0,
-    nodeIndex: 0,
     ...overrides,
   };
 }
@@ -189,5 +261,11 @@ function assertFloatArrayClose(actual, expected) {
 
   for (let index = 0; index < actual.length; index += 1) {
     assert.equal(Math.abs(actual[index] - expected[index]) < 1e-6, true);
+  }
+}
+
+async function* createDeltas(deltas) {
+  for (const delta of deltas) {
+    yield delta;
   }
 }
