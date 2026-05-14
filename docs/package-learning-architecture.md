@@ -65,6 +65,9 @@ Recommended package direction:
 @found-in-space/star-map-canvas
   small 2D canvas starmap adapter for learning and lightweight apps
 
+@found-in-space/hr-diagram
+  reusable HR diagram data model, renderer, and optional touch-os panel controls
+
 @found-in-space/star-kinematics-provider
   proper-motion, radial-velocity, and epoch sidecars for dynamic-universe
   lessons and trajectory/encounter analysis
@@ -74,6 +77,10 @@ Recommended package direction:
 
 @found-in-space/three-star-field
   Three.js star field adapter
+
+@found-in-space/journey
+  authored lesson runtime and editor model for chapters, narration, camera
+  beats, timed cues, preload hints, and video/story production
 
 @found-in-space/skykit
   slim composition/convenience layer, not the owner of all functionality
@@ -94,6 +101,7 @@ product-stream
 
 star-products
   <- star-map-canvas
+  <- hr-diagram
   <- three-star-field
 
 star-products
@@ -101,6 +109,12 @@ star-products
 
 product-stream
   <- solar-ephemeris
+
+touch-os
+  <- hr-diagram
+
+journey
+  imports domain packages only through explicit adapters
 
 skykit
   imports and composes the smaller packages
@@ -253,7 +267,63 @@ debug panels
 
 ---
 
-## 6. Dynamic Stars And Trajectory Lessons
+## 6. Domain Tools And Journey Lessons
+
+Reusable scientific tools and authored lesson frameworks are different package
+types and should not be collapsed into one "lesson" package.
+
+An HR diagram is a reusable scientific instrument:
+
+```txt
+@found-in-space/hr-diagram
+  -> HR diagram data model
+  -> HR diagram renderer
+  -> selection/brush helpers
+  -> optional touch-os panel controls
+```
+
+It may depend on `@found-in-space/star-products` for star iteration,
+temperature, magnitude, and store integration. It may depend on `touch-os` for
+interactive panel controls. It should not know about Orion-specific lessons,
+camera fly-throughs, narrated chapters, or website page structure.
+
+A journey framework is allowed to be chunkier because authored experiences have
+real machinery:
+
+```txt
+@found-in-space/journey
+  -> chapter and scene model
+  -> narration state
+  -> camera actions and timed cues
+  -> preload hints and readiness checks
+  -> playback controls
+  -> editor/runtime shared model
+  -> validation and evaluation helpers
+```
+
+The website's current journey and video/editor code is a good candidate source
+of lessons for this boundary. The alpha package should still be a clean rewrite:
+extract the concepts, not the accidental website shape.
+
+A lesson helper such as `createHrDiagramLesson()` should be thin glue:
+
+```txt
+createHrDiagramLesson()
+  wires:
+    star-octree-provider
+    star-products store
+    hr-diagram tool/panel
+    journey runtime
+    page-specific copy and presets
+```
+
+The website should own content, layout, story data, and small composition calls.
+It should not own reusable HR rendering, product-store mechanics, octree
+streaming, or generic journey runtime behavior.
+
+---
+
+## 7. Dynamic Stars And Trajectory Lessons
 
 Proper motion should be an attachable sidecar/product lane rather than a
 responsibility of the octree provider. The octree provider finds candidate stars
@@ -281,7 +351,7 @@ motion is a derived/enrichment layer above it.
 
 ---
 
-## 7. Relationship To H-alpha And Other Domains
+## 8. Relationship To H-alpha And Other Domains
 
 The generic store pattern should be reusable, but star interpretation should not
 be.
@@ -327,7 +397,7 @@ domain meaning remains close to the product type that owns it.
 
 ---
 
-## 8. Structural Products And Multi-scale Layers
+## 9. Structural Products And Multi-scale Layers
 
 H-alpha is more than a nice visual layer. It is a useful teaching and
 architecture example for adding new product lanes that describe structure rather
@@ -395,7 +465,7 @@ adapter, combined by a higher-level scene/composition layer.
 
 ---
 
-## 9. Suggested Next Sprint
+## 10. Suggested Next Sprint
 
 Build the reusable foundations needed for the next learning example:
 
