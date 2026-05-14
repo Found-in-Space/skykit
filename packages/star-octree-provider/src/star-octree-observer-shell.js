@@ -3,6 +3,7 @@ import {
   distanceToNodeAabbPc,
   traverseOctree,
 } from './star-octree-traversal.js';
+import { resolveMotionLookahead } from './star-octree-motion.js';
 
 /**
  * @typedef {import('./index.d.ts').StarOctreeDemandEntry} StarOctreeDemandEntry
@@ -47,19 +48,109 @@ export async function planObserverShellDemand(options) {
   );
   const indexMagnitude = bootstrap.header.magLimit;
   const motion = resolveMotionPriorityContext(options.context.view.motion);
-  /** @type {StarOctreeDemandEntry[]} */
-  const entries = [];
-
-  const traversal = await traverseOctree({
+  const currentResult = await collectObserverShellEntries({
     indexSource: options.indexSource,
     bootstrap,
-    distanceToNode: (node) => distanceToNodeAabbPc(observerPc, node),
-    visitor(node) {
-      const distancePc = distanceToNodeAabbPc(observerPc, node);
-      const loadRadiusPc = loadRadiusForMagnitudeShell(
-        node.halfSize,
+    observerPc,
+    limitingMagnitude,
+    indexMagnitude,
+    motion,
+    role: 'current',
+  });
+  const currentNodeKeys = new Set(
+    currentResult.entries.map((entry) => entry.node.nodeKey),
+  );
+  const motionLookahead = resolveMotionLookahead(
+    options.context.view.motion,
+    observerPc,
+  );
+  const prefetchResult = motionLookahead.enabled && motionLookahead.futureObserverPc
+    ? await collectObserverShellEntries({
+        indexSource: options.indexSource,
+        bootstrap,
+        observerPc: motionLookahead.futureObserverPc,
+        currentObserverPc: observerPc,
         limitingMagnitude,
         indexMagnitude,
+        motion,
+        role: 'prefetch',
+      })
+    : null;
+  let prefetchOverlapCount = 0;
+  const prefetchEntries = [];
+
+  for (const entry of prefetchResult?.entries ?? []) {
+    if (currentNodeKeys.has(entry.node.nodeKey)) {
+      prefetchOverlapCount += 1;
+      continue;
+    }
+
+    prefetchEntries.push(entry);
+  }
+
+  const entries = [...currentResult.entries, ...prefetchEntries];
+
+  entries.sort((left, right) =>
+    compareObserverShellEntries(left, right, {
+      coarseFirst: options.context.streaming?.coarseFirst !== false,
+    }),
+  );
+
+  return {
+    entries,
+    signature: createCurrentNodeSetSignature(entries),
+    reasons: ['observer-shell'],
+    metadata: {
+      strategy: 'observer-shell',
+      observerPc,
+      limitingMagnitude,
+      indexMagnitude,
+      inspectedNodeCount: currentResult.traversal.stats.inspectedNodeCount,
+      selectedNodeCount: currentResult.traversal.stats.selectedNodeCount,
+      payloadNodeCount: currentResult.traversal.stats.payloadNodeCount,
+      prunedNodeCount: currentResult.traversal.stats.prunedNodeCount,
+      motion,
+      motionPrefetch: {
+        enabled: motionLookahead.enabled,
+        lookaheadSecs: motionLookahead.lookaheadSecs,
+        lookaheadDistancePc: motionLookahead.lookaheadDistancePc,
+        futureObserverPc: motionLookahead.futureObserverPc,
+        prefetchNodeCount: prefetchEntries.length,
+        prefetchOverlapCount,
+      },
+      prefetchNodeCount: prefetchEntries.length,
+      prefetchOverlapCount,
+      frontierShardCount: currentResult.traversal.stats.frontierShardCount,
+      maxLevelInspected: currentResult.traversal.stats.maxLevelInspected,
+    },
+  };
+}
+
+/**
+ * @param {{
+ *   indexSource: StarOctreeIndexSource;
+ *   bootstrap: import('./index.d.ts').StarOctreeBootstrapProduct;
+ *   observerPc: { x: number; y: number; z: number };
+ *   currentObserverPc?: { x: number; y: number; z: number };
+ *   limitingMagnitude: number;
+ *   indexMagnitude: number;
+ *   motion: ReturnType<typeof resolveMotionPriorityContext>;
+ *   role: 'current' | 'prefetch';
+ * }} options
+ */
+async function collectObserverShellEntries(options) {
+  /** @type {StarOctreeDemandEntry[]} */
+  const entries = [];
+  const traversal = await traverseOctree({
+    indexSource: options.indexSource,
+    bootstrap: options.bootstrap,
+    distanceToNode: (node) => distanceToNodeAabbPc(options.observerPc, node),
+    visitor(node) {
+      const distancePc = distanceToNodeAabbPc(options.observerPc, node);
+      const loadRadiusPc = loadRadiusForMagnitudeShell(
+        node.halfSize,
+        options.limitingMagnitude,
+        options.indexMagnitude,
       );
       const include = distancePc <= loadRadiusPc;
 
@@ -70,19 +161,31 @@ export async function planObserverShellDemand(options) {
       ) {
         const motionScore = scoreMotionPriority({
           node,
-          observerPc,
-          motion,
+          observerPc: options.currentObserverPc ?? options.observerPc,
+          motion: options.role === 'current'
+            ? options.motion
+            : { ...options.motion, enabled: false },
         });
         entries.push({
           node,
           priority: -distancePc + (motionScore?.motionPriorityBias ?? 0),
-          role: 'current',
-          reasons: ['observer-shell'],
+          role: options.role,
+          reasons: [
+            options.role === 'current'
+              ? 'observer-shell'
+              : 'motion-lookahead',
+          ],
           metadata: {
             distancePc,
             loadRadiusPc,
-            limitingMagnitude,
-            indexMagnitude,
+            limitingMagnitude: options.limitingMagnitude,
+            indexMagnitude: options.indexMagnitude,
+            ...(options.role === 'prefetch'
+              ? {
+                  prefetchKind: 'motion-lookahead',
+                  futureObserverPc: options.observerPc,
+                }
+              : {}),
             ...(motionScore ?? {}),
           },
         });
@@ -96,30 +199,7 @@ export async function planObserverShellDemand(options) {
     },
   });
 
-  entries.sort((left, right) =>
-    compareObserverShellEntries(left, right, {
-      coarseFirst: options.context.streaming?.coarseFirst !== false,
-    }),
-  );
-
-  return {
-    entries,
-    signature: createNodeSetSignature(entries),
-    reasons: ['observer-shell'],
-    metadata: {
-      strategy: 'observer-shell',
-      observerPc,
-      limitingMagnitude,
-      indexMagnitude,
-      inspectedNodeCount: traversal.stats.inspectedNodeCount,
-      selectedNodeCount: traversal.stats.selectedNodeCount,
-      payloadNodeCount: traversal.stats.payloadNodeCount,
-      prunedNodeCount: traversal.stats.prunedNodeCount,
-      motion,
-      frontierShardCount: traversal.stats.frontierShardCount,
-      maxLevelInspected: traversal.stats.maxLevelInspected,
-    },
-  };
+  return { entries, traversal };
 }
 
 /**
@@ -326,8 +406,9 @@ function compareObserverShellEntries(left, right, options) {
 /**
  * @param {StarOctreeDemandEntry[]} entries
  */
-function createNodeSetSignature(entries) {
+function createCurrentNodeSetSignature(entries) {
   return entries
+    .filter((entry) => (entry.role ?? 'current') === 'current')
     .map((entry) => entry.node.nodeKey)
     .sort()
     .join('|');

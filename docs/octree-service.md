@@ -158,7 +158,7 @@ through the provider/session APIs, not through diagnostic side paths.
 | observer-shell strategy | POC-parity implemented | Public strategy shape is pure `{ kind: 'observer-shell' }` and uses provider-native parsec view coordinates plus header `magLimit` shell pruning. `view.motion` may add priority metadata/order, but it does not exclude otherwise visible nodes. |
 | target-frustum strategy | POC-parity implemented | Supports exact `orientationIcrs` demand and target/direction-derived demand. Applies shell pruning then frustum/AABB pruning without importing Three.js. |
 | Demand reconciler | Second pass implemented | Product membership indexes support grouped live products, stale/remove, and replacement products for partial retention. |
-| Work scheduler | Second pass partial | Latest-view stale-work gating, strategy-aware demand-threshold gating, duplicate demand-signature suppression, role-aware prefetch warming, progressive payload work, and work snapshots are implemented. Fully interleaved traversal/fetch reprioritization remains later work. |
+| Work scheduler | Second pass partial | Latest-view stale-work gating, strategy-aware demand-threshold gating, current-first motion lookahead prefetch, duplicate demand-signature suppression, role-aware prefetch warming, progressive payload work, and work snapshots are implemented. Fully interleaved traversal/fetch reprioritization remains later work. |
 | Payload fetcher/cache | POC-parity implemented | Payload range batching, decompression, in-memory decompressed payload cache, cache-first/deferred-cache emission, and range span/gap stats. |
 | Payload decoder | First pass implemented | 16-byte star records into parsec `position`, `magAbs`, `teffLog8`, and object refs. |
 | Product builder | First pass implemented | Non-cumulative object batches and decode-time coordinate transforms. |
@@ -192,11 +192,11 @@ Implemented today:
 - Demand revisions increment only after planned node demand actually changes.
 - Bounded and live streams emit `data/representation-current` when current-role work for the latest accepted demand revision is caught up.
 - Motion hints can influence product ordering/priority metadata, but they do not truncate observer-shell demand.
+- Motion lookahead can add future-only `role: 'prefetch'` entries for cache warming after current-role work is caught up. These entries do not emit products and do not change visible demand signatures.
 
 Known gaps:
 
 - **Budget/debug truncation metadata.** Explicit caps such as `budget.maxTraversalLevel`, `budget.maxPayloadNodes`, `budget.maxBytes`, or `debug.maxTraversalLevel` are not part of the current public API. If added, products, demand metadata, and `data/representation-current` completeness must say the representation is current only within a degraded/truncated budget.
-- **Motion prefetch policy.** Motion priority exists for current work ordering. Future motion prefetch should additionally warm likely-future caches through prefetch roles without changing current observer-shell demand.
 - **Fully interleaved scheduling.** Current streaming is progressive after demand planning. Fully interleaved traversal/fetch/decode reprioritization remains a later maturity pass.
 
 Implemented demand-threshold option shape:
@@ -217,16 +217,6 @@ Planned option shape, not implemented yet:
 
 ```ts
 interface StarOctreeSessionOptions {
-  streaming?: {
-    progressive?: boolean;
-    emitCachedFirst?: boolean;
-    coarseFirst?: boolean;
-    motionPrefetch?: {
-      enabled?: boolean;
-      lookaheadSecs?: number;
-    };
-  };
-
   budget?: {
     maxTraversalLevel?: number;
     maxPayloadNodes?: number;
@@ -683,10 +673,15 @@ distanceToNodeAabbPc <= node.halfSize * 10 ** ((limitingMagnitude - header.magLi
 The runtime node `halfSize`, center coordinates, and distance calculations in this predicate are in native parsecs.
 
 Current alpha behavior: `view.motion` can add ordering metadata such as
-`motionPriorityBias` and `motionLookaheadDistancePc`. It does not prevent
-descent into magnitude-shell-relevant nodes. If an explicit future budget/debug
-cap truncates traversal, that cap must be visible through degraded completeness
-and truncation metadata.
+`motionPriorityBias` and `motionLookaheadDistancePc`. When
+`velocityPcPerSec` and a positive `lookaheadSecs` are present, built-in
+strategies may also compute one deterministic future observer position and add
+future-only nodes as `role: 'prefetch'`. Prefetch warms payload/decoded caches
+after current-role work is caught up; it does not emit products, change current
+eligibility, or participate in visible demand signatures. Motion never prevents
+descent into magnitude-shell-relevant current nodes. If an explicit future
+budget/debug cap truncates traversal, that cap must be visible through degraded
+completeness and truncation metadata.
 
 Demand-threshold gating is opt-in. If `demandThresholds` is omitted, built-in
 strategies preserve the always-plan behavior. If thresholds are present, missing
@@ -849,7 +844,7 @@ if (receipt.demand === 'queued' || receipt.demand === 'forced') {
 
 The provider package loads and navigates the octree. Applications do not supply runtime nodes. A session is configured with a loading strategy, and applications provide the state that strategy needs through `updateView()`.
 
-A live session is not a request/response API where each `updateView()` owns a discrete batch to await or cancel. `updateView()` is a current-state signal. It accepts state synchronously, returns a receipt, and lets provider work continue in the background. View state is expected to age immediately and update repeatedly while batches are still arriving. Current motion hints may influence work priority. Future motion prefetch may fetch objects before the app has actually moved the view there.
+A live session is not a request/response API where each `updateView()` owns a discrete batch to await or cancel. `updateView()` is a current-state signal. It accepts state synchronously, returns a receipt, and lets provider work continue in the background. View state is expected to age immediately and update repeatedly while batches are still arriving. Current motion hints may influence work priority, and motion lookahead may warm likely-future caches without changing what is current.
 
 Normal viewer flow:
 
@@ -858,7 +853,7 @@ Normal viewer flow:
 2. Batches start appearing.
 3. The app calls updateView() as navigation changes.
 4. More batches arrive while more view updates happen.
-5. The session uses the latest view state to plan current demand. Future motion policy may prefetch near-future demand without changing what is current.
+5. The session uses the latest view state to plan current demand. Motion lookahead may prefetch near-future demand without changing what is current.
 6. Deltas continue until the session representation is current for the latest accepted view.
 ```
 
@@ -1240,7 +1235,7 @@ For progressive object-batch streams, product deltas maintain the session's curr
 
 `data/representation-current` means the session's display/current representation is caught up for the referenced demand revision: all `role: 'current'` planning, fetching, decoding, pruning, and product emission for that demand is complete. It does not mean the entire octree or all stars are loaded, and it does not close the live session stream.
 
-`role: 'prefetch'` entries are cache-warming freshness work. They must not emit products and they must not block `data/representation-current`; active or failed prefetch work should be visible through provider/session work snapshots instead.
+`role: 'prefetch'` entries are cache-warming freshness work. They must not emit products and they must not block `data/representation-current`; active or failed prefetch work should be visible through provider/session work snapshots instead. Built-in motion lookahead prefetch starts only after current-role products for the latest demand revision have reached `data/representation-current`.
 
 ```ts
 export type StarOctreeProductDelta =
@@ -2104,15 +2099,16 @@ StarFieldLayer or Three adapter
 The POC-parity provider now includes pure public observer-shell strategy shape,
 exact and target/direction-derived `target-frustum` demand, progressive payload
 streaming, motion-hinted current-work prioritisation, and live session
-reconciliation. The first demand-policy pass adds opt-in strategy-aware
-demand-threshold gating before traversal. The next maturity pass should focus on
-prefetch policy and budget/debug completeness before adding more API surface:
+reconciliation. The first demand-policy passes add opt-in strategy-aware
+demand-threshold gating before traversal and current-first motion lookahead
+prefetch. The next maturity pass should focus on budget/debug completeness and
+scheduler interleaving before adding more API surface:
 
 1. Keep observer-shell semantically pure: magnitude shell demand should not be
    silently truncated by a strategy-level max-level concept.
 2. Keep demand-threshold gating as a scheduling policy, not a strategy
    eligibility rule.
-3. Extend motion lookahead into prefetch/freshness policy while preserving
+3. Keep motion lookahead as lower-priority cache warming while preserving
    current observer-shell demand.
 4. Add explicit budget/debug caps only with truncation metadata and degraded
    completeness.

@@ -4,6 +4,7 @@ import test from 'node:test';
 import { STAR_HAS_PAYLOAD, STAR_IS_FRONTIER } from '../star-octree-format.js';
 import { createStarOctreeIndexSource } from '../star-octree-index-source.js';
 import { planObserverShellDemand } from '../star-octree-observer-shell.js';
+import { planTargetFrustumDemand } from '../star-octree-target-frustum.js';
 import { traverseOctree } from '../star-octree-traversal.js';
 import {
   concatBytes,
@@ -296,6 +297,127 @@ test('observer-shell motion hints do not cap visible demand', async () => {
   }
 });
 
+test('observer-shell motion lookahead adds future-only prefetch demand', async () => {
+  const indexOffset = HEADER_SIZE + DESCRIPTOR_SIZE;
+  const rootShard = createShardBytes({
+    parentGlobalDepth: 0,
+    entryNodes: [1, 2, 0, 0, 0, 0, 0, 0],
+    nodes: [
+      createShardNodeRecord({
+        flags: STAR_HAS_PAYLOAD,
+        localDepth: 1,
+        localPath: 0,
+        payloadOffset: 1000,
+        payloadLength: 10,
+      }),
+      createShardNodeRecord({
+        flags: STAR_HAS_PAYLOAD,
+        localDepth: 1,
+        localPath: 1,
+        payloadOffset: 1010,
+        payloadLength: 10,
+      }),
+    ],
+  });
+  const { indexSource, restoreFetch } = createIndexSourceForBytes(concatBytes([
+    createStarHeaderBytes({
+      indexOffset,
+      indexLength: rootShard.length,
+      worldHalfSize: 100,
+      magLimit: 6.5,
+      maxLevel: 99,
+    }),
+    createOdscDescriptorBytes(),
+    rootShard,
+  ]));
+  const baseContext = {
+    providerId: 'provider-a',
+    strategy: { kind: 'observer-shell' },
+    viewRevision: 1,
+    demandRevision: 0,
+    attributes: ['position'],
+    coordinates: { units: ['pc', 'pc', 'pc'] },
+    streaming: { coarseFirst: true },
+  };
+
+  try {
+    const staticPlan = await planObserverShellDemand({
+      indexSource,
+      context: {
+        ...baseContext,
+        view: {
+          revision: 1,
+          observerPc: { x: -75, y: -75, z: -75 },
+          limitingMagnitude: 6.5,
+        },
+      },
+    });
+    const motionPlan = await planObserverShellDemand({
+      indexSource,
+      context: {
+        ...baseContext,
+        view: {
+          revision: 2,
+          observerPc: { x: -75, y: -75, z: -75 },
+          limitingMagnitude: 6.5,
+          motion: {
+            velocityPcPerSec: { x: 150, y: 0, z: 0 },
+            lookaheadSecs: 1,
+          },
+        },
+      },
+    });
+    const noVelocityPlan = await planObserverShellDemand({
+      indexSource,
+      context: {
+        ...baseContext,
+        view: {
+          revision: 3,
+          observerPc: { x: -75, y: -75, z: -75 },
+          limitingMagnitude: 6.5,
+          motion: {
+            speedPcPerSec: 150,
+            lookaheadSecs: 1,
+          },
+        },
+      },
+    });
+
+    assert.deepEqual(
+      staticPlan.entries.map((entry) => entry.node.nodeKey),
+      [`${indexOffset}:1`],
+    );
+    assert.deepEqual(
+      motionPlan.entries
+        .filter((entry) => (entry.role ?? 'current') === 'current')
+        .map((entry) => entry.node.nodeKey),
+      [`${indexOffset}:1`],
+    );
+    assert.deepEqual(
+      motionPlan.entries
+        .filter((entry) => entry.role === 'prefetch')
+        .map((entry) => entry.node.nodeKey),
+      [`${indexOffset}:2`],
+    );
+    assert.equal(motionPlan.signature, staticPlan.signature);
+    assert.equal(motionPlan.metadata.motionPrefetch.enabled, true);
+    assert.deepEqual(motionPlan.metadata.motionPrefetch.futureObserverPc, {
+      x: 75,
+      y: -75,
+      z: -75,
+    });
+    assert.equal(motionPlan.metadata.motionPrefetch.prefetchNodeCount, 1);
+    assert.equal(motionPlan.metadata.motionPrefetch.prefetchOverlapCount, 0);
+    assert.equal(noVelocityPlan.metadata.motionPrefetch.enabled, false);
+    assert.equal(
+      noVelocityPlan.entries.some((entry) => entry.role === 'prefetch'),
+      false,
+    );
+  } finally {
+    restoreFetch();
+  }
+});
+
 test('observer-shell motion hints prioritize same-level nodes without changing demand', async () => {
   const indexOffset = HEADER_SIZE + DESCRIPTOR_SIZE;
   const rootShard = createShardBytes({
@@ -387,6 +509,103 @@ test('observer-shell motion hints prioritize same-level nodes without changing d
       motionPlan.entries[0].metadata.motionPriorityBias >
         motionPlan.entries[1].metadata.motionPriorityBias,
     );
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('target-frustum motion lookahead adds future-only prefetch demand', async () => {
+  const indexOffset = HEADER_SIZE + DESCRIPTOR_SIZE;
+  const rootShard = createShardBytes({
+    parentGlobalDepth: 0,
+    entryNodes: [1, 2, 0, 0, 0, 0, 0, 0],
+    nodes: [
+      createShardNodeRecord({
+        flags: STAR_HAS_PAYLOAD,
+        localDepth: 1,
+        localPath: 0,
+        payloadOffset: 1000,
+        payloadLength: 10,
+      }),
+      createShardNodeRecord({
+        flags: STAR_HAS_PAYLOAD,
+        localDepth: 1,
+        localPath: 1,
+        payloadOffset: 1010,
+        payloadLength: 10,
+      }),
+    ],
+  });
+  const { indexSource, restoreFetch } = createIndexSourceForBytes(concatBytes([
+    createStarHeaderBytes({
+      indexOffset,
+      indexLength: rootShard.length,
+      worldHalfSize: 100,
+      magLimit: 6.5,
+      maxLevel: 99,
+    }),
+    createOdscDescriptorBytes(),
+    rootShard,
+  ]));
+  const baseContext = {
+    providerId: 'provider-a',
+    strategy: { kind: 'target-frustum' },
+    viewRevision: 1,
+    demandRevision: 0,
+    attributes: ['position'],
+    coordinates: { units: ['pc', 'pc', 'pc'] },
+    streaming: { coarseFirst: true },
+  };
+
+  try {
+    const staticPlan = await planTargetFrustumDemand({
+      indexSource,
+      context: {
+        ...baseContext,
+        view: {
+          revision: 1,
+          observerPc: { x: -75, y: -75, z: -75 },
+          limitingMagnitude: 6.5,
+          directionIcrs: { x: 1, y: 0, z: 0 },
+          verticalFovDeg: 120,
+          aspectRatio: 1,
+        },
+      },
+    });
+    const motionPlan = await planTargetFrustumDemand({
+      indexSource,
+      context: {
+        ...baseContext,
+        view: {
+          revision: 2,
+          observerPc: { x: -75, y: -75, z: -75 },
+          limitingMagnitude: 6.5,
+          directionIcrs: { x: 1, y: 0, z: 0 },
+          verticalFovDeg: 120,
+          aspectRatio: 1,
+          motion: {
+            velocityPcPerSec: { x: 150, y: 0, z: 0 },
+            lookaheadSecs: 1,
+          },
+        },
+      },
+    });
+
+    assert.deepEqual(
+      motionPlan.entries
+        .filter((entry) => (entry.role ?? 'current') === 'current')
+        .map((entry) => entry.node.nodeKey),
+      staticPlan.entries.map((entry) => entry.node.nodeKey),
+    );
+    assert.deepEqual(
+      motionPlan.entries
+        .filter((entry) => entry.role === 'prefetch')
+        .map((entry) => entry.node.nodeKey),
+      [`${indexOffset}:2`],
+    );
+    assert.equal(motionPlan.signature, staticPlan.signature);
+    assert.equal(motionPlan.metadata.motionPrefetch.enabled, true);
+    assert.equal(motionPlan.metadata.motionPrefetch.prefetchNodeCount, 1);
   } finally {
     restoreFetch();
   }

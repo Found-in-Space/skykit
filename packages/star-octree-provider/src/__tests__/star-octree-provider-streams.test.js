@@ -519,10 +519,15 @@ test('live sessions report current while prefetch work remains active', async ()
   const originalFetch = globalThis.fetch;
   const prefetchGate = deferred();
   const prefetchStarted = deferred();
+  let currentEmitted = false;
+  let prefetchStartedAfterCurrent = false;
   globalThis.fetch = createControlledMockFetch(fixture.fileBytes, [], {
     delayRange: {
       offset: fixture.runtimeNodes[1].payloadOffset,
-      started: prefetchStarted.resolve,
+      started() {
+        prefetchStartedAfterCurrent = currentEmitted;
+        prefetchStarted.resolve();
+      },
       release: prefetchGate.promise,
     },
   });
@@ -543,10 +548,15 @@ test('live sessions report current while prefetch work remains active', async ()
     );
     const session = provider.createSession({ id: 'session-a' });
     const iterator = session.deltas()[Symbol.asyncIterator]();
+    const unsubscribe = session.subscribe((delta) => {
+      if (delta.type === 'data/representation-current') {
+        currentEmitted = true;
+      }
+    });
 
     session.updateView({ observerPc: { x: 0, y: 0, z: 0 } });
-    await prefetchStarted.promise;
     const deltas = await readUntilCurrent(iterator);
+    await prefetchStarted.promise;
     const upserts = deltas.filter((delta) => delta.type === 'data/product-upsert');
     const sessionSnapshot = session.getSnapshot();
     const providerSession = provider.getSnapshot().sessions.find(
@@ -554,6 +564,7 @@ test('live sessions report current while prefetch work remains active', async ()
     );
 
     assert.equal(deltas.at(-1).type, 'data/representation-current');
+    assert.equal(prefetchStartedAfterCurrent, true);
     assert.equal(upserts.length, 1);
     assert.deepEqual(
       upserts[0].product.nodes.map((node) => node.nodeKey),
@@ -575,6 +586,7 @@ test('live sessions report current while prefetch work remains active', async ()
     prefetchGate.resolve();
     await waitFor(() => session.getSnapshot().demand.activeWorkItemCount === 0);
     await waitFor(() => provider.getSnapshot().cache.decodedPayloads >= 2);
+    unsubscribe();
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -621,6 +633,70 @@ test('live sessions keep current representation when prefetch fails', async () =
     );
     assert.equal(session.getSnapshot().demand.status, 'current');
     assert.equal(session.getSnapshot().demand.activeWorkItemCount, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('stale live session demand does not start superseded prefetch', async () => {
+  const fixture = createObjectStreamFixture();
+  const originalFetch = globalThis.fetch;
+  let stalePrefetchStarted = false;
+  const resolvers = [];
+  globalThis.fetch = createControlledMockFetch(fixture.fileBytes, [], {
+    delayRange: {
+      offset: fixture.runtimeNodes[1].payloadOffset,
+      started() {
+        stalePrefetchStarted = true;
+      },
+      release: Promise.resolve(),
+    },
+  });
+
+  try {
+    const provider = createStarOctreeProviderServiceForTest(
+      { id: 'provider-a', url: 'memory://stars.octree' },
+      {
+        useRealPipeline: true,
+        planDemand(context) {
+          return new Promise((resolve) => {
+            resolvers.push({ context, resolve });
+          });
+        },
+      },
+    );
+    const session = provider.createSession({ id: 'session-a' });
+    const iterator = session.deltas()[Symbol.asyncIterator]();
+
+    session.updateView({ observerPc: { x: 0, y: 0, z: 0 } });
+    session.updateView({ observerPc: { x: 1, y: 0, z: 0 } });
+    await waitFor(() => resolvers.length === 2);
+
+    resolvers[0].resolve({
+      entries: [
+        { node: fixture.runtimeNodes[0], role: 'current', priority: 10 },
+        { node: fixture.runtimeNodes[1], role: 'prefetch', priority: 1 },
+      ],
+      signature: 'stale-current-only',
+    });
+    await tick();
+    assert.equal(stalePrefetchStarted, false);
+
+    resolvers[1].resolve({
+      entries: [
+        { node: fixture.runtimeNodes[0], role: 'current', priority: 10 },
+      ],
+      signature: 'fresh-current-only',
+    });
+    const deltas = await readUntilCurrent(iterator);
+
+    assert.equal(stalePrefetchStarted, false);
+    assert.deepEqual(
+      deltas
+        .filter((delta) => delta.type === 'data/product-upsert')
+        .flatMap((delta) => delta.product.nodes.map((node) => node.nodeKey)),
+      [fixture.payloadNodeKeys[0]],
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -863,6 +939,10 @@ async function waitFor(predicate) {
     }
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
+}
+
+function tick() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function createPayloadBytes(records) {

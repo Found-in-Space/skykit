@@ -4,6 +4,7 @@ import {
   createStarOctreeError,
 } from './star-octree-errors.js';
 import { loadRadiusForMagnitudeShell } from './star-octree-observer-shell.js';
+import { resolveMotionLookahead } from './star-octree-motion.js';
 import {
   distanceToNodeAabbPc,
   traverseOctree,
@@ -43,24 +44,121 @@ export async function planTargetFrustumDemand(options) {
   const targetDistancePc = 'targetDistancePc' in view
     ? view.targetDistancePc
     : undefined;
-  const frustum = createFrustumTester(view);
   const indexMagnitude = bootstrap.header.magLimit;
+  const currentResult = await collectTargetFrustumEntries({
+    indexSource: options.indexSource,
+    bootstrap,
+    view,
+    indexMagnitude,
+    role: 'current',
+  });
+  const currentNodeKeys = new Set(
+    currentResult.entries.map((entry) => entry.node.nodeKey),
+  );
+  const motionLookahead = resolveMotionLookahead(
+    options.context.view.motion,
+    view.observerPc,
+  );
+  const futureView = motionLookahead.enabled && motionLookahead.futureObserverPc
+    ? normalizeTargetFrustumView(
+        {
+          ...options.context.view,
+          observerPc: motionLookahead.futureObserverPc,
+        },
+        options.context.strategy,
+      )
+    : null;
+  const futureResult = futureView
+    ? await collectTargetFrustumEntries({
+        indexSource: options.indexSource,
+        bootstrap,
+        view: futureView,
+        indexMagnitude,
+        role: 'prefetch',
+      })
+    : null;
+  let prefetchOverlapCount = 0;
+  const prefetchEntries = [];
+
+  for (const entry of futureResult?.entries ?? []) {
+    if (currentNodeKeys.has(entry.node.nodeKey)) {
+      prefetchOverlapCount += 1;
+      continue;
+    }
+
+    prefetchEntries.push(entry);
+  }
+
+  const entries = [...currentResult.entries, ...prefetchEntries];
+
+  entries.sort((left, right) =>
+    compareTargetFrustumEntries(left, right, {
+      coarseFirst: options.context.streaming?.coarseFirst !== false,
+    }),
+  );
+
+  return {
+    entries,
+    signature: createCurrentNodeSetSignature(entries),
+    reasons: ['target-frustum'],
+    metadata: {
+      strategy: 'target-frustum',
+      observerPc: view.observerPc,
+      limitingMagnitude: view.limitingMagnitude,
+      indexMagnitude,
+      frustumMode: view.frustumMode,
+      ...(view.targetPc ? { targetPc: view.targetPc } : {}),
+      ...(targetDistancePc !== undefined
+        ? { targetDistancePc }
+        : {}),
+      inspectedNodeCount: currentResult.traversal.stats.inspectedNodeCount,
+      selectedNodeCount: currentResult.traversal.stats.selectedNodeCount,
+      payloadNodeCount: currentResult.traversal.stats.payloadNodeCount,
+      prunedNodeCount: currentResult.traversal.stats.prunedNodeCount,
+      shellPrunedNodeCount: currentResult.shellPrunedNodeCount,
+      frustumPrunedNodeCount: currentResult.frustumPrunedNodeCount,
+      motionPrefetch: {
+        enabled: motionLookahead.enabled,
+        lookaheadSecs: motionLookahead.lookaheadSecs,
+        lookaheadDistancePc: motionLookahead.lookaheadDistancePc,
+        futureObserverPc: motionLookahead.futureObserverPc,
+        prefetchNodeCount: prefetchEntries.length,
+        prefetchOverlapCount,
+      },
+      prefetchNodeCount: prefetchEntries.length,
+      prefetchOverlapCount,
+      frontierShardCount: currentResult.traversal.stats.frontierShardCount,
+      maxLevelInspected: currentResult.traversal.stats.maxLevelInspected,
+    },
+  };
+}
+
+/**
+ * @param {{
+ *   indexSource: StarOctreeIndexSource;
+ *   bootstrap: import('./index.d.ts').StarOctreeBootstrapProduct;
+ *   view: ReturnType<typeof normalizeTargetFrustumView>;
+ *   indexMagnitude: number;
+ *   role: 'current' | 'prefetch';
+ * }} options
+ */
+async function collectTargetFrustumEntries(options) {
+  const frustum = createFrustumTester(options.view);
   /** @type {StarOctreeDemandEntry[]} */
   const entries = [];
   let shellPrunedNodeCount = 0;
   let frustumPrunedNodeCount = 0;
-  let prefetchNodeCount = 0;
 
   const traversal = await traverseOctree({
     indexSource: options.indexSource,
-    bootstrap,
-    distanceToNode: (node) => distanceToNodeAabbPc(view.observerPc, node),
+    bootstrap: options.bootstrap,
+    distanceToNode: (node) => distanceToNodeAabbPc(options.view.observerPc, node),
     visitor(node) {
-      const distancePc = distanceToNodeAabbPc(view.observerPc, node);
+      const distancePc = distanceToNodeAabbPc(options.view.observerPc, node);
       const loadRadiusPc = loadRadiusForMagnitudeShell(
         node.halfSize,
-        view.limitingMagnitude,
-        indexMagnitude,
+        options.view.limitingMagnitude,
+        options.indexMagnitude,
       );
       const shellRelevant = distancePc <= loadRadiusPc;
 
@@ -86,7 +184,7 @@ export async function planTargetFrustumDemand(options) {
       if ((node.flags & STAR_HAS_PAYLOAD) && node.payloadLength > 0) {
         const relativeCenter = subtractVectors(
           { x: node.centerX, y: node.centerY, z: node.centerZ },
-          view.observerPc,
+          options.view.observerPc,
         );
         const forwardDistancePc = dotVector(
           frustum.basis.forward,
@@ -95,15 +193,25 @@ export async function planTargetFrustumDemand(options) {
         entries.push({
           node,
           priority: -distancePc,
-          role: 'current',
-          reasons: ['target-frustum'],
+          role: options.role,
+          reasons: [
+            options.role === 'current'
+              ? 'target-frustum'
+              : 'motion-lookahead',
+          ],
           metadata: {
             distancePc,
             forwardDistancePc,
             loadRadiusPc,
-            limitingMagnitude: view.limitingMagnitude,
-            indexMagnitude,
-            frustumMode: view.frustumMode,
+            limitingMagnitude: options.view.limitingMagnitude,
+            indexMagnitude: options.indexMagnitude,
+            frustumMode: options.view.frustumMode,
+            ...(options.role === 'prefetch'
+              ? {
+                  prefetchKind: 'motion-lookahead',
+                  futureObserverPc: options.view.observerPc,
+                }
+              : {}),
           },
         });
       }
@@ -116,38 +224,11 @@ export async function planTargetFrustumDemand(options) {
     },
   });
 
-  entries.sort((left, right) =>
-    compareTargetFrustumEntries(left, right, {
-      coarseFirst: options.context.streaming?.coarseFirst !== false,
-    }),
-  );
-
   return {
     entries,
-    signature: entries
-      .map((entry) => `${entry.node.nodeKey}:${entry.role ?? 'current'}`)
-      .join('|'),
-    reasons: ['target-frustum'],
-    metadata: {
-      strategy: 'target-frustum',
-      observerPc: view.observerPc,
-      limitingMagnitude: view.limitingMagnitude,
-      indexMagnitude,
-      frustumMode: view.frustumMode,
-      ...(view.targetPc ? { targetPc: view.targetPc } : {}),
-      ...(targetDistancePc !== undefined
-        ? { targetDistancePc }
-        : {}),
-      inspectedNodeCount: traversal.stats.inspectedNodeCount,
-      selectedNodeCount: traversal.stats.selectedNodeCount,
-      payloadNodeCount: traversal.stats.payloadNodeCount,
-      prunedNodeCount: traversal.stats.prunedNodeCount,
-      shellPrunedNodeCount,
-      frustumPrunedNodeCount,
-      prefetchNodeCount,
-      frontierShardCount: traversal.stats.frontierShardCount,
-      maxLevelInspected: traversal.stats.maxLevelInspected,
-    },
+    traversal,
+    shellPrunedNodeCount,
+    frustumPrunedNodeCount,
   };
 }
 
@@ -610,6 +691,17 @@ function compareTargetFrustumEntries(left, right, options) {
   const priorityDelta = (right.priority ?? 0) - (left.priority ?? 0);
   if (priorityDelta !== 0) return priorityDelta;
   return left.node.nodeKey.localeCompare(right.node.nodeKey);
+}
+
+/**
+ * @param {StarOctreeDemandEntry[]} entries
+ */
+function createCurrentNodeSetSignature(entries) {
+  return entries
+    .filter((entry) => (entry.role ?? 'current') === 'current')
+    .map((entry) => entry.node.nodeKey)
+    .sort()
+    .join('|');
 }
 
 /**

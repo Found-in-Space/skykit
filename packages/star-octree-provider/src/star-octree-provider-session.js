@@ -288,6 +288,10 @@ export function createStarOctreeProviderSession(createOptions) {
         return;
       }
       emitRepresentationCurrent(applyOptions.viewRevision);
+      if (disposed || applyOptions.token !== latestPlanToken) {
+        return;
+      }
+      startPrefetch(prefetchEntries, applyOptions.token);
       return;
     }
 
@@ -343,24 +347,6 @@ export function createStarOctreeProviderSession(createOptions) {
     const entriesToLoad = currentEntries.filter(
       (entry) => !productIdByNodeKey.has(entry.node.nodeKey),
     );
-
-    if (prefetchEntries.length > 0 && createOptions.source.warmEntries) {
-      const prefetch = createOptions.source.warmEntries(prefetchEntries, {
-        sessionId,
-        emitCachedFirst: options.streaming.emitCachedFirst,
-      });
-      activePrefetches.add(prefetch);
-      prefetch.then(
-        () => {
-          activePrefetches.delete(prefetch);
-        },
-        () => {
-          // Prefetch is cache-warming work; failures are reported via work
-          // snapshots but do not make the visible representation stale.
-          activePrefetches.delete(prefetch);
-        },
-      );
-    }
 
     if (createOptions.source.streamObjectProducts) {
       status = entriesToLoad.length > 0 ? 'loading' : 'current';
@@ -430,6 +416,41 @@ export function createStarOctreeProviderSession(createOptions) {
 
     status = 'current';
     emitRepresentationCurrent(applyOptions.viewRevision);
+    if (disposed || applyOptions.token !== latestPlanToken) {
+      return;
+    }
+    startPrefetch(prefetchEntries, applyOptions.token);
+  }
+
+  /**
+   * @param {StarOctreeDemandEntry[]} prefetchEntries
+   * @param {number} token
+   */
+  function startPrefetch(prefetchEntries, token) {
+    if (
+      prefetchEntries.length === 0 ||
+      !createOptions.source.warmEntries ||
+      disposed ||
+      token !== latestPlanToken
+    ) {
+      return;
+    }
+
+    const prefetch = createOptions.source.warmEntries(prefetchEntries, {
+      sessionId,
+      emitCachedFirst: options.streaming.emitCachedFirst,
+    });
+    activePrefetches.add(prefetch);
+    prefetch.then(
+      () => {
+        activePrefetches.delete(prefetch);
+      },
+      () => {
+        // Prefetch is cache-warming work; failures are reported via work
+        // snapshots but do not make the visible representation stale.
+        activePrefetches.delete(prefetch);
+      },
+    );
   }
 
   /**
@@ -782,6 +803,7 @@ function optionalMetadataNumber(entry, key) {
  */
 function createDemandSignature(entries) {
   return entries
+    .filter((entry) => (entry.role ?? 'current') === 'current')
     .map((entry) => `${entry.node.nodeKey}:${entry.role ?? 'current'}`)
     .join('|');
 }

@@ -159,6 +159,16 @@ test('observer-shell demand thresholds gate tiny observer and magnitude changes'
   await readUntilCurrent(iterator);
   assert.equal(planCalls, 3);
 
+  const motionOnly = session.updateView({
+    motion: {
+      velocityPcPerSec: { x: 100, y: 0, z: 0 },
+      lookaheadSecs: 1,
+    },
+  });
+  assert.equal(motionOnly.demand, 'unchanged');
+  await tick();
+  assert.equal(planCalls, 3);
+
   const forced = session.updateView(
     {
       observerPc: { x: 11.1, y: 0, z: 0 },
