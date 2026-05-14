@@ -66,6 +66,11 @@ Recommended package direction:
   2D projected canvas starmap adapter for spatial star products, learning,
   and lightweight apps
 
+@found-in-space/anchored-image
+  renderer-neutral anchored image manifests, affine solving, mesh generation,
+  and Canvas2D/Three.js image-warp adapters for skyculture art, survey plates,
+  nebula overlays, and future spatial image meshes
+
 @found-in-space/hr-diagram
   reusable HR diagram data model, renderer, and optional touch-os panel controls
 
@@ -114,6 +119,11 @@ product-stream
 touch-os
   <- hr-diagram
 
+anchored-image
+  <- skyculture / survey / image asset packages
+  <- star-map-canvas examples and 2D overlays
+  <- skykit viewer-layer wrappers
+
 journey
   imports domain packages only through explicit adapters
 
@@ -129,6 +139,12 @@ The same rule applies to interaction and renderer support code. If a module is
 not specific to stars, galaxies, solar-system bodies, H-alpha, dust, or another
 space-data product, it should usually become its own Found in Space package
 rather than being folded into core `skykit`.
+
+`@found-in-space/anchored-image` follows that rule for image warping. It is not
+a star product and it does not contain skyculture assets. It provides the
+generic representation and renderer-adjacent adapters for images anchored to
+ICRS directions or parsec-space positions, while cultural image packages retain
+their own assets, names, attribution, and licenses.
 
 ---
 

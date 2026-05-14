@@ -235,6 +235,12 @@ Current constellation-art packaging assumptions:
 - image assets may be served from local files, installed package assets, CDN URLs such as `unpkg`, or inline data URLs
 - the runtime should stay agnostic about which specific sky-culture or art family is being used
 
+Reusable anchored-image math should live outside the viewer runtime. The
+`@found-in-space/anchored-image` package owns generic manifests, affine solving,
+mesh generation, and Canvas2D/Three.js adapters. `ConstellationArtLayer` should
+remain the SkyKit lifecycle wrapper when that package is adopted by core
+SkyKit.
+
 ### Controller
 
 `Controller` is a pluggable source of navigation or interaction state.
