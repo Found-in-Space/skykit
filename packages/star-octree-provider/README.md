@@ -12,6 +12,9 @@ Do not add viewer, renderer, UI, sidecar, kinematics, or ephemeris behavior to
 this package. Those belong in separate `@found-in-space/*` packages that compose
 with emitted star products.
 
+See [`../../docs/star-octree-provider.md`](../../docs/star-octree-provider.md)
+for the package contract, API semantics, and current implementation status.
+
 ## Examples
 
 - `examples/minimal-stream/` is a small browser scratchpad that creates a
