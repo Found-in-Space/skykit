@@ -98,6 +98,262 @@ test('unchanged demand emits no duplicate upserts', async () => {
   assert.equal(session.getSnapshot().demand.revision, 1);
 });
 
+test('observer-shell demand thresholds gate tiny observer and magnitude changes', async () => {
+  const nodeA = createNode('node-a');
+  let planCalls = 0;
+  const provider = createStarOctreeProviderServiceForTest(
+    { id: 'provider-gate-observer', url: '/data/stars.octree' },
+    {
+      planDemand() {
+        planCalls += 1;
+        return createPlan([nodeA]);
+      },
+    },
+  );
+  const session = provider.createSession({
+    id: 'session-gate-observer',
+    demandThresholds: {
+      observerMoveThresholdPc: 10,
+      limitingMagnitudeDelta: 0.5,
+    },
+  });
+  const iterator = session.deltas()[Symbol.asyncIterator]();
+  const emitted = [];
+  const unsubscribe = session.subscribe((delta) => emitted.push(delta));
+
+  const initial = session.updateView({
+    observerPc: { x: 0, y: 0, z: 0 },
+    limitingMagnitude: 6.5,
+  });
+  assert.equal(initial.demand, 'queued');
+  await readUntilCurrent(iterator);
+  assert.equal(planCalls, 1);
+  assert.equal(session.getSnapshot().demand.revision, 1);
+  emitted.length = 0;
+
+  const tinyMove = session.updateView({
+    observerPc: { x: 5, y: 0, z: 0 },
+    limitingMagnitude: 6.7,
+  });
+  assert.equal(tinyMove.demand, 'unchanged');
+  assert.equal(tinyMove.viewRevision, 2);
+  assert.equal(tinyMove.demandRevision, 1);
+  await tick();
+  assert.equal(planCalls, 1);
+  assert.equal(emitted.length, 0);
+  assert.equal(session.getSnapshot().view.observerPc.x, 5);
+
+  const cumulativeMove = session.updateView({
+    observerPc: { x: 11, y: 0, z: 0 },
+  });
+  assert.equal(cumulativeMove.demand, 'queued');
+  assert.deepEqual(cumulativeMove.reasons, ['observer-move-threshold']);
+  await readUntilCurrent(iterator);
+  assert.equal(planCalls, 2);
+
+  const magnitudeChange = session.updateView({
+    limitingMagnitude: 7.3,
+  });
+  assert.equal(magnitudeChange.demand, 'queued');
+  assert.deepEqual(magnitudeChange.reasons, ['limiting-magnitude']);
+  await readUntilCurrent(iterator);
+  assert.equal(planCalls, 3);
+
+  const forced = session.updateView(
+    {
+      observerPc: { x: 11.1, y: 0, z: 0 },
+    },
+    { demand: 'force', reason: 'manual' },
+  );
+  assert.equal(forced.demand, 'forced');
+  assert.deepEqual(forced.reasons, ['manual']);
+  await readUntilCurrent(iterator);
+  assert.equal(planCalls, 4);
+
+  const suppressed = session.updateView(
+    {
+      observerPc: { x: 200, y: 0, z: 0 },
+    },
+    { demand: 'suppress' },
+  );
+  assert.equal(suppressed.demand, 'suppressed');
+  await tick();
+  assert.equal(planCalls, 4);
+
+  unsubscribe();
+});
+
+test('target-frustum demand thresholds gate direction and orientation changes', async () => {
+  let planCalls = 0;
+  const provider = createStarOctreeProviderServiceForTest(
+    { id: 'provider-gate-frustum', url: '/data/stars.octree' },
+    {
+      planDemand() {
+        planCalls += 1;
+        return createPlan([]);
+      },
+    },
+  );
+  const session = provider.createSession({
+    id: 'session-gate-frustum',
+    strategy: { kind: 'target-frustum' },
+    demandThresholds: {
+      observerMoveThresholdPc: 10,
+      limitingMagnitudeDelta: 0.5,
+      directionAngleDeg: 5,
+    },
+  });
+
+  const initial = session.updateView({
+    observerPc: { x: 0, y: 0, z: 0 },
+    limitingMagnitude: 6.5,
+    directionIcrs: { x: 0, y: 0, z: -1 },
+    verticalFovDeg: 40,
+    aspectRatio: 1,
+  });
+  assert.equal(initial.demand, 'queued');
+  await tick();
+  assert.equal(planCalls, 1);
+
+  const tinyDirection = session.updateView({
+    directionIcrs: { x: 0.01, y: 0, z: -1 },
+  });
+  assert.equal(tinyDirection.demand, 'unchanged');
+  await tick();
+  assert.equal(planCalls, 1);
+
+  const largeDirection = session.updateView({
+    directionIcrs: { x: 0.2, y: 0, z: -1 },
+  });
+  assert.equal(largeDirection.demand, 'queued');
+  assert.deepEqual(largeDirection.reasons, ['view-volume']);
+  await tick();
+  assert.equal(planCalls, 2);
+
+  const fovChange = session.updateView({ verticalFovDeg: 45 });
+  assert.equal(fovChange.demand, 'queued');
+  await tick();
+  assert.equal(planCalls, 3);
+
+  const targetChange = session.updateView({
+    targetPc: { x: 10, y: 0, z: -100 },
+  });
+  assert.equal(targetChange.demand, 'queued');
+  await tick();
+  assert.equal(planCalls, 4);
+
+  const orientationSession = provider.createSession({
+    id: 'session-gate-orientation',
+    strategy: { kind: 'target-frustum' },
+    demandThresholds: {
+      directionAngleDeg: 5,
+    },
+  });
+
+  orientationSession.updateView({
+    orientationIcrs: yawQuaternion(0),
+    verticalFovDeg: 40,
+    aspectRatio: 1,
+  });
+  await tick();
+  assert.equal(planCalls, 5);
+
+  const tinyOrientation = orientationSession.updateView({
+    orientationIcrs: yawQuaternion(1),
+  });
+  assert.equal(tinyOrientation.demand, 'unchanged');
+  await tick();
+  assert.equal(planCalls, 5);
+
+  const largeOrientation = orientationSession.updateView({
+    orientationIcrs: yawQuaternion(10),
+  });
+  assert.equal(largeOrientation.demand, 'queued');
+  await tick();
+  assert.equal(planCalls, 6);
+});
+
+test('custom strategies may own demand gating policy', async () => {
+  const nodeA = createNode('node-a');
+  let planCalls = 0;
+  let shouldReplan = true;
+  const gateContexts = [];
+  const provider = createStarOctreeProviderServiceForTest(
+    { id: 'provider-gate-custom', url: '/data/stars.octree' },
+    {
+      planDemand() {
+        planCalls += 1;
+        return createPlan([nodeA]);
+      },
+    },
+  );
+  const session = provider.createSession({
+    id: 'session-gate-custom',
+    strategy: {
+      kind: 'custom',
+      selectDemand: () => createPlan([nodeA]),
+      shouldReplan(context) {
+        gateContexts.push(context);
+        return shouldReplan
+          ? { replan: true, reasons: ['custom-go'] }
+          : { replan: false, reasons: ['custom-stay'] };
+      },
+    },
+    demandThresholds: {
+      observerMoveThresholdPc: 10,
+    },
+  });
+
+  const initial = session.updateView({
+    observerPc: { x: 0, y: 0, z: 0 },
+  });
+  assert.equal(initial.demand, 'queued');
+  assert.deepEqual(initial.reasons, ['custom-go']);
+  await tick();
+  assert.equal(planCalls, 1);
+  assert.equal(gateContexts[0].previousDemandView, null);
+
+  shouldReplan = false;
+  const unchanged = session.updateView({
+    observerPc: { x: 1000, y: 0, z: 0 },
+  });
+  assert.equal(unchanged.demand, 'unchanged');
+  assert.deepEqual(unchanged.reasons, ['custom-stay']);
+  await tick();
+  assert.equal(planCalls, 1);
+  assert.equal(gateContexts[1].previousDemandView.revision, 1);
+  assert.equal(gateContexts[1].nextView.revision, 2);
+  assert.equal(gateContexts[1].thresholds.observerMoveThresholdPc, 10);
+  assert.equal(session.getSnapshot().view.observerPc.x, 1000);
+});
+
+test('custom strategies without shouldReplan keep always-plan behavior', async () => {
+  let planCalls = 0;
+  const provider = createStarOctreeProviderServiceForTest(
+    { id: 'provider-gate-custom-default', url: '/data/stars.octree' },
+    {
+      planDemand() {
+        planCalls += 1;
+        return createPlan([]);
+      },
+    },
+  );
+  const session = provider.createSession({
+    id: 'session-gate-custom-default',
+    strategy: {
+      kind: 'custom',
+      selectDemand: () => createPlan([]),
+    },
+    demandThresholds: {
+      observerMoveThresholdPc: 10,
+    },
+  });
+
+  assert.equal(session.updateView({ observerPc: { x: 0, y: 0, z: 0 } }).demand, 'queued');
+  assert.equal(session.updateView({ observerPc: { x: 1, y: 0, z: 0 } }).demand, 'queued');
+  await waitFor(() => planCalls === 2);
+});
+
 test('session demand ordering defaults coarse-first and can be disabled', async () => {
   const coarseNode = createNode('coarse-node', {
     level: 1,
@@ -356,6 +612,16 @@ function createNode(nodeKey, overrides = {}) {
     shardOffset: 0,
     nodeIndex: 0,
     ...overrides,
+  };
+}
+
+function yawQuaternion(degrees) {
+  const radians = degrees * Math.PI / 180;
+  return {
+    x: 0,
+    y: Math.sin(radians / 2),
+    z: 0,
+    w: Math.cos(radians / 2),
   };
 }
 

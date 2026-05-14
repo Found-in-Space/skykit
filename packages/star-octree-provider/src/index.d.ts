@@ -18,6 +18,12 @@ export interface StarOctreeFileProviderServiceOptions {
   limits?: StarOctreeProviderServiceOptions['limits'];
 }
 
+export interface StarOctreeDemandThresholds {
+  observerMoveThresholdPc?: number;
+  limitingMagnitudeDelta?: number;
+  directionAngleDeg?: number;
+}
+
 export type StarOctreeFetchStrategy =
   | {
       kind: 'observer-shell';
@@ -35,6 +41,9 @@ export type StarOctreeFetchStrategy =
       selectDemand: (
         context: StarOctreeSelectionContext
       ) => Promise<StarOctreeDemandPlan> | StarOctreeDemandPlan;
+      shouldReplan?: (
+        context: StarOctreeDemandGateContext
+      ) => StarOctreeDemandGateResult;
     };
 
 export interface StarOctreeDemandEntry {
@@ -109,6 +118,7 @@ export interface StarOctreeSelectionContext {
 export interface StarOctreeSessionOptions {
   id?: string;
   strategy?: StarOctreeFetchStrategy;
+  demandThresholds?: StarOctreeDemandThresholds;
   attributes?: Array<
     | 'position'
     | 'teffLog8'
@@ -165,6 +175,21 @@ export interface StarOctreeViewState extends StarOctreeViewPatch {
   revision: number;
 }
 
+export interface StarOctreeDemandGateContext {
+  strategy: StarOctreeFetchStrategy;
+  thresholds?: StarOctreeDemandThresholds;
+  previousDemandView: StarOctreeViewState | null;
+  nextView: StarOctreeViewState;
+  reason?: string;
+}
+
+export type StarOctreeDemandGateResult =
+  | boolean
+  | {
+      replan: boolean;
+      reasons?: string[];
+    };
+
 export interface ViewUpdateOptions {
   demand?: 'auto' | 'force' | 'suppress';
   reason?: string;
@@ -174,7 +199,7 @@ export interface StarOctreeViewReceipt {
   sessionId: string;
   viewRevision: number;
   demandRevision: number;
-  demand: 'queued' | 'forced' | 'suppressed';
+  demand: 'queued' | 'forced' | 'suppressed' | 'unchanged';
   reasons: string[];
 }
 

@@ -158,7 +158,7 @@ through the provider/session APIs, not through diagnostic side paths.
 | observer-shell strategy | POC-parity implemented | Public strategy shape is pure `{ kind: 'observer-shell' }` and uses provider-native parsec view coordinates plus header `magLimit` shell pruning. `view.motion` may add priority metadata/order, but it does not exclude otherwise visible nodes. |
 | target-frustum strategy | POC-parity implemented | Supports exact `orientationIcrs` demand and target/direction-derived demand. Applies shell pruning then frustum/AABB pruning without importing Three.js. |
 | Demand reconciler | Second pass implemented | Product membership indexes support grouped live products, stale/remove, and replacement products for partial retention. |
-| Work scheduler | Second pass partial | Latest-view stale-work gating, duplicate demand-signature suppression, role-aware prefetch warming, progressive payload work, and work snapshots are implemented. Pre-planning demand-threshold gating and fully interleaved traversal/fetch reprioritization remain later work. |
+| Work scheduler | Second pass partial | Latest-view stale-work gating, strategy-aware demand-threshold gating, duplicate demand-signature suppression, role-aware prefetch warming, progressive payload work, and work snapshots are implemented. Fully interleaved traversal/fetch reprioritization remains later work. |
 | Payload fetcher/cache | POC-parity implemented | Payload range batching, decompression, in-memory decompressed payload cache, cache-first/deferred-cache emission, and range span/gap stats. |
 | Payload decoder | First pass implemented | 16-byte star records into parsec `position`, `magAbs`, `teffLog8`, and object refs. |
 | Product builder | First pass implemented | Non-cumulative object batches and decode-time coordinate transforms. |
@@ -176,7 +176,7 @@ Strategy input coordinates should be explicit provider-native view coordinates. 
 
 A demand plan should be richer than a flat node list when the strategy needs it. It may carry priority, relevance, retention intent, reason codes, and strategy metadata per node. The reconciler and scheduler consume that plan generically; they should not need to know how the strategy calculated it.
 
-There is no universal `observerDistancePc`. Future demand-threshold options should use explicit names such as `observerMoveThresholdPc`, `limitingMagnitudeDelta`, and `directionAngleDeg`, and they should decide when a session replans. They must not change what `observer-shell` means.
+There is no universal `observerDistancePc`. Demand-threshold options use explicit names such as `observerMoveThresholdPc`, `limitingMagnitudeDelta`, and `directionAngleDeg`, and they decide when a session replans. They must not change what `observer-shell` means.
 
 ### 4.0.2 Known gaps and next-sprint corrections
 
@@ -188,27 +188,35 @@ Implemented today:
 - `observer-shell` is public API pure: `{ kind: 'observer-shell' }`.
 - `header.maxLevel` and runtime `node.level` are source/runtime metadata, not public detail controls.
 - Live sessions accept every `updateView()` synchronously and suppress stale async results from older view revisions.
+- Demand-threshold gating is opt-in and strategy-aware. Under-threshold updates still advance `viewRevision`, but they return `demand: 'unchanged'` and do not schedule full traversal/planning.
 - Demand revisions increment only after planned node demand actually changes.
 - Bounded and live streams emit `data/representation-current` when current-role work for the latest accepted demand revision is caught up.
 - Motion hints can influence product ordering/priority metadata, but they do not truncate observer-shell demand.
 
 Known gaps:
 
-- **Demand-threshold gating.** Current alpha schedules full demand planning for every non-suppressed `updateView()` and only avoids downstream work after the demand signature is known. Next sprint should add pre-planning thresholds so tiny provider-relevant changes can be accepted without running full traversal.
 - **Budget/debug truncation metadata.** Explicit caps such as `budget.maxTraversalLevel`, `budget.maxPayloadNodes`, `budget.maxBytes`, or `debug.maxTraversalLevel` are not part of the current public API. If added, products, demand metadata, and `data/representation-current` completeness must say the representation is current only within a degraded/truncated budget.
 - **Motion prefetch policy.** Motion priority exists for current work ordering. Future motion prefetch should additionally warm likely-future caches through prefetch roles without changing current observer-shell demand.
 - **Fully interleaved scheduling.** Current streaming is progressive after demand planning. Fully interleaved traversal/fetch/decode reprioritization remains a later maturity pass.
+
+Implemented demand-threshold option shape:
+
+```ts
+export interface StarOctreeDemandThresholds {
+  observerMoveThresholdPc?: number;
+  limitingMagnitudeDelta?: number;
+  directionAngleDeg?: number;
+}
+
+interface StarOctreeSessionOptions {
+  demandThresholds?: StarOctreeDemandThresholds;
+}
+```
 
 Planned option shape, not implemented yet:
 
 ```ts
 interface StarOctreeSessionOptions {
-  demandThresholds?: {
-    observerMoveThresholdPc?: number;
-    limitingMagnitudeDelta?: number;
-    directionAngleDeg?: number;
-  };
-
   streaming?: {
     progressive?: boolean;
     emitCachedFirst?: boolean;
@@ -482,6 +490,12 @@ Values should be derived from the package's own internal source/cache/scheduler 
 ## 8. Session options
 
 ```ts
+export interface StarOctreeDemandThresholds {
+  observerMoveThresholdPc?: number;
+  limitingMagnitudeDelta?: number;
+  directionAngleDeg?: number;
+}
+
 export type StarOctreeFetchStrategy =
   | {
       kind: 'observer-shell';
@@ -503,6 +517,24 @@ export type StarOctreeFetchStrategy =
       selectDemand: (
         context: StarOctreeSelectionContext
       ) => Promise<StarOctreeDemandPlan> | StarOctreeDemandPlan;
+      shouldReplan?: (
+        context: StarOctreeDemandGateContext
+      ) => StarOctreeDemandGateResult;
+    };
+
+export interface StarOctreeDemandGateContext {
+  strategy: StarOctreeFetchStrategy;
+  thresholds?: StarOctreeDemandThresholds;
+  previousDemandView: StarOctreeViewState | null;
+  nextView: StarOctreeViewState;
+  reason?: string;
+}
+
+export type StarOctreeDemandGateResult =
+  | boolean
+  | {
+      replan: boolean;
+      reasons?: string[];
     };
 
 export interface StarOctreeDemandEntry {
@@ -586,6 +618,8 @@ export interface StarOctreeSessionOptions {
 
   strategy?: StarOctreeFetchStrategy;
 
+  demandThresholds?: StarOctreeDemandThresholds;
+
   attributes?: Array<
     | 'position'
     | 'teffLog8'
@@ -633,7 +667,9 @@ target-frustum:
 custom:
   may implement its own demand predicate with the provider traversal helper,
   but should still treat runtime node level as source metadata unless the custom
-  strategy is explicitly dataset-specific
+  strategy is explicitly dataset-specific. Custom strategies may also provide
+  `shouldReplan()` when they need strategy-specific demand-threshold policy;
+  otherwise they replan on every non-suppressed update.
 ```
 
 Normative magnitude-shell predicate:
@@ -651,6 +687,13 @@ Current alpha behavior: `view.motion` can add ordering metadata such as
 descent into magnitude-shell-relevant nodes. If an explicit future budget/debug
 cap truncates traversal, that cap must be visible through degraded completeness
 and truncation metadata.
+
+Demand-threshold gating is opt-in. If `demandThresholds` is omitted, built-in
+strategies preserve the always-plan behavior. If thresholds are present, missing
+or invalid threshold fields are treated as unset, which means any change to that
+provider-relevant field queues planning; `0` means any non-zero change is
+meaningful. Thresholds decide whether to run a new plan. They do not cancel
+active work and they do not change strategy eligibility.
 
 Default sprint-1 options:
 
@@ -745,7 +788,8 @@ updateView()
   - normalizes and stores provider-relevant view state
   - increments viewRevision
   - returns a receipt immediately after accepting the new state
-  - schedules or reprioritizes demand planning for the latest view
+  - schedules demand planning for the latest view unless suppressed or gated as
+    unchanged
   - uses provider-owned octree traversal to produce runtime nodes during planning
   - increments demandRevision only when planned node demand changes
   - streams product deltas for the current demand revision
@@ -765,26 +809,26 @@ export interface StarOctreeViewReceipt {
   viewRevision: number;
   demandRevision: number;
 
-  demand: 'queued' | 'forced' | 'suppressed';
+  demand: 'queued' | 'forced' | 'suppressed' | 'unchanged';
 
-  reasons: Array<
-    | 'initial'
-    | 'demand-changed'
-    | 'observer-move-threshold'
-    | 'limiting-magnitude'
-    | 'strategy'
-    | 'view-volume'
-    | 'manual'
-    | 'unsupported-strategy'
-  >;
+  reasons: string[];
 }
 ```
 
-Current alpha receipt behavior is simple: every non-suppressed automatic update
-returns `queued`, and forced updates return `forced`. Demand-threshold gating is
-not implemented yet. When it is added, the receipt shape may need an explicit
-`unchanged` or `deferred` demand state so callers are not told that planning was
-queued when the session only accepted a new view revision.
+Common built-in reasons include `initial`, `demand-changed`,
+`observer-move-threshold`, `threshold-unchanged`, `limiting-magnitude`,
+`strategy`, `view-volume`, `manual`, and `unsupported-strategy`. Custom
+strategies may return their own reason strings.
+
+Current alpha receipt behavior:
+
+- `queued`: automatic update accepted and full demand planning was scheduled.
+- `forced`: update accepted and demand planning was scheduled while bypassing
+  demand-threshold gating.
+- `suppressed`: update accepted, but the caller explicitly asked not to schedule
+  demand planning.
+- `unchanged`: update accepted and `viewRevision` advanced, but the configured
+  strategy-aware gate determined that no new demand planning was needed.
 
 Example:
 
@@ -794,7 +838,7 @@ const receipt = session.updateView({
   limitingMagnitude: 6.5,
 });
 
-if (receipt.demand === 'queued') {
+if (receipt.demand === 'queued' || receipt.demand === 'forced') {
   // Planning/fetching continues through session deltas.
 }
 ```
@@ -823,30 +867,51 @@ Expected behavior for `session.updateView(patch, options)`:
 ```txt
 1. Normalize and store view patch.
 2. Increment viewRevision.
-3. Queue demand planning unless suppressed. Current alpha does this for every non-suppressed update; next sprint should add threshold gating before full traversal.
-4. Return a receipt immediately.
-5. Compute strategy demand asynchronously using provider-owned octree traversal.
-6. Normalize runtime nodes produced by the provider.
-7. If demand changed, increment demandRevision.
-8. Start or reprioritize progressive object-batch streaming for the current demand.
-9. Emit upsert/remove/stale deltas so the session representation matches current demand.
-10. Reach current status when there is no more fetching, pruning, or recalculation pending for the latest demand revision.
+3. If suppressed, stop after accepting the view and return `suppressed`.
+4. If forced, queue demand planning and return `forced`.
+5. Otherwise, run the strategy-aware demand gate. If the gate says no replan,
+   keep the current demand revision, emit no deltas for this update, and return
+   `unchanged`.
+6. If the gate queues demand, store the latest view as the demand anchor and
+   return `queued`.
+7. Compute strategy demand asynchronously using provider-owned octree traversal.
+8. Normalize runtime nodes produced by the provider.
+9. If demand changed, increment demandRevision.
+10. Start or reprioritize progressive object-batch streaming for the current demand.
+11. Emit upsert/remove/stale deltas so the session representation matches current demand.
+12. Reach current status when there is no more fetching, pruning, or recalculation pending for the latest demand revision.
 ```
 
 This is the most important sprint-1 behavior.
 
-Priority 4 refinement for the next sprint:
+Demand-threshold gating:
 
 ```txt
-Add demand-threshold gating before full traversal/planning.
+Opt-in, strategy-aware demand-threshold gating runs before full traversal/planning.
 ```
 
 Thresholds decide **when to replan**, not **what a strategy means**. For
 example, a live session may accept a tiny observer movement immediately,
 increment `viewRevision`, and keep the existing demand revision if the movement
 does not exceed `observerMoveThresholdPc`. A meaningful movement, limiting
-magnitude change, frustum direction change, strategy change, or budget/debug
-change should schedule planning.
+magnitude change, frustum direction/orientation/volume change, strategy change,
+or future budget/debug change should schedule planning.
+
+Built-in gates:
+
+- `observer-shell` compares observer position and limiting magnitude.
+- `target-frustum` compares observer position, limiting magnitude, target,
+  direction, orientation-derived forward vector, FOV, aspect, near/far planes,
+  and preload distance.
+- `directionAngleDeg` applies to `directionIcrs` and orientation-derived
+  forward vectors.
+- Missing threshold values mean any change to that field is meaningful.
+- Invalid or negative threshold values are ignored; `0` means any non-zero
+  change is meaningful.
+
+Custom strategies may provide `shouldReplan(context)`. If omitted, they preserve
+the always-plan behavior. A custom gate can inspect `previousDemandView`,
+`nextView`, `thresholds`, `strategy`, and the caller-supplied reason.
 
 Coordinate output profile changes do not change node demand; they may require
 product repacking/re-emission, but they should not be treated as observer-shell
@@ -2039,12 +2104,14 @@ StarFieldLayer or Three adapter
 The POC-parity provider now includes pure public observer-shell strategy shape,
 exact and target/direction-derived `target-frustum` demand, progressive payload
 streaming, motion-hinted current-work prioritisation, and live session
-reconciliation. The next maturity pass should focus on replanning and prefetch
-policy before adding more API surface:
+reconciliation. The first demand-policy pass adds opt-in strategy-aware
+demand-threshold gating before traversal. The next maturity pass should focus on
+prefetch policy and budget/debug completeness before adding more API surface:
 
 1. Keep observer-shell semantically pure: magnitude shell demand should not be
    silently truncated by a strategy-level max-level concept.
-2. Add demand-threshold gating before full traversal/planning.
+2. Keep demand-threshold gating as a scheduling policy, not a strategy
+   eligibility rule.
 3. Extend motion lookahead into prefetch/freshness policy while preserving
    current observer-shell demand.
 4. Add explicit budget/debug caps only with truncation metadata and degraded

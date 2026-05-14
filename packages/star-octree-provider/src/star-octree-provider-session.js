@@ -1,11 +1,16 @@
 import { createStarObjectBatchProduct } from './star-octree-products.js';
 import { createAsyncQueue } from './star-octree-queue.js';
+import {
+  evaluateDemandGate,
+  normalizeDemandThresholds,
+} from './star-octree-demand-gate.js';
 
 /**
  * @typedef {import('./index.d.ts').StarObjectBatchProduct} StarObjectBatchProduct
  * @typedef {import('./index.d.ts').StarOctreeCoordinateOutput} StarOctreeCoordinateOutput
  * @typedef {import('./index.d.ts').StarOctreeDemandEntry} StarOctreeDemandEntry
  * @typedef {import('./index.d.ts').StarOctreeDemandPlan} StarOctreeDemandPlan
+ * @typedef {import('./index.d.ts').StarOctreeDemandThresholds} StarOctreeDemandThresholds
  * @typedef {import('./index.d.ts').StarOctreeFetchStrategy} StarOctreeFetchStrategy
  * @typedef {import('./index.d.ts').StarOctreeProductDelta} StarOctreeProductDelta
  * @typedef {import('./index.d.ts').StarOctreeProviderSession} StarOctreeProviderSession
@@ -15,6 +20,7 @@ import { createAsyncQueue } from './star-octree-queue.js';
  * @typedef {import('./index.d.ts').StarOctreeSessionSnapshot} StarOctreeSessionSnapshot
  * @typedef {import('./index.d.ts').StarOctreeViewPatch} StarOctreeViewPatch
  * @typedef {import('./index.d.ts').StarOctreeViewReceipt} StarOctreeViewReceipt
+ * @typedef {import('./index.d.ts').StarOctreeViewState} StarOctreeViewState
  * @typedef {import('./index.d.ts').ViewUpdateOptions} ViewUpdateOptions
  * @typedef {import('./star-octree-products.js').DecodedStarSegment} DecodedStarSegment
  */
@@ -90,6 +96,8 @@ export function createStarOctreeProviderSession(createOptions) {
 
   /** @type {StarOctreeViewPatch} */
   let currentView = {};
+  /** @type {StarOctreeViewState | null} */
+  let demandAnchorView = null;
   let viewRevision = 0;
   let demandRevision = 0;
   let demandSignature = '';
@@ -115,28 +123,53 @@ export function createStarOctreeProviderSession(createOptions) {
 
       viewRevision += 1;
       currentView = normalizeViewPatch(currentView, patch);
+      const nextViewState = createViewState(currentView, viewRevision);
 
       if (updateOptions.demand === 'suppress') {
         lastReasons = [];
         return createReceipt('suppressed', []);
       }
 
+      if (updateOptions.demand !== 'force') {
+        const gate = evaluateDemandGate({
+          strategy: options.strategy,
+          thresholds: options.demandThresholds,
+          previousDemandView: demandAnchorView,
+          nextView: nextViewState,
+          reason: updateOptions.reason,
+        });
+
+        if (!gate.replan) {
+          lastReasons = gate.reasons;
+          return createReceipt('unchanged', gate.reasons);
+        }
+
+        demandAnchorView = nextViewState;
+        lastReasons = gate.reasons;
+        scheduleDemandPlanning({
+          force: false,
+          reasons: gate.reasons,
+          view: nextViewState,
+          viewRevision,
+        });
+
+        return createReceipt('queued', gate.reasons);
+      }
+
       const reasons = [
         updateOptions.reason ??
           (viewRevision === 1 ? 'initial' : 'demand-changed'),
       ];
+      demandAnchorView = nextViewState;
       lastReasons = reasons;
       scheduleDemandPlanning({
-        force: updateOptions.demand === 'force',
+        force: true,
         reasons,
-        view: currentView,
+        view: nextViewState,
         viewRevision,
       });
 
-      return createReceipt(
-        updateOptions.demand === 'force' ? 'forced' : 'queued',
-        reasons,
-      );
+      return createReceipt('forced', reasons);
     },
 
     subscribe(listener) {
@@ -400,7 +433,7 @@ export function createStarOctreeProviderSession(createOptions) {
   }
 
   /**
-   * @param {StarOctreeViewPatch} view
+   * @param {StarOctreeViewPatch | StarOctreeViewState} view
    * @param {number} nextViewRevision
    * @returns {StarOctreeSelectionContext}
    */
@@ -444,7 +477,7 @@ export function createStarOctreeProviderSession(createOptions) {
   }
 
   /**
-   * @param {'queued' | 'forced' | 'suppressed'} demand
+   * @param {'queued' | 'forced' | 'suppressed' | 'unchanged'} demand
    * @param {string[]} reasons
    * @returns {StarOctreeViewReceipt}
    */
@@ -578,6 +611,7 @@ export function createStarOctreeProviderSession(createOptions) {
  * @returns {{
  *   id?: string;
  *   strategy: StarOctreeFetchStrategy;
+ *   demandThresholds?: StarOctreeDemandThresholds;
  *   attributes: string[];
  *   coordinates: StarOctreeCoordinateOutput;
  *   streaming: {
@@ -594,6 +628,9 @@ function normalizeSessionOptions(options) {
   return {
     ...(options?.id ? { id: options.id } : {}),
     strategy: options?.strategy ?? DEFAULT_STRATEGY,
+    ...(options?.demandThresholds !== undefined
+      ? { demandThresholds: normalizeDemandThresholds(options.demandThresholds) }
+      : {}),
     attributes: options?.attributes
       ? [...options.attributes]
       : [...DEFAULT_ATTRIBUTES],
@@ -634,6 +671,35 @@ function normalizeViewPatch(currentView, patch) {
 
   delete nextView.mDesired;
   return nextView;
+}
+
+/**
+ * @param {StarOctreeViewPatch} view
+ * @param {number} revision
+ * @returns {StarOctreeViewState}
+ */
+function createViewState(view, revision) {
+  return {
+    revision,
+    ...view,
+    ...(view.observerPc ? { observerPc: { ...view.observerPc } } : {}),
+    ...(view.targetPc ? { targetPc: { ...view.targetPc } } : {}),
+    ...(view.directionIcrs ? { directionIcrs: { ...view.directionIcrs } } : {}),
+    ...(view.orientationIcrs
+      ? { orientationIcrs: { ...view.orientationIcrs } }
+      : {}),
+    ...(view.motion
+      ? {
+          motion: {
+            ...view.motion,
+            ...(view.motion.velocityPcPerSec
+              ? { velocityPcPerSec: { ...view.motion.velocityPcPerSec } }
+              : {}),
+          },
+        }
+      : {}),
+    ...(view.params ? { params: { ...view.params } } : {}),
+  };
 }
 
 /**
