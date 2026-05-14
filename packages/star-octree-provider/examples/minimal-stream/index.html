@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Star Octree Provider: Minimal Stream</title>
+    <link rel="stylesheet" href="../../../../demos/shared.css" />
+    <link rel="stylesheet" href="./minimal-stream.css" />
+  </head>
+  <body>
+    <aside>
+      <nav class="breadcrumb">
+        <a href="../../../../index.html">SkyKit</a>
+        <span>/ Star Octree Provider</span>
+      </nav>
+      <h1>Minimal Stream</h1>
+      <p>A small guided example: create a provider, stream object batches, and inspect the completed result.</p>
+
+      <button type="button" data-run>Run example</button>
+      <p class="status">Status: <span data-status>ready</span></p>
+    </aside>
+
+    <main>
+      <section class="tour">
+        <section class="step">
+          <h2>1. Create The Provider</h2>
+          <pre><code data-provider-code></code></pre>
+        </section>
+
+        <section class="step">
+          <h2>2. Stream Until Current</h2>
+          <pre><code data-stream-code></code></pre>
+        </section>
+
+        <section class="step">
+          <h2>3. Review The Products</h2>
+          <div class="product-summary" data-product-summary></div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Product</th>
+                  <th>Node</th>
+                  <th>Ordinal</th>
+                  <th>Position pc</th>
+                  <th>Abs mag</th>
+                  <th>Teff K</th>
+                </tr>
+              </thead>
+              <tbody data-stars>
+                <tr>
+                  <td colspan="7" class="empty-row">Run the example to load products.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="./minimal-stream.js"></script>
+  </body>
+</html>

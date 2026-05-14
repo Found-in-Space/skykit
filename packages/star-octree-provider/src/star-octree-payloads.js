@@ -19,11 +19,26 @@ export async function decompressGzip(compressed) {
   }
 
   const stream = new DecompressionStream('gzip');
-  const writer = stream.writable.getWriter();
-  await writer.write(new Uint8Array(compressed));
-  await writer.close();
-
   const reader = stream.readable.getReader();
+  const readPromise = readAllChunks(reader);
+  const writer = stream.writable.getWriter();
+
+  try {
+    await writer.write(new Uint8Array(compressed));
+    await writer.close();
+  } catch (error) {
+    await writer.abort(error).catch(() => {});
+    throw error;
+  }
+
+  return readPromise;
+}
+
+/**
+ * @param {ReadableStreamDefaultReader<Uint8Array>} reader
+ * @returns {Promise<ArrayBuffer>}
+ */
+async function readAllChunks(reader) {
   /** @type {Uint8Array[]} */
   const chunks = [];
   let totalLength = 0;

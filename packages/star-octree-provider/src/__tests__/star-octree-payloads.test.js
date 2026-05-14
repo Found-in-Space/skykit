@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   decodeStarPayload,
+  decompressGzip,
   planPayloadRangeBatches,
 } from '../star-octree-payloads.js';
 
@@ -60,6 +61,25 @@ test('decodeStarPayload returns provider-native parsec attributes and refs', () 
   ]);
 });
 
+test('decompressGzip reads while writing so browser backpressure cannot stall', async () => {
+  const OriginalDecompressionStream = globalThis.DecompressionStream;
+  globalThis.DecompressionStream = createBackpressureEchoDecompressionStream();
+
+  try {
+    const input = new Uint8Array([1, 2, 3, 4]).buffer;
+    const output = await Promise.race([
+      decompressGzip(input),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('decompressGzip timed out')), 50),
+      ),
+    ]);
+
+    assert.deepEqual([...new Uint8Array(output)], [1, 2, 3, 4]);
+  } finally {
+    globalThis.DecompressionStream = OriginalDecompressionStream;
+  }
+});
+
 function createPayloadBytes(records) {
   const buffer = new ArrayBuffer(records.length * 16);
   const view = new DataView(buffer);
@@ -74,6 +94,74 @@ function createPayloadBytes(records) {
   });
 
   return buffer;
+}
+
+function createBackpressureEchoDecompressionStream() {
+  return class BackpressureEchoDecompressionStream {
+    constructor() {
+      let chunk = null;
+      let closed = false;
+      let pendingRead = null;
+      let pendingWriteResolve = null;
+
+      this.writable = {
+        getWriter() {
+          return {
+            write(value) {
+              if (pendingRead) {
+                const resolveRead = pendingRead;
+                pendingRead = null;
+                resolveRead({ done: false, value });
+                return Promise.resolve();
+              }
+
+              chunk = value;
+              return new Promise((resolve) => {
+                pendingWriteResolve = resolve;
+              });
+            },
+            close() {
+              closed = true;
+              if (pendingRead) {
+                const resolveRead = pendingRead;
+                pendingRead = null;
+                resolveRead({ done: true });
+              }
+              return Promise.resolve();
+            },
+            abort() {
+              closed = true;
+              return Promise.resolve();
+            },
+          };
+        },
+      };
+
+      this.readable = {
+        getReader() {
+          return {
+            read() {
+              if (chunk) {
+                const value = chunk;
+                chunk = null;
+                pendingWriteResolve?.();
+                pendingWriteResolve = null;
+                return Promise.resolve({ done: false, value });
+              }
+
+              if (closed) {
+                return Promise.resolve({ done: true });
+              }
+
+              return new Promise((resolve) => {
+                pendingRead = resolve;
+              });
+            },
+          };
+        },
+      };
+    }
+  };
 }
 
 function assertFloatArrayClose(actual, expected) {

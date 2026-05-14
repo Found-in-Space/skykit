@@ -24,6 +24,14 @@ export default defineConfig({
         dataShape: path.resolve(__dirname, 'demos/data-shape.html'),
         dustRoam: path.resolve(__dirname, 'demos/dust-roam.html'),
         hAlphaVolume: path.resolve(__dirname, 'demos/h-alpha-volume.html'),
+        starOctreeProviderMinimalStream: path.resolve(
+          __dirname,
+          'packages/star-octree-provider/examples/minimal-stream/index.html',
+        ),
+        starOctreeProviderNearestVisible: path.resolve(
+          __dirname,
+          'packages/star-octree-provider/examples/nearest-visible/index.html',
+        ),
       },
     },
   },
