@@ -63,7 +63,8 @@ Recommended package direction:
   octree loading/session/streaming, emits star products
 
 @found-in-space/star-map-canvas
-  small 2D canvas starmap adapter for learning and lightweight apps
+  2D projected canvas starmap adapter for spatial star products, learning,
+  and lightweight apps
 
 @found-in-space/hr-diagram
   reusable HR diagram data model, renderer, and optional touch-os panel controls
@@ -206,7 +207,7 @@ apparentMagnitude({ magAbs, distancePc });
 decodeTemperatureK(teffLog8);
 temperatureToRgb(teffLog8);
 icrsToRaDec(positionPc, observerPc);
-projectEquirectangular({ ra, dec, width, height });
+projectEquirectangular({ raDeg, decDeg, width, height });
 ```
 
 This is the layer that makes table, starmap, stats, and game examples small.
@@ -473,12 +474,12 @@ learning slice should prove the first visual layer on top of them:
 ```txt
 1. Build a static 2D canvas starmap example using:
    star-octree-provider -> star-products store -> canvas rendering.
-2. Let that example teach the minimum adapter API needed for
-   @found-in-space/star-map-canvas.
-3. Extract @found-in-space/star-map-canvas only after the example proves the
-   helper surface.
+2. Keep the example source-agnostic at the adapter boundary: the canvas map
+   consumes StarRepresentationStore rows, not octree provider internals.
+3. Extract @found-in-space/star-map-canvas as the reusable Canvas2D adapter for
+   spatial star products.
 ```
 
-Do not extract `@found-in-space/star-map-canvas` until the first starmap example
-proves the helper surface. The package boundary is likely right, but the exact
-adapter API should be learned from one concrete example first.
+The extracted `@found-in-space/star-map-canvas` package should not absorb
+guide-star catalog products, Three.js rendering, or galaxy-map backgrounds.
+Those remain separate source or renderer lanes.

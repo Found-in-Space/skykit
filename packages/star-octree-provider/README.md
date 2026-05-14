@@ -24,3 +24,5 @@ for the package contract, API semantics, and current implementation status.
 - `examples/nearest-visible/` shows a browser page that creates an
   `observer-shell` provider session, streams object-batch deltas, and keeps a
   nearest-visible table as application-owned logic.
+- `examples/canvas-star-map/` shows the alpha package ladder from provider
+  session to star-products store to `@found-in-space/star-map-canvas`.

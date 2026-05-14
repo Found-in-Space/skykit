@@ -32,6 +32,10 @@ export default defineConfig({
           __dirname,
           'packages/star-octree-provider/examples/nearest-visible/index.html',
         ),
+        starOctreeProviderCanvasStarMap: path.resolve(
+          __dirname,
+          'packages/star-octree-provider/examples/canvas-star-map/index.html',
+        ),
       },
     },
   },
