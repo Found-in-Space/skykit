@@ -100,7 +100,7 @@ Override with `?constellationManifestUrl=...`. Dataset URLs can be overridden wi
 
 - [`docs/alpha-rules.md`](./docs/alpha-rules.md): current alpha rewrite rules and package-boundary guidance
 - [`docs/package-learning-architecture.md`](./docs/package-learning-architecture.md): alpha package direction for teaching-oriented modules
-- [`docs/octree-service.md`](./docs/octree-service.md): current alpha contract for `@found-in-space/star-octree-provider`
+- [`docs/star-octree-provider.md`](./docs/star-octree-provider.md): current alpha contract for `@found-in-space/star-octree-provider`
 - [`docs/viewer-architecture.md`](./docs/viewer-architecture.md): legacy proof-of-concept viewer architecture; may be stale
 - [`docs/xr-architecture.md`](./docs/xr-architecture.md): legacy proof-of-concept XR architecture; may be stale
 - [`docs/hr-diagram-touch-display.md`](./docs/hr-diagram-touch-display.md): legacy proof-of-concept touch-display design; may be stale

@@ -8,7 +8,7 @@ new reusable work should not be added to core `skykit` by default. Use
 [`alpha-rules.md`](./alpha-rules.md) and
 [`package-learning-architecture.md`](./package-learning-architecture.md) as the
 current direction for first-alpha package boundaries, and use
-[`octree-service.md`](./octree-service.md) for the star octree provider
+[`star-octree-provider.md`](./star-octree-provider.md) for the star octree provider
 contract.
 
 ## Overview
