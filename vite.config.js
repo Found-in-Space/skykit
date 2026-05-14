@@ -36,6 +36,10 @@ export default defineConfig({
           __dirname,
           'packages/star-octree-provider/examples/canvas-star-map/index.html',
         ),
+        starMapCanvasUseCases: path.resolve(
+          __dirname,
+          'packages/star-map-canvas/examples/use-cases/index.html',
+        ),
       },
     },
   },
