@@ -100,8 +100,9 @@ boundaries we expect to extract without implying that code already exists.
   implemented: Three.js product renderer for star batches and star-product deltas
 
 @found-in-space/xr
-  planned: immersive embodiment, WebXR rig/input, body/ship model, motion
-  models, ray sources, and generic ray routing; not surfaces or star rendering
+  implemented: immersive embodiment, WebXR rig/input, body/ship model, motion
+  models, ray sources, generic ray routing, depth/session helpers, and
+  diagnostics; not surfaces or star rendering
 
 @found-in-space/journey
   planned: authored lesson runtime and editor model for chapters, narration, camera
@@ -176,7 +177,7 @@ not specific to stars, galaxies, solar-system bodies, H-alpha, dust, or another
 space-data product, it should usually become its own Found in Space package
 rather than being folded into core `skykit`.
 
-`@found-in-space/xr` is the planned immersive-experience package. It owns
+`@found-in-space/xr` is the immersive-experience package. It owns
 body/ship pose, WebXR rig and input helpers, motion models, ray sources, and
 generic ray routing. It does not own touch-os surfaces, star rendering, star
 pick math, provider sessions, or lesson composition.

@@ -1,0 +1,27 @@
+{
+  "name": "@found-in-space/xr",
+  "version": "0.0.0-alpha.0",
+  "description": "Immersive rig, input, motion, ray, and WebXR helpers for Found in Space experiences",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test"
+  },
+  "peerDependencies": {
+    "three": "^0.170.0"
+  }
+}

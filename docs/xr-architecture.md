@@ -1,6 +1,7 @@
 # XR Architecture
 
-Status: current alpha planning document.
+Status: current alpha package-boundary document. The first `@found-in-space/xr`
+package slice has landed.
 
 This note replaces the proof-of-concept XR implementation notes. It describes
 the intended package boundary for XR-related functionality as SkyKit moves into
@@ -15,7 +16,7 @@ renderers own their own rendering and pick math.
 skykit owns composition and scale policy.
 ```
 
-The likely package is:
+The package is:
 
 ```txt
 @found-in-space/xr
@@ -555,21 +556,22 @@ layer unless they genuinely share the XR embodiment model.
 
 ---
 
-## 12. First Alpha Slice
+## 12. Implemented Alpha Slice
 
-A practical first slice for `@found-in-space/xr` would be:
+The first alpha slice for `@found-in-space/xr` implements:
 
-1. Create the package with plain ESM and hand-written `.d.ts`.
-2. Implement the XR rig/body roots and custom spaceship mount points.
-3. Implement controller input helpers: axes, buttons, grip pose, target ray.
-4. Implement named, declarative, inspectable, remappable control bindings.
-5. Implement direct and inertial/thrust motion models.
-6. Implement ray sources and generic pick router with blocker support.
-7. Implement scale profile consumption.
-8. Implement WebXR session/depth helpers where they are cleanly separable.
-9. Add tests using fake XR frame/session/input-source objects.
-10. Update SkyKit composition docs to use the package, without rewriting old
-   `src/` viewers yet.
+- plain ESM package with hand-written `.d.ts`.
+- XR rig/body roots and custom spaceship mount points.
+- controller input helpers for axes, buttons, grip pose, and target rays.
+- named, declarative, inspectable, remappable control bindings.
+- direct, inertial, thrust, and fly-to motion models.
+- ray sources and generic pick router with blocker support.
+- scale profile consumption.
+- WebXR session helpers and domain-neutral depth telemetry.
+- tests using fake XR frame/session/input-source objects.
+
+The package intentionally does not rewrite old `src/` viewers yet. That
+integration belongs to future core SkyKit composition work.
 
 The old `src/controllers/xr-*`, `src/core/runtime-rig.js`, and
 `src/services/render/xr-depth-range.js` files are reference material only.
