@@ -52,8 +52,8 @@
 
 ### Rig factories
 
-- `createDesktopRig(camera)` — flat rig: `contentRoot` and `navigationRoot` as scene siblings.
-- `createXrRig(camera, options)` — spaceship rig: `contentRoot` (universe) and `navigationRoot` (spaceship) are siblings, same as desktop. Spaceship moves; universe stays at origin. `deck` → `xrOrigin` → camera hierarchy. Deck offset `(0, -eyeLevel, +forwardOffset)` is structural and static.
+- Legacy `createDesktopRig(camera)` exposes `contentRoot` and `navigationRoot` as scene siblings. In the alpha architecture, treat `contentRoot` as a compatibility alias for `originContentRoot`, not as the only content root.
+- Legacy `createXrRig(camera, options)` exposes `contentRoot` (universe) and `navigationRoot` (spaceship) as siblings. In the alpha architecture, scene content must be split by anchor policy: origin-pinned content, observer-centric content, and scale-banded content roots are siblings of the spaceship/navigation root. Spaceship moves; origin-pinned content stays at origin; observer-centric content follows observer translation without inheriting ship/head rotation. `deck` → `xrOrigin` → camera hierarchy remains structural and static.
 - `ViewerRuntime` accepts a `rig` option — desktop viewers omit it (default), XR viewers pass the XR rig.
 
 ### Documentation
@@ -64,17 +64,17 @@
 - `docs/star-map-canvas.md` — current alpha contract for `@found-in-space/star-map-canvas`.
 - `docs/anchored-image.md` — current alpha contract for `@found-in-space/anchored-image`.
 - `docs/viewer-architecture.md` — legacy proof-of-concept viewer architecture; may be stale.
-- `docs/xr-architecture.md` — legacy proof-of-concept XR architecture; may be stale.
+- `docs/xr-architecture.md` — current alpha boundary for future `@found-in-space/xr` immersive embodiment, input, ray, and motion infrastructure.
 
 ### WebXR & Camera Constraints (STRICT)
 
 See `docs/xr-architecture.md` for the full spec. Desktop and XR are separate viewer instances with different rig topologies — there is no seamless transition between them. Critical rules:
 
 1. **Never mutate the camera directly for VR orientation.** WebXR overrides `camera.rotation`, `camera.quaternion`, `camera.lookAt()`, and `camera.up`.
-2. **Always use the spaceship rig for XR.** XR viewers must be created with the XR rig topology (universe and spaceship as siblings, with the deck/xrOrigin hierarchy inside the spaceship). Do not reuse the desktop rig.
+2. **Always use the spaceship rig for XR.** XR viewers must be created with the XR rig topology: scene content roots and spaceship are siblings, with the deck/xrOrigin hierarchy inside the spaceship. Do not reuse the desktop rig, and do not collapse all content into one universe root.
 3. **Parent controllers inside `xrOrigin` / `cameraMount`.** Controller visuals must be children of the XR origin group inside the spaceship. Never add them to the scene root.
 4. **Keep the deck offset static.** The `deck` group position is set once at rig creation, not recalculated per frame from head pose.
-5. **Use `starFieldScale` for XR scale, not `SCALE`.** The octree constant `SCALE` (0.001) is for the data pipeline. XR code reads `state.starFieldScale` (default 1.0 m/pc).
+5. **Use an XR scale profile / `starFieldScale` for XR scale, not `SCALE`.** The octree constant `SCALE` (0.001) is for the legacy data pipeline. Alpha XR code should consume a composition-provided scale profile; legacy `src/` XR code reads `state.starFieldScale` (default 1.0 m/pc).
 
 ### Examples
 

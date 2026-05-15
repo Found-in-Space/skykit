@@ -99,12 +99,17 @@ boundaries we expect to extract without implying that code already exists.
 @found-in-space/three-star-field
   implemented: Three.js product renderer for star batches and star-product deltas
 
+@found-in-space/xr
+  planned: immersive embodiment, WebXR rig/input, body/ship model, motion
+  models, ray sources, and generic ray routing; not surfaces or star rendering
+
 @found-in-space/journey
   planned: authored lesson runtime and editor model for chapters, narration, camera
   beats, timed cues, preload hints, and video/story production
 
 @found-in-space/skykit
-  slim composition/convenience layer, not the owner of all functionality
+  slim composition/convenience layer, debug bridge, and teaching entrypoints;
+  not the owner of all functionality
 ```
 
 Support packages that are useful to Found in Space but are not themselves
@@ -135,6 +140,7 @@ product-stream
 
 touch-os
   <- hr-diagram
+  <- xr ray/input contracts for native immersive surfaces
 
 anchored-image
   <- skyculture / survey / image asset packages
@@ -147,9 +153,19 @@ experimental-structure-layers
 journey
   imports domain packages only through explicit adapters
 
+xr
+  imports Three.js, consumes application scale profiles, and routes to
+  renderer/touch-os contracts without owning data or surfaces
+
 skykit
   imports and composes the smaller packages
 ```
+
+Core `skykit` is also the right home for the browser debug bridge. The debug
+bridge intentionally crosses viewer, navigation, product, renderer, XR, and
+lesson boundaries, so it should be a composition/devtools surface over public
+snapshots and public actions rather than a feature hidden inside any one data
+or rendering package.
 
 The important consequence: generic lifecycle helpers should not live inside
 `@found-in-space/star-octree-provider`, because H-alpha or mesh loaders should
@@ -159,6 +175,11 @@ The same rule applies to interaction and renderer support code. If a module is
 not specific to stars, galaxies, solar-system bodies, H-alpha, dust, or another
 space-data product, it should usually become its own Found in Space package
 rather than being folded into core `skykit`.
+
+`@found-in-space/xr` is the planned immersive-experience package. It owns
+body/ship pose, WebXR rig and input helpers, motion models, ray sources, and
+generic ray routing. It does not own touch-os surfaces, star rendering, star
+pick math, provider sessions, or lesson composition.
 
 `@found-in-space/anchored-image` follows that rule for image warping. It is not
 a star product and it does not contain skyculture assets. It provides the

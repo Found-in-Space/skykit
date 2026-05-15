@@ -128,7 +128,8 @@ export interface SkykitThreeContext extends SkykitRuntimeContext {
   scene: THREE.Scene;
   renderer: THREE.WebGLRenderer;
   camera: THREE.Camera;
-  contentRoot: THREE.Object3D;
+  roots: SkykitSceneRoots;
+  contentRoot: THREE.Object3D; // alias for roots.originContentRoot
   navigationRoot: THREE.Object3D;
   observerRig: SkykitObserverRig;
 }
@@ -216,7 +217,7 @@ import a factory, and pass plain objects/plugins.
   });
 
   // Hacking starts here: add parts, inspect snapshots, change view state,
-  // subscribe to events, or plug in a custom strategy.
+  // use the debug bridge, subscribe to events, or plug in a custom strategy.
   window.viewer = viewer;
 </script>
 ```
@@ -405,7 +406,8 @@ export interface SkykitThreePluginContext extends SkykitPluginContext {
   readonly scene: THREE.Scene;
   readonly renderer: THREE.WebGLRenderer;
   readonly camera: THREE.Camera;
-  readonly contentRoot: THREE.Object3D;
+  readonly roots: SkykitSceneRoots;
+  readonly contentRoot: THREE.Object3D; // alias for roots.originContentRoot
   readonly navigationRoot: THREE.Object3D;
   readonly observerRig: SkykitObserverRig;
 }
@@ -516,13 +518,26 @@ Core SkyKit owns the root structure:
 
 ```txt
 scene
-  contentRoot       world / sky / data layers
-  navigationRoot    observer rig, camera mount, XR spaceship
+  originContentRoot          solar-origin / physically located data
+  observerContentRoot        observer-centered angular or infinity-like layers
+  scaleBandedContentRoots    large-scale layers with coarse recenter/update policy
+  navigationRoot             observer rig, camera mount, XR spaceship
 ```
 
-Plugins should choose an anchoring policy rather than assuming solar-origin
-placement. The runtime can then call anchoring helpers consistently for
+`contentRoot` may remain as a convenience alias for `originContentRoot`, but it
+must not be the only content root in the alpha architecture. Plugins should
+choose an anchoring policy rather than assuming solar-origin placement. The
+runtime can then mount through anchoring helpers consistently for
 `world-space`, `observer-centric`, and `scale-banded` layers.
+
+The distinction matters:
+
+- Gaia stars and other physically located space features are origin-pinned.
+- constellation art, skyculture images, angular grids, and other infinity-like
+  layers are observer-centric: they follow observer translation but stay fixed
+  in ICRS direction rather than inheriting ship/head rotation.
+- galaxy, H-alpha, dust, and other large-scale context layers may be
+  scale-banded, updating only when the observer crosses coarse thresholds.
 
 ### Data-Stream Hooks
 
@@ -745,6 +760,80 @@ The first implementation can be simple, but the contract should make room for:
 This is especially important for volume preloads, motion lookahead, HR diagram
 cache warming, and future kinematics/ephemeris products.
 
+### Debug Bridge Hooks
+
+The proof-of-concept demos exposed a small JavaScript console interface for
+interactive debugging and teaching. This should be preserved as a first-class
+SkyKit composition feature, not as a demo-only script and not as a responsibility
+of the star provider, XR package, or renderer packages.
+
+The debug bridge crosses package boundaries by design:
+
+- viewer registry and active viewer selection
+- normalized view state and snapshots
+- observer position in canonical ICRS parsecs
+- optional named coordinate-frame helpers such as galactic coordinates
+- navigation actions such as `setObserverPc()`, `flyToPc()`, `lookAtPc()`, and
+  `cancelAutomation()`
+- provider/session/renderer/product snapshots where available
+- root/anchor diagnostics for origin, observer-centric, scale-banded, and
+  navigation roots
+- XR/body/scale diagnostics when an XR package is present
+
+The shape should be explicit and optional:
+
+```ts
+export interface SkykitDebugBridge {
+  listViewers(): SkykitDebugViewerSummary[];
+  useViewer(target: string | number | SkykitViewer): SkykitDebugViewer | null;
+  getViewer(target?: string | number | SkykitViewer): SkykitDebugViewer | null;
+  snapshot(target?: string | number | SkykitViewer): unknown;
+  registerViewer(viewer: SkykitViewer, options?: SkykitDebugRegisterOptions): SkykitDebugViewer;
+}
+
+export interface SkykitDebugViewer {
+  readonly id: string;
+  readonly label: string;
+  getSnapshotState(): unknown;
+  getObserverPc(): Vector3Like | null;
+  setObserverPc(x: number, y: number, z: number): Vector3Like;
+  setObserverPc(point: Vector3Like): Vector3Like;
+  flyToPc(point: Vector3Like, options?: Record<string, unknown>): Vector3Like;
+  lookAtPc(point: Vector3Like, options?: Record<string, unknown>): Vector3Like;
+  cancelAutomation(): boolean;
+}
+```
+
+The browser global is useful for hacking and lessons:
+
+```js
+window.skykitDebug.listViewers();
+window.skykitDebug.getObserverPc();
+window.skykitDebug.flyToPc({ x: 140, y: -20, z: 8 }, { speed: 25 });
+window.skykitDebug.snapshot();
+```
+
+But the global must be a thin install target over the same debug bridge object:
+
+```js
+const debug = createSkykitDebugBridge();
+debug.registerViewer(viewer, { id: 'free-roam' });
+installSkykitDebugGlobal(debug, { name: 'skykitDebug' });
+```
+
+Rules:
+
+- The debug bridge reads public viewer/package snapshots and calls public
+  navigation/view APIs only.
+- It must not mutate private runtime fields.
+- It should be safe to omit from production builds.
+- It should support multiple viewers on one page.
+- It should unregister viewers on dispose.
+- Coordinate-frame helpers must be named explicitly; ICRS parsecs remain the
+  default shared frame.
+- Package-specific diagnostics should be contributed through optional snapshot
+  hooks rather than hardcoded imports.
+
 ### Plugin Constraints
 
 Plugins must not:
@@ -870,7 +959,7 @@ Core SkyKit should explicitly model an observer rig:
 export interface SkykitObserverRig {
   readonly type: 'desktop' | 'xr' | string;
   readonly navigationRoot: THREE.Object3D;
-  readonly contentRoot: THREE.Object3D;
+  readonly roots: SkykitSceneRoots;
   readonly cameraMount?: THREE.Object3D;
   readonly deck?: THREE.Object3D;
 
@@ -903,7 +992,7 @@ XR rules inherited from the proof-of-concept remain important:
 - desktop and XR are separate viewer instances
 - WebXR camera orientation must not be mutated directly
 - the XR viewer uses a spaceship rig from creation
-- `contentRoot` and `navigationRoot` are siblings
+- scene content roots and `navigationRoot` are siblings
 - locomotion moves the spaceship/navigation root through the stationary universe
 - controllers and touch panels are parented inside the XR origin/camera mount
 - deck offsets are structural, not recalculated every frame from head pose
@@ -918,6 +1007,13 @@ anchored to the solar origin.
 Core SkyKit should make anchoring explicit.
 
 ```ts
+export interface SkykitSceneRoots {
+  originContentRoot: THREE.Object3D;
+  observerContentRoot: THREE.Object3D;
+  scaleBandedContentRoots: Map<string, THREE.Object3D>;
+  navigationRoot: THREE.Object3D;
+}
+
 export type SkykitLayerAnchorMode =
   | 'world-space'
   | 'observer-centric'
@@ -1026,6 +1122,7 @@ Core SkyKit should remove repeated boilerplate for:
 - adding plain `THREE.Object3D` layers with lifecycle/disposal
 - overlay update hooks for HR diagrams, debug panels, and stats
 - snapshot/diagnostics for tests and video capture
+- installable debug console bridge for classroom hacking and development
 
 ### Must Remain App Or Lesson Owned
 
@@ -1141,8 +1238,11 @@ wiring. The source should be a star product store or product stream, not the
 - Add `SkykitPart` lifecycle.
 - Add desktop observer rig.
 - Add `createObject3dLayer()` helper.
+- Add `createSkykitDebugBridge()` and optional global installer.
 - Keep old `createViewer()` in place during transition.
-- Add tests for lifecycle ordering, async attach/dispose, and object3d mounting.
+- Add tests for lifecycle ordering, async attach/dispose, object3d mounting,
+  viewer debug registration, active viewer switching, snapshot reads,
+  observer setters, and dispose unregistration.
 
 ### Slice 2: Streaming Star Layer
 
@@ -1189,10 +1289,12 @@ story code into core SkyKit.
 
 ### Slice 7: XR Viewer
 
-- Add XR observer rig on the same part contract.
-- Preserve spaceship/deck topology.
-- Rewire XR locomotion and XR picking as parts.
-- Confirm stream observer and render observer semantics are distinct.
+- Compose the planned `@found-in-space/xr` package with the same part contract.
+- Preserve spaceship/deck/body topology through XR-owned rig helpers.
+- Rewire XR locomotion and ray routing as XR package parts.
+- Use touch-os-native immersive surfaces for tablets, panels, and HUDs.
+- Confirm stream observer, render observer, body pose, and scale profile
+  semantics are distinct.
 
 ---
 

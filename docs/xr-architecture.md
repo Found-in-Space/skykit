@@ -1,267 +1,603 @@
 # XR Architecture
 
-Status: legacy proof-of-concept XR architecture note.
+Status: current alpha planning document.
 
-This document describes the current/old `src/` XR viewer runtime and may be
-stale relative to the alpha package direction. Keep using it when maintaining
-existing XR code, but do not treat it as a guide for where new reusable alpha
-functionality should live. New reusable pieces should become focused
-`@found-in-space/*` packages and be composed by slim `skykit` examples.
+This note replaces the proof-of-concept XR implementation notes. It describes
+the intended package boundary for XR-related functionality as SkyKit moves into
+first alpha.
 
-This document covers WebXR-specific concepts in SkyKit. For the general viewer architecture (data services, interest fields, layers, embedding API), see [viewer-architecture.md](viewer-architecture.md).
+The short version:
 
-## Why A Separate Document
-
-XR introduces constraints and structures that don't apply to desktop rendering:
-
-- WebXR owns the camera pose — you cannot set `camera.rotation` or call `camera.lookAt()`
-- Physical space is meter-scale while the star field is parsec-scale
-- Input comes from tracked controllers, not mouse/keyboard
-- The player exists in a physical room while navigating astronomical distances
-- Depth buffer precision matters across wildly different distance scales
-
-These concerns are orthogonal to the data pipeline, interest fields, and layer system, so they live here rather than cluttering the general architecture.
-
-## Separate Viewer Instances
-
-Desktop and XR are **separate viewer instances**, not modes of the same viewer. An XR viewer is created with the spaceship rig from the start — it does not share a canvas with a desktop viewer or transition seamlessly between desktop and VR rendering.
-
-A typical XR page presents configuration UI and a "Enter VR" button rather than a live desktop canvas. The `ViewerRuntime` may be created headless or deferred until the XR session starts. On session end the viewer disposes or returns to the options UI — there is no "fall back to desktop rendering" path.
-
-Desktop and XR viewers may share a `DatasetSession` (data caching and fetch infrastructure), which is safe because `DatasetSession` has no knowledge of rigs, cameras, or scene graphs. They use the same _types_ of reusable modules (interest fields, layers, star picker, scene orientation), but each viewer creates its own instances — no runtime object other than `DatasetSession` is shared between them. A change to the desktop viewer or rig should never require a corresponding change to XR code, and vice versa.
-
-## The Spaceship Model
-
-The central abstraction for XR is the **spaceship**: an invisible reference frame that carries the player through the universe.
-
-The spaceship:
-
-- has a position in parsec space (`observerPc`)
-- has an orientation (quaternion) that defines "spaceship forward"
-- may have velocity for inertial flight
-- has **no visible geometry** in the current version — it is purely a coordinate frame
-
-The player stands on the spaceship's deck. Their physical room movements are local to the deck. When the spaceship moves, everything moves with it — the player, their controllers, and their view of the stars.
-
-This solves a class of recurring bugs where XR controllers, pointer lasers, or HUD elements detach from the player because they were parented incorrectly in the scene graph.
-
-### Scene Graph
-
-```
-scene
-  ├── universe                      ← Group: contentRoot (stars, constellation art)
-  │                                    scaled by starFieldScale / SCALE
-  │                                    stays at the scene origin
-  │
-  └── spaceship                     ← Group: navigationRoot, MOVES through the universe
-        └── deck                    ← Group: structural offset (observer DOWN and BACK)
-              ├── xrOrigin          ← Group: WebXR local-floor reference point
-              │     ├── camera      ← PerspectiveCamera: headset pose (WebXR-driven)
-              │     │     └── headHud (optional: visor overlay, always faces user)
-              │     │
-              │     ├── leftController   ← XR input source (grip or target ray space)
-              │     │     └── controlPanel (optional: wrist display, attached UI)
-              │     │
-              │     └── rightController
-              │           └── controlPanel (optional: attached UI)
-              │
-              └── attachmentRoot    ← deck-fixed UI and overlays
+```txt
+XR owns immersive embodiment, input, rays, motion, and spaceship semantics.
+touch-os owns interactive and non-interactive visual surfaces.
+renderers own their own rendering and pick math.
+skykit owns composition and scale policy.
 ```
 
-The universe and the spaceship are **siblings** under the scene — the same topology as the desktop rig. The universe stays at the scene origin while the spaceship moves to represent the observer's position. This matches the physical intuition: the universe contains the spaceship, not the other way around.
+The likely package is:
 
-### Mapping To Runtime Rig
+```txt
+@found-in-space/xr
+```
 
-The XR rig is built at viewer creation time using `createXrRig(camera, options)` from `src/core/runtime-rig.js`. It uses the same **sibling topology** as the desktop rig — `contentRoot` and `navigationRoot` are independent trees, both added to the scene. The differences from desktop are the universe scale factor and the `deck` group. The rig is passed to `ViewerRuntime` via the `rig` option.
+The name is intentionally broad. The binding concept is not only navigation.
+It is the immersive experience layer: body pose, controller input, spaceship
+state, motion models, interaction rays, and the constraints WebXR imposes on
+camera ownership.
 
-| Spaceship concept | Runtime name | Role |
-|---|---|---|
-| `spaceship` | `navigationRoot` | Top-level group; **moves** to represent the observer's position |
-| `deck` | `deck` | Structural offset: shifts observer DOWN and BACK so Sun appears at eye level |
-| `xrOrigin` | `cameraMount` | Where WebXR places the camera and controllers |
-| `attachmentRoot` | `attachmentRoot` | Deck-fixed UI and overlays, child of `deck` |
-| `headHud` | (future) | Head-locked UI, child of camera |
-| controllers | (managed by `xr-pick-controller`) | XR input source target ray / grip spaces, children of `cameraMount` |
-| `universe` | `contentRoot` | Stars and scene content, **sibling** of spaceship, stays at scene origin, scaled for XR |
+---
 
-### Why This Structure Matters
+## 1. Why XR Is Its Own Package
 
-- **Universe and spaceship are siblings**, matching the physical intuition that the universe contains the spaceship. Moving the spaceship moves the observer (and everything attached to it) relative to the stationary stars.
-- **Locomotion moves the spaceship, not the universe.** `XrLocomotionController` sets `navigationRoot.position` to the observer's scene-space position. The universe stays at the scene origin. Stars appear to move past the player because the camera (inside the spaceship) moves relative to the stationary star field.
-- **The `deck` offset shifts the observer DOWN and BACK.** The deck position is `(0, -eyeLevel, +forwardOffset)`, which moves the camera below and behind the universe origin (the Sun). This makes the Sun appear at eye level and slightly in front — the observer looks up at the Sun rather than the universe being pushed down to meet them.
-- **The `deck` offset is static**, not recalculated per frame based on head orientation. It is a fixed structural property of the spaceship, set once at rig creation.
-- **Controllers are children of `xrOrigin`**, which is inside `spaceship`. Laser pointer and ring sprite visuals are parented to `cameraMount` (xrOrigin) by `createXrPickController`, ensuring they move correctly during locomotion.
+XR introduces concerns that are not just "viewer controls":
 
-## Scale Conventions
+- WebXR owns headset camera pose.
+- Physical space is meter-scale, while Found in Space data may be parsec,
+  kiloparsec, AU, or arbitrary simulation scale.
+- Controller input is pose-based and continuous.
+- The user has a body, hands, a head, and potentially a ship frame.
+- Motion comfort and motion simulation both matter.
+- Picking is ray-based and often starts from a hand, head, or ship-mounted
+  pointer.
+- UI panels and HUDs need to be placed in immersive space, but the surface
+  system itself belongs to touch-os.
 
-Three scale values interact in XR:
+These concerns are large enough to justify a package, but they should not turn
+XR into a dumping ground for every homeless viewer feature.
 
-| Constant | Value | Meaning |
-|---|---|---|
-| `SCALE` | 0.001 | Octree internal convention: 1 pc = 0.001 world units. Used by desktop rendering and the data pipeline. |
-| `DEFAULT_METERS_PER_PARSEC` | 1.0 | XR default: 1 meter of physical space ≈ 1 parsec. Tunable at runtime. |
-| `starFieldScale` | runtime state | The active XR scale. Defaults to `DEFAULT_METERS_PER_PARSEC`. Changing this lets the user zoom in/out. |
+---
 
-The relationship:
+## 2. Package Responsibilities
 
-- `contentRoot.scale` is set to `starFieldScale / SCALE` — this converts from octree coordinates to XR meters
-- When `starFieldScale = 1.0`, walking 1 meter in the real world moves you roughly 1 parsec through the star field
-- Increasing `starFieldScale` makes the star field larger (stars spread out); decreasing it compresses them
+### XR Owns
 
-The pick controller and star-field shader both read `starFieldScale` from runtime state so they stay in sync when the scale changes.
+`@found-in-space/xr` should own:
 
-## WebXR Integration
+- WebXR-safe rig topology:
+  spaceship, deck, XR origin, head/camera mount, body roots, attachment roots.
+- Immersive body model:
+  head pose, hand/controller poses, future torso/body frame, ship frame.
+- Controller input:
+  handedness, axes, buttons, grip poses, target-ray poses, deadzones.
+- Ray sources:
+  right-hand ray, left-hand ray, head gaze, ship-forward ray, custom ray
+  sources.
+- Generic interaction routing:
+  blockers first, then pick targets, then app callbacks.
+- Motion models:
+  direct movement, inertial ship motion, thrust/mass flight, fly-to, route
+  following, orbit/look-at helpers where they are part of immersive motion.
+- Quaternion-safe transforms:
+  yaw, pitch, roll, translation, look-at, local/world frame transforms.
+- Custom spaceship extension points:
+  mount roots for ship geometry, deck props, effects, controller visuals, and
+  app-owned objects.
+- XR session helpers:
+  support checks, reference-space defaults, enter/exit helpers, render-state
+  and depth-range helpers when those are genuinely XR-specific.
+- Scale profile consumption:
+  motion and comfort code can understand the current navigation-to-meter scale
+  without owning the data-layer scale policy.
+- XR-safe diagnostics:
+  support state, active reference space, current body/ship pose, controller
+  bindings, scale profile, depth telemetry, and ray routing state.
 
-### Reference Space
+### XR Does Not Own
 
-SkyKit uses `local-floor` as the default XR reference space:
+`@found-in-space/xr` should not own:
 
-- Y = 0 is the physical floor
-- The origin is approximately where the user was standing when the session started
-- Head and controller poses are reported relative to this origin
+- touch panels, HUD panels, or visual overlay surface rendering.
+- star rendering, star shaders, or star geometries.
+- star-specific picking math.
+- picked-star highlight geometry, selection rings, labels, or callouts.
+- octree loading, product streams, sidecars, or data providers.
+- H-alpha, dust, galaxy, solar-system, or journey product logic.
+- authored lesson/chapter state.
+- final application composition.
 
-### Session Lifecycle
+---
 
-1. The XR page creates a `ViewerRuntime` with the XR rig topology and XR-configured controllers
-2. `ViewerRuntime.enterXR()` requests an `immersive-vr` session with `local-floor`
-3. The renderer switches to WebXR's animation loop (`setAnimationLoop`)
-4. Near/far clip planes are set for XR distances (default: 0.25m near, 10000m far)
-5. The camera-rig controller runs in XR update mode for the lifetime of the session
-6. On session end, the viewer disposes or the page returns to its options UI — there is no desktop rendering fallback
+## 3. Relationship To Other Packages
 
-### Depth Planes
+### touch-os
 
-With `starFieldScale ≈ 1.0`, the XR depth planes are:
+`touch-os` owns visual surfaces, whether interactive or not:
 
-- **Near**: 0.25m — close enough for controller-attached UI, far enough to avoid nose clipping
-- **Far**: 10,000m — covers stars thousands of parsecs away after scaling
+- hand-mounted panels
+- head/HUD surfaces
+- ship/deck panels
+- wall displays
+- scene-mounted screens
+- canvas/texture/composite-surface lifecycle
+- pointer/ray input into those surfaces
+- blocking/hit information for surfaces that consume a ray
 
-Controller-attached panels and head HUD use `depthTest: false` with high `renderOrder` to render on top of the star field without z-fighting.
+The old SkyKit `xr-tablet-controller` should be treated as reference material
+for touch-os native requirements, not as a permanent XR adapter. The target is
+that a touch-os surface can natively bind to XR placement and input contracts
+without a special SkyKit wrapper.
 
-## Input Handling
+XR may provide poses and rays. touch-os decides how surfaces are mounted,
+rendered, interacted with, and whether a ray is consumed.
 
-### Controllers
+### three-star-field
 
-XR controllers are accessed through `session.inputSources`. Each source provides:
+`three-star-field` owns star rendering and star picking against its own product
+geometries.
 
-- `targetRaySpace` — the pointing direction (used for the laser/pick ray)
-- `gripSpace` — the physical hand position (used for attached UI)
-- `gamepad` — thumbstick axes and button states
-
-The XR pick controller (`xr-pick-controller.js`) creates a laser `Line` and a ring `Sprite` **parented to `cameraMount` (xrOrigin)**, not to the scene root. It uses the **right** controller (`handedness = 'right'`). On each frame it:
-
-1. Gets the right controller ray from `targetRaySpace`
-2. Queries `getLaserOverride()` — if the tablet controller reports a hit, the laser is shortened to the panel surface and star picking is suppressed
-3. Updates the laser visual (full length or shortened)
-4. On trigger press (when not blocked by the tablet), runs the star picker against the ray
-5. Updates the selection ring at a comfortable HUD distance along the pick direction
-
-### Tablet (Hand Menu)
-
-The XR tablet controller (`xr-tablet-controller.js`) is now a thin XR-specific wrapper around the generic scene touch-display host (`scene-touch-display-controller.js`), which itself wraps the shared touch-display runtime (`ui/touch-display.js`). The shared host owns the actual `THREE.Mesh` panel, canvas texture, hover/press state, and pointer dispatch; the XR wrapper only supplies the "left hand tablet" placement rule. The right controller's laser pointer interacts with that same scene object.
-
-The panel is a `THREE.Mesh` with `PlaneGeometry` (0.20m × 0.28m), using `depthTest: false` and high `renderOrder` to render above the star field. The canvas texture is only redrawn when hover/press state changes.
-
-On each frame:
-
-1. Read the left controller's `gripSpace` pose and position the panel mesh
-2. Read the right controller's `targetRaySpace` ray and intersect it with the panel plane
-3. Forward the panel UV hit plus trigger state into the shared touch-display host
-4. Let the display resolve which sub-control owns the interaction and fire its action via `onChange(id, value)`
-
-The tablet controller runs **before** the pick controller in the update loop. It exposes `getHit()` which returns `{ length, blocked: true }` when the pointer ray hits the panel, or `null` otherwise. The pick controller calls this via `getLaserOverride` to shorten its laser and suppress star picks.
-
-Because the touch-display host is scene-native rather than XR-only, the same UI runtime can also be mounted elsewhere:
-
-- parent to `cameraMount` for a head-locked HUD surface
-- parent to `attachmentRoot`, `deck`, or `navigationRoot` for spaceship-fixed panels
-- parent to `contentRoot`, `scene`, or any custom `Object3D` for wall screens and in-world consoles
-- accept mouse rays, XR rays, or both, depending on controller options
-
-Items are plain config objects:
+XR should provide a ray:
 
 ```js
-{ id: 'constellations', label: 'Constellations', type: 'toggle', value: false }
-{ id: 'fly-home', label: 'Fly Home', type: 'button' }
+const ray = rightHandRaySource.getRay(frame);
 ```
 
-Supported types: `toggle` (boolean flip) and `button` (momentary action).
+`three-star-field` decides whether that ray hits a star:
 
-### Locomotion
+```js
+const hit = starField.pick(ray);
+```
 
-Thumbstick locomotion is handled by `XrLocomotionController` (`xr-locomotion-controller.js`):
+This keeps XR generic. It can route rays to stars, meshes, panels, markers, or
+future renderers without learning any star-specific rules.
 
-1. Read thumbstick axes from `inputSources` via `readXrAxes()`
-2. Compute movement direction relative to the **head** orientation (current implementation) or **spaceship** orientation (future option)
-3. Advance the observer's position in parsec space via the shared `camera-rig.js` math
-4. Set `navigationRoot.position` (the spaceship) to the observer's scene-space position
+### skykit
 
-The universe stays at the scene origin. The spaceship moves to represent the observer's position, and everything attached to it — the camera, the deck, the controllers — moves with it. The player can also walk around on the "deck" (room-scale movement within the playspace) for local movement within the spaceship.
+Core `skykit` owns composition:
 
-### Controller Separation
+- create the viewer
+- create data providers
+- create renderers
+- create touch-os surfaces
+- create XR rig/input/motion parts
+- create scene anchor roots for origin-pinned, observer-centric, and
+  scale-banded content
+- wire scale profile, view state, product streams, and pick callbacks together
 
-Navigation and star picking remain in **separate desktop and XR files**, but touch-display panels now use a shared scene host so the same panel can exist in either viewer product:
+SkyKit also owns the scene's scale policy. XR can consume a scale profile, but
+SkyKit decides whether navigation units currently mean parsecs, AU, meters,
+kiloparsecs, or something lesson-specific. SkyKit also decides which content
+root a layer belongs to; XR must not assume that all scene content lives under
+one root.
 
-| Concern | Desktop path | XR path |
-|---|---|---|
-| Navigation | `camera-rig-controller.js` | `xr-locomotion-controller.js` |
-| Star picking | `pick-controller.js` | `xr-pick-controller.js` |
-| Touch-display scene host | `scene-touch-display-controller.js` with mouse rays | `scene-touch-display-controller.js` with XR rays |
-| Hand menu placement | desktop/demo-specific placement callback | `xr-tablet-controller.js` wrapper |
+### Data And Product Packages
 
-Both sides still share `camera-rig.js` for pure quaternion math and position tracking. The important split is that locomotion and star picking do not share input code, while touch-display panels intentionally do share a scene-native interaction host.
+Data packages remain independent:
 
-## Structural Offsets
+- `star-octree-provider` streams star products.
+- `star-products` interprets star products.
+- `meta-sidecar-provider` resolves star metadata.
+- future H-alpha, dust, galaxy, solar-system, and kinematics packages define
+  their own product/provider lanes.
 
-Two fixed offsets position the star-field origin relative to the player:
+XR should not depend on those packages.
 
-| Constant | Default | Purpose |
-|---|---|---|
-| `XR_SUN_EYE_LEVEL_M` | 1.6 | Raises the origin to approximate standing eye level, so the Sun appears at face height rather than at the floor |
-| `XR_SUN_FORWARD_OFFSET_M` | 0.5 | Shifts the origin forward so the Sun sits slightly in front of the player — equivalent to taking a half-step back |
+---
 
-These are applied as the `deck` group's position `(0, -eyeLevel, +forwardOffset)`, set once when the XR rig is created. The negative Y shifts the observer DOWN so the Sun appears UP at eye level; the positive Z shifts the observer BACK so the Sun appears slightly in front. These are structural properties of the deck, not dynamic per-frame calculations.
+## 4. Rig And Body Model
 
-Both values are configurable via options on the XR rig factory.
+The core XR mental model is still a spaceship, but the package should describe
+it as a general immersive rig rather than hardcoding one app's ship.
 
-## Current Scope
+```txt
+scene
+  -> origin content root
+       Gaia stars and other physically located parsec/ICRS data
+       local structures, routes, markers, and origin-pinned products
 
-The current XR implementation is deliberately minimal:
+  -> observer-centric content root
+       constellation art, skyculture images, angular grids, infinity-like
+       overlays; follows observer translation without inheriting ship/head
+       rotation
 
-**Included:**
+  -> scale-banded content roots
+       galaxy-scale, H-alpha, dust, or context layers that recenter/update only
+       at coarse movement thresholds
 
-- Spaceship as invisible reference frame with orientation and velocity
-- Head tracking (camera pose from WebXR)
-- Two controllers with assigned handedness (right = laser/pick, left = tablet)
-- Right-hand laser pointer and star picking, with tablet-aware laser shortening
-- Left-hand tablet (hand menu) with canvas-texture UI, toggle and button items
-- Thumbstick locomotion
-- Tunable star-field scale
-- Controller-attached UI (panels parented to grip space)
-- Head-locked HUD (elements parented to camera)
-- Shared touch-display panels that can also be remounted as deck-fixed or world-fixed scene objects
+  -> navigation root / spaceship root
+       custom ship mesh
+       effects and app-owned ship objects
 
-**Not yet included:**
+       -> deck root
+            static deck offset and deck-fixed objects
 
-- Visible spaceship geometry (floor, panels, hull)
-- Body tracking or inferred torso orientation
-- Multi-pass rendering with separate depth ranges
-- `THREE.Layers` bitmask filtering
-- Hand tracking
-- AR placement or passthrough
+            -> xr origin / head root
+                 WebXR camera/head pose
+                 controller roots
 
-## Agent Rules
+            -> attachment root
+                 ship/deck-mounted app objects
+```
 
-These rules apply when modifying XR-related code:
+Important rules:
 
-1. **Never mutate the camera directly for VR orientation.** In WebXR, the headset overrides `camera.rotation`, `camera.quaternion`, `camera.lookAt()`, and `camera.up`. Move the rig, not the camera.
+- WebXR owns headset camera pose.
+- The app moves the navigation/spaceship root, not the XR camera orientation.
+- Scene content is not one undifferentiated root. Origin-pinned data,
+  observer-centric sky layers, and scale-banded context layers need distinct
+  anchor roots or equivalent anchoring helpers.
+- Observer-centric roots should follow observer translation but should not be
+  children of the spaceship if that would make them inherit ship/head rotation.
+  Constellation art and other infinity-like layers must stay fixed in ICRS
+  direction while remaining centered on the observer.
+- Gaia/star-catalog content and other physically located features are
+  origin-pinned unless a layer explicitly declares a different anchor policy.
+- The deck offset is structural and stable; it is not recalculated each frame
+  from the user's head pose.
+- Controller visuals and hand-attached objects belong under the XR origin or
+  controller roots so they move with the user's embodied frame.
+- Custom spaceship geometry should be easy: users should be able to attach a
+  ship mesh, cockpit, deck, particles, or props without replacing the rig.
 
-2. **Always use the spaceship rig.** The camera must be a descendant of the spaceship group. Never add the camera directly to the scene. XR viewers must be created with the XR rig topology — do not reuse the desktop rig.
+The body model should start simple:
 
-3. **Parent controllers inside `xrOrigin`.** Controller visuals (laser, attached UI) must be children of the XR origin group (`cameraMount`), which itself is inside the spaceship. Never add controller objects directly to the scene root.
+```ts
+interface XrBodyModel {
+  head: XrPose | null;
+  leftHand: XrHandPose | null;
+  rightHand: XrHandPose | null;
+  ship: XrPose;
+  torso?: XrPose | null;
+}
+```
 
-4. **Keep the deck offset static.** The `deck` group position `(0, -eyeLevel, +forwardOffset)` is set once when the XR rig is created, not recalculated per frame from head pose. Dynamic repositioning causes parallax jitter.
+First alpha may only fill head and controller poses. Naming the body model now
+keeps room for torso estimation, hand tracking, comfort locomotion, and body
+relative interactions later.
 
-5. **Do not assume a desktop fallback.** XR viewers are separate instances from desktop viewers. On session end, the viewer disposes or the page returns to options UI — there is no "restore desktop transforms" path.
+---
 
-6. **Use `starFieldScale` for XR scale, not `SCALE`.** The octree constant `SCALE` (0.001) is for the data pipeline. XR code should read `state.starFieldScale` (default 1.0 m/pc) for anything that needs to know the relationship between physical meters and parsecs.
+## 5. Motion Models
+
+Motion is a first-class extension point. The package should not assume the only
+valid motion model is direct translation.
+
+Useful built-ins:
+
+- direct/free movement
+- inertial movement
+- thrust and mass based ship motion
+- fly-to target
+- route following
+- orbit/look-at helpers where they are part of ship movement
+
+The shape should allow applications to replace the model:
+
+```ts
+interface XrMotionModel {
+  update(input: {
+    pose: XrNavigationPose;
+    body: XrBodyModel;
+    controls: XrControlsState;
+    deltaSeconds: number;
+    scale: XrScaleProfile;
+  }): XrNavigationPose;
+}
+```
+
+This lets a teaching demo use simple movement while a game can model thrust,
+mass, drag, fuel, autopilot, or ship damage without forking the whole XR stack.
+
+All orientation and rotation should be quaternion-based. No Euler/gimbal-lock
+paths should become part of the public contract.
+
+---
+
+## 6. Scale Profile
+
+XR should not own parsec-to-meter policy, but it needs a hook into it.
+
+SkyKit or the application supplies a scale profile:
+
+```ts
+interface XrScaleProfile {
+  navigationUnits: 'pc' | 'au' | 'm' | 'kpc' | string;
+  metersPerNavigationUnit: number;
+  worldUnitsPerNavigationUnit?: number;
+}
+```
+
+Motion plugins can then reason about both semantic speed and physical comfort:
+
+```txt
+navigation speed: 4 pc/s
+immersive perceived speed: 4 m/s at the current scale
+```
+
+XR may use this profile for:
+
+- motion speed and acceleration reporting
+- comfort limits in meters per second
+- controller ray lengths
+- depth range calculations
+- ship effects that depend on perceived speed
+
+SkyKit remains responsible for telling renderers and data providers what scale
+means in their own coordinate systems.
+
+---
+
+## 7. Rays, Blocking, And Picking
+
+Picking in XR is not star-specific. The generic problem is:
+
+```txt
+ray source -> blockers -> pick targets -> app callback
+```
+
+Ray sources may be:
+
+- right-hand controller
+- left-hand controller
+- head gaze
+- ship-forward ray
+- custom app ray
+
+Blockers are usually touch-os surfaces. If a ray hits an interactive panel,
+that panel should consume or shorten the ray so it does not also pick a star
+behind the panel.
+
+Pick targets are renderer-owned:
+
+- `three-star-field` can pick stars.
+- a mesh layer can raycast meshes.
+- a marker layer can pick markers.
+- a game can supply its own target list.
+
+XR owns the routing mechanics and visual affordances such as a laser pointer.
+It does not own the meaning of every possible hit.
+
+Target-specific hit effects should remain target-owned. For example, a picked
+star ring, label, or callout should come from `three-star-field`, an anchored
+image/marker layer, touch-os, or application code. XR can expose the selected
+ray and route the event; it should not become the universal selection-rendering
+package.
+
+Example shape:
+
+```js
+const pickRouter = createXrPickRouter({
+  raySource: xr.rightHandRay(),
+  blockers: [touchSurface],
+  targets: [starField, markerLayer],
+  onPick(hit) {
+    app.select(hit);
+  },
+});
+```
+
+---
+
+## 8. Control Bindings
+
+The proof-of-concept XR demo used useful defaults:
+
+- right stick: translation/thrust
+- left stick: attitude
+- left grip modifier: roll instead of yaw
+- right trigger: select
+- left hand: tablet/surface placement
+
+Those defaults are good reference behavior, not hard-coded semantics. The alpha
+XR package should expose configurable control bindings as a clear public
+surface.
+
+The important split is:
+
+```txt
+raw WebXR input sources
+  -> named control state
+  -> motion / picking / app actions
+```
+
+Students should not need to learn WebXR `inputSources`, gamepad axis arrays,
+button indices, handedness quirks, and deadzone handling before they can add a
+new cockpit action. They should be able to name a control and wire behavior to
+that name.
+
+```ts
+interface XrControlBindings {
+  axes?: Record<string, XrAxisBinding>;
+  buttons?: Record<string, XrButtonBinding>;
+  deadzone?: number;
+}
+
+interface XrAxisBinding {
+  hand: 'left' | 'right' | 'any';
+  stick?: 'primary' | 'secondary';
+  axes?: [number, number];
+  invertX?: boolean;
+  invertY?: boolean;
+}
+
+interface XrButtonBinding {
+  hand: 'left' | 'right' | 'any';
+  button: 'trigger' | 'grip' | 'primary' | 'secondary' | number;
+}
+```
+
+Example:
+
+```js
+const controls = createXrControlBindings({
+  axes: {
+    move: { hand: 'right', stick: 'primary' },
+    attitude: { hand: 'left', stick: 'primary' },
+  },
+  buttons: {
+    select: { hand: 'right', button: 'trigger' },
+    rollModifier: { hand: 'left', button: 'grip' },
+    boost: { hand: 'right', button: 'grip' },
+    toggleMap: { hand: 'left', button: 'primary' },
+  },
+});
+```
+
+Motion models consume named controls, not raw gamepad slots:
+
+```js
+const motion = createInertialShipMotionModel({
+  moveAxis: 'move',
+  attitudeAxis: 'attitude',
+  rollModifier: 'rollModifier',
+  boostButton: 'boost',
+});
+```
+
+Applications and lessons can add behaviors by name:
+
+```js
+controls.on('toggleMap', ({ pressedEdge }) => {
+  if (pressedEdge) {
+    mapSurface.toggle();
+  }
+});
+
+controls.on('boost', ({ pressed }) => {
+  shipEffects.setBoosting(pressed);
+});
+```
+
+The binding layer should be:
+
+- declarative: bindings are plain data.
+- named: behavior refers to `boost`, `select`, `move`, etc.
+- remappable: controls can be changed without replacing the motion model.
+- inspectable: snapshots/debug output show current bindings and live values.
+- event-capable: button edges and held states are both easy to observe.
+- polling-capable: motion models can read axis/button state each frame.
+- teachable: examples can add one new button behavior in a few lines.
+
+This lets lessons swap hands, support alternative controller layouts, or add
+game-specific controls without replacing the whole XR package.
+
+Head pose and ship pose must also remain distinct. Physical head yaw/pitch is
+useful for gaze, targeting, and comfort, but it should not silently steer ship
+thrust unless the selected motion model asks for that. The old implementation's
+important lesson was that ship motion can remain in ship coordinates even while
+the user looks around inside the cockpit.
+
+---
+
+## 9. Session And Render Helpers
+
+Some WebXR mechanics are useful enough to expose from the XR package:
+
+- `isXrModeSupported(mode)`
+- `enterXrSession({ mode, referenceSpaceType, sessionInit })`
+- `exitXrSession()`
+- reference space defaults such as `local-floor`
+- frame pose extraction helpers
+- render-state helpers for near/far depth planes
+- depth telemetry for debugging
+
+These helpers must remain renderer/runtime friendly. They should not require a
+star viewer, touch surface, or SkyKit lesson.
+
+Core SkyKit may wrap them in friendly viewer factories, but the lower-level XR
+package should stay useful to games and custom Three.js applications.
+
+Depth helpers deserve special care. The proof-of-concept dynamically sized the
+XR far plane from selected octree node bounds, observer position, scale, and an
+optional constellation/sky sphere. In alpha, the equivalent helper should be
+domain-neutral:
+
+```txt
+visible bounds / anchor root diagnostics + scale profile + near/far policy
+  -> XR render-state depth range + telemetry
+```
+
+The helper may accept bounds from star selections, marker layers, sky spheres,
+or other products, but it should not import the star provider. It should report
+when a minimum or maximum clamp was applied so demos can diagnose missing or
+clipped content.
+
+---
+
+## 10. Renderer Readability Is Not XR Ownership
+
+The old XR demo contained star-renderer tuning for headset readability:
+
+- stronger exposure
+- nearby magnitude floors
+- nearby minimum point size / alpha floors
+- hyperlocal star-size caps
+- clip/depth readability tweaks
+
+Those behaviors are important, but the XR package should not own star shader
+policy. XR supplies:
+
+- body/head/camera pose
+- current scale profile
+- render-state/depth telemetry
+- ray/input state
+
+Renderer packages decide how to use that information. `three-star-field` may
+offer an XR-friendly material profile, while other renderers may do something
+entirely different.
+
+---
+
+## 11. Desktop Relationship
+
+The XR package is not a general desktop controls package.
+
+It may include desktop-compatible helpers only when they exercise the same
+contracts:
+
+- previewing a spaceship rig without a headset
+- testing motion models outside WebXR
+- using mouse rays as a stand-in for controller rays
+- running unit tests for body/ray/motion logic
+
+Normal desktop camera controls can live in core SkyKit or another composition
+layer unless they genuinely share the XR embodiment model.
+
+---
+
+## 12. First Alpha Slice
+
+A practical first slice for `@found-in-space/xr` would be:
+
+1. Create the package with plain ESM and hand-written `.d.ts`.
+2. Implement the XR rig/body roots and custom spaceship mount points.
+3. Implement controller input helpers: axes, buttons, grip pose, target ray.
+4. Implement named, declarative, inspectable, remappable control bindings.
+5. Implement direct and inertial/thrust motion models.
+6. Implement ray sources and generic pick router with blocker support.
+7. Implement scale profile consumption.
+8. Implement WebXR session/depth helpers where they are cleanly separable.
+9. Add tests using fake XR frame/session/input-source objects.
+10. Update SkyKit composition docs to use the package, without rewriting old
+   `src/` viewers yet.
+
+The old `src/controllers/xr-*`, `src/core/runtime-rig.js`, and
+`src/services/render/xr-depth-range.js` files are reference material only.
+Alpha implementation should be rewritten into the new package shape.
+
+---
+
+## 13. Design Rules
+
+Use these rules when deciding whether a feature belongs in XR:
+
+```txt
+Does it describe immersive embodiment, controller/body input, ship motion,
+XR session state, or generic ray routing?
+  -> XR package
+
+Does it draw or manage a visual surface, panel, HUD, or embedded display?
+  -> touch-os
+
+Does it render stars or decide which star a ray hit?
+  -> three-star-field / star-products
+
+Does it load data or stream products?
+  -> provider package
+
+Does it compose packages into a lesson or viewer?
+  -> skykit or journey
+```
+
+This keeps XR broad enough to be useful, but narrow enough not to become a
+dumping ground.
