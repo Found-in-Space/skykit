@@ -92,7 +92,7 @@ boundaries we expect to extract without implying that code already exists.
   planned: time-aware solar-system and trajectory products at AU scale
 
 @found-in-space/three-star-field
-  planned: Three.js star field adapter
+  implemented: Three.js product renderer for star batches and star-product deltas
 
 @found-in-space/journey
   planned: authored lesson runtime and editor model for chapters, narration, camera
@@ -157,6 +157,20 @@ a star product and it does not contain skyculture assets. It provides the
 generic representation and renderer-adjacent adapters for images anchored to
 ICRS directions or parsec-space positions, while cultural image packages retain
 their own assets, names, attribution, and licenses.
+
+`@found-in-space/three-star-field` should be a renderer package, not a provider
+or viewer. It should consume `StarObjectBatchProduct` values and product deltas
+from `@found-in-space/star-products`, own the Three.js geometry/material/shader
+lifecycle, and preserve mapping from rendered points back to product/object
+indices for picking. It should return an attachable Three.js object or group so
+applications, games, `skykit`, and touch-os surfaces can place it where they
+need it.
+
+It should not load octrees, subscribe to provider sessions directly, own camera
+controls, own journey timing, fetch sidecars, or bake in old scene-scale
+constants. Product coordinates are already in the requested output profile; a
+Three.js adapter may expose render-scale/group-scale controls, but parsec-to-scene
+policy belongs to the application composition layer.
 
 ---
 
@@ -541,6 +555,8 @@ star-products object refs -> meta-sidecar-provider
 
 star-products -> hr-diagram -> optional touch-os composite surface adapter
 
+star-products -> three-star-field -> Three.js scene/game/viewer adapters
+
 anchored-image -> Canvas2D / Three.js image overlays through explicit adapters
 ```
 
@@ -559,7 +575,11 @@ package. Its WebGL path consumes star products directly and its touch-os subpath
 is a display adapter only; interactive brushing and forwarded input remain
 future work.
 
-The next learning package should be chosen by the teaching path it unlocks: a
-Three.js star-field adapter, journey/runtime composition, kinematics sidecars,
-solar/trajectory products, or interactive source-input controls for embedded
-scientific instruments.
+`@found-in-space/three-star-field` is now the first spatial Three.js star
+renderer lane. It consumes star products and deltas, owns geometry/material
+lifecycle, and leaves provider sessions, cameras, sidecars, and lesson timing to
+application composition layers.
+
+The next learning package should be chosen by the teaching path it unlocks:
+journey/runtime composition, kinematics sidecars, solar/trajectory products, or
+interactive source-input controls for embedded scientific instruments.
