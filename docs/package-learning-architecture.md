@@ -62,6 +62,9 @@ Current package ladder and intended direction:
 @found-in-space/star-octree-provider
   octree loading/session/streaming, emits star products
 
+@found-in-space/star-volume-query
+  reusable sphere/path volume demand helpers on top of star-octree-provider
+
 @found-in-space/star-map-canvas
   2D projected canvas starmap adapter for spatial star products, learning,
   and lightweight apps
@@ -72,7 +75,8 @@ Current package ladder and intended direction:
   nebula overlays, and future spatial image meshes
 
 @found-in-space/hr-diagram
-  reusable HR diagram data model, renderer, and optional touch-os panel controls
+  reusable HR diagram data model, canvas fallback, WebGL renderer, and optional
+  touch-os composite-surface controls
 
 @found-in-space/star-kinematics-provider
   proper-motion, radial-velocity, and epoch sidecars for dynamic-universe
@@ -104,6 +108,7 @@ Dependency direction should stay clean:
 product-stream
   <- star-products
       <- star-octree-provider
+          <- star-volume-query
 
 star-products
   <- star-map-canvas
@@ -317,15 +322,22 @@ An HR diagram is a reusable scientific instrument:
 ```txt
 @found-in-space/hr-diagram
   -> HR diagram data model
-  -> HR diagram renderer
+  -> Canvas2D fallback renderer
+  -> Three/WebGL high-volume renderer
   -> selection/brush helpers
-  -> optional touch-os panel controls
+  -> optional touch-os composite embedded-surface controls
 ```
 
 It may depend on `@found-in-space/star-products` for star iteration,
 temperature, magnitude, and store integration. It may depend on `touch-os` for
 interactive panel controls. It should not know about Orion-specific lessons,
 camera fly-throughs, narrated chapters, or website page structure.
+
+Volume and path selection are reusable star-query concerns, not HR-diagram
+concerns. `@found-in-space/star-volume-query` provides sphere and path custom
+strategies for `@found-in-space/star-octree-provider`, plus travel-radius
+preload request helpers for moving lessons. HR diagrams can consume those
+products, but other tools can reuse the same volume/path query package.
 
 A journey framework is allowed to be chunkier because authored experiences have
 real machinery:

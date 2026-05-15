@@ -1,0 +1,41 @@
+{
+  "name": "@found-in-space/hr-diagram",
+  "version": "0.0.0-alpha.0",
+  "description": "Reusable HR diagram data, canvas, WebGL, and touch-os helpers for Found in Space star products",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./touch-os": {
+      "types": "./src/touch-os.d.ts",
+      "default": "./src/touch-os.js"
+    }
+  },
+  "files": [
+    "src",
+    "examples",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@found-in-space/star-products": "0.0.0-alpha.0"
+  },
+  "peerDependencies": {
+    "@found-in-space/touch-os": ">=0.2.0-dev.0 <1",
+    "three": "^0.170.0"
+  },
+  "peerDependenciesMeta": {
+    "@found-in-space/touch-os": {
+      "optional": true
+    }
+  }
+}

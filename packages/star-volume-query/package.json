@@ -1,0 +1,29 @@
+{
+  "name": "@found-in-space/star-volume-query",
+  "version": "0.0.0-alpha.0",
+  "description": "Reusable sphere and path volume query helpers for Found in Space star octree providers",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "examples",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@found-in-space/star-octree-provider": "0.0.0-alpha.0",
+    "@found-in-space/star-products": "0.0.0-alpha.0"
+  }
+}
