@@ -84,6 +84,11 @@ boundaries we expect to extract without implying that code already exists.
   implemented: reusable HR diagram data model, canvas fallback, WebGL renderer,
   and optional display-only touch-os composite-surface adapter
 
+@found-in-space/experimental-structure-layers
+  implemented: experimental preservation package for current H-alpha tiled
+  volumes, Dust Map NG helpers, and density/structure rendering experiments;
+  not a stable product/provider lane
+
 @found-in-space/star-kinematics-provider
   planned: proper-motion, radial-velocity, and epoch sidecars for dynamic-universe
   lessons and trajectory/encounter analysis
@@ -136,6 +141,9 @@ anchored-image
   <- star-map-canvas examples and 2D overlays
   <- skykit viewer-layer wrappers
 
+experimental-structure-layers
+  imports Three.js only and remains outside the stable product-stream ladder
+
 journey
   imports domain packages only through explicit adapters
 
@@ -171,6 +179,14 @@ controls, own journey timing, fetch sidecars, or bake in old scene-scale
 constants. Product coordinates are already in the requested output profile; a
 Three.js adapter may expose render-scale/group-scale controls, but parsec-to-scene
 policy belongs to the application composition layer.
+
+`@found-in-space/experimental-structure-layers` is deliberately different from
+the stable product/provider packages. It preserves useful H-alpha tiled-volume,
+Dust Map NG, and density-field work as an external alpha package so those demos
+and experiments can keep moving without making H-alpha or dust part of core
+SkyKit. It should not be treated as the final H-alpha, dust, or galaxy product
+architecture; mature structure layers can graduate later into stable provider
+and product-stream lanes.
 
 ---
 
@@ -558,6 +574,8 @@ star-products -> hr-diagram -> optional touch-os composite surface adapter
 star-products -> three-star-field -> Three.js scene/game/viewer adapters
 
 anchored-image -> Canvas2D / Three.js image overlays through explicit adapters
+
+experimental-structure-layers -> experimental H-alpha / dust Three.js layers
 ```
 
 `@found-in-space/star-map-canvas` consumes `StarRepresentationStore` rows, not
@@ -579,6 +597,11 @@ future work.
 renderer lane. It consumes star products and deltas, owns geometry/material
 lifecycle, and leaves provider sessions, cameras, sidecars, and lesson timing to
 application composition layers.
+
+`@found-in-space/experimental-structure-layers` preserves the current H-alpha
+and dust/volume rendering experiments outside core SkyKit. It is useful as a
+reference and demo dependency, but it is not the stable structural-product lane
+that future galaxy, dust, or nebula packages should copy blindly.
 
 The next learning package should be chosen by the teaching path it unlocks:
 journey/runtime composition, kinematics sidecars, solar/trajectory products, or

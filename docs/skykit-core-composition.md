@@ -256,8 +256,8 @@ Examples:
 - metadata sidecar provider
 - proper-motion sidecar
 - solar-system ephemeris provider
-- H-alpha product provider
-- dust/extinction provider
+- future H-alpha product provider
+- future dust/extinction provider
 - galaxy structure provider
 - derived statistics stores
 
@@ -270,7 +270,7 @@ Examples:
 - `three-star-field`
 - `star-map-canvas`
 - HR diagram renderer
-- H-alpha volume renderer
+- experimental H-alpha / dust structure layers
 - anchored image / skyculture art renderer
 - custom marker, trail, mesh, or shader layer
 
@@ -971,7 +971,7 @@ Examples:
 
 - galactic structure
 - galaxy-scale context meshes
-- H-alpha or dust context layers at kpc scale
+- external H-alpha or dust context layers at kpc scale
 
 This policy avoids both extremes: layers should not churn every frame, but they
 also should not silently treat the Sun as the permanent center of the universe.
@@ -1208,8 +1208,9 @@ story code into core SkyKit.
 - How much DOM HUD support should remain in SkyKit once touch-os is available?
 - Should radio bubble remain a small core teaching layer, or become a later
   product/layer package if it grows?
-- Which H-alpha and dust preserve candidates need formal product-lane plans
-  before old-core code can be removed?
+- Which H-alpha, dust, and galaxy experiments are mature enough to graduate from
+  `@found-in-space/experimental-structure-layers` into stable product/provider
+  lanes?
 
 ---
 
