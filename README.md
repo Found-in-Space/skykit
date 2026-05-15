@@ -29,6 +29,7 @@ Examples of the intended package direction:
 - `@found-in-space/star-products`: star product stores, iteration, math, projections, and display helpers
 - `@found-in-space/star-octree-provider`: star octree loading, streaming, sessions, and product emission
 - `@found-in-space/star-map-canvas`: lightweight 2D starmap rendering
+- `@found-in-space/anchored-image`: renderer-neutral anchored image manifests, solving, and Canvas2D/Three.js image adapters
 - `@found-in-space/star-kinematics-provider`: proper-motion and velocity sidecars for dynamic-universe lessons
 - `@found-in-space/solar-ephemeris`: time-aware solar-system and trajectory products
 - `@found-in-space/skykit`: friendly composition exports and teaching-oriented examples
@@ -101,6 +102,8 @@ Override with `?constellationManifestUrl=...`. Dataset URLs can be overridden wi
 - [`docs/alpha-rules.md`](./docs/alpha-rules.md): current alpha rewrite rules and package-boundary guidance
 - [`docs/package-learning-architecture.md`](./docs/package-learning-architecture.md): alpha package direction for teaching-oriented modules
 - [`docs/star-octree-provider.md`](./docs/star-octree-provider.md): current alpha contract for `@found-in-space/star-octree-provider`
+- [`docs/star-map-canvas.md`](./docs/star-map-canvas.md): current alpha contract for `@found-in-space/star-map-canvas`
+- [`docs/anchored-image.md`](./docs/anchored-image.md): current alpha contract for `@found-in-space/anchored-image`
 - [`docs/viewer-architecture.md`](./docs/viewer-architecture.md): legacy proof-of-concept viewer architecture; may be stale
 - [`docs/xr-architecture.md`](./docs/xr-architecture.md): legacy proof-of-concept XR architecture; may be stale
 - [`docs/hr-diagram-touch-display.md`](./docs/hr-diagram-touch-display.md): legacy proof-of-concept touch-display design; may be stale

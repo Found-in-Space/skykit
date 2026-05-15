@@ -49,7 +49,7 @@ temperature decoding, or coordinate projection.
 
 ## 2. Package Ladder
 
-Recommended package direction:
+Current package ladder and intended direction:
 
 ```txt
 @found-in-space/product-stream
@@ -150,44 +150,66 @@ their own assets, names, attribution, and licenses.
 
 ## 3. Generic Product Stream Contract
 
-The reusable layer should understand only product lifecycle:
+The reusable layer understands only product lifecycle. The current public surface
+is intentionally small and domain-free:
 
 ```ts
 export type ProductDelta<Product> =
   | {
       type: 'data/product-upsert';
       product: Product;
+      streamId?: string;
+      providerId?: string;
+      sessionId?: string;
     }
   | {
       type: 'data/product-stale';
       productId: string;
+      providerId?: string;
+      sessionId?: string;
       reason?: string;
     }
   | {
       type: 'data/product-remove';
       productId: string;
+      providerId?: string;
+      sessionId?: string;
       reason?: string;
     }
   | {
       type: 'data/representation-current';
+      providerId?: string;
+      sessionId?: string;
       demandRevision?: number;
       viewRevision?: number;
+      productIds?: string[];
+      completeness?: unknown;
     }
   | {
       type: 'data/product-error';
-      error: { message: string };
+      streamId?: string;
+      providerId?: string;
+      sessionId?: string;
+      error: { message: string; code?: string };
     };
+
+export interface RepresentationStoreSnapshot {
+  status: 'idle' | 'streaming' | 'current' | 'failed';
+  productCount: number;
+  bytes: number;
+  lastError?: string | null;
+  lastCurrentRevision?: {
+    viewRevision?: number;
+    demandRevision?: number;
+  } | null;
+}
 
 export interface RepresentationStore<Product> {
   apply(delta: ProductDelta<Product>): void;
   subscribe(listener: () => void): () => void;
   getProducts(): Product[];
-  getSnapshot(): {
-    status: 'idle' | 'streaming' | 'current' | 'failed';
-    productCount: number;
-    bytes: number;
-    lastError?: string | null;
-  };
+  getSnapshot(): RepresentationStoreSnapshot;
+  clear(): void;
 }
 ```
 
@@ -213,10 +235,11 @@ export interface StarRepresentationStore {
   getObjectRef(productId: string, objectIndex: number): CanonicalObjectRef | null;
   getPickMeta(productId: string, objectIndex: number): StarPickMeta | null;
   getSnapshot(): StarRepresentationSnapshot;
+  clear(): void;
 }
 ```
 
-It should also provide star math and projection helpers:
+It also provides star math and projection helpers:
 
 ```ts
 apparentMagnitude({ magAbs, distancePc });
@@ -253,7 +276,7 @@ const session = provider.createSession({
   attributes: ['position', 'magAbs', 'teffLog8', 'objectRef', 'pickMeta'],
 });
 
-consumeProductDeltas(session.deltas(), store);
+void consumeProductDeltas(session.deltas(), store);
 
 store.subscribe(() => {
   map.render({ observerPc, limitingMagnitude });
@@ -482,20 +505,27 @@ adapter, combined by a higher-level scene/composition layer.
 
 ---
 
-## 10. Suggested Next Sprint
+## 10. Current Visual Package Status
 
-The product lifecycle and star product foundations now exist. The next useful
-learning slice should prove the first visual layer on top of them:
+The product lifecycle, star product, octree streaming, and first 2D visual
+adapter foundations now exist:
 
 ```txt
-1. Build a static 2D canvas starmap example using:
-   star-octree-provider -> star-products store -> canvas rendering.
-2. Keep the example source-agnostic at the adapter boundary: the canvas map
-   consumes StarRepresentationStore rows, not octree provider internals.
-3. Extract @found-in-space/star-map-canvas as the reusable Canvas2D adapter for
-   spatial star products.
+star-octree-provider -> star-products store -> star-map-canvas
+
+anchored-image -> Canvas2D / Three.js image overlays through explicit adapters
 ```
 
-The extracted `@found-in-space/star-map-canvas` package should not absorb
-guide-star catalog products, Three.js rendering, or galaxy-map backgrounds.
-Those remain separate source or renderer lanes.
+`@found-in-space/star-map-canvas` consumes `StarRepresentationStore` rows, not
+octree provider internals. It should not absorb guide-star catalog products,
+Three.js rendering, or galaxy-map backgrounds. Those remain separate source or
+renderer lanes.
+
+`@found-in-space/anchored-image` sits beside it as a renderer-neutral support
+package for skyculture art, survey plates, and future anchored spatial image
+meshes. It should not absorb star rendering, product streams, or SkyKit viewer
+lifecycle.
+
+The next learning package should be chosen by the teaching path it unlocks: HR
+diagrams and touch panels, a Three.js star-field adapter, journey/runtime
+composition, kinematics sidecars, or solar/trajectory products.

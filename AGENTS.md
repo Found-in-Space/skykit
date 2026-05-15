@@ -14,6 +14,7 @@
 - Keep package boundaries clear: generic product lifecycle belongs in reusable product-stream style packages; star interpretation belongs in star-specific packages; rendering adapters should consume products/stores rather than owning data loading.
 - Do not fold sidecars, ephemerides, kinematics, H-alpha maps, galaxy models, or renderer-specific logic into the star octree provider. Those should remain separate product/provider lanes that can be composed by applications.
 - Not every Found in Space package has to be a universe-data module. Interaction/surface infrastructure such as `touch-os` should stay as a separate package that `skykit` can depend on rather than being folded into core `skykit`.
+- Current extracted alpha packages include `@found-in-space/product-stream`, `@found-in-space/star-products`, `@found-in-space/star-octree-provider`, `@found-in-space/star-map-canvas`, and `@found-in-space/anchored-image`.
 - Follow `docs/alpha-rules.md`: alpha work is a clean rewrite into the new package shape. Old proof-of-concept code is reference-only unless the user explicitly asks otherwise.
 - Use `docs/package-learning-architecture.md` as the current package-learning direction when deciding where new teaching-oriented functionality should live.
 
@@ -57,8 +58,13 @@
 
 ### Documentation
 
-- `docs/viewer-architecture.md` — core architecture: runtime, data services, layers, fields, controllers, embedding API.
-- `docs/xr-architecture.md` — WebXR spaceship rig, scale conventions, input handling, depth planes, and XR-specific agent rules.
+- `docs/alpha-rules.md` — current alpha rewrite rules and package-boundary guidance.
+- `docs/package-learning-architecture.md` — current alpha package-learning direction.
+- `docs/star-octree-provider.md` — current alpha contract for `@found-in-space/star-octree-provider`.
+- `docs/star-map-canvas.md` — current alpha contract for `@found-in-space/star-map-canvas`.
+- `docs/anchored-image.md` — current alpha contract for `@found-in-space/anchored-image`.
+- `docs/viewer-architecture.md` — legacy proof-of-concept viewer architecture; may be stale.
+- `docs/xr-architecture.md` — legacy proof-of-concept XR architecture; may be stale.
 
 ### WebXR & Camera Constraints (STRICT)
 

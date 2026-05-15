@@ -498,7 +498,7 @@ interface StarObjectBatchProduct {
   };
   refs?: CanonicalObjectRef[];
   pickMeta?: StarPickMeta[];
-  completeness: ProductCompleteness;
+  completeness: StarProductCompleteness;
   memory: {
     ownership: 'borrowed' | 'copy' | 'transfer';
     bytes: number;
