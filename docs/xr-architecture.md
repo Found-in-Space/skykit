@@ -68,7 +68,8 @@ XR into a dumping ground for every homeless viewer feature.
   blockers first, then pick targets, then app callbacks.
 - Motion models:
   direct movement, inertial ship motion, thrust/mass flight, fly-to, route
-  following, orbit/look-at helpers where they are part of immersive motion.
+  following, orbit, orbital-insert, look-at, and lock-at helpers where they are
+  part of immersive motion.
 - Quaternion-safe transforms:
   yaw, pitch, roll, translation, look-at, local/world frame transforms.
 - Custom spaceship extension points:
@@ -255,12 +256,9 @@ valid motion model is direct translation.
 
 Useful built-ins:
 
-- direct/free movement
-- inertial movement
-- thrust and mass based ship motion
-- fly-to target
-- route following
-- orbit/look-at helpers where they are part of ship movement
+- implemented now: direct/free movement, inertial movement, thrust and mass
+  based ship motion, fly-to target, route following, orbit, orbital insert,
+  look-at, and lock-at helpers.
 
 The shape should allow applications to replace the model:
 
@@ -498,6 +496,12 @@ star viewer, touch surface, or SkyKit lesson.
 Core SkyKit may wrap them in friendly viewer factories, but the lower-level XR
 package should stay useful to games and custom Three.js applications.
 
+The alpha package also exposes `applyXrDepthRange()` as a small render-state
+bridge. It accepts a computed XR depth range and a session/session handle, calls
+`updateRenderState({ depthNear, depthFar })` when available, and reports whether
+the update was applied. This keeps render-state mutation explicit instead of
+hiding it inside the depth calculation itself.
+
 Depth helpers deserve special care. The proof-of-concept dynamically sized the
 XR far plane from selected octree node bounds, observer position, scale, and an
 optional constellation/sky sphere. In alpha, the equivalent helper should be
@@ -564,10 +568,12 @@ The first alpha slice for `@found-in-space/xr` implements:
 - XR rig/body roots and custom spaceship mount points.
 - controller input helpers for axes, buttons, grip pose, and target rays.
 - named, declarative, inspectable, remappable control bindings.
-- direct, inertial, thrust, and fly-to motion models.
+- direct, inertial, thrust, fly-to, route-follow, orbit, orbital-insert,
+  look-at, lock-at, and navigation-automation motion helpers.
 - ray sources and generic pick router with blocker support.
 - scale profile consumption.
-- WebXR session helpers and domain-neutral depth telemetry.
+- WebXR session helpers, domain-neutral depth telemetry, and explicit
+  render-state depth application.
 - tests using fake XR frame/session/input-source objects.
 
 The package intentionally does not rewrite old `src/` viewers yet. That

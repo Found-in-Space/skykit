@@ -49,7 +49,9 @@ export function createXrBodyTracker(options = {}) {
       head,
       leftHand: null,
       rightHand: null,
-      ship: context.shipPose ? normalizePose(context.shipPose) : clonePose(body.ship),
+      ship: context.shipPose
+        ? normalizePose(context.shipPose)
+        : context.rig?.getNavigationPose?.() ?? clonePose(body.ship),
       torso: null,
     };
 
@@ -78,7 +80,7 @@ export function createXrBodyTracker(options = {}) {
       }
     }
 
-    if (context.rig && nextBody.ship) {
+    if (context.rig && context.shipPose) {
       context.rig.setNavigationPose(nextBody.ship);
     }
 

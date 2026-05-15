@@ -10,6 +10,8 @@ create touch panels, or compose a full SkyKit viewer.
 ```js
 import * as THREE from 'three';
 import {
+  createXrNavigationAutomation,
+  createXrBodyTracker,
   createXrControlBindings,
   createXrRig,
   createDirectXrMotionModel,
@@ -34,17 +36,52 @@ const controls = createXrControlBindings({
 });
 
 const motion = createDirectXrMotionModel();
+const bodyTracker = createXrBodyTracker();
 
 function frame({ xrFrame, referenceSpace, inputSources, deltaSeconds }) {
   controls.update(inputSources);
+  const body = bodyTracker.update({
+    frame: xrFrame,
+    referenceSpace,
+    inputSources,
+    rig,
+  });
   const nextPose = motion.update({
     pose: rig.getNavigationPose(),
+    body,
     controls,
     deltaSeconds,
     scale: rig.getScaleProfile(),
   });
   rig.setNavigationPose(nextPose);
-  rig.updateBody({ frame: xrFrame, referenceSpace, inputSources });
+}
+```
+
+Navigation automation is also plain-data and can be layered on top of the rig:
+
+```js
+const navigation = createXrNavigationAutomation();
+
+navigation.flyPolyline([
+  { x: 0, y: 0, z: 0 },
+  { x: 8, y: 0, z: -24 },
+], {
+  durationSecs: 4,
+  arrivalAction: {
+    type: 'orbit',
+    center: { x: 8, y: 0, z: -32 },
+    radius: 8,
+    angularSpeed: 0.08,
+  },
+});
+
+function animationFrame(deltaSeconds) {
+  const nextPose = navigation.update({
+    pose: rig.getNavigationPose(),
+    deltaSeconds,
+    scale: rig.getScaleProfile(),
+  });
+  rig.setNavigationPose(nextPose);
 }
 ```
 

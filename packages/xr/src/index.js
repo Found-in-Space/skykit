@@ -14,6 +14,19 @@ export {
   createInertialXrMotionModel,
   createThrustXrMotionModel,
 } from './xr-motion.js';
+export {
+  applyXrDepthRange,
+  buildXrOrbitalInsertRoute,
+  buildXrPolylineRoute,
+  computeXrLookAtOrientation,
+  createLookAtXrMotionModel,
+  createOrbitXrMotionModel,
+  createOrbitalInsertXrMotionModel,
+  createRouteFollowXrMotionModel,
+  createXrNavigationAutomation,
+  deriveXrOrbitAngle,
+  sampleXrPolylineRoutePosition,
+} from './xr-navigation.js';
 export { createXrRaySource } from './xr-rays.js';
 export { createXrPickRouter } from './xr-pick-router.js';
 export { computeXrDepthRange } from './xr-depth.js';
