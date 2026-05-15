@@ -1,0 +1,33 @@
+{
+  "name": "@found-in-space/skykit",
+  "version": "0.0.0-alpha.0",
+  "description": "Slim composition and teaching layer for Found in Space packages",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@found-in-space/product-stream": "0.0.0-alpha.0",
+    "@found-in-space/star-octree-provider": "0.0.0-alpha.0",
+    "@found-in-space/star-products": "0.0.0-alpha.0",
+    "@found-in-space/three-star-field": "0.0.0-alpha.0"
+  },
+  "peerDependencies": {
+    "three": "^0.170.0"
+  }
+}

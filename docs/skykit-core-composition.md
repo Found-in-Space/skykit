@@ -1,6 +1,7 @@
 # SkyKit Core Composition Architecture
 
-Status: current alpha planning document.
+Status: current alpha planning document. The first `@found-in-space/skykit`
+package slice has landed.
 
 This document captures the intended shape of core `@found-in-space/skykit` as
 the proof-of-concept viewer code is replaced by first-alpha packages. It should

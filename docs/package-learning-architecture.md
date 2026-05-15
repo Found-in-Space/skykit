@@ -109,8 +109,9 @@ boundaries we expect to extract without implying that code already exists.
   beats, timed cues, preload hints, and video/story production
 
 @found-in-space/skykit
-  slim composition/convenience layer, debug bridge, and teaching entrypoints;
-  not the owner of all functionality
+  implemented first alpha slice: slim Three.js composition/convenience layer,
+  plugin/part lifecycle, streaming star layer, desktop observer rig, and debug
+  bridge; not the owner of all functionality
 ```
 
 Support packages that are useful to Found in Space but are not themselves

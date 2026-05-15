@@ -1,6 +1,7 @@
 {
-  "name": "@found-in-space/skykit",
+  "name": "@found-in-space/skykit-workspace",
   "version": "0.1.1",
+  "private": true,
   "description": "Reusable runtime for building Found in Space sky experiences",
   "license": "MIT",
   "type": "module",
