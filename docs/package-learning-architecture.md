@@ -49,47 +49,53 @@ temperature decoding, or coordinate projection.
 
 ## 2. Package Ladder
 
-Current package ladder and intended direction:
+Current package ladder and intended direction. Implemented packages are alpha
+foundations that exist in this repository; planned packages describe the next
+boundaries we expect to extract without implying that code already exists.
 
 ```txt
 @found-in-space/product-stream
-  implemented generic product delta/store lifecycle
+  implemented: generic product delta/store lifecycle
 
 @found-in-space/star-products
-  implemented StarObjectBatchProduct types, star representation store, star math,
-  star iteration, projections, color helpers
+  implemented: StarObjectBatchProduct types, star representation store,
+  star math, star iteration, projections, color helpers
 
 @found-in-space/star-octree-provider
-  octree loading/session/streaming, emits star products
+  implemented: octree loading/session/streaming, emits star products
+
+@found-in-space/meta-sidecar-provider
+  implemented: metadata sidecar provider keyed by star product object refs
 
 @found-in-space/star-volume-query
-  reusable sphere/path volume demand helpers on top of star-octree-provider
+  implemented: reusable sphere/path volume demand helpers on top of
+  star-octree-provider
 
 @found-in-space/star-map-canvas
-  2D projected canvas starmap adapter for spatial star products, learning,
-  and lightweight apps
+  implemented: 2D projected canvas starmap adapter for spatial star products,
+  learning, and lightweight apps
 
 @found-in-space/anchored-image
-  renderer-neutral anchored image manifests, affine solving, mesh generation,
-  and Canvas2D/Three.js image-warp adapters for skyculture art, survey plates,
-  nebula overlays, and future spatial image meshes
+  implemented: renderer-neutral anchored image manifests, affine solving,
+  mesh generation, and Canvas2D/Three.js image-warp adapters for skyculture art,
+  survey plates, nebula overlays, and future spatial image meshes
 
 @found-in-space/hr-diagram
-  reusable HR diagram data model, canvas fallback, WebGL renderer, and optional
-  touch-os composite-surface controls
+  implemented: reusable HR diagram data model, canvas fallback, WebGL renderer,
+  and optional display-only touch-os composite-surface adapter
 
 @found-in-space/star-kinematics-provider
-  proper-motion, radial-velocity, and epoch sidecars for dynamic-universe
+  planned: proper-motion, radial-velocity, and epoch sidecars for dynamic-universe
   lessons and trajectory/encounter analysis
 
 @found-in-space/solar-ephemeris
-  time-aware solar-system and trajectory products at AU scale
+  planned: time-aware solar-system and trajectory products at AU scale
 
 @found-in-space/three-star-field
-  Three.js star field adapter
+  planned: Three.js star field adapter
 
 @found-in-space/journey
-  authored lesson runtime and editor model for chapters, narration, camera
+  planned: authored lesson runtime and editor model for chapters, narration, camera
   beats, timed cues, preload hints, and video/story production
 
 @found-in-space/skykit
@@ -111,6 +117,7 @@ product-stream
           <- star-volume-query
 
 star-products
+  <- meta-sidecar-provider
   <- star-map-canvas
   <- hr-diagram
   <- three-star-field
@@ -324,14 +331,17 @@ An HR diagram is a reusable scientific instrument:
   -> HR diagram data model
   -> Canvas2D fallback renderer
   -> Three/WebGL high-volume renderer
-  -> selection/brush helpers
-  -> optional touch-os composite embedded-surface controls
+  -> optional display-only touch-os composite embedded-surface adapter
+  -> future selection/brush helpers
+  -> future touch-os forwarded-input controls
 ```
 
 It may depend on `@found-in-space/star-products` for star iteration,
-temperature, magnitude, and store integration. It may depend on `touch-os` for
-interactive panel controls. It should not know about Orion-specific lessons,
-camera fly-throughs, narrated chapters, or website page structure.
+temperature, magnitude, and store integration. Its current touch-os subpath
+publishes an HR renderer as a composite embedded surface without taking a hard
+runtime dependency on touch-os. Interactive panel controls and brushing belong
+to a later touch-os source-input pass. It should not know about Orion-specific
+lessons, camera fly-throughs, narrated chapters, or website page structure.
 
 Volume and path selection are reusable star-query concerns, not HR-diagram
 concerns. `@found-in-space/star-volume-query` provides sphere and path custom
@@ -517,13 +527,19 @@ adapter, combined by a higher-level scene/composition layer.
 
 ---
 
-## 10. Current Visual Package Status
+## 10. Current Package Status
 
-The product lifecycle, star product, octree streaming, and first 2D visual
-adapter foundations now exist:
+The product lifecycle, star product, octree streaming, metadata sidecar,
+volume-query, and first visual/package adapter foundations now exist:
 
 ```txt
 star-octree-provider -> star-products store -> star-map-canvas
+
+star-octree-provider -> star-volume-query -> star-products / HR consumers
+
+star-products object refs -> meta-sidecar-provider
+
+star-products -> hr-diagram -> optional touch-os composite surface adapter
 
 anchored-image -> Canvas2D / Three.js image overlays through explicit adapters
 ```
@@ -538,6 +554,12 @@ package for skyculture art, survey plates, and future anchored spatial image
 meshes. It should not absorb star rendering, product streams, or SkyKit viewer
 lifecycle.
 
-The next learning package should be chosen by the teaching path it unlocks: HR
-diagrams and touch panels, a Three.js star-field adapter, journey/runtime
-composition, kinematics sidecars, or solar/trajectory products.
+`@found-in-space/hr-diagram` is now the first high-volume scientific instrument
+package. Its WebGL path consumes star products directly and its touch-os subpath
+is a display adapter only; interactive brushing and forwarded input remain
+future work.
+
+The next learning package should be chosen by the teaching path it unlocks: a
+Three.js star-field adapter, journey/runtime composition, kinematics sidecars,
+solar/trajectory products, or interactive source-input controls for embedded
+scientific instruments.
