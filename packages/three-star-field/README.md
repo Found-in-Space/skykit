@@ -11,7 +11,10 @@ The `observer-shell` strategy in the example belongs to
 deltas that provider emits.
 
 ```js
-import { createThreeStarField } from '@found-in-space/three-star-field';
+import {
+  createProceduralThreeStarFieldMaterialProfile,
+  createThreeStarField,
+} from '@found-in-space/three-star-field';
 import {
   createObserverShellStrategy,
   createStarOctreeProviderService,
@@ -35,7 +38,15 @@ for await (const delta of provider.streamObjectBatches({
 
 The default material preserves the tuned desktop star shader used by the old
 free-roam demo. `createVrThreeStarFieldMaterialProfile()` preserves the old XR
-star shader as a separate opt-in profile.
+star shader as a separate opt-in profile. The earlier procedural alpha shader is
+also kept as a teaching profile, so shader replacement is a one-line renderer
+configuration:
+
+```js
+const field = createThreeStarField({
+  materialProfile: createProceduralThreeStarFieldMaterialProfile(),
+});
+```
 
 Product coordinates are treated as already being in the requested output
 profile. `renderScale` scales the returned `object3d`; it does not mutate product

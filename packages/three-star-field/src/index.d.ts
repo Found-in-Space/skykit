@@ -140,6 +140,10 @@ export declare function createDefaultThreeStarFieldMaterialProfile(
   options?: Partial<ThreeStarFieldView>
 ): ThreeStarFieldMaterialProfile;
 
+export declare function createProceduralThreeStarFieldMaterialProfile(
+  options?: Partial<ThreeStarFieldView>
+): ThreeStarFieldMaterialProfile;
+
 export declare function createVrThreeStarFieldMaterialProfile(
   options?: Partial<ThreeStarFieldView> & {
     sizeMin?: number;

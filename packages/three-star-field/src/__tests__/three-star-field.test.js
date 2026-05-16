@@ -6,6 +6,7 @@ import { createStarObjectBatchProduct } from '@found-in-space/star-products';
 import {
   computeThreeStarFieldVisualRadiusPx,
   createDefaultThreeStarFieldMaterialProfile,
+  createProceduralThreeStarFieldMaterialProfile,
   createThreeStarField,
   createThreeStarFieldGeometryFromProduct,
   createVrThreeStarFieldMaterialProfile,
@@ -263,6 +264,25 @@ test('VR material profile preserves the old XR shader path as a separate option'
   assert.equal(profile.material.uniforms.uScale.value, 1.2);
   assert.equal(profile.material.uniforms.uExposure.value, 100_000);
   assert.ok(profile.material.uniforms.map.value instanceof THREE.Texture);
+  profile.dispose?.();
+});
+
+test('procedural material profile keeps the alpha shader available for teaching swaps', () => {
+  const profile = createProceduralThreeStarFieldMaterialProfile({
+    limitingMagnitude: 7.25,
+    coordinateUnitsPerParsec: 0.001,
+  });
+
+  assert.ok(profile.material instanceof THREE.ShaderMaterial);
+  assert.ok(profile.haloMaterial instanceof THREE.ShaderMaterial);
+  assert.equal(profile.material.uniforms.uLimitingMagnitude.value, 7.25);
+  assert.equal(profile.material.uniforms.uCoordinateUnitsPerParsec.value, 0.001);
+  assert.equal(profile.material.uniforms.map, undefined);
+
+  const field = createThreeStarField({ materialProfile: profile, disposeMaterialProfile: false });
+  field.setView({ limitingMagnitude: 8 });
+  assert.equal(profile.material.uniforms.uLimitingMagnitude.value, 8);
+  field.dispose();
   profile.dispose?.();
 });
 

@@ -351,6 +351,52 @@ export function createDefaultThreeStarFieldMaterialProfile(options = {}) {
 }
 
 /**
+ * Procedural teaching profile from the first alpha renderer pass.
+ *
+ * The default profile preserves the old tuned SkyKit shader. This one is kept
+ * as a compact example of replacing the star shader by passing one material
+ * profile into createThreeStarField().
+ *
+ * @param {Partial<ThreeStarFieldView>} [options]
+ * @returns {ThreeStarFieldMaterialProfile}
+ */
+export function createProceduralThreeStarFieldMaterialProfile(options = {}) {
+  const view = normalizeView(options);
+  const material = new THREE.ShaderMaterial({
+    uniforms: createProceduralPointUniforms(view),
+    vertexShader: PROCEDURAL_STAR_FIELD_VERTEX_SHADER,
+    fragmentShader: PROCEDURAL_STAR_FIELD_FRAGMENT_SHADER,
+    transparent: true,
+    alphaTest: 0.003,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const haloMaterial = new THREE.ShaderMaterial({
+    uniforms: createProceduralHaloUniforms(view),
+    vertexShader: PROCEDURAL_STAR_FIELD_HALO_VERTEX_SHADER,
+    fragmentShader: PROCEDURAL_STAR_FIELD_HALO_FRAGMENT_SHADER,
+    transparent: true,
+    alphaTest: 0.003,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+
+  return {
+    material,
+    haloMaterial,
+    updateUniforms(context = { view }) {
+      const nextView = normalizeView(context.view);
+      syncProceduralUniforms(material.uniforms, nextView);
+      syncProceduralUniforms(haloMaterial.uniforms, nextView);
+    },
+    dispose() {
+      material.dispose();
+      haloMaterial.dispose();
+    },
+  };
+}
+
+/**
  * @param {Partial<ThreeStarFieldView>} [options]
  * @returns {ThreeStarFieldMaterialProfile}
  */
@@ -778,6 +824,59 @@ function syncTunedUniforms(uniforms, view) {
 
 /**
  * @param {ThreeStarFieldView} view
+ */
+function createProceduralPointUniforms(view) {
+  const uniforms = {
+    uObserverPosition: { value: new THREE.Vector3() },
+    uCoordinateUnitsPerParsec: { value: 1 },
+    uLimitingMagnitude: { value: 6.5 },
+    uMagFadeRange: { value: 3 },
+    uExposure: { value: 2500 },
+    uBaseSize: { value: 0.9 },
+    uSizeScale: { value: 3 },
+    uSizePower: { value: 0.32 },
+    uSizeMax: { value: 384 },
+  };
+  syncProceduralUniforms(uniforms, view);
+  return uniforms;
+}
+
+/**
+ * @param {ThreeStarFieldView} view
+ */
+function createProceduralHaloUniforms(view) {
+  const uniforms = {
+    ...createProceduralPointUniforms(view),
+    uHaloScale: { value: 1.5 },
+    uHaloPower: { value: 0.22 },
+    uHaloSizeMax: { value: 1024 },
+  };
+  syncProceduralUniforms(uniforms, view);
+  return uniforms;
+}
+
+/**
+ * @param {Record<string, { value: unknown }>} uniforms
+ * @param {ThreeStarFieldView} view
+ */
+function syncProceduralUniforms(uniforms, view) {
+  /** @type {THREE.Vector3} */ (uniforms.uObserverPosition.value)
+    .set(view.observerPosition.x, view.observerPosition.y, view.observerPosition.z);
+  uniforms.uCoordinateUnitsPerParsec.value = view.coordinateUnitsPerParsec;
+  uniforms.uLimitingMagnitude.value = view.limitingMagnitude;
+  uniforms.uMagFadeRange.value = view.magFadeRange;
+  uniforms.uExposure.value = view.exposure;
+  uniforms.uBaseSize.value = view.baseSize;
+  uniforms.uSizeScale.value = view.sizeScale;
+  uniforms.uSizePower.value = view.sizePower;
+  uniforms.uSizeMax.value = view.sizeMax;
+  if (uniforms.uHaloScale) uniforms.uHaloScale.value = view.haloScale;
+  if (uniforms.uHaloPower) uniforms.uHaloPower.value = view.haloPower;
+  if (uniforms.uHaloSizeMax) uniforms.uHaloSizeMax.value = view.haloSizeMax;
+}
+
+/**
+ * @param {ThreeStarFieldView} view
  * @param {THREE.Texture} texture
  * @param {Partial<ThreeStarFieldView> & Record<string, unknown>} options
  */
@@ -917,6 +1016,147 @@ function createLocalRay(ray, object3d) {
 
   return { origin, direction };
 }
+
+const PROCEDURAL_STAR_FIELD_SHARED_VERTEX = /* glsl */ `
+  attribute float teff_log8;
+  attribute float magAbs;
+
+  uniform vec3 uObserverPosition;
+  uniform float uCoordinateUnitsPerParsec;
+  uniform float uLimitingMagnitude;
+  uniform float uMagFadeRange;
+  uniform float uExposure;
+
+  float decodeTemperature(float log8) {
+    if (log8 >= 0.996) return 5800.0;
+    return 2000.0 * pow(25.0, log8);
+  }
+
+  vec3 blackbodyToRGB(float temp) {
+    float t = clamp(temp, 1000.0, 40000.0) / 100.0;
+    vec3 c;
+    if (t <= 66.0) c.r = 255.0;
+    else c.r = 329.698727446 * pow(t - 60.0, -0.1332047592);
+    if (t <= 66.0) c.g = 99.4708025861 * log(t) - 161.119568166;
+    else c.g = 288.1221695283 * pow(t - 60.0, -0.0755148492);
+    if (t >= 66.0) c.b = 255.0;
+    else if (t <= 19.0) c.b = 0.0;
+    else c.b = 138.5177312231 * log(t - 10.0) - 305.0447927307;
+    return clamp(c / 255.0, 0.0, 1.0);
+  }
+
+  float smoothMagnitudeFade(float mApp) {
+    if (uMagFadeRange <= 0.0) {
+      return mApp <= uLimitingMagnitude ? 1.0 : 0.0;
+    }
+    return 1.0 - smoothstep(uLimitingMagnitude - uMagFadeRange, uLimitingMagnitude, mApp);
+  }
+
+  float apparentFlux(float mApp) {
+    return pow(10.0, -0.4 * mApp);
+  }
+
+  void computeStarBase(
+    out float apparentMag,
+    out float flux,
+    out float fade,
+    out vec3 color
+  ) {
+    float distanceUnits = max(length(position - uObserverPosition), 0.000001);
+    float distancePc = max(distanceUnits / max(uCoordinateUnitsPerParsec, 0.000001), 0.000001);
+    apparentMag = magAbs + 5.0 * (log(distancePc) / log(10.0) - 1.0);
+    flux = apparentFlux(apparentMag);
+    fade = smoothMagnitudeFade(apparentMag);
+    color = blackbodyToRGB(decodeTemperature(teff_log8));
+  }
+`;
+
+const PROCEDURAL_STAR_FIELD_VERTEX_SHADER = PROCEDURAL_STAR_FIELD_SHARED_VERTEX + /* glsl */ `
+  uniform float uBaseSize;
+  uniform float uSizeScale;
+  uniform float uSizePower;
+  uniform float uSizeMax;
+
+  varying vec3 vColor;
+  varying float vAlpha;
+  varying float vWhiteMix;
+
+  void main() {
+    float apparentMag;
+    float flux;
+    float fade;
+    vec3 color;
+    computeStarBase(apparentMag, flux, fade, color);
+
+    float sizeSignal = max(pow(1.0 + max(flux * uExposure, 0.0), uSizePower) - 1.0, 0.0);
+    gl_PointSize = fade > 0.0 ? clamp(uBaseSize + uSizeScale * sizeSignal, 0.0, uSizeMax) : 0.0;
+    vColor = color;
+    vAlpha = fade * clamp(1.0 - exp(-flux * uExposure), 0.05, 1.0);
+    vWhiteMix = clamp(0.15 + 0.1 * sizeSignal, 0.0, 0.85);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const PROCEDURAL_STAR_FIELD_FRAGMENT_SHADER = /* glsl */ `
+  varying vec3 vColor;
+  varying float vAlpha;
+  varying float vWhiteMix;
+
+  void main() {
+    if (vAlpha <= 0.0) discard;
+    float dist = distance(gl_PointCoord, vec2(0.5));
+    if (dist > 0.5) discard;
+    float core = exp(-dist * 18.0);
+    float soft = 1.0 - smoothstep(0.1, 0.5, dist);
+    float alpha = max(core, soft * 0.35) * vAlpha;
+    if (alpha < 0.003) discard;
+    vec3 color = mix(vColor, vec3(1.0), core * vWhiteMix);
+    gl_FragColor = vec4(color, alpha);
+  }
+`;
+
+const PROCEDURAL_STAR_FIELD_HALO_VERTEX_SHADER = PROCEDURAL_STAR_FIELD_SHARED_VERTEX + /* glsl */ `
+  uniform float uBaseSize;
+  uniform float uSizeScale;
+  uniform float uSizePower;
+  uniform float uSizeMax;
+  uniform float uHaloScale;
+  uniform float uHaloPower;
+  uniform float uHaloSizeMax;
+
+  varying vec3 vColor;
+  varying float vAlpha;
+
+  void main() {
+    float apparentMag;
+    float flux;
+    float fade;
+    vec3 color;
+    computeStarBase(apparentMag, flux, fade, color);
+
+    float sizeSignal = max(pow(1.0 + max(flux * uExposure, 0.0), uSizePower) - 1.0, 0.0);
+    float haloSignal = max(pow(1.0 + max(flux * uExposure, 0.0), uHaloPower) - 1.0, 0.0);
+    float coreSize = clamp(uBaseSize + uSizeScale * sizeSignal, 0.0, uSizeMax);
+    gl_PointSize = fade > 0.0 ? clamp(coreSize * (1.0 + uHaloScale * haloSignal), 0.0, uHaloSizeMax) : 0.0;
+    vColor = color;
+    vAlpha = fade * clamp(1.0 - exp(-flux * uExposure * 0.18), 0.0, 0.55);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const PROCEDURAL_STAR_FIELD_HALO_FRAGMENT_SHADER = /* glsl */ `
+  varying vec3 vColor;
+  varying float vAlpha;
+
+  void main() {
+    if (vAlpha <= 0.0) discard;
+    float dist = distance(gl_PointCoord, vec2(0.5));
+    if (dist > 0.5) discard;
+    float alpha = (1.0 - smoothstep(0.0, 0.5, dist)) * vAlpha;
+    if (alpha < 0.003) discard;
+    gl_FragColor = vec4(vColor * alpha, alpha);
+  }
+`;
 
 const TUNED_STAR_FIELD_SHARED_VERTEX = /* glsl */ `
   attribute float teff_log8;
