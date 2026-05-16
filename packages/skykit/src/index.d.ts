@@ -311,7 +311,24 @@ export type SkykitKeyboardNavigationAction =
   | 'rollClockwise'
   | 'rollAnticlockwise';
 
-export type SkykitKeyboardNavigationBindings = Readonly<Record<string, SkykitKeyboardNavigationAction>>;
+export interface SkykitKeyboardNavigationBindingContext {
+  key: string;
+  event: Event;
+  context: SkykitThreePluginContext;
+  viewer: SkykitViewer;
+  getViewState(): SkykitViewState;
+  requestViewState(patch: Partial<SkykitViewState>, reason?: string): void;
+}
+
+export type SkykitKeyboardNavigationHandler = (
+  context: SkykitKeyboardNavigationBindingContext
+) => void | Promise<void>;
+
+export type SkykitKeyboardNavigationBinding =
+  | SkykitKeyboardNavigationAction
+  | SkykitKeyboardNavigationHandler;
+
+export type SkykitKeyboardNavigationBindings = Readonly<Record<string, SkykitKeyboardNavigationBinding>>;
 
 export interface SkykitKeyboardNavigationOptions {
   id?: string;
@@ -432,8 +449,8 @@ export declare function createStreamingStarLayer(options: StreamingStarLayerOpti
 export declare function createStreamingStarsPlugin(options: StreamingStarLayerOptions): SkykitStreamingStarsPlugin;
 export declare const SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS: SkykitKeyboardNavigationBindings;
 export declare function createSkykitDefaultKeyboardNavigationBindings(
-  overrides?: Partial<Record<string, SkykitKeyboardNavigationAction>>
-): Record<string, SkykitKeyboardNavigationAction>;
+  overrides?: Partial<Record<string, SkykitKeyboardNavigationBinding>>
+): Record<string, SkykitKeyboardNavigationBinding>;
 export declare function createKeyboardNavigationPlugin(options?: SkykitKeyboardNavigationOptions): SkykitPlugin & {
   getSnapshot(): unknown;
 };

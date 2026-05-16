@@ -23,6 +23,7 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@found-in-space/anchored-image": "0.0.0-alpha.0",
     "@found-in-space/product-stream": "0.0.0-alpha.0",
     "@found-in-space/star-octree-provider": "0.0.0-alpha.0",
     "@found-in-space/star-products": "0.0.0-alpha.0",

@@ -20,6 +20,7 @@ import {
  * @typedef {import('./index.d.ts').StreamingStarLayerOptions} StreamingStarLayerOptions
  * @typedef {import('./index.d.ts').StreamingStarLayer} StreamingStarLayer
  * @typedef {import('./index.d.ts').SkykitKeyboardNavigationOptions} SkykitKeyboardNavigationOptions
+ * @typedef {import('./index.d.ts').SkykitKeyboardNavigationBindingContext} SkykitKeyboardNavigationBindingContext
  * @typedef {import('./index.d.ts').SkykitDragLookOptions} SkykitDragLookOptions
  * @typedef {import('./index.d.ts').SkykitStatusPluginOptions} SkykitStatusPluginOptions
  * @typedef {import('./index.d.ts').Vector3Like} Vector3Like
@@ -43,8 +44,8 @@ export const SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS = Object.freeze({
 const DEFAULT_BOOST_KEYS = Object.freeze(['ShiftLeft', 'ShiftRight', 'Shift']);
 
 /**
- * @param {Record<string, string>} [overrides]
- * @returns {Record<string, string>}
+ * @param {Partial<Record<string, import('./index.d.ts').SkykitKeyboardNavigationBinding>>} [overrides]
+ * @returns {Record<string, import('./index.d.ts').SkykitKeyboardNavigationBinding>}
  */
 export function createSkykitDefaultKeyboardNavigationBindings(overrides = {}) {
   return {
@@ -108,12 +109,16 @@ export function createKeyboardNavigationPlugin(options = {}) {
   const speedPcPerSec = positiveFinite(options.speedPcPerSec, 1);
   const rotationSpeedDegPerSec = positiveFinite(options.rotationSpeedDegPerSec, 60);
   const boostMultiplier = positiveFinite(options.boostMultiplier, 10);
-  const bindings = /** @type {Record<string, string>} */ (options.bindings ?? SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS);
+  const bindings = /** @type {Record<string, import('./index.d.ts').SkykitKeyboardNavigationBinding>} */ (
+    options.bindings ?? SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS
+  );
   const boostKeys = new Set(options.boostKeys ?? DEFAULT_BOOST_KEYS);
   const verticalMode = options.verticalMode ?? 'view';
   const pressed = new Set();
   let enabled = options.enabled !== false;
   let attached = false;
+  /** @type {import('./index.d.ts').SkykitThreePluginContext | null} */
+  let pluginContext = null;
   /** @type {EventTarget | null} */
   let activeTarget = null;
   /** @type {Vector3Like} */
@@ -123,7 +128,8 @@ export function createKeyboardNavigationPlugin(options = {}) {
   const part = {
     id,
     priority: options.priority,
-    attach() {
+    attach(context) {
+      pluginContext = context;
       activeTarget = options.target ?? getDefaultEventTarget();
       activeTarget?.addEventListener?.('keydown', onKeyDown);
       activeTarget?.addEventListener?.('keyup', onKeyUp);
@@ -178,6 +184,7 @@ export function createKeyboardNavigationPlugin(options = {}) {
       activeTarget?.removeEventListener?.('keydown', onKeyDown);
       activeTarget?.removeEventListener?.('keyup', onKeyUp);
       activeTarget = null;
+      pluginContext = null;
       attached = false;
       pressed.clear();
     },
@@ -199,7 +206,14 @@ export function createKeyboardNavigationPlugin(options = {}) {
   function onKeyDown(event) {
     const key = getEventKey(event);
     if (!key) return;
-    if (bindings[key] || boostKeys.has(key)) {
+    const binding = bindings[key];
+    if (typeof binding === 'function') {
+      pressed.delete(key);
+      if (options.preventDefault !== false) event.preventDefault?.();
+      void binding(createKeyboardBindingContext(key, event));
+      return;
+    }
+    if (binding || boostKeys.has(key)) {
       pressed.add(key);
       if (options.preventDefault !== false) event.preventDefault?.();
     }
@@ -213,6 +227,30 @@ export function createKeyboardNavigationPlugin(options = {}) {
     if (bindings[key] || boostKeys.has(key)) {
       if (options.preventDefault !== false) event.preventDefault?.();
     }
+  }
+
+  /**
+   * @param {string} key
+   * @param {Event} event
+   * @returns {SkykitKeyboardNavigationBindingContext}
+   */
+  function createKeyboardBindingContext(key, event) {
+    if (!pluginContext) {
+      throw new Error('Keyboard binding callback fired before the keyboard plugin was attached.');
+    }
+    const context = pluginContext;
+    return {
+      key,
+      event,
+      context,
+      viewer: context.viewer,
+      getViewState() {
+        return context.getViewState();
+      },
+      requestViewState(patch, reason = 'keyboard-navigation') {
+        context.requestViewState(patch, reason);
+      },
+    };
   }
 
   function getSnapshot() {
@@ -512,7 +550,7 @@ function getEventKey(event) {
 /**
  * @param {import('./index.d.ts').QuaternionLike | null | undefined} orientation
  * @param {Set<string>} pressed
- * @param {Record<string, string>} bindings
+ * @param {Record<string, import('./index.d.ts').SkykitKeyboardNavigationBinding>} bindings
  * @param {'view' | 'world'} verticalMode
  * @returns {Vector3Like}
  */
@@ -539,7 +577,7 @@ function resolveMovementVector(orientation, pressed, bindings, verticalMode) {
 
 /**
  * @param {Set<string>} pressed
- * @param {Record<string, string>} bindings
+ * @param {Record<string, import('./index.d.ts').SkykitKeyboardNavigationBinding>} bindings
  * @returns {{ pitch: number; yaw: number; roll: number }}
  */
 function resolveRotationInput(pressed, bindings) {

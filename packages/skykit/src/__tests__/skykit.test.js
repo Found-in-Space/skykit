@@ -408,6 +408,44 @@ test('default keyboard binding factory returns an explicit override map', async 
   await viewer.dispose();
 });
 
+test('keyboard navigation function bindings run callbacks through the plugin context', async () => {
+  const target = createEventTarget();
+  let callbackCount = 0;
+  const bindings = createSkykitDefaultKeyboardNavigationBindings({
+    KeyR({ key, event, viewer, getViewState, requestViewState }) {
+      callbackCount += 1;
+      assert.equal(key, 'KeyR');
+      assert.equal(event.code, 'KeyR');
+      assert.equal(viewer.id, 'keyboard-callback-viewer');
+      assert.deepEqual(getViewState().observerPc, { x: 0, y: 0, z: 0 });
+      requestViewState({ observerPc: { x: 4, y: 5, z: 6 } }, 'test-reset');
+    },
+  });
+  const plugin = createKeyboardNavigationPlugin({
+    target,
+    bindings,
+    speedPcPerSec: 1,
+  });
+  const viewer = await createSkykitViewer({
+    id: 'keyboard-callback-viewer',
+    renderer: createRenderer(),
+    plugins: [plugin],
+  });
+
+  const keydown = target.dispatch('keydown', { code: 'KeyR' });
+  viewer.update(0);
+
+  assert.equal(callbackCount, 1);
+  assert.equal(keydown.defaultPrevented, true);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 4, y: 5, z: 6 });
+  assert.deepEqual(plugin.getSnapshot().pressed, []);
+
+  const keyup = target.dispatch('keyup', { code: 'KeyR' });
+  assert.equal(keyup.defaultPrevented, true);
+
+  await viewer.dispose();
+});
+
 test('keyboard navigation vertical movement can follow view-up or world-up', async () => {
   const viewTarget = createEventTarget();
   const worldTarget = createEventTarget();
