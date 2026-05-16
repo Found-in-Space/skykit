@@ -3,7 +3,11 @@ import test from 'node:test';
 import * as THREE from 'three';
 
 import {
+  SKYKIT_ACTION_NAMESPACE,
+  SKYKIT_ACTIONS,
+  SKYKIT_CONTROLS,
   SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS,
+  createSkykitActionRegistry,
   createKeyboardNavigationPlugin,
   createDesktopSkykitObserverRig,
   createObject3dLayer,
@@ -135,6 +139,7 @@ test('plugins register ordered parts, events, stores, resources, disposables, an
             priority: -10,
             attach() { calls.push('early.attach'); },
           });
+          assert.equal(ctx.actions, ctx.viewer.actions);
           return () => disposableCalls.push('teardown');
         },
       },
@@ -150,6 +155,32 @@ test('plugins register ordered parts, events, stores, resources, disposables, an
   assert.ok(disposableCalls.includes('resource'));
   assert.ok(disposableCalls.includes('disposable'));
   assert.ok(disposableCalls.includes('teardown'));
+});
+
+test('viewer exposes action registry, emits action events, and resets to initial view', async () => {
+  const events = [];
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: {
+      observerPc: { x: 1, y: 2, z: 3 },
+      limitingMagnitude: 8,
+    },
+  });
+  viewer.on('action/invoke', (event) => events.push(event.id));
+
+  viewer.requestViewState({ observerPc: { x: 9, y: 9, z: 9 }, limitingMagnitude: 5 }, 'test-move');
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 9, y: 9, z: 9 });
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.viewer.reset, null, { source: 'test' });
+  viewer.update(0);
+
+  assert.deepEqual(events, [SKYKIT_ACTIONS.viewer.reset]);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 1, y: 2, z: 3 });
+  assert.equal(viewer.getViewState().limitingMagnitude, 8);
+  assert.equal(viewer.getSnapshot().actions.actions.some((entry) => entry.id === SKYKIT_ACTIONS.viewer.reset), true);
+
+  await viewer.dispose();
 });
 
 test('requestViewState batches patches and observer-centric root follows translation without rotation', async () => {
@@ -193,6 +224,62 @@ test('desktop observer rig reports render observer position in configured scene 
 
   rig.setObserverPc?.({ x: 20, y: 0, z: -4 });
   assert.deepEqual(rig.getRenderObserverPosition(), { x: 0.02, y: 0, z: -0.004 });
+});
+
+test('action registry registers contexts, invokes multiple handlers, and reports failures', async () => {
+  const registry = createSkykitActionRegistry();
+  const calls = [];
+  const errors = [];
+  registry.subscribe((event) => {
+    if (event.type === 'action/error') errors.push(event.message);
+  });
+  const offLow = registry.registerAction('lesson:demo.run', () => {
+    calls.push('low');
+    return 'low';
+  }, { priority: 10 });
+  registry.registerAction('lesson:demo.run', () => {
+    calls.push('high');
+    return 'high';
+  }, { priority: -1 });
+  registry.registerAction('lesson:demo.run', () => {
+    calls.push('fail');
+    throw new Error('demo failed');
+  }, { priority: 20 });
+
+  const results = await registry.invoke('lesson:demo.run', { id: 1 }, { source: 'test' });
+  assert.deepEqual(calls, ['high', 'low', 'fail']);
+  assert.deepEqual(results.map((result) => result.status), ['fulfilled', 'fulfilled', 'rejected']);
+  assert.deepEqual(errors, ['demo failed']);
+
+  offLow();
+  assert.equal(registry.listActions().find((entry) => entry.id === 'lesson:demo.run')?.handlerCount, 2);
+
+  const offJourney = registry.registerContext('skykit:journey', {
+    goToChapter({ payload }) {
+      calls.push(`chapter:${payload}`);
+    },
+  });
+  await registry.invoke(SKYKIT_ACTIONS.journey.goToChapter, 'intro');
+  assert.equal(calls.at(-1), 'chapter:intro');
+  offJourney();
+  assert.equal(registry.listActions().some((entry) => entry.id === SKYKIT_ACTIONS.journey.goToChapter), false);
+});
+
+test('action registry tracks held action sources and control values', () => {
+  const registry = createSkykitActionRegistry();
+  assert.equal(SKYKIT_ACTION_NAMESPACE, 'skykit:');
+
+  registry.press(SKYKIT_ACTIONS.ship.moveForward, null, { source: 'keyboard:KeyW' });
+  registry.press(SKYKIT_ACTIONS.ship.moveForward, null, { source: 'touch:dpad-up' });
+  assert.equal(registry.isPressed(SKYKIT_ACTIONS.ship.moveForward), true);
+  registry.release(SKYKIT_ACTIONS.ship.moveForward, { source: 'keyboard:KeyW' });
+  assert.equal(registry.isPressed(SKYKIT_ACTIONS.ship.moveForward), true);
+  registry.release(SKYKIT_ACTIONS.ship.moveForward, { source: 'touch:dpad-up' });
+  assert.equal(registry.isPressed(SKYKIT_ACTIONS.ship.moveForward), false);
+
+  const move = { x: 0, y: 0, z: -1 };
+  registry.setControlValue(SKYKIT_CONTROLS.ship.move, move, { source: 'test' });
+  assert.equal(registry.getControlValue(SKYKIT_CONTROLS.ship.move), move);
 });
 
 test('createObject3dLayer mounts layers into world, observer-centric, and scale-banded roots', async () => {
@@ -344,8 +431,8 @@ test('keyboard navigation plugin maps keys to batched observer movement and clea
 });
 
 test('keyboard navigation custom bindings replace defaults instead of merging', async () => {
-  assert.equal(SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS.KeyW, 'forward');
-  assert.equal(SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS.ArrowUp, 'forward');
+  assert.equal(SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS.KeyW, SKYKIT_ACTIONS.ship.moveForward);
+  assert.equal(SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS.ArrowUp, SKYKIT_ACTIONS.ship.moveForward);
 
   const target = createEventTarget();
   const viewer = await createSkykitViewer({
@@ -355,8 +442,8 @@ test('keyboard navigation custom bindings replace defaults instead of merging', 
         target,
         speedPcPerSec: 1,
         bindings: {
-          KeyI: 'forward',
-          KeyK: 'back',
+          KeyI: SKYKIT_ACTIONS.ship.moveForward,
+          KeyK: SKYKIT_ACTIONS.ship.moveBack,
         },
       }),
     ],
@@ -376,15 +463,31 @@ test('keyboard navigation custom bindings replace defaults instead of merging', 
   await viewer.dispose();
 });
 
+test('keyboard navigation reads shared ship actions from the registry', async () => {
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [createKeyboardNavigationPlugin({ target: null, speedPcPerSec: 3 })],
+  });
+
+  viewer.actions.press(SKYKIT_ACTIONS.ship.moveRight, null, { source: 'touch:dpad-right' });
+  viewer.frame(1);
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 3, y: 0, z: 0 });
+  assert.deepEqual(viewer.actions.getControlValue(SKYKIT_CONTROLS.ship.move), { x: 3, y: 0, z: 0 });
+  viewer.actions.release(SKYKIT_ACTIONS.ship.moveRight, { source: 'touch:dpad-right' });
+
+  await viewer.dispose();
+});
+
 test('default keyboard binding factory returns an explicit override map', async () => {
   const bindings = createSkykitDefaultKeyboardNavigationBindings({
-    KeyW: 'rollAnticlockwise',
-    KeyI: 'forward',
+    KeyW: SKYKIT_ACTIONS.ship.rollAnticlockwise,
+    KeyI: SKYKIT_ACTIONS.ship.moveForward,
   });
-  assert.equal(bindings.KeyW, 'rollAnticlockwise');
-  assert.equal(bindings.ArrowUp, 'forward');
-  assert.equal(bindings.KeyI, 'forward');
-  assert.equal(SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS.KeyW, 'forward');
+  assert.equal(bindings.KeyW, SKYKIT_ACTIONS.ship.rollAnticlockwise);
+  assert.equal(bindings.ArrowUp, SKYKIT_ACTIONS.ship.moveForward);
+  assert.equal(bindings.KeyI, SKYKIT_ACTIONS.ship.moveForward);
+  assert.equal(SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS.KeyW, SKYKIT_ACTIONS.ship.moveForward);
 
   const target = createEventTarget();
   const viewer = await createSkykitViewer({
@@ -446,6 +549,45 @@ test('keyboard navigation function bindings run callbacks through the plugin con
   await viewer.dispose();
 });
 
+test('keyboard navigation invokes namespaced command bindings through the action registry', async () => {
+  const target = createEventTarget();
+  const calls = [];
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [
+      (context) => {
+        context.actions.registerAction('game:weapons.fire', ({ payload, metadata }) => {
+          calls.push({ payload, metadata });
+        });
+      },
+      createKeyboardNavigationPlugin({
+        target,
+        bindings: createSkykitDefaultKeyboardNavigationBindings({
+          KeyF: 'game:weapons.fire',
+          KeyR: SKYKIT_ACTIONS.viewer.reset,
+        }),
+      }),
+    ],
+    view: {
+      observerPc: { x: 3, y: 0, z: 0 },
+    },
+  });
+
+  viewer.requestViewState({ observerPc: { x: 8, y: 0, z: 0 } }, 'test-move');
+  viewer.update(0);
+  target.dispatch('keydown', { code: 'KeyF' });
+  target.dispatch('keydown', { code: 'KeyR' });
+  await Promise.resolve();
+  viewer.update(0);
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].payload, { key: 'KeyF' });
+  assert.equal(calls[0].metadata.source, 'keyboard:KeyF');
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 3, y: 0, z: 0 });
+
+  await viewer.dispose();
+});
+
 test('keyboard navigation vertical movement can follow view-up or world-up', async () => {
   const viewTarget = createEventTarget();
   const worldTarget = createEventTarget();
@@ -495,12 +637,12 @@ test('keyboard navigation custom bindings can rotate pitch yaw and roll', async 
   const yawTarget = createEventTarget();
   const rollTarget = createEventTarget();
   const bindings = {
-    KeyI: 'pitchUp',
-    KeyK: 'pitchDown',
-    KeyJ: 'yawLeft',
-    KeyL: 'yawRight',
-    KeyO: 'rollClockwise',
-    KeyU: 'rollAnticlockwise',
+    KeyI: SKYKIT_ACTIONS.ship.pitchUp,
+    KeyK: SKYKIT_ACTIONS.ship.pitchDown,
+    KeyJ: SKYKIT_ACTIONS.ship.yawLeft,
+    KeyL: SKYKIT_ACTIONS.ship.yawRight,
+    KeyO: SKYKIT_ACTIONS.ship.rollClockwise,
+    KeyU: SKYKIT_ACTIONS.ship.rollAnticlockwise,
   };
   const pitchViewer = await createSkykitViewer({
     renderer: createRenderer(),
@@ -636,6 +778,13 @@ test('debug bridge registers viewers, switches active viewer, updates observer, 
   assert.deepEqual(debugA.setObserverPc({ x: 4, y: 5, z: 6 }), { x: 4, y: 5, z: 6 });
   assert.deepEqual(debugA.flyToPc({ x: 7, y: 8, z: 9 }), { x: 7, y: 8, z: 9 });
   assert.deepEqual(debugA.lookAtPc({ x: 0, y: 0, z: -1 }), { x: 0, y: 0, z: -1 });
+  assert.equal(debugA.listActions().some((entry) => entry.id === SKYKIT_ACTIONS.viewer.reset), true);
+  debugA.pressAction(SKYKIT_ACTIONS.ship.moveForward);
+  assert.equal(viewerA.actions.isPressed(SKYKIT_ACTIONS.ship.moveForward), true);
+  debugA.releaseAction(SKYKIT_ACTIONS.ship.moveForward);
+  assert.equal(viewerA.actions.isPressed(SKYKIT_ACTIONS.ship.moveForward), false);
+  await debugA.invokeAction(SKYKIT_ACTIONS.viewer.reset);
+  assert.equal(debug.listActions('alpha').some((entry) => entry.id === SKYKIT_ACTIONS.viewer.reset), true);
 
   const target = {};
   const uninstall = installSkykitDebugGlobal(debug, { target, name: 'debug' });

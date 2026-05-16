@@ -67,6 +67,12 @@ The "50-line lesson" target is design pressure, not a literal rule. A learner
 should not need to rewrite stream lifecycle handling, star math, provider
 strategies, renderer glue, or viewer lifecycle code just to try an idea.
 
+Lesson controls should use semantic actions rather than fake keypresses. SkyKit
+reserves the `skykit:` namespace for built-in meanings such as
+`skykit:ship.move.forward`, `skykit:viewer.reset`, and
+`skykit:journey.goToChapter`; lessons and games can register their own namespaces
+such as `lesson:*` or `game:*`.
+
 ---
 
 ## 2. Package Examples Versus SkyKit Lessons

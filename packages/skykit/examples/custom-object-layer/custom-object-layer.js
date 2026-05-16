@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 import { createAnchoredImageGroup } from '@found-in-space/anchored-image/three';
 import {
+  SKYKIT_ACTIONS,
   createKeyboardNavigationPlugin,
   createObject3dPlugin,
   createSkyGrabPlugin,
@@ -84,9 +85,9 @@ async function main() {
       createKeyboardNavigationPlugin({
         speedPcPerSec: 2,
         bindings: createSkykitDefaultKeyboardNavigationBindings({
-          KeyZ: 'rollAnticlockwise',
-          KeyC: 'rollClockwise',
-          KeyR: resetView,
+          KeyZ: SKYKIT_ACTIONS.ship.rollAnticlockwise,
+          KeyC: SKYKIT_ACTIONS.ship.rollClockwise,
+          KeyR: SKYKIT_ACTIONS.viewer.reset,
         }),
       }),
       createSkyGrabPlugin({
@@ -144,10 +145,6 @@ function createInitialViewState() {
     limitingMagnitude: 7.5,
     orientationIcrs: lookAtFromOriginWithNorthUp(HYADES_CENTER_PC),
   };
-}
-
-function resetView({ requestViewState }) {
-  requestViewState(createInitialViewState(), 'lesson-reset-view');
 }
 
 function bindLayerToggles(layers) {

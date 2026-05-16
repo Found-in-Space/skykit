@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 
+import { SKYKIT_ACTIONS, SKYKIT_CONTROLS } from './actions.js';
 import { createObject3dLayer } from './layers.js';
 import { createStreamingStarLayer } from './streaming-stars.js';
 import {
@@ -27,21 +28,36 @@ import {
  */
 
 export const SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS = Object.freeze({
-  KeyW: 'forward',
-  ArrowUp: 'forward',
-  KeyS: 'back',
-  ArrowDown: 'back',
-  KeyA: 'left',
-  ArrowLeft: 'left',
-  KeyD: 'right',
-  ArrowRight: 'right',
-  KeyE: 'up',
-  PageUp: 'up',
-  KeyQ: 'down',
-  PageDown: 'down',
+  KeyW: SKYKIT_ACTIONS.ship.moveForward,
+  ArrowUp: SKYKIT_ACTIONS.ship.moveForward,
+  KeyS: SKYKIT_ACTIONS.ship.moveBack,
+  ArrowDown: SKYKIT_ACTIONS.ship.moveBack,
+  KeyA: SKYKIT_ACTIONS.ship.moveLeft,
+  ArrowLeft: SKYKIT_ACTIONS.ship.moveLeft,
+  KeyD: SKYKIT_ACTIONS.ship.moveRight,
+  ArrowRight: SKYKIT_ACTIONS.ship.moveRight,
+  KeyE: SKYKIT_ACTIONS.ship.moveUp,
+  PageUp: SKYKIT_ACTIONS.ship.moveUp,
+  KeyQ: SKYKIT_ACTIONS.ship.moveDown,
+  PageDown: SKYKIT_ACTIONS.ship.moveDown,
 });
 
 const DEFAULT_BOOST_KEYS = Object.freeze(['ShiftLeft', 'ShiftRight', 'Shift']);
+
+const LEGACY_KEYBOARD_ACTION_ALIASES = Object.freeze({
+  forward: SKYKIT_ACTIONS.ship.moveForward,
+  back: SKYKIT_ACTIONS.ship.moveBack,
+  left: SKYKIT_ACTIONS.ship.moveLeft,
+  right: SKYKIT_ACTIONS.ship.moveRight,
+  up: SKYKIT_ACTIONS.ship.moveUp,
+  down: SKYKIT_ACTIONS.ship.moveDown,
+  pitchUp: SKYKIT_ACTIONS.ship.pitchUp,
+  pitchDown: SKYKIT_ACTIONS.ship.pitchDown,
+  yawLeft: SKYKIT_ACTIONS.ship.yawLeft,
+  yawRight: SKYKIT_ACTIONS.ship.yawRight,
+  rollClockwise: SKYKIT_ACTIONS.ship.rollClockwise,
+  rollAnticlockwise: SKYKIT_ACTIONS.ship.rollAnticlockwise,
+});
 
 /**
  * @param {Partial<Record<string, import('./index.d.ts').SkykitKeyboardNavigationBinding>>} [overrides]
@@ -138,9 +154,10 @@ export function createKeyboardNavigationPlugin(options = {}) {
     update(frame) {
       if (!enabled) return;
       const deltaSeconds = Math.max(0, finiteNumber(frame.deltaSeconds, 0));
-      const boosted = isBoostPressed(pressed, boostKeys);
+      const actions = pluginContext?.actions ?? frame.viewer.actions;
+      const boosted = actions.isPressed(SKYKIT_ACTIONS.ship.boost);
       const patch = /** @type {Partial<import('./index.d.ts').SkykitViewState>} */ ({});
-      const movement = resolveMovementVector(frame.view.orientationIcrs, pressed, bindings, verticalMode);
+      const movement = resolveMovementVector(frame.view.orientationIcrs, actions, verticalMode);
       const length = Math.hypot(movement.x, movement.y, movement.z);
       if (length > 0) {
         const speed = speedPcPerSec * (boosted ? boostMultiplier : 1);
@@ -163,9 +180,15 @@ export function createKeyboardNavigationPlugin(options = {}) {
       } else {
         lastVelocityPcPerSec = { x: 0, y: 0, z: 0 };
       }
+      actions.setControlValue(SKYKIT_CONTROLS.ship.move, cloneVector3(lastVelocityPcPerSec), {
+        source: id,
+      });
 
-      const rotation = resolveRotationInput(pressed, bindings);
+      const rotation = resolveRotationInput(actions);
       const rotationLength = Math.hypot(rotation.pitch, rotation.yaw, rotation.roll);
+      actions.setControlValue(SKYKIT_CONTROLS.ship.attitude, { ...rotation }, {
+        source: id,
+      });
       if (rotationLength > 0) {
         const radiansPerSecond = (rotationSpeedDegPerSec * Math.PI) / 180;
         const angle = radiansPerSecond * (boosted ? boostMultiplier : 1) * deltaSeconds;
@@ -181,6 +204,7 @@ export function createKeyboardNavigationPlugin(options = {}) {
       }
     },
     detach() {
+      releasePressedKeys();
       activeTarget?.removeEventListener?.('keydown', onKeyDown);
       activeTarget?.removeEventListener?.('keyup', onKeyUp);
       activeTarget = null;
@@ -213,8 +237,22 @@ export function createKeyboardNavigationPlugin(options = {}) {
       void binding(createKeyboardBindingContext(key, event));
       return;
     }
-    if (binding || boostKeys.has(key)) {
+    const action = typeof binding === 'string' ? normalizeKeyboardAction(binding) : null;
+    if (action && pluginContext) {
+      if (isHeldKeyboardAction(action)) {
+        if (!pressed.has(key)) {
+          pluginContext.actions.press(action, { key }, keyboardMetadata(key));
+        }
+        pressed.add(key);
+      } else {
+        void pluginContext.actions.invoke(action, { key }, keyboardMetadata(key));
+      }
+    }
+    if (boostKeys.has(key) && pluginContext) {
+      pluginContext.actions.press(SKYKIT_ACTIONS.ship.boost, { key }, keyboardMetadata(key));
       pressed.add(key);
+    }
+    if (binding || boostKeys.has(key)) {
       if (options.preventDefault !== false) event.preventDefault?.();
     }
   }
@@ -223,6 +261,14 @@ export function createKeyboardNavigationPlugin(options = {}) {
   function onKeyUp(event) {
     const key = getEventKey(event);
     if (!key) return;
+    const binding = bindings[key];
+    const action = typeof binding === 'string' ? normalizeKeyboardAction(binding) : null;
+    if (action && isHeldKeyboardAction(action)) {
+      pluginContext?.actions.release(action, keyboardMetadata(key));
+    }
+    if (boostKeys.has(key)) {
+      pluginContext?.actions.release(SKYKIT_ACTIONS.ship.boost, keyboardMetadata(key));
+    }
     pressed.delete(key);
     if (bindings[key] || boostKeys.has(key)) {
       if (options.preventDefault !== false) event.preventDefault?.();
@@ -244,6 +290,7 @@ export function createKeyboardNavigationPlugin(options = {}) {
       event,
       context,
       viewer: context.viewer,
+      actions: context.actions,
       getViewState() {
         return context.getViewState();
       },
@@ -264,6 +311,23 @@ export function createKeyboardNavigationPlugin(options = {}) {
       boostMultiplier,
       verticalMode,
       lastVelocityPcPerSec: cloneVector3(lastVelocityPcPerSec),
+      pressedActions: pluginContext
+        ? [
+            SKYKIT_ACTIONS.ship.moveForward,
+            SKYKIT_ACTIONS.ship.moveBack,
+            SKYKIT_ACTIONS.ship.moveLeft,
+            SKYKIT_ACTIONS.ship.moveRight,
+            SKYKIT_ACTIONS.ship.moveUp,
+            SKYKIT_ACTIONS.ship.moveDown,
+            SKYKIT_ACTIONS.ship.pitchUp,
+            SKYKIT_ACTIONS.ship.pitchDown,
+            SKYKIT_ACTIONS.ship.yawLeft,
+            SKYKIT_ACTIONS.ship.yawRight,
+            SKYKIT_ACTIONS.ship.rollClockwise,
+            SKYKIT_ACTIONS.ship.rollAnticlockwise,
+            SKYKIT_ACTIONS.ship.boost,
+          ].filter((action) => pluginContext?.actions.isPressed(action))
+        : [],
     };
   }
 
@@ -272,11 +336,29 @@ export function createKeyboardNavigationPlugin(options = {}) {
    */
   function setEnabled(nextEnabled) {
     enabled = Boolean(nextEnabled);
-    if (!enabled) pressed.clear();
+    if (!enabled) releasePressedKeys();
   }
 
   // Expose a tiny imperative seam for lessons/tests without introducing a registry.
   Object.assign(part, { setEnabled });
+
+  function releasePressedKeys() {
+    if (!pluginContext) {
+      pressed.clear();
+      return;
+    }
+    for (const key of pressed) {
+      const binding = bindings[key];
+      const action = typeof binding === 'string' ? normalizeKeyboardAction(binding) : null;
+      if (action && isHeldKeyboardAction(action)) {
+        pluginContext.actions.release(action, keyboardMetadata(key));
+      }
+      if (boostKeys.has(key)) {
+        pluginContext.actions.release(SKYKIT_ACTIONS.ship.boost, keyboardMetadata(key));
+      }
+    }
+    pressed.clear();
+  }
 }
 
 /**
@@ -549,12 +631,11 @@ function getEventKey(event) {
 
 /**
  * @param {import('./index.d.ts').QuaternionLike | null | undefined} orientation
- * @param {Set<string>} pressed
- * @param {Record<string, import('./index.d.ts').SkykitKeyboardNavigationBinding>} bindings
+ * @param {import('./index.d.ts').SkykitActionRegistry} actions
  * @param {'view' | 'world'} verticalMode
  * @returns {Vector3Like}
  */
-function resolveMovementVector(orientation, pressed, bindings, verticalMode) {
+function resolveMovementVector(orientation, actions, verticalMode) {
   const q = normalizeQuaternion(orientation, IDENTITY_QUATERNION);
   const quaternion = new THREE.Quaternion(q.x, q.y, q.z, q.w);
   const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quaternion);
@@ -563,46 +644,61 @@ function resolveMovementVector(orientation, pressed, bindings, verticalMode) {
     ? new THREE.Vector3(0, 1, 0)
     : new THREE.Vector3(0, 1, 0).applyQuaternion(quaternion);
   const movement = new THREE.Vector3();
-  for (const key of pressed) {
-    const action = bindings[key];
-    if (action === 'forward') movement.add(forward);
-    if (action === 'back') movement.sub(forward);
-    if (action === 'right') movement.add(right);
-    if (action === 'left') movement.sub(right);
-    if (action === 'up') movement.add(up);
-    if (action === 'down') movement.sub(up);
-  }
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.moveForward)) movement.add(forward);
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.moveBack)) movement.sub(forward);
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.moveRight)) movement.add(right);
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.moveLeft)) movement.sub(right);
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.moveUp)) movement.add(up);
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.moveDown)) movement.sub(up);
   return normalizeVector3(movement, { x: 0, y: 0, z: 0 });
 }
 
 /**
- * @param {Set<string>} pressed
- * @param {Record<string, import('./index.d.ts').SkykitKeyboardNavigationBinding>} bindings
+ * @param {import('./index.d.ts').SkykitActionRegistry} actions
  * @returns {{ pitch: number; yaw: number; roll: number }}
  */
-function resolveRotationInput(pressed, bindings) {
+function resolveRotationInput(actions) {
   const rotation = { pitch: 0, yaw: 0, roll: 0 };
-  for (const key of pressed) {
-    const action = bindings[key];
-    if (action === 'pitchUp') rotation.pitch += 1;
-    if (action === 'pitchDown') rotation.pitch -= 1;
-    if (action === 'yawLeft') rotation.yaw += 1;
-    if (action === 'yawRight') rotation.yaw -= 1;
-    if (action === 'rollClockwise') rotation.roll += 1;
-    if (action === 'rollAnticlockwise') rotation.roll -= 1;
-  }
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.pitchUp)) rotation.pitch += 1;
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.pitchDown)) rotation.pitch -= 1;
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.yawLeft)) rotation.yaw += 1;
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.yawRight)) rotation.yaw -= 1;
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.rollClockwise)) rotation.roll += 1;
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.rollAnticlockwise)) rotation.roll -= 1;
   return rotation;
 }
 
 /**
- * @param {Set<string>} pressed
- * @param {Set<string>} boostKeys
+ * @param {string} action
  */
-function isBoostPressed(pressed, boostKeys) {
-  for (const key of boostKeys) {
-    if (pressed.has(key)) return true;
-  }
-  return false;
+function isHeldKeyboardAction(action) {
+  return action === SKYKIT_ACTIONS.ship.moveForward
+    || action === SKYKIT_ACTIONS.ship.moveBack
+    || action === SKYKIT_ACTIONS.ship.moveLeft
+    || action === SKYKIT_ACTIONS.ship.moveRight
+    || action === SKYKIT_ACTIONS.ship.moveUp
+    || action === SKYKIT_ACTIONS.ship.moveDown
+    || action === SKYKIT_ACTIONS.ship.pitchUp
+    || action === SKYKIT_ACTIONS.ship.pitchDown
+    || action === SKYKIT_ACTIONS.ship.yawLeft
+    || action === SKYKIT_ACTIONS.ship.yawRight
+    || action === SKYKIT_ACTIONS.ship.rollClockwise
+    || action === SKYKIT_ACTIONS.ship.rollAnticlockwise
+    || action === SKYKIT_ACTIONS.ship.boost;
+}
+
+/** @param {string} action */
+function normalizeKeyboardAction(action) {
+  return /** @type {Record<string, string>} */ (LEGACY_KEYBOARD_ACTION_ALIASES)[action] ?? action;
+}
+
+/** @param {string} key */
+function keyboardMetadata(key) {
+  return {
+    source: `keyboard:${key}`,
+    input: 'keyboard',
+    key,
+  };
 }
 
 /**

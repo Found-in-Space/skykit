@@ -29,6 +29,7 @@ viewer shell
 plugin and part lifecycle
 scene roots and anchoring
 view-state batching
+action/context registry
 streaming star layer/plugin
 plain Object3D layer/plugin
 desktop learning navigation
@@ -145,6 +146,7 @@ emit(eventName, payload)
 useStore(key, factory)
 useResource(key, factory)
 scheduleTask(task, options?)
+actions
 ```
 
 This is the main "hack here" surface for learners. A custom plugin should not
@@ -157,7 +159,42 @@ signals, not one event per star.
 
 ---
 
-## 5. View State
+## 5. Action Contexts And Namespaces
+
+SkyKit has a small semantic action registry. It is for shared commands and held
+controls, not for factory lookup or component discovery.
+
+```txt
+skykit:* is reserved for SkyKit-defined semantics
+game:* / lesson:* / website:* are application or plugin namespaces
+```
+
+Examples:
+
+```txt
+skykit:ship.move.forward
+skykit:ship.attitude.rollClockwise
+skykit:viewer.reset
+skykit:journey.goToChapter
+game:weapons.fire
+lesson:highlight.next
+```
+
+The namespace matters because the same word can mean different things in
+different frames. `skykit:ship.*` is navigation-rig / spaceship-frame intent.
+`head.*` remains body/head-frame territory for XR packages. `journey.*` is for
+chapter and time navigation. `layer.*` and `selection.*` are composition-level
+commands. These action IDs name behavior, not renderer or loader factories.
+
+Plugins register actions through `ctx.actions.registerAction()` or
+`ctx.actions.registerContext()`. Multiple handlers may share an action ID; they
+run in priority order. This lets keyboard, touch DOM, touch-os, WebXR, debug
+tools, and journey buttons call the same semantic action without faking
+keypresses.
+
+---
+
+## 6. View State
 
 SkyKit view state is the composition-layer signal passed to providers, renderers,
 controls, and status helpers.
@@ -177,7 +214,7 @@ stays in `@found-in-space/star-octree-provider`.
 
 ---
 
-## 6. Scene Roots And Anchoring
+## 7. Scene Roots And Anchoring
 
 The viewer owns distinct roots:
 
@@ -217,12 +254,13 @@ observer.
 
 ---
 
-## 7. Built-In Helpers
+## 8. Built-In Helpers
 
 The alpha package currently includes:
 
 ```txt
 createSkykitViewer()
+createSkykitActionRegistry()
 createObject3dLayer()
 createObject3dPlugin()
 createStreamingStarLayer()
@@ -233,6 +271,7 @@ createSkykitStatusPlugin()
 createSkykitAnimationLoop()
 createSkykitDebugBridge()
 installSkykitDebugGlobal()
+SKYKIT_ACTIONS / SKYKIT_CONTROLS
 ```
 
 These are learning helpers, not closed presets. Callers can replace the provider,
@@ -263,9 +302,10 @@ route previews, or lesson props.
 mouse/orbit/game controls should be separate plugins when their boundaries are
 clear. Keyboard bindings use either the exported default binding map or a
 complete caller-supplied map; SkyKit does not merge custom bindings with the
-defaults implicitly. Default bindings cover movement only; custom maps may also
-bind `pitchUp`, `pitchDown`, `yawLeft`, `yawRight`, `rollClockwise`, and
-`rollAnticlockwise`. `createSkykitDefaultKeyboardNavigationBindings(overrides)`
+defaults implicitly. Defaults bind keys to `SKYKIT_ACTIONS.ship.*` action IDs.
+Custom maps may bind keys to other action IDs such as
+`SKYKIT_ACTIONS.viewer.reset` or `game:weapons.fire`, or to a tiny callback for
+one-off lesson hacks. `createSkykitDefaultKeyboardNavigationBindings(overrides)`
 returns an explicit complete map for lessons that want default bindings plus a
 few deliberate overrides.
 
@@ -277,7 +317,7 @@ public observer actions for console-driven teaching and diagnostics.
 
 ---
 
-## 8. Integration With Other Packages
+## 9. Integration With Other Packages
 
 SkyKit should pass provider strategies through unchanged:
 
@@ -313,7 +353,7 @@ embedded display input belong in touch-os.
 
 ---
 
-## 9. Teaching Examples To Keep Small
+## 10. Teaching Examples To Keep Small
 
 SkyKit examples should demonstrate composition:
 
@@ -332,7 +372,7 @@ not need two beginner-facing configuration systems.
 
 ---
 
-## 10. Design Rule
+## 11. Design Rule
 
 When deciding whether to add a feature to core SkyKit, ask:
 

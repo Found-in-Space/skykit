@@ -23,6 +23,10 @@ export function createSkykitDebugBridge() {
     flyToPc,
     lookAtPc,
     cancelAutomation,
+    listActions,
+    invokeAction,
+    pressAction,
+    releaseAction,
   };
 
   function listViewers() {
@@ -125,6 +129,43 @@ export function createSkykitDebugBridge() {
     return getViewer(target)?.cancelAutomation() ?? false;
   }
 
+  /** @param {string | number | SkykitViewer} [target] */
+  function listActions(target) {
+    return getViewer(target)?.listActions() ?? [];
+  }
+
+  /**
+   * @param {string} id
+   * @param {unknown} [payload]
+   * @param {string | number | SkykitViewer} [target]
+   */
+  function invokeAction(id, payload, target) {
+    const debugViewer = getViewer(target);
+    if (!debugViewer) throw new Error('No SkyKit debug viewer is registered.');
+    return debugViewer.invokeAction(id, payload);
+  }
+
+  /**
+   * @param {string} id
+   * @param {unknown} [payload]
+   * @param {string | number | SkykitViewer} [target]
+   */
+  function pressAction(id, payload, target) {
+    const debugViewer = getViewer(target);
+    if (!debugViewer) throw new Error('No SkyKit debug viewer is registered.');
+    return debugViewer.pressAction(id, payload);
+  }
+
+  /**
+   * @param {string} id
+   * @param {string | number | SkykitViewer} [target]
+   */
+  function releaseAction(id, target) {
+    const debugViewer = getViewer(target);
+    if (!debugViewer) throw new Error('No SkyKit debug viewer is registered.');
+    return debugViewer.releaseAction(id);
+  }
+
   /**
    * @param {string | number | SkykitViewer | undefined} target
    */
@@ -192,6 +233,18 @@ export function createSkykitDebugBridge() {
           return true;
         }
         return false;
+      },
+      listActions() {
+        return viewer.actions.listActions();
+      },
+      invokeAction(id, payload) {
+        return viewer.actions.invoke(id, payload, { source: 'debug' });
+      },
+      pressAction(id, payload) {
+        viewer.actions.press(id, payload, { source: 'debug' });
+      },
+      releaseAction(id) {
+        viewer.actions.release(id, { source: 'debug' });
       },
       unregister() {
         viewers.delete(debugId);

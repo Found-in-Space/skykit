@@ -17,6 +17,7 @@ redefine provider demand planning.
 
 ```js
 import {
+  SKYKIT_ACTIONS,
   SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS,
   createKeyboardNavigationPlugin,
   createSkykitDefaultKeyboardNavigationBindings,
@@ -64,20 +65,53 @@ action:
 createKeyboardNavigationPlugin({
   rotationSpeedDegPerSec: 45,
   bindings: createSkykitDefaultKeyboardNavigationBindings({
-    KeyJ: 'yawLeft',
-    KeyL: 'yawRight',
-    KeyI: 'pitchUp',
-    KeyK: 'pitchDown',
-    KeyU: 'rollAnticlockwise',
-    KeyO: 'rollClockwise',
+    KeyJ: SKYKIT_ACTIONS.ship.yawLeft,
+    KeyL: SKYKIT_ACTIONS.ship.yawRight,
+    KeyI: SKYKIT_ACTIONS.ship.pitchUp,
+    KeyK: SKYKIT_ACTIONS.ship.pitchDown,
+    KeyU: SKYKIT_ACTIONS.ship.rollAnticlockwise,
+    KeyO: SKYKIT_ACTIONS.ship.rollClockwise,
+    KeyR: SKYKIT_ACTIONS.viewer.reset,
   }),
 });
 ```
 
-Default bindings cover movement only. Custom bindings may also use
-`pitchUp`, `pitchDown`, `yawLeft`, `yawRight`, `rollClockwise`, and
-`rollAnticlockwise`. `createSkykitDefaultKeyboardNavigationBindings()` returns
-a fresh complete map, so overrides are explicit rather than implicit.
+Default bindings cover movement only. Custom bindings may also use other
+namespaced actions such as `SKYKIT_ACTIONS.viewer.reset` or app-owned actions
+like `game:weapons.fire`. `createSkykitDefaultKeyboardNavigationBindings()`
+returns a fresh complete map, so overrides are explicit rather than implicit.
+
+## Actions
+
+SkyKit reserves `skykit:` for built-in semantic actions. These are behavior
+names, not renderer or loader factory names:
+
+```js
+SKYKIT_ACTIONS.ship.moveForward; // "skykit:ship.move.forward"
+SKYKIT_ACTIONS.viewer.reset; // "skykit:viewer.reset"
+SKYKIT_ACTIONS.journey.goToChapter; // "skykit:journey.goToChapter"
+```
+
+Plugins can add their own namespaces:
+
+```js
+const firePlugin = (ctx) => {
+  ctx.actions.registerAction('game:weapons.fire', ({ payload }) => {
+    console.log('pew', payload);
+  });
+};
+```
+
+DOM buttons, touch surfaces, keyboard bindings, XR controls, journeys, and debug
+tools can all call the same action:
+
+```js
+button.addEventListener('click', () => {
+  viewer.actions.invoke(SKYKIT_ACTIONS.journey.goToChapter, {
+    chapterId: 'hyades-arrival',
+  });
+});
+```
 
 ## Hack With Plugins
 

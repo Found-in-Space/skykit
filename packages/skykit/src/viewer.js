@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 
+import { SKYKIT_ACTIONS, createSkykitActionRegistry } from './actions.js';
 import { createDesktopSkykitObserverRig } from './observer-rig.js';
 import {
   addRootToScene,
@@ -48,6 +49,7 @@ export async function createSkykitViewer(options = {}) {
   });
   const host = options.host ?? null;
   const pluginInputs = Array.from(options.plugins ?? []);
+  const actions = createSkykitActionRegistry();
   /** @type {SkykitThreePart[]} */
   const parts = [];
   /** @type {Array<() => Promise<void> | void>} */
@@ -74,6 +76,7 @@ export async function createSkykitViewer(options = {}) {
     orientationIcrs: options.view?.orientationIcrs ?? observerRig.getOrientationIcrs?.() ?? null,
     motion: options.view?.motion ?? observerRig.getMotion?.() ?? null,
   }, 0);
+  const initialView = cloneViewState(view);
 
   addRootToScene(scene, roots.originContentRoot);
   addRootToScene(scene, roots.observerContentRoot);
@@ -96,6 +99,7 @@ export async function createSkykitViewer(options = {}) {
     contentRoot: roots.originContentRoot,
     navigationRoot: roots.navigationRoot,
     observerRig,
+    actions,
     addPart,
     getViewState,
     requestViewState,
@@ -108,6 +112,14 @@ export async function createSkykitViewer(options = {}) {
     getSnapshot,
     dispose,
   };
+
+  actions.subscribe((event) => emit(event));
+  actions.registerAction(SKYKIT_ACTIONS.viewer.reset, () => {
+    const { revision: _revision, ...patch } = cloneViewState(initialView);
+    requestViewState(patch, SKYKIT_ACTIONS.viewer.reset);
+  }, {
+    label: 'Reset viewer',
+  });
 
   const context = createContext(viewer);
 
@@ -311,6 +323,7 @@ export async function createSkykitViewer(options = {}) {
         ...(task.priority ? { priority: task.priority } : {}),
         ...(task.error ? { error: task.error } : {}),
       })),
+      actions: actions.getSnapshot(),
     };
   }
 
@@ -344,6 +357,7 @@ export async function createSkykitViewer(options = {}) {
     listeners.clear();
     stores.clear();
     resources.clear();
+    actions.dispose();
   }
 
   /**
@@ -405,6 +419,7 @@ export async function createSkykitViewer(options = {}) {
       contentRoot: roots.originContentRoot,
       navigationRoot: roots.navigationRoot,
       observerRig,
+      actions,
       addPart: currentViewer.addPart,
       addDisposable(disposable) {
         const teardown = typeof disposable === 'function'

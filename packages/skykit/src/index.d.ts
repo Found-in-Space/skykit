@@ -130,9 +130,131 @@ export interface SkykitEvent {
   [key: string]: unknown;
 }
 
+export type SkykitActionId = string;
+
+export interface SkykitActionMetadata {
+  source?: string;
+  [key: string]: unknown;
+}
+
+export interface SkykitActionHandlerContext<TPayload = unknown> {
+  id: SkykitActionId;
+  payload: TPayload;
+  metadata: SkykitActionMetadata;
+  registry: SkykitActionRegistry;
+}
+
+export type SkykitActionHandler<TPayload = unknown, TResult = unknown> = (
+  context: SkykitActionHandlerContext<TPayload>
+) => TResult | Promise<TResult>;
+
+export interface SkykitActionRegisterOptions {
+  priority?: number;
+  label?: string;
+}
+
+export interface SkykitActionRecord {
+  id: SkykitActionId;
+  priority: number;
+  order: number;
+  label?: string;
+  handler: SkykitActionHandler;
+}
+
+export interface SkykitActionSummary {
+  id: SkykitActionId;
+  priority: number;
+  order: number;
+  label?: string;
+}
+
+export interface SkykitActionListEntry {
+  id: SkykitActionId;
+  handlerCount: number;
+  handlers: SkykitActionSummary[];
+}
+
+export type SkykitActionEvent =
+  | (SkykitEvent & {
+      type: 'action/register' | 'action/unregister';
+      id: SkykitActionId;
+      record: SkykitActionSummary;
+    })
+  | (SkykitEvent & {
+      type: 'action/invoke';
+      id: SkykitActionId;
+      payload?: unknown;
+      metadata: SkykitActionMetadata;
+      handlerCount: number;
+    })
+  | (SkykitEvent & {
+      type: 'action/press';
+      id: SkykitActionId;
+      payload?: unknown;
+      metadata: SkykitActionMetadata;
+      source: string;
+      pressed: boolean;
+    })
+  | (SkykitEvent & {
+      type: 'action/release';
+      id: SkykitActionId;
+      metadata: SkykitActionMetadata;
+      source: string;
+      pressed: boolean;
+    })
+  | (SkykitEvent & {
+      type: 'action/control';
+      id: SkykitActionId;
+      value: unknown;
+      metadata: SkykitActionMetadata;
+    })
+  | (SkykitEvent & {
+      type: 'action/error';
+      id: SkykitActionId;
+      payload?: unknown;
+      metadata: SkykitActionMetadata;
+      error: Error;
+      message: string;
+      record: SkykitActionSummary;
+    });
+
+export interface SkykitActionRegistrySnapshot {
+  actions: SkykitActionListEntry[];
+  pressed: Array<{ id: SkykitActionId; sources: string[] }>;
+  controls: SkykitActionId[];
+}
+
+export interface SkykitActionRegistry {
+  registerAction(
+    id: SkykitActionId,
+    handler: SkykitActionHandler,
+    options?: SkykitActionRegisterOptions
+  ): SkykitPluginTeardown;
+  registerContext(
+    namespace: string,
+    handlers: Record<string, SkykitActionHandler>,
+    options?: SkykitActionRegisterOptions
+  ): SkykitPluginTeardown;
+  invoke(
+    id: SkykitActionId,
+    payload?: unknown,
+    metadata?: SkykitActionMetadata
+  ): Promise<PromiseSettledResult<unknown>[]>;
+  press(id: SkykitActionId, payload?: unknown, metadata?: SkykitActionMetadata): void;
+  release(id: SkykitActionId, metadata?: SkykitActionMetadata): void;
+  isPressed(id: SkykitActionId): boolean;
+  setControlValue(id: SkykitActionId, value: unknown, metadata?: SkykitActionMetadata): void;
+  getControlValue(id: SkykitActionId): unknown;
+  listActions(): SkykitActionListEntry[];
+  subscribe(listener: (event: SkykitActionEvent) => void): SkykitPluginTeardown;
+  getSnapshot(): SkykitActionRegistrySnapshot;
+  dispose(): void;
+}
+
 export interface SkykitPluginContext {
   readonly mode: 'three';
   readonly viewer: SkykitViewer;
+  readonly actions: SkykitActionRegistry;
   addPart(part: SkykitThreePart): SkykitPluginTeardown;
   addDisposable(disposable: SkykitDisposable | SkykitPluginTeardown): SkykitPluginTeardown;
   getViewState(): SkykitViewState;
@@ -218,6 +340,7 @@ export interface SkykitViewerSnapshot {
     priority?: string;
     error?: string;
   }>;
+  actions: SkykitActionRegistrySnapshot;
 }
 
 export interface SkykitViewer {
@@ -230,6 +353,7 @@ export interface SkykitViewer {
   readonly contentRoot: THREE.Object3D;
   readonly navigationRoot: THREE.Object3D;
   readonly observerRig: SkykitObserverRig;
+  readonly actions: SkykitActionRegistry;
   addPart(part: SkykitThreePart): SkykitPluginTeardown;
   getViewState(): SkykitViewState;
   requestViewState(patch: Partial<SkykitViewState>, reason?: string): void;
@@ -297,25 +421,14 @@ export interface SkykitStreamingStarsPlugin extends SkykitPlugin {
   getSnapshot(): unknown;
 }
 
-export type SkykitKeyboardNavigationAction =
-  | 'forward'
-  | 'back'
-  | 'left'
-  | 'right'
-  | 'up'
-  | 'down'
-  | 'pitchUp'
-  | 'pitchDown'
-  | 'yawLeft'
-  | 'yawRight'
-  | 'rollClockwise'
-  | 'rollAnticlockwise';
+export type SkykitKeyboardNavigationAction = SkykitActionId;
 
 export interface SkykitKeyboardNavigationBindingContext {
   key: string;
   event: Event;
   context: SkykitThreePluginContext;
   viewer: SkykitViewer;
+  actions: SkykitActionRegistry;
   getViewState(): SkykitViewState;
   requestViewState(patch: Partial<SkykitViewState>, reason?: string): void;
 }
@@ -411,6 +524,10 @@ export interface SkykitDebugBridge {
   flyToPc(point: Vector3Like, options?: Record<string, unknown>, target?: string | number | SkykitViewer): Vector3Like;
   lookAtPc(point: Vector3Like, options?: Record<string, unknown>, target?: string | number | SkykitViewer): Vector3Like;
   cancelAutomation(target?: string | number | SkykitViewer): boolean;
+  listActions(target?: string | number | SkykitViewer): SkykitActionListEntry[];
+  invokeAction(id: SkykitActionId, payload?: unknown, target?: string | number | SkykitViewer): Promise<PromiseSettledResult<unknown>[]>;
+  pressAction(id: SkykitActionId, payload?: unknown, target?: string | number | SkykitViewer): void;
+  releaseAction(id: SkykitActionId, target?: string | number | SkykitViewer): void;
 }
 
 export interface SkykitDebugRegisterOptions {
@@ -433,6 +550,10 @@ export interface SkykitDebugViewer extends SkykitDebugViewerSummary {
   flyToPc(point: Vector3Like, options?: Record<string, unknown>): Vector3Like;
   lookAtPc(point: Vector3Like, options?: Record<string, unknown>): Vector3Like;
   cancelAutomation(): boolean;
+  listActions(): SkykitActionListEntry[];
+  invokeAction(id: SkykitActionId, payload?: unknown): Promise<PromiseSettledResult<unknown>[]>;
+  pressAction(id: SkykitActionId, payload?: unknown): void;
+  releaseAction(id: SkykitActionId): void;
   unregister(): void;
 }
 
@@ -441,6 +562,52 @@ export interface InstallSkykitDebugGlobalOptions {
   target?: Record<string, unknown>;
 }
 
+export declare const SKYKIT_ACTION_NAMESPACE: 'skykit:';
+export declare const SKYKIT_ACTIONS: {
+  readonly viewer: {
+    readonly reset: 'skykit:viewer.reset';
+  };
+  readonly ship: {
+    readonly moveForward: 'skykit:ship.move.forward';
+    readonly moveBack: 'skykit:ship.move.back';
+    readonly moveLeft: 'skykit:ship.move.left';
+    readonly moveRight: 'skykit:ship.move.right';
+    readonly moveUp: 'skykit:ship.move.up';
+    readonly moveDown: 'skykit:ship.move.down';
+    readonly pitchUp: 'skykit:ship.attitude.pitchUp';
+    readonly pitchDown: 'skykit:ship.attitude.pitchDown';
+    readonly yawLeft: 'skykit:ship.attitude.yawLeft';
+    readonly yawRight: 'skykit:ship.attitude.yawRight';
+    readonly rollClockwise: 'skykit:ship.attitude.rollClockwise';
+    readonly rollAnticlockwise: 'skykit:ship.attitude.rollAnticlockwise';
+    readonly boost: 'skykit:ship.boost';
+  };
+  readonly layer: {
+    readonly toggle: 'skykit:layer.toggle';
+    readonly show: 'skykit:layer.show';
+    readonly hide: 'skykit:layer.hide';
+  };
+  readonly selection: {
+    readonly clear: 'skykit:selection.clear';
+    readonly flyToSelected: 'skykit:selection.flyToSelected';
+    readonly openExternal: 'skykit:selection.openExternal';
+  };
+  readonly journey: {
+    readonly goToChapter: 'skykit:journey.goToChapter';
+    readonly next: 'skykit:journey.next';
+    readonly previous: 'skykit:journey.previous';
+    readonly seek: 'skykit:journey.seek';
+    readonly play: 'skykit:journey.play';
+    readonly pause: 'skykit:journey.pause';
+  };
+};
+export declare const SKYKIT_CONTROLS: {
+  readonly ship: {
+    readonly move: 'skykit:ship.control.move';
+    readonly attitude: 'skykit:ship.control.attitude';
+  };
+};
+export declare function createSkykitActionRegistry(): SkykitActionRegistry;
 export declare function createSkykitViewer(options?: SkykitViewerOptions): Promise<SkykitViewer>;
 export declare function createDesktopSkykitObserverRig(options?: DesktopSkykitObserverRigOptions): SkykitObserverRig;
 export declare function createObject3dLayer(options: Object3dLayerOptions): SkykitThreePart;

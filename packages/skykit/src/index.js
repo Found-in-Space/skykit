@@ -1,3 +1,9 @@
+export {
+  SKYKIT_ACTION_NAMESPACE,
+  SKYKIT_ACTIONS,
+  SKYKIT_CONTROLS,
+  createSkykitActionRegistry,
+} from './actions.js';
 export { createSkykitAnimationLoop } from './animation-loop.js';
 export { createSkykitDebugBridge, installSkykitDebugGlobal } from './debug.js';
 export { createObject3dLayer } from './layers.js';
