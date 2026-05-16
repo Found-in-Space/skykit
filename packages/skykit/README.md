@@ -17,7 +17,10 @@ redefine provider demand planning.
 
 ```js
 import {
+  SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS,
   createKeyboardNavigationPlugin,
+  createSkykitDefaultKeyboardNavigationBindings,
+  createSkyGrabPlugin,
   createSkykitAnimationLoop,
   createSkykitStatusPlugin,
   createSkykitViewer,
@@ -30,10 +33,11 @@ import {
 import { createThreeStarField } from '@found-in-space/three-star-field';
 
 const provider = createStarOctreeProviderService({ url: STAR_OCTREE_URL });
-const starField = createThreeStarField({ renderScale: 0.001 });
+const starField = createThreeStarField();
 
 const viewer = await createSkykitViewer({
   host: document.querySelector('#skykit'),
+  view: { coordinateUnitsPerParsec: 0.001 },
   plugins: [
     createStreamingStarsPlugin({
       provider,
@@ -41,6 +45,7 @@ const viewer = await createSkykitViewer({
       session: { strategy: createObserverShellStrategy() },
     }),
     createKeyboardNavigationPlugin({ speedPcPerSec: 2 }),
+    createSkyGrabPlugin({ target: document.querySelector('#skykit') }),
     createSkykitStatusPlugin({ target: document.querySelector('#status') }),
   ],
 });
@@ -48,6 +53,30 @@ const viewer = await createSkykitViewer({
 const loop = createSkykitAnimationLoop(viewer);
 loop.start();
 ```
+
+Keyboard bindings are either default or custom. If `bindings` is omitted,
+SkyKit uses `SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS`; if `bindings` is
+supplied, it is the complete key map. Multiple keys can still point to the same
+action:
+
+```js
+createKeyboardNavigationPlugin({
+  rotationSpeedDegPerSec: 45,
+  bindings: createSkykitDefaultKeyboardNavigationBindings({
+    KeyJ: 'yawLeft',
+    KeyL: 'yawRight',
+    KeyI: 'pitchUp',
+    KeyK: 'pitchDown',
+    KeyU: 'rollAnticlockwise',
+    KeyO: 'rollClockwise',
+  }),
+});
+```
+
+Default bindings cover movement only. Custom bindings may also use
+`pitchUp`, `pitchDown`, `yawLeft`, `yawRight`, `rollClockwise`, and
+`rollAnticlockwise`. `createSkykitDefaultKeyboardNavigationBindings()` returns
+a fresh complete map, so overrides are explicit rather than implicit.
 
 ## Hack With Plugins
 
@@ -78,6 +107,15 @@ const viewer = await createSkykitViewer({
 
 For a slightly more playful example, see `examples/plugin-lab.js`. It builds a
 small falling-marker plugin from the same public hooks a learner would use.
+
+Browser lessons:
+
+- `examples/free-roam-lesson/` composes streamed stars, keyboard navigation,
+  sky-grab look controls, status, and debug.
+- `examples/custom-object-layer/` shows that app-owned Three.js visuals can be
+  small plugins instead of core SkyKit features.
+- `examples/navigation-automation/` uses the XR navigation helpers to drive a
+  desktop SkyKit viewer.
 
 ## Debug
 

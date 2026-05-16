@@ -303,7 +303,15 @@ export type SkykitKeyboardNavigationAction =
   | 'left'
   | 'right'
   | 'up'
-  | 'down';
+  | 'down'
+  | 'pitchUp'
+  | 'pitchDown'
+  | 'yawLeft'
+  | 'yawRight'
+  | 'rollClockwise'
+  | 'rollAnticlockwise';
+
+export type SkykitKeyboardNavigationBindings = Readonly<Record<string, SkykitKeyboardNavigationAction>>;
 
 export interface SkykitKeyboardNavigationOptions {
   id?: string;
@@ -311,9 +319,27 @@ export interface SkykitKeyboardNavigationOptions {
   target?: EventTarget | null;
   enabled?: boolean;
   speedPcPerSec?: number;
+  rotationSpeedDegPerSec?: number;
   boostMultiplier?: number;
   boostKeys?: readonly string[];
-  bindings?: Record<string, SkykitKeyboardNavigationAction>;
+  /**
+   * Complete key-to-action map. When omitted, SkyKit uses
+   * SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS. When supplied, this replaces
+   * the defaults rather than merging with them.
+   */
+  bindings?: SkykitKeyboardNavigationBindings;
+  verticalMode?: 'view' | 'world';
+  preventDefault?: boolean;
+}
+
+export interface SkykitDragLookOptions {
+  id?: string;
+  priority?: number;
+  target?: EventTarget | null;
+  enabled?: boolean;
+  sensitivityRadiansPerPixel?: number;
+  pitchLimitDeg?: number;
+  button?: number;
   preventDefault?: boolean;
 }
 
@@ -404,7 +430,17 @@ export declare function createObject3dLayer(options: Object3dLayerOptions): Skyk
 export declare function createObject3dPlugin(options: Object3dLayerOptions): SkykitObject3dPlugin;
 export declare function createStreamingStarLayer(options: StreamingStarLayerOptions): StreamingStarLayer;
 export declare function createStreamingStarsPlugin(options: StreamingStarLayerOptions): SkykitStreamingStarsPlugin;
+export declare const SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS: SkykitKeyboardNavigationBindings;
+export declare function createSkykitDefaultKeyboardNavigationBindings(
+  overrides?: Partial<Record<string, SkykitKeyboardNavigationAction>>
+): Record<string, SkykitKeyboardNavigationAction>;
 export declare function createKeyboardNavigationPlugin(options?: SkykitKeyboardNavigationOptions): SkykitPlugin & {
+  getSnapshot(): unknown;
+};
+export declare function createSkyGrabPlugin(options?: SkykitDragLookOptions): SkykitPlugin & {
+  getSnapshot(): unknown;
+};
+export declare function createMouseLookPlugin(options?: SkykitDragLookOptions): SkykitPlugin & {
   getSnapshot(): unknown;
 };
 export declare function createSkykitStatusPlugin(options?: SkykitStatusPluginOptions): SkykitPlugin & {

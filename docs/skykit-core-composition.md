@@ -63,10 +63,11 @@ Good:
 ```js
 const viewer = await createSkykitViewer({
   host,
+  view: { coordinateUnitsPerParsec: 0.001 },
   plugins: [
     createStreamingStarsPlugin({
       provider,
-      renderer: createThreeStarField({ renderScale: 0.001 }),
+      renderer: createThreeStarField(),
       session: { strategy: createObserverShellStrategy() },
     }),
     createObject3dPlugin({
@@ -260,7 +261,13 @@ route previews, or lesson props.
 
 `createKeyboardNavigationPlugin()` is a small desktop learning control. Richer
 mouse/orbit/game controls should be separate plugins when their boundaries are
-clear.
+clear. Keyboard bindings use either the exported default binding map or a
+complete caller-supplied map; SkyKit does not merge custom bindings with the
+defaults implicitly. Default bindings cover movement only; custom maps may also
+bind `pitchUp`, `pitchDown`, `yawLeft`, `yawRight`, `rollClockwise`, and
+`rollAnticlockwise`. `createSkykitDefaultKeyboardNavigationBindings(overrides)`
+returns an explicit complete map for lessons that want default bindings plus a
+few deliberate overrides.
 
 ### Status And Debug
 
