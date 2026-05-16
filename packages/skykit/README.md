@@ -2,32 +2,96 @@
 
 Alpha composition package for Found in Space teaching experiences.
 
-This package wires focused packages together. It does not load octree bytes,
-interpret star products, own star shaders, manage touch surfaces, or contain
-journey/chapter logic.
+SkyKit is intentionally slim: it wires focused packages together and gives
+students a friendly place to hack. It does not load octree bytes, interpret star
+products, own star shaders, manage touch surfaces, or contain journey/chapter
+logic.
+
+## Create A Viewer
 
 ```js
-import { createSkykitViewer, createStreamingStarLayer } from '@found-in-space/skykit';
+import {
+  createKeyboardNavigationPlugin,
+  createSkykitAnimationLoop,
+  createSkykitStatusPlugin,
+  createSkykitViewer,
+  createStreamingStarsPlugin,
+} from '@found-in-space/skykit';
 import { createStarOctreeProviderService } from '@found-in-space/star-octree-provider';
 import { createThreeStarField } from '@found-in-space/three-star-field';
 
 const provider = createStarOctreeProviderService({ url: STAR_OCTREE_URL });
-const renderer = createThreeStarField({ renderScale: 0.001 });
+const starField = createThreeStarField({ renderScale: 0.001 });
 
 const viewer = await createSkykitViewer({
   host: document.querySelector('#skykit'),
-  parts: [
-    createStreamingStarLayer({
+  plugins: [
+    createStreamingStarsPlugin({
       provider,
-      renderer,
+      renderer: starField,
       session: { strategy: { kind: 'observer-shell' } },
     }),
+    createKeyboardNavigationPlugin({ speedPcPerSec: 2 }),
+    createSkykitStatusPlugin({ target: document.querySelector('#status') }),
   ],
 });
 
-window.viewer = viewer;
+const loop = createSkykitAnimationLoop(viewer);
+loop.start();
 ```
 
-Use plugins and parts to hack the viewer. A plugin is just an object or function
-that receives a public context and registers lifecycle parts, stores, resources,
-events, or scheduled work.
+## Hack With Plugins
+
+A plugin is just a function or object that receives a public context. It can add
+parts, listen for events, request view-state changes, keep stores/resources, or
+schedule background work.
+
+```js
+import * as THREE from 'three';
+import { createObject3dPlugin } from '@found-in-space/skykit';
+
+const marker = new THREE.Mesh(
+  new THREE.SphereGeometry(0.05),
+  new THREE.MeshBasicMaterial({ color: 'hotpink' }),
+);
+
+const markerPlugin = createObject3dPlugin({
+  id: 'my-marker',
+  object3d: marker,
+  anchorMode: 'world-space',
+});
+
+const viewer = await createSkykitViewer({
+  host: document.querySelector('#skykit'),
+  plugins: [markerPlugin],
+});
+```
+
+For a slightly more playful example, see `examples/plugin-lab.js`. It builds a
+small falling-marker plugin from the same public hooks a learner would use.
+
+## Debug
+
+```js
+import { createSkykitDebugBridge, installSkykitDebugGlobal } from '@found-in-space/skykit';
+
+const debug = createSkykitDebugBridge();
+debug.registerViewer(viewer);
+installSkykitDebugGlobal(debug);
+
+// Browser console:
+skykitDebug.snapshot();
+skykitDebug.setObserverPc(10, 0, 0);
+```
+
+## Boundary
+
+SkyKit composes reusable modules:
+
+- `star-octree-provider` streams star products.
+- `star-products` interprets star product columns.
+- `three-star-field` renders streamed star products.
+- `touch-os` owns richer panels, HUDs, and surfaces.
+
+Core SkyKit should stay a teaching/composition layer, not a place for sidecars,
+journey logic, renderer internals, or experimental data products.

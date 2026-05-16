@@ -3,11 +3,16 @@ import test from 'node:test';
 import * as THREE from 'three';
 
 import {
+  createKeyboardNavigationPlugin,
   createDesktopSkykitObserverRig,
   createObject3dLayer,
+  createObject3dPlugin,
+  createSkykitAnimationLoop,
   createSkykitDebugBridge,
+  createSkykitStatusPlugin,
   createSkykitViewer,
   createStreamingStarLayer,
+  createStreamingStarsPlugin,
   installSkykitDebugGlobal,
 } from '../index.js';
 
@@ -196,6 +201,153 @@ test('createObject3dLayer mounts layers into world, observer-centric, and scale-
   assert.equal(banded.parent, null);
 });
 
+test('object3d plugin wraps an object layer without string registries', async () => {
+  const object3d = new THREE.Group();
+  const plugin = createObject3dPlugin({
+    id: 'marker',
+    object3d,
+    anchorMode: 'observer-centric',
+  });
+
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [plugin],
+  });
+
+  assert.equal(plugin.getLayer()?.id, 'marker');
+  assert.equal(object3d.parent, viewer.roots.observerContentRoot);
+  assert.equal(plugin.getSnapshot().mounted, true);
+  assert.equal(viewer.getSnapshot().parts.some((part) => part.id === 'marker'), true);
+
+  await viewer.dispose();
+  assert.equal(object3d.parent, null);
+});
+
+test('streaming stars plugin owns a streaming layer and exposes its snapshot', async () => {
+  const session = createFakeSession();
+  const rendererCalls = [];
+  const renderer = {
+    object3d: new THREE.Group(),
+    apply(delta) { rendererCalls.push(delta.type); },
+    setView(view) { rendererCalls.push(`view:${view.limitingMagnitude}`); },
+    getSnapshot() { return { renderer: 'stars' }; },
+    dispose() { rendererCalls.push('dispose'); },
+  };
+  const provider = {
+    id: 'provider',
+    createSession() {
+      return session;
+    },
+  };
+  const plugin = createStreamingStarsPlugin({
+    id: 'stars-plugin',
+    provider,
+    renderer,
+    session: { strategy: { kind: 'observer-shell' } },
+  });
+
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [plugin],
+  });
+  assert.equal(plugin.getLayer()?.id, 'stars-plugin');
+  assert.equal(plugin.getSnapshot().status, 'idle');
+
+  session.emit({ type: 'data/product-upsert', product: { id: 'product' } });
+  assert.ok(rendererCalls.includes('data/product-upsert'));
+
+  await viewer.dispose();
+  assert.equal(session.disposed, true);
+  assert.ok(rendererCalls.includes('dispose'));
+});
+
+test('animation loop drives viewer frames with an injected scheduler and clock', async () => {
+  const renderer = createRenderer();
+  const viewer = await createSkykitViewer({ renderer });
+  const callbacks = [];
+  const cancelled = [];
+  let nowMs = 1000;
+  const loop = createSkykitAnimationLoop(viewer, {
+    maxDeltaSeconds: 0.05,
+    now: () => nowMs,
+    requestAnimationFrame(callback) {
+      callbacks.push(callback);
+      return callbacks.length;
+    },
+    cancelAnimationFrame(handle) {
+      cancelled.push(handle);
+    },
+  });
+
+  loop.start();
+  assert.equal(loop.getSnapshot().running, true);
+  nowMs = 1200;
+  callbacks.shift()(nowMs);
+  assert.equal(renderer.renderCalls, 1);
+  assert.equal(loop.getSnapshot().frameCount, 1);
+  assert.equal(loop.getSnapshot().lastDeltaSeconds, 0.05);
+
+  loop.stop();
+  assert.equal(loop.getSnapshot().running, false);
+  assert.equal(cancelled.length, 1);
+  loop.dispose();
+  assert.throws(() => loop.start(), /disposed/);
+  await viewer.dispose();
+});
+
+test('keyboard navigation plugin maps keys to batched observer movement and cleans listeners', async () => {
+  const target = createEventTarget();
+  const plugin = createKeyboardNavigationPlugin({
+    target,
+    speedPcPerSec: 2,
+    boostMultiplier: 3,
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [plugin],
+  });
+
+  assert.equal(target.listenerCount('keydown'), 1);
+  target.dispatch('keydown', { code: 'KeyW' });
+  viewer.frame(1);
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 0, y: 0, z: -2 });
+  assert.deepEqual(plugin.getSnapshot().lastVelocityPcPerSec, { x: 0, y: 0, z: -2 });
+
+  target.dispatch('keydown', { code: 'ShiftLeft' });
+  viewer.frame(1);
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 0, y: 0, z: -8 });
+
+  target.dispatch('keyup', { code: 'KeyW' });
+  target.dispatch('keyup', { code: 'ShiftLeft' });
+  await viewer.dispose();
+  assert.equal(target.listenerCount('keydown'), 0);
+  assert.equal(target.listenerCount('keyup'), 0);
+});
+
+test('status plugin renders compact viewer snapshots to callback and text targets', async () => {
+  const payloads = [];
+  const textTarget = { textContent: '' };
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [
+      createSkykitStatusPlugin({ render: (payload) => payloads.push(payload) }),
+      createSkykitStatusPlugin({ id: 'text-status', target: textTarget }),
+    ],
+  });
+
+  assert.equal(payloads.length, 1);
+  assert.equal(payloads[0].viewer.id, viewer.id);
+  assert.match(textTarget.textContent, /"id"/);
+
+  viewer.frame(0.25);
+  assert.equal(payloads.length, 2);
+  assert.equal(viewer.getSnapshot().parts.some((part) => part.id === 'text-status'), true);
+
+  await viewer.dispose();
+});
+
 test('debug bridge registers viewers, switches active viewer, updates observer, and installs a global', async () => {
   const viewerA = await createSkykitViewer({ id: 'a', renderer: createRenderer() });
   const viewerB = await createSkykitViewer({ id: 'b', renderer: createRenderer() });
@@ -329,6 +481,39 @@ function createFakeSession() {
     dispose() {
       this.disposed = true;
       listeners.clear();
+    },
+  };
+}
+
+function createEventTarget() {
+  const listeners = new Map();
+  return {
+    addEventListener(type, listener) {
+      let typeListeners = listeners.get(type);
+      if (!typeListeners) {
+        typeListeners = new Set();
+        listeners.set(type, typeListeners);
+      }
+      typeListeners.add(listener);
+    },
+    removeEventListener(type, listener) {
+      listeners.get(type)?.delete(listener);
+    },
+    dispatch(type, event = {}) {
+      const keyboardEvent = {
+        preventDefault() {
+          keyboardEvent.defaultPrevented = true;
+        },
+        defaultPrevented: false,
+        ...event,
+      };
+      for (const listener of listeners.get(type) ?? []) {
+        listener(keyboardEvent);
+      }
+      return keyboardEvent;
+    },
+    listenerCount(type) {
+      return listeners.get(type)?.size ?? 0;
     },
   };
 }

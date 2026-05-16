@@ -1,7 +1,7 @@
 # SkyKit Core Composition Architecture
 
-Status: current alpha planning document. The first `@found-in-space/skykit`
-package slice has landed.
+Status: current alpha planning document. The first plugin-first
+`@found-in-space/skykit` composition slices have landed.
 
 This document captures the intended shape of core `@found-in-space/skykit` as
 the proof-of-concept viewer code is replaced by first-alpha packages. It should
@@ -1233,25 +1233,36 @@ wiring. The source should be a star product store or product stream, not the
 
 ### Slice 1: Contracts And Viewer Shell
 
-- Add `createSkykitViewer()`.
-- Add shared composition contracts that can also be used by
+- Implemented: `createSkykitViewer()`.
+- Implemented: shared composition contracts that can also be used by
   `createSkykitStarMap()`.
-- Add `SkykitPart` lifecycle.
-- Add desktop observer rig.
-- Add `createObject3dLayer()` helper.
-- Add `createSkykitDebugBridge()` and optional global installer.
+- Implemented: `SkykitPart` lifecycle.
+- Implemented: desktop observer rig.
+- Implemented: `createObject3dLayer()` and `createObject3dPlugin()` helpers.
+- Implemented: `createSkykitAnimationLoop()`.
+- Implemented: `createSkykitDebugBridge()` and optional global installer.
 - Keep old `createViewer()` in place during transition.
-- Add tests for lifecycle ordering, async attach/dispose, object3d mounting,
+- Implemented tests for lifecycle ordering, async attach/dispose, object3d mounting,
   viewer debug registration, active viewer switching, snapshot reads,
   observer setters, and dispose unregistration.
 
 ### Slice 2: Streaming Star Layer
 
-- Compose `star-octree-provider` + `three-star-field`.
-- Accept real provider/session/renderer objects.
-- Update provider view from `SkykitViewState`.
-- Preserve product-delta streaming semantics.
-- Add tests with fake provider/session and real `ThreeStarField`.
+- Implemented: compose `star-octree-provider` + `three-star-field`.
+- Implemented: accept real provider/session/renderer objects.
+- Implemented: `createStreamingStarLayer()` and `createStreamingStarsPlugin()`.
+- Implemented: update provider view from `SkykitViewState`.
+- Implemented: preserve product-delta streaming semantics.
+- Implemented: tests with fake provider/session.
+
+### Slice 2.5: Learning Plugin Helpers
+
+- Implemented: small keyboard navigation plugin for desktop teaching examples.
+- Implemented: small status plugin for DOM/callback snapshots.
+- Implemented: package-local examples showing streamed stars and a custom
+  falling-marker plugin.
+- Remaining: richer desktop orbit/mouse controls should be a later deliberate
+  control plugin, not hidden inside the viewer shell.
 
 ### Slice 3: Canvas Star Map Factory
 

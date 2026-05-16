@@ -206,6 +206,11 @@ export interface SkykitViewerSnapshot {
     navigationRoot: string;
     scaleBandedContentRoots: string[];
   };
+  parts: Array<{
+    id: string | null;
+    priority: number;
+    snapshot: unknown;
+  }>;
   scheduledTasks: Array<{
     id: string;
     status: 'active' | 'finished' | 'failed' | 'cancelled';
@@ -255,6 +260,11 @@ export interface Object3dLayerOptions {
   disposeObject?: boolean;
 }
 
+export interface SkykitObject3dPlugin extends SkykitPlugin {
+  getLayer(): SkykitThreePart | null;
+  getSnapshot(): unknown;
+}
+
 export interface StreamingStarLayerOptions {
   id?: string;
   priority?: number;
@@ -280,6 +290,69 @@ export interface StreamingStarLayer extends SkykitThreePart {
   readonly object3d: THREE.Object3D;
   apply(delta: ProductDelta<StarObjectBatchProduct>): void;
   getSnapshot(): StreamingStarLayerSnapshot;
+}
+
+export interface SkykitStreamingStarsPlugin extends SkykitPlugin {
+  getLayer(): StreamingStarLayer | null;
+  getSnapshot(): unknown;
+}
+
+export type SkykitKeyboardNavigationAction =
+  | 'forward'
+  | 'back'
+  | 'left'
+  | 'right'
+  | 'up'
+  | 'down';
+
+export interface SkykitKeyboardNavigationOptions {
+  id?: string;
+  priority?: number;
+  target?: EventTarget | null;
+  enabled?: boolean;
+  speedPcPerSec?: number;
+  boostMultiplier?: number;
+  boostKeys?: readonly string[];
+  bindings?: Record<string, SkykitKeyboardNavigationAction>;
+  preventDefault?: boolean;
+}
+
+export interface SkykitStatusPayload {
+  viewer: SkykitViewerSnapshot;
+  view: SkykitViewState;
+}
+
+export interface SkykitStatusPluginOptions {
+  id?: string;
+  priority?: number;
+  target?: { textContent?: string | null } | null;
+  intervalSeconds?: number;
+  render?: (payload: SkykitStatusPayload) => void;
+}
+
+export interface SkykitAnimationLoopOptions {
+  autoStart?: boolean;
+  render?: boolean;
+  maxDeltaSeconds?: number;
+  requestAnimationFrame?: (callback: (timeMs: number) => void) => number | ReturnType<typeof setTimeout>;
+  cancelAnimationFrame?: (handle: number | ReturnType<typeof setTimeout>) => void;
+  now?: () => number;
+}
+
+export interface SkykitAnimationLoopSnapshot {
+  running: boolean;
+  disposed: boolean;
+  frameCount: number;
+  elapsedSeconds: number;
+  lastDeltaSeconds: number;
+  lastError: string | null;
+}
+
+export interface SkykitAnimationLoop {
+  start(): void;
+  stop(): void;
+  dispose(): void;
+  getSnapshot(): SkykitAnimationLoopSnapshot;
 }
 
 export interface SkykitDebugBridge {
@@ -328,7 +401,19 @@ export interface InstallSkykitDebugGlobalOptions {
 export declare function createSkykitViewer(options?: SkykitViewerOptions): Promise<SkykitViewer>;
 export declare function createDesktopSkykitObserverRig(options?: DesktopSkykitObserverRigOptions): SkykitObserverRig;
 export declare function createObject3dLayer(options: Object3dLayerOptions): SkykitThreePart;
+export declare function createObject3dPlugin(options: Object3dLayerOptions): SkykitObject3dPlugin;
 export declare function createStreamingStarLayer(options: StreamingStarLayerOptions): StreamingStarLayer;
+export declare function createStreamingStarsPlugin(options: StreamingStarLayerOptions): SkykitStreamingStarsPlugin;
+export declare function createKeyboardNavigationPlugin(options?: SkykitKeyboardNavigationOptions): SkykitPlugin & {
+  getSnapshot(): unknown;
+};
+export declare function createSkykitStatusPlugin(options?: SkykitStatusPluginOptions): SkykitPlugin & {
+  getSnapshot(): unknown;
+};
+export declare function createSkykitAnimationLoop(
+  viewer: SkykitViewer,
+  options?: SkykitAnimationLoopOptions
+): SkykitAnimationLoop;
 export declare function createSkykitDebugBridge(): SkykitDebugBridge;
 export declare function installSkykitDebugGlobal(
   debugBridge: SkykitDebugBridge,
