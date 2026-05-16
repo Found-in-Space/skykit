@@ -9,6 +9,10 @@ This package consumes `StarRepresentationStore` data from
 not create octree sessions, load catalogs, own sidecars, import
 `anchored-image`, or render Three.js objects.
 
+Provider strategy semantics are outside this package. The examples use
+`observer-shell` only as a convenient source of streamed star products; strategy
+composition and planning are defined by `@found-in-space/star-octree-provider`.
+
 The intended package path is:
 
 ```txt
@@ -21,7 +25,10 @@ increasing RA/east runs toward the left side of the map.
 ## Minimal Shape
 
 ```js
-import { createStarOctreeProviderService } from '@found-in-space/star-octree-provider';
+import {
+  createObserverShellStrategy,
+  createStarOctreeProviderService,
+} from '@found-in-space/star-octree-provider';
 import {
   consumeProductDeltas,
   createStarRepresentationStore,
@@ -33,7 +40,7 @@ const store = createStarRepresentationStore();
 const map = createCanvasStarMap(canvas, { store });
 
 const session = provider.createSession({
-  strategy: { kind: 'observer-shell' },
+  strategy: createObserverShellStrategy(),
   attributes: ['position', 'magAbs', 'teffLog8', 'objectRef', 'pickMeta'],
 });
 

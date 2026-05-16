@@ -1,4 +1,7 @@
-import { createStarOctreeProviderService } from '../../src/index.js';
+import {
+  createObserverShellStrategy,
+  createStarOctreeProviderService,
+} from '../../src/index.js';
 import {
   apparentMagnitude as computeApparentMagnitude,
   decodeTemperatureK,
@@ -129,7 +132,7 @@ function resetProvider(url) {
   });
   state.session = state.provider.createSession({
     id: 'nearest-visible-session',
-    strategy: { kind: 'observer-shell' },
+    strategy: createObserverShellStrategy(),
     attributes: ['position', 'magAbs', 'teffLog8', 'objectRef'],
     streaming: {
       emitCachedFirst: true,

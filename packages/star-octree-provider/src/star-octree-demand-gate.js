@@ -27,6 +27,21 @@ export function evaluateDemandGate(options) {
     return evaluateCustomDemandGate(options);
   }
 
+  if (options.strategy.kind === 'motion-lookahead') {
+    return evaluateMotionLookaheadGate(options);
+  }
+
+  if (options.strategy.kind === 'composite') {
+    return evaluateCompositeGate(options);
+  }
+
+  if (
+    options.strategy.kind === 'sphere-volume' ||
+    options.strategy.kind === 'path-volume'
+  ) {
+    return evaluateFixedVolumeGate(options);
+  }
+
   if (!options.previousDemandView) {
     return replan(defaultQueuedReasons(options.reason, 'initial'));
   }
@@ -44,6 +59,60 @@ export function evaluateDemandGate(options) {
   }
 
   return replan(defaultQueuedReasons(options.reason, 'strategy'));
+}
+
+/**
+ * @param {Parameters<typeof evaluateDemandGate>[0]} options
+ */
+function evaluateMotionLookaheadGate(options) {
+  const strategy = /** @type {Extract<StarOctreeFetchStrategy, { kind: 'motion-lookahead' }>} */ (options.strategy);
+  const baseGate = evaluateDemandGate({
+    ...options,
+    strategy: strategy.strategy,
+  });
+  const motionChanged = motionLookaheadSignature(options.previousDemandView) !==
+    motionLookaheadSignature(options.nextView);
+
+  if (baseGate.replan || motionChanged) {
+    return replan(withExplicitReason(
+      options.reason,
+      dedupe([
+        ...baseGate.reasons,
+        ...(motionChanged ? ['motion-lookahead'] : []),
+      ]),
+    ));
+  }
+
+  return unchanged(dedupe([...baseGate.reasons, 'motion-lookahead-unchanged']));
+}
+
+/**
+ * @param {Parameters<typeof evaluateDemandGate>[0]} options
+ */
+function evaluateCompositeGate(options) {
+  const strategy = /** @type {Extract<StarOctreeFetchStrategy, { kind: 'composite' }>} */ (options.strategy);
+  const results = strategy.strategies.map((childStrategy) =>
+    evaluateDemandGate({
+      ...options,
+      strategy: childStrategy,
+    }),
+  );
+  const reasons = dedupe(results.flatMap((result) => result.reasons));
+
+  return results.some((result) => result.replan)
+    ? replan(withExplicitReason(options.reason, reasons))
+    : unchanged(reasons.length > 0 ? reasons : ['composite-unchanged']);
+}
+
+/**
+ * @param {Parameters<typeof evaluateDemandGate>[0]} options
+ */
+function evaluateFixedVolumeGate(options) {
+  if (!options.previousDemandView) {
+    return replan(defaultQueuedReasons(options.reason, 'initial'));
+  }
+
+  return unchanged([`${options.strategy.kind}-unchanged`]);
 }
 
 /**
@@ -373,6 +442,39 @@ function optionalPoint(value) {
   return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)
     ? { x, y, z }
     : null;
+}
+
+/**
+ * @param {StarOctreeViewState | null} view
+ */
+function motionLookaheadSignature(view) {
+  const motion = view?.motion;
+  const velocity = optionalPoint(motion?.velocityPcPerSec);
+  const lookaheadSecs = Number(motion?.lookaheadSecs);
+  if (!velocity || !Number.isFinite(lookaheadSecs) || !(lookaheadSecs > 0)) {
+    return 'none';
+  }
+
+  const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
+  if (!(speed > EPSILON)) {
+    return 'none';
+  }
+
+  return [
+    roundSignatureNumber(velocity.x),
+    roundSignatureNumber(velocity.y),
+    roundSignatureNumber(velocity.z),
+    roundSignatureNumber(lookaheadSecs),
+  ].join(':');
+}
+
+/**
+ * @param {number} value
+ */
+function roundSignatureNumber(value) {
+  return Number.isFinite(value)
+    ? String(Math.round(value / EPSILON) * EPSILON)
+    : 'nan';
 }
 
 /**

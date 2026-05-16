@@ -35,8 +35,9 @@ Core SkyKit should provide:
   and data-driven renderers
 - provider/session wiring for streamed star products
 - camera and observer-rig composition
-- clean support for observer-shell, target-frustum, and custom provider
-  strategies
+- clean pass-through support for provider strategy objects, including
+  observer-shell, target-frustum, sphere/path volume, motion-lookahead,
+  composite, and custom strategies
 - explicit layer anchoring policies so sky/infinity layers do not accidentally
   stay centered on the Sun
 - enough defaults that a learner can build useful scenes in tens of lines
@@ -67,7 +68,7 @@ const viewer = await createSkykitViewer({
   parts: [
     createStreamingStarLayer({
       provider,
-      session: { strategy: { kind: 'observer-shell' } },
+      session: { strategy: createObserverShellStrategy() },
       renderer: createThreeStarField({ renderScale: 0.001 }),
     }),
     createConstellationArtSkyLayer({ manifest }),
@@ -200,7 +201,10 @@ import a factory, and pass plain objects/plugins.
     createSkykitViewer,
     createStreamingStarLayer,
   } from '@found-in-space/skykit';
-  import { createStarOctreeProviderService } from '@found-in-space/star-octree-provider';
+  import {
+    createObserverShellStrategy,
+    createStarOctreeProviderService,
+  } from '@found-in-space/star-octree-provider';
   import { createThreeStarField } from '@found-in-space/three-star-field';
 
   const provider = createStarOctreeProviderService({ url: STAR_OCTREE_URL });
@@ -212,7 +216,7 @@ import a factory, and pass plain objects/plugins.
       createStreamingStarLayer({
         provider,
         renderer,
-        session: { strategy: { kind: 'observer-shell' } },
+        session: { strategy: createObserverShellStrategy() },
       }),
     ],
   });
@@ -245,9 +249,18 @@ Examples:
 - custom star provider
 - observer-shell strategy
 - target-frustum strategy
+- sphere/path volume strategy
+- motion-lookahead strategy decorator
+- union strategy composition
 - custom provider strategy
 - demand thresholds and cache-warming policy
-- volume/path query preloads
+- travel-volume preload helpers
+
+Star-octree strategy semantics, composition rules, and the distinction between
+strategy, planner, and scheduler are defined in
+[`star-octree-provider.md`](./star-octree-provider.md). Core SkyKit should pass
+strategy objects through to provider sessions and provide friendly composition
+helpers; it should not redefine provider demand semantics.
 
 ### Product And Data Plugins
 
@@ -341,7 +354,7 @@ const viewer = await createSkykitViewer({
     createStreamingStarsPlugin({
       provider,
       renderer: createThreeStarField({ renderScale: 0.001 }),
-      session: { strategy: { kind: 'observer-shell' } },
+      session: { strategy: createObserverShellStrategy() },
     }),
     createRadioBubblePlugin(),
     myCustomOverlayPlugin(),
@@ -501,6 +514,10 @@ to their provider/session. The provider/session owns strategy-specific demand
 thresholds and gates. A tiny pointer movement can update the render camera
 without forcing full star-provider traversal.
 
+See [`star-octree-provider.md`](./star-octree-provider.md) for the provider
+definition of strategy demand, planner execution economics, scheduler work, and
+`current` versus `prefetch` semantics.
+
 ### Scene Graph Hooks
 
 Three plugins add objects through parts, not by owning the whole scene.
@@ -656,6 +673,11 @@ Streaming star layers should translate normalized view state into provider
 session updates. The provider still owns strategy-specific demand thresholds and
 planning. Core SkyKit only decides which view slice is relevant and when to pass
 it through.
+
+In SkyKit terms, strategies are caller-supplied provider inputs. They may be
+built-in provider strategies, external custom strategies, or composed strategy
+objects. SkyKit should not inspect runtime nodes or decide payload fetch order;
+that belongs to the provider planner and scheduler.
 
 This distinction matters:
 
@@ -873,7 +895,7 @@ Core SkyKit should provide a small composition wrapper around
 const map = await createSkykitStarMap({
   canvas,
   provider,
-  session: { strategy: { kind: 'observer-shell' } },
+  session: { strategy: createObserverShellStrategy() },
   observerPc: { x: 0, y: 0, z: 0 },
   limitingMagnitude: 6.5,
   layers: [
@@ -1117,7 +1139,8 @@ Core SkyKit should remove repeated boilerplate for:
 - mapping camera/rig state to provider view state
 - product delta consumption into `three-star-field`
 - camera controls and route automation
-- observer-shell, target-frustum, and custom strategy wiring
+- observer-shell, target-frustum, volume/path, custom, and composed strategy
+  wiring through the provider strategy contract
 - common HUD/control panels through touch-os or existing DOM hooks
 - pick routing from renderer/controller to application callbacks
 - adding plain `THREE.Object3D` layers with lifecycle/disposal
@@ -1155,7 +1178,7 @@ const viewer = await createSkykitViewer({
     createStreamingStarLayer({
       provider,
       renderer: stars,
-      session: { strategy: { kind: 'observer-shell' } },
+      session: { strategy: createObserverShellStrategy() },
     }),
   ],
 });
@@ -1167,7 +1190,7 @@ const viewer = await createSkykitViewer({
 const map = await createSkykitStarMap({
   canvas,
   provider: createStarOctreeProviderService({ url }),
-  session: { strategy: { kind: 'observer-shell' } },
+  session: { strategy: createObserverShellStrategy() },
   observerPc: { x: 0, y: 0, z: 0 },
   limitingMagnitude: 6.5,
 });
@@ -1211,6 +1234,11 @@ createStreamingStarLayer({
   },
 });
 ```
+
+The shape and composition rules for provider strategies are documented in
+[`star-octree-provider.md`](./star-octree-provider.md). SkyKit examples should
+show how to pass strategies in, not redefine how strategies select, prioritize,
+or schedule octree nodes.
 
 ### HR Overlay
 
@@ -1301,7 +1329,7 @@ story code into core SkyKit.
 
 ### Slice 7: XR Viewer
 
-- Compose the planned `@found-in-space/xr` package with the same part contract.
+- Compose the implemented alpha `@found-in-space/xr` package with the same part contract.
 - Preserve spaceship/deck/body topology through XR-owned rig helpers.
 - Rewire XR locomotion and ray routing as XR package parts.
 - Use touch-os-native immersive surfaces for tablets, panels, and HUDs.

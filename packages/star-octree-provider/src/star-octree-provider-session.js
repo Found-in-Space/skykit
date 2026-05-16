@@ -730,6 +730,9 @@ function createViewState(view, revision) {
  */
 function normalizeDemandEntries(entries, sortOptions) {
   return [...entries].sort((a, b) => {
+    const roleDelta = roleOrder(a) - roleOrder(b);
+    if (roleDelta !== 0) return roleDelta;
+
     if (sortOptions.coarseFirst) {
       const levelDelta = a.node.level - b.node.level;
       if (levelDelta !== 0) return levelDelta;
@@ -752,6 +755,13 @@ function normalizeDemandEntries(entries, sortOptions) {
     if (priorityDelta !== 0) return priorityDelta;
     return a.node.nodeKey.localeCompare(b.node.nodeKey);
   });
+}
+
+/**
+ * @param {StarOctreeDemandEntry} entry
+ */
+function roleOrder(entry) {
+  return (entry.role ?? 'current') === 'current' ? 0 : 1;
 }
 
 /**

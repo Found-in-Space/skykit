@@ -1,20 +1,17 @@
-import { planObserverShellDemand, normalizeObserverShellView } from './star-octree-observer-shell.js';
 import { createDecodedPayloadCache } from './star-octree-decoded-cache.js';
 import {
   createStarObjectBatchProduct,
 } from '@found-in-space/star-products';
 import {
-  ERR_STAR_OCTREE_UNSUPPORTED_STRATEGY,
-  createStarOctreeError,
   toDeltaError,
 } from './star-octree-errors.js';
 import { decodeStarPayload } from './star-octree-payloads.js';
 import { createAsyncQueue } from './star-octree-queue.js';
 import { STAR_HAS_PAYLOAD } from './star-octree-format.js';
 import {
-  normalizeTargetFrustumView,
-  planTargetFrustumDemand,
-} from './star-octree-target-frustum.js';
+  normalizeStrategyView,
+  planStarOctreeStrategyDemand,
+} from './star-octree-strategies.js';
 import { traverseOctree } from './star-octree-traversal.js';
 
 /**
@@ -33,8 +30,6 @@ import { traverseOctree } from './star-octree-traversal.js';
  * @typedef {import('./index.js').StarOctreeViewPatch} StarOctreeViewPatch
  * @typedef {ReturnType<typeof import('./star-octree-index-source.js').createStarOctreeIndexSource>} StarOctreeIndexSource
  */
-
-export { ERR_STAR_OCTREE_UNSUPPORTED_STRATEGY };
 
 const DEFAULT_STRATEGY = /** @type {const} */ ({ kind: 'observer-shell' });
 const DEFAULT_ATTRIBUTES = ['position', 'teffLog8', 'magAbs'];
@@ -82,26 +77,10 @@ export function createStarOctreePipeline(options) {
    */
   async function planDemandForContext(context) {
     const enrichedContext = withTraversalContext(context);
-
-    if (enrichedContext.strategy.kind === 'observer-shell') {
-      return planObserverShellDemand({
-        indexSource: options.indexSource,
-        context: enrichedContext,
-      });
-    }
-
-    if (enrichedContext.strategy.kind === 'target-frustum') {
-      return planTargetFrustumDemand({
-        indexSource: options.indexSource,
-        context: enrichedContext,
-      });
-    }
-
-    if (enrichedContext.strategy.kind === 'custom') {
-      return enrichedContext.strategy.selectDemand(enrichedContext);
-    }
-
-    throw createUnsupportedStrategyError('unknown');
+    return planStarOctreeStrategyDemand({
+      indexSource: options.indexSource,
+      context: enrichedContext,
+    });
   }
 
   /**
@@ -208,6 +187,9 @@ export function createStarOctreePipeline(options) {
     void (async () => {
       try {
         const { context, plan } = await planDemandForStreamOptions(streamOptions);
+        const currentEntryCount = plan.entries.filter(
+          (entry) => (entry.role ?? 'current') === 'current',
+        ).length;
 
         for await (const product of streamProductsForEntries(plan.entries, {
           streamId,
@@ -245,7 +227,7 @@ export function createStarOctreePipeline(options) {
             stable: true,
             loadedObjects,
             loadedNodes,
-            totalNodes: plan.entries.length,
+            totalNodes: currentEntryCount,
           },
         });
       } catch (error) {
@@ -594,28 +576,9 @@ function createUnavailableTraversal() {
 }
 
 /**
- * @param {string} kind
- * @returns {Error & { code: string }}
- */
-function createUnsupportedStrategyError(kind) {
-  return createStarOctreeError(
-    ERR_STAR_OCTREE_UNSUPPORTED_STRATEGY,
-    `Star octree strategy "${kind}" is not supported yet.`,
-  );
-}
-
-/**
  * @param {StarOctreeFetchStrategy} strategy
  * @param {StarOctreeViewPatch | undefined} view
  */
 function normalizeContextView(strategy, view) {
-  if (strategy.kind === 'observer-shell') {
-    return normalizeObserverShellView(view);
-  }
-
-  if (strategy.kind === 'target-frustum') {
-    return normalizeTargetFrustumView(view, strategy);
-  }
-
-  return view ?? {};
+  return normalizeStrategyView(strategy, view);
 }

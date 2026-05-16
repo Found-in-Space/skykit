@@ -4,6 +4,10 @@ import test from 'node:test';
 import { STAR_HAS_PAYLOAD, STAR_IS_FRONTIER } from '../star-octree-format.js';
 import { createStarOctreeIndexSource } from '../star-octree-index-source.js';
 import { planObserverShellDemand } from '../star-octree-observer-shell.js';
+import {
+  planStarOctreeStrategyDemand,
+  withMotionLookahead,
+} from '../star-octree-strategies.js';
 import { planTargetFrustumDemand } from '../star-octree-target-frustum.js';
 import { traverseOctree } from '../star-octree-traversal.js';
 import {
@@ -297,7 +301,7 @@ test('observer-shell motion hints do not cap visible demand', async () => {
   }
 });
 
-test('observer-shell motion lookahead adds future-only prefetch demand', async () => {
+test('observer-shell motion lookahead decorator adds future-only prefetch demand', async () => {
   const indexOffset = HEADER_SIZE + DESCRIPTOR_SIZE;
   const rootShard = createShardBytes({
     parentGlobalDepth: 0,
@@ -352,10 +356,11 @@ test('observer-shell motion lookahead adds future-only prefetch demand', async (
         },
       },
     });
-    const motionPlan = await planObserverShellDemand({
+    const motionPlan = await planStarOctreeStrategyDemand({
       indexSource,
       context: {
         ...baseContext,
+        strategy: withMotionLookahead({ kind: 'observer-shell' }),
         view: {
           revision: 2,
           observerPc: { x: -75, y: -75, z: -75 },
@@ -367,10 +372,11 @@ test('observer-shell motion lookahead adds future-only prefetch demand', async (
         },
       },
     });
-    const noVelocityPlan = await planObserverShellDemand({
+    const noVelocityPlan = await planStarOctreeStrategyDemand({
       indexSource,
       context: {
         ...baseContext,
+        strategy: withMotionLookahead({ kind: 'observer-shell' }),
         view: {
           revision: 3,
           observerPc: { x: -75, y: -75, z: -75 },
@@ -400,15 +406,15 @@ test('observer-shell motion lookahead adds future-only prefetch demand', async (
       [`${indexOffset}:2`],
     );
     assert.equal(motionPlan.signature, staticPlan.signature);
-    assert.equal(motionPlan.metadata.motionPrefetch.enabled, true);
-    assert.deepEqual(motionPlan.metadata.motionPrefetch.futureObserverPc, {
+    assert.equal(motionPlan.metadata.motionLookahead.enabled, true);
+    assert.deepEqual(motionPlan.metadata.motionLookahead.futureObserverPc, {
       x: 75,
       y: -75,
       z: -75,
     });
-    assert.equal(motionPlan.metadata.motionPrefetch.prefetchNodeCount, 1);
-    assert.equal(motionPlan.metadata.motionPrefetch.prefetchOverlapCount, 0);
-    assert.equal(noVelocityPlan.metadata.motionPrefetch.enabled, false);
+    assert.equal(motionPlan.metadata.motionLookahead.prefetchNodeCount, 1);
+    assert.equal(motionPlan.metadata.motionLookahead.prefetchOverlapCount, 0);
+    assert.equal(noVelocityPlan.metadata.motionLookahead.enabled, false);
     assert.equal(
       noVelocityPlan.entries.some((entry) => entry.role === 'prefetch'),
       false,
@@ -514,7 +520,7 @@ test('observer-shell motion hints prioritize same-level nodes without changing d
   }
 });
 
-test('target-frustum motion lookahead adds future-only prefetch demand', async () => {
+test('target-frustum motion lookahead decorator adds future-only prefetch demand', async () => {
   const indexOffset = HEADER_SIZE + DESCRIPTOR_SIZE;
   const rootShard = createShardBytes({
     parentGlobalDepth: 0,
@@ -572,10 +578,11 @@ test('target-frustum motion lookahead adds future-only prefetch demand', async (
         },
       },
     });
-    const motionPlan = await planTargetFrustumDemand({
+    const motionPlan = await planStarOctreeStrategyDemand({
       indexSource,
       context: {
         ...baseContext,
+        strategy: withMotionLookahead({ kind: 'target-frustum' }),
         view: {
           revision: 2,
           observerPc: { x: -75, y: -75, z: -75 },
@@ -604,8 +611,8 @@ test('target-frustum motion lookahead adds future-only prefetch demand', async (
       [`${indexOffset}:2`],
     );
     assert.equal(motionPlan.signature, staticPlan.signature);
-    assert.equal(motionPlan.metadata.motionPrefetch.enabled, true);
-    assert.equal(motionPlan.metadata.motionPrefetch.prefetchNodeCount, 1);
+    assert.equal(motionPlan.metadata.motionLookahead.enabled, true);
+    assert.equal(motionPlan.metadata.motionLookahead.prefetchNodeCount, 1);
   } finally {
     restoreFetch();
   }

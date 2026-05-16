@@ -1,4 +1,7 @@
-import { createStarOctreeProviderService } from '../../src/index.js';
+import {
+  createObserverShellStrategy,
+  createStarOctreeProviderService,
+} from '../../src/index.js';
 import { decodeTemperatureK } from '@found-in-space/star-products';
 
 const OCTREE_URL =
@@ -28,7 +31,7 @@ products = [];
 showProgress(products);
 
 const stream = provider.streamObjectBatches({
-  strategy: { kind: 'observer-shell' },
+  strategy: createObserverShellStrategy(),
   view: {
     observerPc: { x: 0, y: 0, z: 0 },
     limitingMagnitude: 6.5,
@@ -82,6 +85,7 @@ const cells = new Map();
 
 const context = {
   OCTREE_URL,
+  createObserverShellStrategy,
   createStarOctreeProviderService,
   provider: null,
   products: [],

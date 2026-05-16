@@ -202,7 +202,10 @@ outside the package and still use the final projected point cache.
 ## Minimal Example
 
 ```js
-import { createStarOctreeProviderService } from '@found-in-space/star-octree-provider';
+import {
+  createObserverShellStrategy,
+  createStarOctreeProviderService,
+} from '@found-in-space/star-octree-provider';
 import {
   consumeProductDeltas,
   createStarRepresentationStore,
@@ -214,7 +217,7 @@ const store = createStarRepresentationStore();
 const map = createCanvasStarMap(canvas, { store });
 
 const session = provider.createSession({
-  strategy: { kind: 'observer-shell' },
+  strategy: createObserverShellStrategy(),
   attributes: ['position', 'magAbs', 'teffLog8', 'objectRef', 'pickMeta'],
 });
 

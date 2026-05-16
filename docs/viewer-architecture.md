@@ -11,6 +11,14 @@ current direction for first-alpha package boundaries, and use
 [`star-octree-provider.md`](./star-octree-provider.md) for the star octree provider
 contract.
 
+Important vocabulary note: this document uses old proof-of-concept terms such
+as `InterestField`, `ObserverShellField`, and `TargetFrustumField`. In the alpha
+architecture these concepts map to star-octree provider strategies. The
+canonical definition of strategy, planner, scheduler, strategy composition, and
+`current` versus `prefetch` semantics is
+[`star-octree-provider.md`](./star-octree-provider.md). Do not use this document
+to define new loading-strategy semantics.
+
 ## Overview
 
 SkyKit is a viewer platform for interactive 3D star-field exploration across desktop, VR, and (eventually) AR. It is designed as a reusable library, not a single-purpose app.
@@ -83,9 +91,13 @@ These experiences do not all want the same camera model, loading strategy, overl
 
 ### Interest Field Wiring
 
-- The runtime currently accepts one active `interestField`.
-- If several strategies need to be combined later, that composition should live inside a field rather than in the runtime itself.
-- The runtime should remain agnostic to how a field produces its selection.
+- Legacy POC runtime accepts one active `interestField`.
+- In alpha, the equivalent concept is a `StarOctreeFetchStrategy` owned by
+  `@found-in-space/star-octree-provider`.
+- Strategy composition should use the provider strategy contract documented in
+  [`star-octree-provider.md`](./star-octree-provider.md), not runtime-specific
+  `InterestField` rules.
+- The viewer/runtime should remain agnostic to how a strategy produces demand.
 
 ### Dataset Identity
 
@@ -150,7 +162,7 @@ Responsibilities:
 - own renderer and canvas binding when the host does not supply them
 - own scene lifecycle, resize handling, render loop, and disposal
 - bind a `DatasetSession`
-- host one active `InterestField`
+- host one active legacy `InterestField`
 - host layers, controllers, and overlays as lifecycle-managed runtime parts
 - receive concrete service configuration and optional scene presets
 - expose an imperative API for host frameworks
@@ -176,9 +188,12 @@ interface ViewerRuntimePart {
 
 ### InterestField
 
-`InterestField` decides which parts of the dataset matter for the current experience state.
+Legacy POC term. `InterestField` decided which parts of the dataset mattered
+for the current experience state.
 
-This is the abstraction that should absorb the current onion idea.
+This was the proof-of-concept abstraction that absorbed the old onion idea. In
+the alpha provider package, the equivalent concern is `StarOctreeFetchStrategy`
+and `StarOctreeDemandPlan`.
 
 ```ts
 interface InterestField {
@@ -186,9 +201,11 @@ interface InterestField {
 }
 ```
 
-The observer-shell concept is named `ObserverShellField` to read as one strategy among several rather than the whole loading model.
+The legacy observer-shell concept maps to the alpha `observer-shell` provider
+strategy. The legacy target-frustum field maps to the alpha `target-frustum`
+provider strategy.
 
-Magnitude handling:
+Legacy magnitude handling:
 
 - limiting magnitude is a viewer-level runtime setting: `state.mDesired`
 - dataset `header.magLimit` is indexing metadata (`mIndex`) for shell-style node pruning, not a user-facing visibility default
@@ -196,7 +213,7 @@ Magnitude handling:
 - render layers consume that same setting for star visibility
 - dataset and cache services stay agnostic to it
 
-Current fields:
+Legacy fields:
 
 - `ObserverShellField`
 - `TargetFrustumField`
@@ -524,9 +541,18 @@ Working assumption:
 
 ## Interest Fields
 
+This section is retained as historical context for the old `src/` runtime. In
+alpha work, use provider strategies from
+[`star-octree-provider.md`](./star-octree-provider.md) instead of adding new
+`InterestField` types.
+
 ### ObserverShellField
 
-This loads nodes that are theoretically visible in any direction around the observer, using only the shared magnitude-shell rule. Because the field is observer-centered rather than view-centered, head or look-direction changes alone should not cause a different node set to load.
+Legacy POC name for the alpha `observer-shell` provider strategy. It loaded
+nodes that are theoretically visible in any direction around the observer, using
+only the shared magnitude-shell rule. Because the field is observer-centered
+rather than view-centered, head or look-direction changes alone should not cause
+a different node set to load.
 
 Best for:
 
@@ -549,7 +575,11 @@ Costs:
 
 ### TargetFrustumField
 
-This is a refined version of `ObserverShellField`: it applies the same shared magnitude-shell visibility prune, then rejects nodes that fall outside a bounded view frustum. It is intentionally view-centered, so camera orientation is allowed to affect loading when the experience is directed toward a known target.
+Legacy POC name for the alpha `target-frustum` provider strategy. It applies the
+same shared magnitude-shell visibility prune, then rejects nodes that fall
+outside a bounded view frustum. It is intentionally view-centered, so camera
+orientation is allowed to affect loading when the experience is directed toward
+a known target.
 
 Best for:
 
@@ -574,7 +604,8 @@ Costs:
 
 ### Deferred fields
 
-The following field ideas remain valid, but they are intentionally deferred until a real experience requires them.
+The following old field ideas should be revisited as provider strategies or
+strategy composition only when a real experience requires them.
 
 #### PathCorridorField
 
@@ -586,11 +617,14 @@ A semantic target-set field for curated stars, systems, or sidecar-backed groups
 
 #### HybridField
 
-A composite field that merges two or more strategies while keeping the runtime itself agnostic.
+Legacy name for composed selection. Alpha strategy composition is defined in
+[`star-octree-provider.md`](./star-octree-provider.md).
 
 ## Scene Preset Matrix
 
-This matrix describes useful preset families for the current Found in Space use cases. Desktop and XR rows are separate viewer instances with different rig topologies — they share `DatasetSession` but nothing else at runtime.
+This legacy matrix describes useful preset families for the POC runtime. Desktop
+and XR rows are separate viewer instances with different rig topologies — they
+share `DatasetSession` but nothing else at runtime.
 
 It is not intended to constrain the generic library.
 
@@ -718,6 +752,12 @@ if (saved?.starId) {
 
 Render-payload loading should be treated as a first-class shared service concern rather than as an incidental detail inside one layer.
 
+In the alpha architecture, payload streaming, demand planning, range batching,
+prefetch, and scheduler responsibilities are owned by
+`@found-in-space/star-octree-provider`. The canonical responsibility split is in
+[`star-octree-provider.md`](./star-octree-provider.md); the notes below are POC
+background.
+
 Recommended batching behavior:
 
 - explicit warmup paths may prefetch the root shard together with the header when the index is contiguous after the file header
@@ -827,7 +867,7 @@ src/
                   # XR: XrLocomotionController, XrPickController
                   # Shared: camera-rig (pure math), SelectionRefreshController
   demo/           # Demo entry points (main, xr-free-roam, fly-orbit, etc.)
-  fields/         # ObserverShellField, TargetFrustumField, octree selection
+  fields/         # Legacy ObserverShellField, TargetFrustumField, octree selection
   layers/         # StarFieldLayer, ConstellationArtLayer, materials
   services/       # DatasetSession, render octree service, sidecar services
   index.js        # Package entry point — public API exports

@@ -3,12 +3,35 @@ import test from 'node:test';
 
 import {
   buildTravelVolumeRequests,
+  combineStarOctreeStrategies,
+  createObserverShellStrategy,
   createPathVolumeStrategy,
   createSphereVolumeStrategy,
+  createTargetFrustumStrategy,
   distancePointToPathPc,
+  planStarOctreeStrategyDemand,
   streamVolumeProducts,
   warmVolumeRequests,
-} from '../index.js';
+  withMotionLookahead,
+} from '../star-octree-strategies.js';
+
+test('strategy factories create first-class provider strategies', () => {
+  assert.deepEqual(createObserverShellStrategy(), { kind: 'observer-shell' });
+  assert.deepEqual(createTargetFrustumStrategy({ verticalFovDeg: 50 }), {
+    kind: 'target-frustum',
+    verticalFovDeg: 50,
+  });
+  assert.deepEqual(createSphereVolumeStrategy({
+    centerPc: { x: 1, y: 2, z: 3 },
+    radiusPc: 4,
+  }), {
+    kind: 'sphere-volume',
+    centerPc: { x: 1, y: 2, z: 3 },
+    radiusPc: 4,
+  });
+  assert.equal(withMotionLookahead({ kind: 'observer-shell' }).kind, 'motion-lookahead');
+  assert.equal(combineStarOctreeStrategies([{ kind: 'observer-shell' }]).kind, 'composite');
+});
 
 test('sphere strategy selects nodes whose AABB overlaps the sphere', async () => {
   const strategy = createSphereVolumeStrategy({
@@ -16,11 +39,14 @@ test('sphere strategy selects nodes whose AABB overlaps the sphere', async () =>
     radiusPc: 10,
   });
   const selected = [];
-  const plan = await strategy.selectDemand(createSelectionContext([
-    createNode({ nodeKey: 'inside', centerX: 8, halfSize: 1, level: 2 }),
-    createNode({ nodeKey: 'edge', centerX: 11, halfSize: 1, level: 1 }),
-    createNode({ nodeKey: 'outside', centerX: 12, halfSize: 1, level: 3 }),
-  ], selected));
+  const plan = await planStarOctreeStrategyDemand({
+    indexSource: {},
+    context: createSelectionContext(strategy, [
+      createNode({ nodeKey: 'inside', centerX: 8, halfSize: 1, level: 2 }),
+      createNode({ nodeKey: 'edge', centerX: 11, halfSize: 1, level: 1 }),
+      createNode({ nodeKey: 'outside', centerX: 12, halfSize: 1, level: 3 }),
+    ], selected),
+  });
 
   assert.deepEqual(plan.entries.map((entry) => entry.node.nodeKey), ['edge', 'inside']);
   assert.equal(plan.metadata.strategy, 'sphere-volume');
@@ -40,10 +66,13 @@ test('path strategy uses node-center capsule overlap with half-size padding', as
     ],
     radiusPc: 2,
   });
-  const plan = await strategy.selectDemand(createSelectionContext([
-    createNode({ nodeKey: 'path-near', centerX: 5, centerY: 2.5, halfSize: 0.5 }),
-    createNode({ nodeKey: 'path-far', centerX: 5, centerY: 4, halfSize: 0.5 }),
-  ]));
+  const plan = await planStarOctreeStrategyDemand({
+    indexSource: {},
+    context: createSelectionContext(strategy, [
+      createNode({ nodeKey: 'path-near', centerX: 5, centerY: 2.5, halfSize: 0.5 }),
+      createNode({ nodeKey: 'path-far', centerX: 5, centerY: 4, halfSize: 0.5 }),
+    ]),
+  });
 
   assert.deepEqual(plan.entries.map((entry) => entry.node.nodeKey), ['path-near']);
   assert.equal(distancePointToPathPc({ x: 5, y: 4, z: 0 }, [
@@ -89,7 +118,84 @@ test('travel volume requests fall back to a single full-path request', () => {
   assert.equal(requests[0].radiusPc, 4);
 });
 
-test('streamVolumeProducts passes a custom volume strategy to the provider', async () => {
+test('composite union dedupes entries and current role wins over prefetch', async () => {
+  const nodeA = createNode({ nodeKey: 'node-a', level: 2 });
+  const nodeB = createNode({ nodeKey: 'node-b', level: 1 });
+  const strategy = combineStarOctreeStrategies([
+    createCustomPlanStrategy('current-a', [
+      { node: nodeA, role: 'current', priority: 1, reasons: ['current-a'] },
+    ]),
+    createCustomPlanStrategy('prefetch-a-current-b', [
+      { node: nodeA, role: 'prefetch', priority: 100, reasons: ['prefetch-a'] },
+      { node: nodeB, role: 'current', priority: 10, reasons: ['current-b'] },
+    ]),
+  ]);
+
+  const plan = await planStarOctreeStrategyDemand({
+    indexSource: {},
+    context: createSelectionContext(strategy, []),
+  });
+
+  assert.deepEqual(
+    plan.entries.map((entry) => [entry.node.nodeKey, entry.role ?? 'current']),
+    [['node-b', 'current'], ['node-a', 'current']],
+  );
+  assert.equal(plan.signature, 'node-a|node-b');
+  assert.deepEqual(plan.entries.find((entry) => entry.node.nodeKey === 'node-a').reasons, [
+    'current-a',
+    'prefetch-a',
+  ]);
+  assert.equal(
+    plan.entries.find((entry) => entry.node.nodeKey === 'node-a').metadata.strategyContributors.length,
+    2,
+  );
+});
+
+test('motion-lookahead decorator adds future-only prefetch demand', async () => {
+  const nodeA = createNode({ nodeKey: 'current-node' });
+  const nodeB = createNode({ nodeKey: 'future-node' });
+  const baseStrategy = {
+    kind: 'custom',
+    selectDemand(context) {
+      const node = context.view.observerPc?.x >= 50 ? nodeB : nodeA;
+      return {
+        entries: [{
+          node,
+          role: 'current',
+          priority: 1,
+          reasons: ['position-custom'],
+          metadata: { strategy: 'position-custom' },
+        }],
+        reasons: ['position-custom'],
+      };
+    },
+  };
+  const strategy = withMotionLookahead(baseStrategy);
+  const plan = await planStarOctreeStrategyDemand({
+    indexSource: {},
+    context: {
+      ...createSelectionContext(strategy, []),
+      view: {
+        revision: 1,
+        observerPc: { x: 0, y: 0, z: 0 },
+        motion: {
+          velocityPcPerSec: { x: 100, y: 0, z: 0 },
+          lookaheadSecs: 1,
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(
+    plan.entries.map((entry) => [entry.node.nodeKey, entry.role ?? 'current']),
+    [['current-node', 'current'], ['future-node', 'prefetch']],
+  );
+  assert.equal(plan.signature, 'current-node');
+  assert.equal(plan.metadata.motionLookahead.enabled, true);
+  assert.equal(plan.metadata.motionLookahead.prefetchNodeCount, 1);
+});
+
+test('streamVolumeProducts passes a built-in volume strategy to the provider', async () => {
   let receivedStrategy = null;
   const provider = {
     streamObjectBatches(options) {
@@ -107,7 +213,7 @@ test('streamVolumeProducts passes a custom volume strategy to the provider', asy
     deltas.push(delta);
   }
 
-  assert.equal(receivedStrategy.kind, 'custom');
+  assert.equal(receivedStrategy.kind, 'sphere-volume');
   assert.equal(deltas[0].type, 'data/representation-current');
 });
 
@@ -146,6 +252,18 @@ test('warmVolumeRequests consumes streams and reports progress without exposing 
   assert.deepEqual(progress, ['data/product-upsert', 'data/representation-current']);
 });
 
+function createCustomPlanStrategy(reason, entries) {
+  return {
+    kind: 'custom',
+    selectDemand() {
+      return {
+        entries,
+        reasons: [reason],
+      };
+    },
+  };
+}
+
 function createCurrentDelta() {
   return {
     type: 'data/representation-current',
@@ -158,8 +276,16 @@ function createCurrentDelta() {
   };
 }
 
-function createSelectionContext(nodes, visits = []) {
+function createSelectionContext(strategy, nodes, visits = []) {
   return {
+    providerId: 'provider-a',
+    strategy,
+    view: { revision: 1 },
+    viewRevision: 1,
+    demandRevision: 0,
+    attributes: ['position'],
+    coordinates: { units: ['pc', 'pc', 'pc'] },
+    streaming: { coarseFirst: true },
     traversal: {
       async select(options) {
         const entries = [];
@@ -184,6 +310,7 @@ function createSelectionContext(nodes, visits = []) {
             entries.push({
               node,
               priority: decision.priority,
+              role: decision.role,
               reasons: decision.reasons,
               metadata: decision.metadata,
             });

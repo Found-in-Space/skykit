@@ -576,8 +576,10 @@ The first alpha slice for `@found-in-space/xr` implements:
   render-state depth application.
 - tests using fake XR frame/session/input-source objects.
 
-The package intentionally does not rewrite old `src/` viewers yet. That
-integration belongs to future core SkyKit composition work.
+The package intentionally does not rewrite old `src/` viewers yet. Integration
+with the alpha `@found-in-space/skykit` composition layer should happen through
+public rig, motion, ray, and session helpers rather than by porting old viewer
+internals.
 
 The old `src/controllers/xr-*`, `src/core/runtime-rig.js`, and
 `src/services/render/xr-depth-range.js` files are reference material only.

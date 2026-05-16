@@ -5,7 +5,10 @@ import {
   createSkykitViewer,
   createStreamingStarsPlugin,
 } from '@found-in-space/skykit';
-import { createStarOctreeProviderService } from '@found-in-space/star-octree-provider';
+import {
+  createObserverShellStrategy,
+  createStarOctreeProviderService,
+} from '@found-in-space/star-octree-provider';
 import { createThreeStarField } from '@found-in-space/three-star-field';
 
 /**
@@ -26,7 +29,7 @@ export async function createMinimalStreamedStarViewer(options) {
       createStreamingStarsPlugin({
         provider,
         renderer: starField,
-        session: { strategy: { kind: 'observer-shell' } },
+        session: { strategy: createObserverShellStrategy() },
       }),
       createKeyboardNavigationPlugin({ speedPcPerSec: 2 }),
       createSkykitStatusPlugin({ target: options.statusTarget }),

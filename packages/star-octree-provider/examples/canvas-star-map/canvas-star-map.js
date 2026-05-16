@@ -1,4 +1,7 @@
-import { createStarOctreeProviderService } from '../../src/index.js';
+import {
+  createObserverShellStrategy,
+  createStarOctreeProviderService,
+} from '../../src/index.js';
 import {
   consumeProductDeltas,
   createStarRepresentationStore,
@@ -119,7 +122,7 @@ function resetProvider(url) {
   });
   state.session = state.provider.createSession({
     id: 'canvas-star-map-session',
-    strategy: { kind: 'observer-shell' },
+    strategy: createObserverShellStrategy(),
     attributes: ['position', 'magAbs', 'teffLog8', 'objectRef', 'pickMeta'],
     streaming: {
       emitCachedFirst: true,

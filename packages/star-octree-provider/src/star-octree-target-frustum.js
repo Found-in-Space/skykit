@@ -4,7 +4,6 @@ import {
   createStarOctreeError,
 } from './star-octree-errors.js';
 import { loadRadiusForMagnitudeShell } from './star-octree-observer-shell.js';
-import { resolveMotionLookahead } from './star-octree-motion.js';
 import {
   distanceToNodeAabbPc,
   traverseOctree,
@@ -52,44 +51,7 @@ export async function planTargetFrustumDemand(options) {
     indexMagnitude,
     role: 'current',
   });
-  const currentNodeKeys = new Set(
-    currentResult.entries.map((entry) => entry.node.nodeKey),
-  );
-  const motionLookahead = resolveMotionLookahead(
-    options.context.view.motion,
-    view.observerPc,
-  );
-  const futureView = motionLookahead.enabled && motionLookahead.futureObserverPc
-    ? normalizeTargetFrustumView(
-        {
-          ...options.context.view,
-          observerPc: motionLookahead.futureObserverPc,
-        },
-        options.context.strategy,
-      )
-    : null;
-  const futureResult = futureView
-    ? await collectTargetFrustumEntries({
-        indexSource: options.indexSource,
-        bootstrap,
-        view: futureView,
-        indexMagnitude,
-        role: 'prefetch',
-      })
-    : null;
-  let prefetchOverlapCount = 0;
-  const prefetchEntries = [];
-
-  for (const entry of futureResult?.entries ?? []) {
-    if (currentNodeKeys.has(entry.node.nodeKey)) {
-      prefetchOverlapCount += 1;
-      continue;
-    }
-
-    prefetchEntries.push(entry);
-  }
-
-  const entries = [...currentResult.entries, ...prefetchEntries];
+  const entries = [...currentResult.entries];
 
   entries.sort((left, right) =>
     compareTargetFrustumEntries(left, right, {
@@ -117,16 +79,8 @@ export async function planTargetFrustumDemand(options) {
       prunedNodeCount: currentResult.traversal.stats.prunedNodeCount,
       shellPrunedNodeCount: currentResult.shellPrunedNodeCount,
       frustumPrunedNodeCount: currentResult.frustumPrunedNodeCount,
-      motionPrefetch: {
-        enabled: motionLookahead.enabled,
-        lookaheadSecs: motionLookahead.lookaheadSecs,
-        lookaheadDistancePc: motionLookahead.lookaheadDistancePc,
-        futureObserverPc: motionLookahead.futureObserverPc,
-        prefetchNodeCount: prefetchEntries.length,
-        prefetchOverlapCount,
-      },
-      prefetchNodeCount: prefetchEntries.length,
-      prefetchOverlapCount,
+      prefetchNodeCount: 0,
+      prefetchOverlapCount: 0,
       frontierShardCount: currentResult.traversal.stats.frontierShardCount,
       maxLevelInspected: currentResult.traversal.stats.maxLevelInspected,
     },

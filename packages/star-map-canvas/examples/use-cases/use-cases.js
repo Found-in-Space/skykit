@@ -1,4 +1,7 @@
-import { createStarOctreeProviderService } from '@found-in-space/star-octree-provider';
+import {
+  createObserverShellStrategy,
+  createStarOctreeProviderService,
+} from '@found-in-space/star-octree-provider';
 import {
   consumeProductDeltas,
   createStarRepresentationStore,
@@ -172,7 +175,7 @@ function resetProvider(url) {
   });
   state.session = state.provider.createSession({
     id: 'star-map-canvas-use-cases-session',
-    strategy: { kind: 'observer-shell' },
+    strategy: createObserverShellStrategy(),
     attributes: ['position', 'magAbs', 'teffLog8', 'objectRef', 'pickMeta'],
     streaming: {
       emitCachedFirst: true,

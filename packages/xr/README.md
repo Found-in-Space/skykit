@@ -86,4 +86,4 @@ function animationFrame(deltaSeconds) {
 ```
 
 For visual surfaces use `touch-os`. For stars use `@found-in-space/three-star-field`.
-For application composition use future core `@found-in-space/skykit`.
+For application composition use alpha `@found-in-space/skykit`.

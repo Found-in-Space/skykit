@@ -55,7 +55,7 @@ Those belong in separate packages that consume the provider's products.
 
 ## 2. Package Boundary
 
-The provider has two public entry points:
+The provider exposes two source factories:
 
 ```js
 import {
@@ -85,6 +85,26 @@ const provider = createStarOctreeFileProviderService({
 
 Both factories return the same provider/session API. The source adapter differs;
 the product and session semantics do not.
+
+The same package also exports the provider-owned strategy helpers:
+
+```js
+import {
+  buildTravelVolumeRequests,
+  combineStarOctreeStrategies,
+  createObserverShellStrategy,
+  createPathVolumeStrategy,
+  createSphereVolumeStrategy,
+  createTargetFrustumStrategy,
+  streamVolumeProducts,
+  warmVolumeRequests,
+  withMotionLookahead,
+} from '@found-in-space/star-octree-provider';
+```
+
+These helpers create strategy objects or bounded volume streams. They do not
+fetch, decode, render, or merge products by themselves; provider sessions and
+streams still own execution.
 
 ---
 
@@ -245,6 +265,30 @@ Strategies decide which runtime nodes are currently demanded. They own
 visibility/relevance math. The scheduler, cache, decoder, and product builder
 consume strategy output generically.
 
+This is the canonical document for star-octree strategy semantics. Other
+documents may show examples, but should not redefine what a strategy, planner,
+or scheduler means.
+
+The core responsibility split is:
+
+```txt
+Strategy = semantic demand
+Planner = execution economics
+Scheduler = async work and revision orchestration
+```
+
+A strategy answers:
+
+```txt
+which runtime nodes matter?
+are they current or prefetch?
+what is their semantic priority?
+why were they selected?
+```
+
+A strategy must not fetch byte ranges, decode payloads, build products, merge
+products, render, or own application logic.
+
 ```ts
 type StarOctreeFetchStrategy =
   | { kind: 'observer-shell' }
@@ -256,6 +300,14 @@ type StarOctreeFetchStrategy =
       nearPc?: number;
       farPc?: number;
     }
+  | { kind: 'sphere-volume'; centerPc: PointPc; radiusPc: number }
+  | { kind: 'path-volume'; pointsPc: PointPc[]; radiusPc: number }
+  | { kind: 'motion-lookahead'; strategy: StarOctreeFetchStrategy }
+  | {
+      kind: 'composite';
+      mode: 'union';
+      strategies: StarOctreeFetchStrategy[];
+    }
   | {
       kind: 'custom';
       selectDemand: (context: StarOctreeSelectionContext) =>
@@ -265,6 +317,86 @@ type StarOctreeFetchStrategy =
       ) => StarOctreeDemandGateResult;
     };
 ```
+
+### Strategy, Planner, And Scheduler Responsibilities
+
+Strategies produce `StarOctreeDemandPlan` values. Demand entries are semantic
+inputs to later provider components:
+
+```ts
+interface StarOctreeDemandEntry {
+  node: StarOctreeRuntimeNode;
+  role?: 'current' | 'prefetch';
+  priority?: number;
+  reasons?: string[];
+  metadata?: Record<string, unknown>;
+}
+```
+
+Strategy priority is not a strict download order. It is an ordered hint to the
+planner.
+
+The planner may reorder, coalesce, or include lower-priority payloads when that
+is cheaper or faster, for example when adjacent payload byte ranges naturally
+batch together. That does not change the strategy's semantic result.
+
+The planner owns execution economics:
+
+- payload range batching and over-read gap decisions
+- cache hit preference
+- decoded-cache reuse
+- inflight limits
+- source-specific request economics
+- memory/budget constraints when explicit budget options exist
+
+The scheduler owns live work orchestration:
+
+- latest-view and demand-revision checks
+- current-role work before prefetch work
+- stale work suppression
+- async failure accounting
+- when `data/representation-current` may be emitted
+
+The provider must preserve role semantics even when the planner reorders work:
+`current` entries may emit products; `prefetch` entries warm caches only.
+
+### Strategy Composition
+
+All built-in and external strategies should share the same demand-plan surface.
+The intended composition model is node-key based:
+
+```txt
+strategy A + strategy B + ...
+  -> merged StarOctreeDemandPlan
+```
+
+Default union composition rules should be:
+
+- merge entries by `node.nodeKey`
+- `current` wins over `prefetch`
+- within the same role, higher semantic priority wins
+- reasons and metadata should preserve all contributing strategies
+- the visible/current demand signature should ignore prefetch-only entries
+- prefetch-only entries must not stale or remove current products
+
+First-class helpers follow this shape:
+
+```ts
+const strategy = combineStarOctreeStrategies([
+  createObserverShellStrategy(),
+  createSphereVolumeStrategy({ centerPc, radiusPc }),
+], {
+  mode: 'union',
+});
+```
+
+`intersection` and `difference` composition may be useful later, but union is
+the default alpha model because it preserves the broadest useful demand without
+surprising product removals.
+
+External strategies may participate either as standalone `custom` strategies or
+as inputs to the combinator. Applications should not need root shard
+products or runtime-node construction to compose strategies.
 
 ### Observer Shell
 
@@ -284,8 +416,9 @@ distanceToNodeAabbPc <= node.halfSize * 10 ** ((limitingMagnitude - header.magLi
 `header.maxLevel` and `node.level` are source/runtime metadata. They are not
 public quality knobs.
 
-Motion may affect ordering and add future-only prefetch entries, but it must not
-exclude nodes that are relevant for the accepted current view.
+Motion may affect ordering, but it must not exclude nodes that are relevant for
+the accepted current view. Future-position prefetch is explicit through the
+`motion-lookahead` strategy decorator.
 
 ### Target Frustum
 
@@ -340,6 +473,30 @@ Custom strategies may provide `shouldReplan()` to participate in
 strategy-aware demand-threshold gating. Without it, custom strategies replan on
 every non-suppressed update.
 
+### Volume And Path Strategies
+
+Sphere and path/corridor selection are star-octree loading strategies too. They
+ask a different semantic question than visibility strategies:
+
+```txt
+sphere/path volume:
+  stars physically inside this region
+
+observer-shell / target-frustum:
+  stars potentially visible from this view
+```
+
+Both kinds still produce the same `StarOctreeDemandPlan` entries and are planned,
+scheduled, fetched, decoded, and streamed by the same provider pipeline.
+
+The alpha implementation exposes these as first-class provider strategies:
+
+```js
+createSphereVolumeStrategy({ centerPc, radiusPc });
+createPathVolumeStrategy({ pointsPc, radiusPc });
+buildTravelVolumeRequests({ routePointsPc, radiusProfile });
+```
+
 ---
 
 ## 7. Demand Gating
@@ -360,8 +517,12 @@ interface StarOctreeSessionOptions {
 }
 ```
 
-Without `demandThresholds`, built-in strategies preserve the default behavior:
-each non-suppressed update queues planning if demand changes.
+Without `demandThresholds`, built-in live-session strategies preserve the
+default behavior: each non-suppressed update queues planning.
+
+Volume strategies carry their semantic demand in the strategy object rather
+than in viewer pose, so ordinary observer-view updates do not replan a fixed
+sphere/path strategy after the initial demand unless the caller forces demand.
 
 With thresholds, tiny changes can return `demand: 'unchanged'`. The latest view
 snapshot still updates, but `demandRevision` does not increment and no new
@@ -375,16 +536,33 @@ planning.
 ## 8. Motion Lookahead
 
 Motion lookahead is lower-priority cache warming, not a degraded visibility
-model.
+model. Architecturally it is best understood as a strategy decorator: evaluate a
+base strategy against a future hinted view and emit future-only entries as
+`prefetch`.
 
-When `velocityPcPerSec` and positive `lookaheadSecs` are provided, built-in
-strategies may compute a future observer position:
+When `velocityPcPerSec` and positive `lookaheadSecs` are provided, the
+`motion-lookahead` decorator computes a future observer position:
 
 ```txt
 futureObserverPc = observerPc + velocityPcPerSec * lookaheadSecs
 ```
 
 Future-only demanded nodes are appended as `role: 'prefetch'`.
+
+The intended reusable shape is:
+
+```ts
+const strategy = withMotionLookahead(createObserverShellStrategy());
+```
+
+or equivalently as part of explicit composition:
+
+```ts
+const strategy = combineStarOctreeStrategies([
+  createObserverShellStrategy(),
+  withMotionLookahead(createObserverShellStrategy()),
+]);
+```
 
 Prefetch entries:
 
@@ -604,8 +782,13 @@ Octree index reader
 Traversal engine
   Root entries, same-shard children, frontier shard loading, deterministic walk.
 
-Strategy / demand planner
-  Observer-shell, target-frustum, custom strategy demand and metadata.
+Strategies
+  Observer-shell, target-frustum, volume/path, custom, and composed semantic
+  demand and metadata.
+
+Planner
+  Execution economics for selected demand: batching, cache preference,
+  source/request tradeoffs, and budget-aware ordering.
 
 Demand gate
   Strategy-aware "should this view replan?" policy.
@@ -650,7 +833,9 @@ Implemented:
 - exact and target/direction-derived `target-frustum` demand.
 - Custom strategy traversal helper.
 - Strategy-aware demand gating.
-- Motion priority metadata and future-position prefetch warming.
+- First-class strategy factories and union composition.
+- Sphere/path volume strategies and travel-volume helpers.
+- Motion priority metadata and explicit future-position prefetch warming.
 - Payload range batching.
 - Gzip decompression through browser/platform APIs.
 - In-memory payload and decoded payload cache.
@@ -684,7 +869,7 @@ Known later work:
 const provider = createStarOctreeProviderService({ url });
 
 const session = provider.createSession({
-  strategy: { kind: 'observer-shell' },
+  strategy: withMotionLookahead(createObserverShellStrategy()),
   attributes: ['position', 'teffLog8', 'magAbs', 'objectRef', 'pickMeta'],
   streaming: {
     progressive: true,
@@ -726,7 +911,7 @@ session.updateView({
 const products = [];
 
 for await (const delta of provider.streamObjectBatches({
-  strategy: { kind: 'observer-shell' },
+  strategy: createObserverShellStrategy(),
   view: {
     observerPc: { x: 0, y: 0, z: 0 },
     limitingMagnitude: 6.5,
@@ -747,7 +932,7 @@ for await (const delta of provider.streamObjectBatches({
 
 ```js
 const product = await provider.fetchObjectBatch({
-  strategy: { kind: 'target-frustum' },
+  strategy: createTargetFrustumStrategy(),
   view: {
     observerPc,
     targetPc,
@@ -756,6 +941,22 @@ const product = await provider.fetchObjectBatch({
     aspectRatio: 16 / 9,
   },
 });
+```
+
+### Volume Stream
+
+```js
+for await (const delta of streamVolumeProducts(provider, {
+  type: 'sphere',
+  centerPc: { x: 0, y: 0, z: 0 },
+  radiusPc: 25,
+}, {
+  attributes: ['position', 'magAbs', 'teffLog8'],
+})) {
+  if (delta.type === 'data/product-upsert') {
+    consumeVolumeProduct(delta.product);
+  }
+}
 ```
 
 ---

@@ -1,5 +1,8 @@
 import * as THREE from 'three';
-import { createStarOctreeProviderService } from '@found-in-space/star-octree-provider';
+import {
+  createObserverShellStrategy,
+  createStarOctreeProviderService,
+} from '@found-in-space/star-octree-provider';
 import { createHrDiagramRenderer } from '@found-in-space/hr-diagram';
 
 const DEFAULT_OCTREE_URL =
@@ -27,7 +30,7 @@ window.addEventListener('resize', resize);
 resize();
 
 const stream = provider.streamObjectBatches({
-  strategy: { kind: 'observer-shell' },
+  strategy: createObserverShellStrategy(),
   view: {
     observerPc: { x: 0, y: 0, z: 0 },
     limitingMagnitude: 6.5,

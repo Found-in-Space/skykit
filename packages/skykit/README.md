@@ -7,6 +7,12 @@ students a friendly place to hack. It does not load octree bytes, interpret star
 products, own star shaders, manage touch surfaces, or contain journey/chapter
 logic.
 
+Star loading strategies such as `observer-shell`, `target-frustum`,
+sphere/path volume, explicit motion-lookahead, custom strategies, composition,
+and prefetch semantics are defined by `@found-in-space/star-octree-provider`.
+SkyKit passes strategy objects through to provider sessions; it does not
+redefine provider demand planning.
+
 ## Create A Viewer
 
 ```js
@@ -17,7 +23,10 @@ import {
   createSkykitViewer,
   createStreamingStarsPlugin,
 } from '@found-in-space/skykit';
-import { createStarOctreeProviderService } from '@found-in-space/star-octree-provider';
+import {
+  createObserverShellStrategy,
+  createStarOctreeProviderService,
+} from '@found-in-space/star-octree-provider';
 import { createThreeStarField } from '@found-in-space/three-star-field';
 
 const provider = createStarOctreeProviderService({ url: STAR_OCTREE_URL });
@@ -29,7 +38,7 @@ const viewer = await createSkykitViewer({
     createStreamingStarsPlugin({
       provider,
       renderer: starField,
-      session: { strategy: { kind: 'observer-shell' } },
+      session: { strategy: createObserverShellStrategy() },
     }),
     createKeyboardNavigationPlugin({ speedPcPerSec: 2 }),
     createSkykitStatusPlugin({ target: document.querySelector('#status') }),

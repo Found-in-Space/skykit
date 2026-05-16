@@ -1,5 +1,7 @@
-import { createStarOctreeProviderService } from '@found-in-space/star-octree-provider';
-import { streamVolumeProducts } from '@found-in-space/star-volume-query';
+import {
+  createStarOctreeProviderService,
+  streamVolumeProducts,
+} from '@found-in-space/star-octree-provider';
 
 const DEFAULT_OCTREE_URL =
   'https://d1kwci8ql2abxm.cloudfront.net/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree';

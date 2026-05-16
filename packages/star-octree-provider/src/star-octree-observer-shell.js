@@ -3,7 +3,6 @@ import {
   distanceToNodeAabbPc,
   traverseOctree,
 } from './star-octree-traversal.js';
-import { resolveMotionLookahead } from './star-octree-motion.js';
 
 /**
  * @typedef {import('./index.d.ts').StarOctreeDemandEntry} StarOctreeDemandEntry
@@ -57,38 +56,7 @@ export async function planObserverShellDemand(options) {
     motion,
     role: 'current',
   });
-  const currentNodeKeys = new Set(
-    currentResult.entries.map((entry) => entry.node.nodeKey),
-  );
-  const motionLookahead = resolveMotionLookahead(
-    options.context.view.motion,
-    observerPc,
-  );
-  const prefetchResult = motionLookahead.enabled && motionLookahead.futureObserverPc
-    ? await collectObserverShellEntries({
-        indexSource: options.indexSource,
-        bootstrap,
-        observerPc: motionLookahead.futureObserverPc,
-        currentObserverPc: observerPc,
-        limitingMagnitude,
-        indexMagnitude,
-        motion,
-        role: 'prefetch',
-      })
-    : null;
-  let prefetchOverlapCount = 0;
-  const prefetchEntries = [];
-
-  for (const entry of prefetchResult?.entries ?? []) {
-    if (currentNodeKeys.has(entry.node.nodeKey)) {
-      prefetchOverlapCount += 1;
-      continue;
-    }
-
-    prefetchEntries.push(entry);
-  }
-
-  const entries = [...currentResult.entries, ...prefetchEntries];
+  const entries = [...currentResult.entries];
 
   entries.sort((left, right) =>
     compareObserverShellEntries(left, right, {
@@ -110,16 +78,8 @@ export async function planObserverShellDemand(options) {
       payloadNodeCount: currentResult.traversal.stats.payloadNodeCount,
       prunedNodeCount: currentResult.traversal.stats.prunedNodeCount,
       motion,
-      motionPrefetch: {
-        enabled: motionLookahead.enabled,
-        lookaheadSecs: motionLookahead.lookaheadSecs,
-        lookaheadDistancePc: motionLookahead.lookaheadDistancePc,
-        futureObserverPc: motionLookahead.futureObserverPc,
-        prefetchNodeCount: prefetchEntries.length,
-        prefetchOverlapCount,
-      },
-      prefetchNodeCount: prefetchEntries.length,
-      prefetchOverlapCount,
+      prefetchNodeCount: 0,
+      prefetchOverlapCount: 0,
       frontierShardCount: currentResult.traversal.stats.frontierShardCount,
       maxLevelInspected: currentResult.traversal.stats.maxLevelInspected,
     },

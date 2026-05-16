@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import {
+  combineStarOctreeStrategies,
+  createSphereVolumeStrategy,
+  withMotionLookahead,
+} from '../index.js';
 import { createStarOctreeProviderServiceForTest } from '../star-octree-provider-service.js';
 
 test('updateView accepts view state synchronously and can suppress demand', async () => {
@@ -362,6 +367,135 @@ test('custom strategies without shouldReplan keep always-plan behavior', async (
   assert.equal(session.updateView({ observerPc: { x: 0, y: 0, z: 0 } }).demand, 'queued');
   assert.equal(session.updateView({ observerPc: { x: 1, y: 0, z: 0 } }).demand, 'queued');
   await waitFor(() => planCalls === 2);
+});
+
+test('volume strategies ignore unrelated view changes after initial demand', async () => {
+  let planCalls = 0;
+  const provider = createStarOctreeProviderServiceForTest(
+    { id: 'provider-gate-volume', url: '/data/stars.octree' },
+    {
+      planDemand() {
+        planCalls += 1;
+        return createPlan([]);
+      },
+    },
+  );
+  const session = provider.createSession({
+    id: 'session-gate-volume',
+    strategy: createSphereVolumeStrategy({
+      centerPc: { x: 0, y: 0, z: 0 },
+      radiusPc: 10,
+    }),
+    demandThresholds: {
+      observerMoveThresholdPc: 10,
+    },
+  });
+
+  assert.equal(session.updateView({ observerPc: { x: 0, y: 0, z: 0 } }).demand, 'queued');
+  await tick();
+  assert.equal(planCalls, 1);
+
+  const unchanged = session.updateView({
+    observerPc: { x: 1000, y: 0, z: 0 },
+    limitingMagnitude: 12,
+  });
+  assert.equal(unchanged.demand, 'unchanged');
+  await tick();
+  assert.equal(planCalls, 1);
+});
+
+test('motion-lookahead gating can queue prefetch-only demand changes', async () => {
+  let planCalls = 0;
+  const provider = createStarOctreeProviderServiceForTest(
+    { id: 'provider-gate-motion-lookahead', url: '/data/stars.octree' },
+    {
+      planDemand() {
+        planCalls += 1;
+        return createPlan([]);
+      },
+    },
+  );
+  const session = provider.createSession({
+    id: 'session-gate-motion-lookahead',
+    strategy: withMotionLookahead({ kind: 'observer-shell' }),
+    demandThresholds: {
+      observerMoveThresholdPc: 10,
+      limitingMagnitudeDelta: 0.5,
+    },
+  });
+
+  assert.equal(session.updateView({
+    observerPc: { x: 0, y: 0, z: 0 },
+    limitingMagnitude: 6.5,
+  }).demand, 'queued');
+  await tick();
+  assert.equal(planCalls, 1);
+
+  const motionChanged = session.updateView({
+    motion: {
+      velocityPcPerSec: { x: 100, y: 0, z: 0 },
+      lookaheadSecs: 1,
+    },
+  });
+  assert.equal(motionChanged.demand, 'queued');
+  assert.equal(motionChanged.reasons.includes('motion-lookahead'), true);
+  await tick();
+  assert.equal(planCalls, 2);
+
+  const speedOnly = session.updateView({
+    motion: {
+      speedPcPerSec: 100,
+      lookaheadSecs: 1,
+    },
+  });
+  assert.equal(speedOnly.demand, 'queued');
+  await tick();
+  assert.equal(planCalls, 3);
+
+  const unchanged = session.updateView({
+    observerPc: { x: 1, y: 0, z: 0 },
+  });
+  assert.equal(unchanged.demand, 'unchanged');
+  await tick();
+  assert.equal(planCalls, 3);
+});
+
+test('composite gates queue when any child strategy queues', async () => {
+  let planCalls = 0;
+  const provider = createStarOctreeProviderServiceForTest(
+    { id: 'provider-gate-composite', url: '/data/stars.octree' },
+    {
+      planDemand() {
+        planCalls += 1;
+        return createPlan([]);
+      },
+    },
+  );
+  const session = provider.createSession({
+    id: 'session-gate-composite',
+    strategy: combineStarOctreeStrategies([
+      { kind: 'observer-shell' },
+      createSphereVolumeStrategy({
+        centerPc: { x: 0, y: 0, z: 0 },
+        radiusPc: 10,
+      }),
+    ]),
+    demandThresholds: {
+      observerMoveThresholdPc: 10,
+    },
+  });
+
+  assert.equal(session.updateView({ observerPc: { x: 0, y: 0, z: 0 } }).demand, 'queued');
+  await tick();
+  assert.equal(planCalls, 1);
+
+  assert.equal(session.updateView({ observerPc: { x: 5, y: 0, z: 0 } }).demand, 'unchanged');
+  await tick();
+  assert.equal(planCalls, 1);
+
+  assert.equal(session.updateView({ observerPc: { x: 11, y: 0, z: 0 } }).demand, 'queued');
+  await tick();
+  assert.equal(planCalls, 2);
 });
 
 test('session demand ordering defaults coarse-first and can be disabled', async () => {

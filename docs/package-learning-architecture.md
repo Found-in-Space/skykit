@@ -62,14 +62,11 @@ boundaries we expect to extract without implying that code already exists.
   star math, star iteration, projections, color helpers
 
 @found-in-space/star-octree-provider
-  implemented: octree loading/session/streaming, emits star products
+  implemented: octree loading/session/streaming, provider-owned demand
+  strategies, volume/path helpers, emits star products
 
 @found-in-space/meta-sidecar-provider
   implemented: metadata sidecar provider keyed by star product object refs
-
-@found-in-space/star-volume-query
-  implemented: reusable sphere/path volume demand helpers on top of
-  star-octree-provider
 
 @found-in-space/star-map-canvas
   implemented: 2D projected canvas starmap adapter for spatial star products,
@@ -127,7 +124,6 @@ Dependency direction should stay clean:
 product-stream
   <- star-products
       <- star-octree-provider
-          <- star-volume-query
 
 star-products
   <- meta-sidecar-provider
@@ -326,7 +322,10 @@ product layer is responsible for interpreting emitted star products.
 A starmap lesson should be able to look roughly like this:
 
 ```js
-import { createStarOctreeProviderService } from '@found-in-space/star-octree-provider';
+import {
+  createObserverShellStrategy,
+  createStarOctreeProviderService,
+} from '@found-in-space/star-octree-provider';
 import {
   createStarRepresentationStore,
   consumeProductDeltas,
@@ -338,7 +337,7 @@ const store = createStarRepresentationStore();
 const map = createCanvasStarMap(canvas, { store });
 
 const session = provider.createSession({
-  strategy: { kind: 'observer-shell' },
+  strategy: createObserverShellStrategy(),
   attributes: ['position', 'magAbs', 'teffLog8', 'objectRef', 'pickMeta'],
 });
 
@@ -398,10 +397,13 @@ to a later touch-os source-input pass. It should not know about Orion-specific
 lessons, camera fly-throughs, narrated chapters, or website page structure.
 
 Volume and path selection are reusable star-query concerns, not HR-diagram
-concerns. `@found-in-space/star-volume-query` provides sphere and path custom
-strategies for `@found-in-space/star-octree-provider`, plus travel-radius
-preload request helpers for moving lessons. HR diagrams can consume those
-products, but other tools can reuse the same volume/path query package.
+concerns. They are also star-octree loading strategies: they produce provider
+demand just like observer-shell and target-frustum do. The canonical strategy,
+planner, scheduler, and composition semantics are defined in
+[`star-octree-provider.md`](./star-octree-provider.md). The sphere/path
+strategies and travel-radius preload request helpers now live directly in
+`@found-in-space/star-octree-provider` so learners only need one loader package
+for star-octree demand.
 
 A journey framework is allowed to be chunkier because authored experiences have
 real machinery:
@@ -583,13 +585,14 @@ adapter, combined by a higher-level scene/composition layer.
 
 ## 10. Current Package Status
 
-The product lifecycle, star product, octree streaming, metadata sidecar,
-volume-query, and first visual/package adapter foundations now exist:
+The product lifecycle, star product, octree streaming, provider-owned demand
+strategies, metadata sidecar, and first visual/package adapter foundations now
+exist:
 
 ```txt
 star-octree-provider -> star-products store -> star-map-canvas
 
-star-octree-provider -> star-volume-query -> star-products / HR consumers
+star-octree-provider strategies -> star-products / HR consumers
 
 star-products object refs -> meta-sidecar-provider
 

@@ -2,6 +2,11 @@
 
 Reusable alpha HR diagram helpers for Found in Space star products.
 
+This package consumes star products and product deltas. It does not load octrees
+or own demand strategies. Observer, frustum, sphere-volume, path-volume, and
+motion-lookahead demand should be requested through
+`@found-in-space/star-octree-provider`, then applied to the HR renderer/store.
+
 The package has two rendering paths:
 
 - WebGL/Three.js for high-volume interactive diagrams.
@@ -10,4 +15,3 @@ The package has two rendering paths:
 The optional `@found-in-space/hr-diagram/touch-os` subpath publishes the WebGL
 renderer as a composite embedded surface, matching the high-performance surface
 pattern used by `touch-os`.
-

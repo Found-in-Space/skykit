@@ -29,27 +29,95 @@ export interface StarOctreeDemandThresholds {
   directionAngleDeg?: number;
 }
 
+export interface StarOctreePointPc {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface StarOctreeObserverShellStrategy {
+  kind: 'observer-shell';
+}
+
+export interface StarOctreeTargetFrustumStrategy {
+  kind: 'target-frustum';
+  verticalFovDeg?: number;
+  overscanDeg?: number;
+  targetRadiusPc?: number;
+  nearPc?: number;
+  farPc?: number;
+}
+
+export interface StarOctreeSphereVolumeStrategy {
+  kind: 'sphere-volume';
+  centerPc: StarOctreePointPc;
+  radiusPc: number;
+}
+
+export interface StarOctreePathVolumeStrategy {
+  kind: 'path-volume';
+  pointsPc: StarOctreePointPc[];
+  radiusPc: number;
+}
+
+export interface StarOctreeMotionLookaheadStrategy {
+  kind: 'motion-lookahead';
+  strategy: StarOctreeFetchStrategy;
+}
+
+export interface StarOctreeCompositeStrategy {
+  kind: 'composite';
+  mode: 'union';
+  strategies: StarOctreeFetchStrategy[];
+}
+
+export interface StarOctreeCustomStrategy {
+  kind: 'custom';
+  selectDemand: (
+    context: StarOctreeSelectionContext
+  ) => Promise<StarOctreeDemandPlan> | StarOctreeDemandPlan;
+  shouldReplan?: (
+    context: StarOctreeDemandGateContext
+  ) => StarOctreeDemandGateResult;
+}
+
 export type StarOctreeFetchStrategy =
-  | {
-      kind: 'observer-shell';
-    }
-  | {
-      kind: 'target-frustum';
-      verticalFovDeg?: number;
-      overscanDeg?: number;
-      targetRadiusPc?: number;
-      nearPc?: number;
-      farPc?: number;
-    }
-  | {
-      kind: 'custom';
-      selectDemand: (
-        context: StarOctreeSelectionContext
-      ) => Promise<StarOctreeDemandPlan> | StarOctreeDemandPlan;
-      shouldReplan?: (
-        context: StarOctreeDemandGateContext
-      ) => StarOctreeDemandGateResult;
-    };
+  | StarOctreeObserverShellStrategy
+  | StarOctreeTargetFrustumStrategy
+  | StarOctreeSphereVolumeStrategy
+  | StarOctreePathVolumeStrategy
+  | StarOctreeMotionLookaheadStrategy
+  | StarOctreeCompositeStrategy
+  | StarOctreeCustomStrategy;
+
+export interface StarOctreeSphereVolumeRequest {
+  type: 'sphere';
+  centerPc: StarOctreePointPc;
+  radiusPc: number;
+}
+
+export interface StarOctreePathVolumeRequest {
+  type: 'path';
+  pointsPc: StarOctreePointPc[];
+  radiusPc: number;
+}
+
+export type StarOctreeVolumeRequest =
+  | StarOctreeSphereVolumeRequest
+  | StarOctreePathVolumeRequest;
+
+export interface TravelRadiusProfilePoint {
+  progress: number;
+  radiusPc: number;
+}
+
+export interface BuildTravelVolumeRequestsOptions {
+  routePointsPc: StarOctreePointPc[];
+  radiusProfile?: TravelRadiusProfilePoint[];
+  defaultRadiusPc?: number;
+  paddingPc?: number;
+  quantizeStepPc?: number;
+}
 
 export interface StarOctreeDemandEntry {
   node: StarOctreeRuntimeNode;
@@ -512,6 +580,19 @@ export interface StarOctreeProviderService {
   dispose(): void | Promise<void>;
 }
 
+export interface WarmVolumeProgress {
+  request: StarOctreeVolumeRequest;
+  requestIndex: number;
+  delta: StarOctreeProductDelta;
+}
+
+export interface WarmVolumeResult {
+  requestCount: number;
+  productCount: number;
+  starCount: number;
+  currentCount: number;
+}
+
 export declare function createStarOctreeProviderService(
   options: StarOctreeProviderServiceOptions
 ): StarOctreeProviderService;
@@ -519,3 +600,49 @@ export declare function createStarOctreeProviderService(
 export declare function createStarOctreeFileProviderService(
   options: StarOctreeFileProviderServiceOptions
 ): StarOctreeProviderService;
+
+export declare function createObserverShellStrategy(): StarOctreeObserverShellStrategy;
+
+export declare function createTargetFrustumStrategy(
+  options?: Omit<StarOctreeTargetFrustumStrategy, 'kind'>
+): StarOctreeTargetFrustumStrategy;
+
+export declare function createSphereVolumeStrategy(
+  options: Omit<StarOctreeSphereVolumeRequest, 'type'>
+): StarOctreeSphereVolumeStrategy;
+
+export declare function createPathVolumeStrategy(
+  options: Omit<StarOctreePathVolumeRequest, 'type'>
+): StarOctreePathVolumeStrategy;
+
+export declare function withMotionLookahead(
+  strategy: StarOctreeFetchStrategy
+): StarOctreeMotionLookaheadStrategy;
+
+export declare function combineStarOctreeStrategies(
+  strategies: StarOctreeFetchStrategy[],
+  options?: { mode?: 'union' }
+): StarOctreeCompositeStrategy;
+
+export declare function buildTravelVolumeRequests(
+  options: BuildTravelVolumeRequestsOptions
+): StarOctreePathVolumeRequest[];
+
+export declare function streamVolumeProducts(
+  provider: StarOctreeProviderService,
+  request: StarOctreeVolumeRequest,
+  options?: Omit<StarOctreeObjectBatchStreamOptions, 'strategy'>
+): AsyncIterable<StarOctreeProductDelta>;
+
+export declare function warmVolumeRequests(
+  provider: StarOctreeProviderService,
+  requests: StarOctreeVolumeRequest[],
+  options?: Omit<StarOctreeObjectBatchStreamOptions, 'strategy'> & {
+    onProgress?: (progress: WarmVolumeProgress) => void;
+  }
+): Promise<WarmVolumeResult>;
+
+export declare function distancePointToPathPc(
+  point: StarOctreePointPc,
+  pointsPc: StarOctreePointPc[]
+): number;
