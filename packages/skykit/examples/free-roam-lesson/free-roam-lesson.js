@@ -11,13 +11,11 @@ import {
   installSkykitDebugGlobal,
 } from '@found-in-space/skykit';
 import {
+  OCTREE_DEFAULT,
   createObserverShellStrategy,
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
 import { createThreeStarField } from '@found-in-space/three-star-field';
-
-const STAR_OCTREE_URL =
-  'https://d1kwci8ql2abxm.cloudfront.net/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree';
 
 main().catch((error) => {
   document.querySelector('[data-status]').textContent = error.stack ?? String(error);
@@ -28,7 +26,7 @@ async function main() {
   const statusTarget = document.querySelector('[data-status]');
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   const camera = new THREE.PerspectiveCamera(60, 1, 0.001, 10000);
-  const provider = createStarOctreeProviderService({ url: STAR_OCTREE_URL });
+  const provider = createStarOctreeProviderService({ url: OCTREE_DEFAULT });
   const starField = createThreeStarField({
     limitingMagnitude: 6.5,
     exposure: 2400,

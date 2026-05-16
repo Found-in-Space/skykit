@@ -3,6 +3,9 @@ import type {
   StarObjectBatchProduct,
 } from '@found-in-space/star-products';
 
+export declare const OCTREE_c56103: string;
+export declare const OCTREE_DEFAULT: string;
+
 export interface StarOctreeProviderServiceOptions {
   id?: string;
   url: string;

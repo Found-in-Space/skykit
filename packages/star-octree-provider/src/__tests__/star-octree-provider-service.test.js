@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createStarOctreeProviderService } from '../index.js';
+import {
+  OCTREE_DEFAULT,
+  OCTREE_c56103,
+  createStarOctreeProviderService,
+} from '../index.js';
 import {
   createStarOctreeProviderServiceForTest,
 } from '../star-octree-provider-service.js';
@@ -11,6 +15,14 @@ import {
   createOdscDescriptorBytes,
   createStarHeaderBytes,
 } from './octree-byte-fixtures.js';
+
+test('default public octree URL constants are exported', () => {
+  assert.equal(
+    OCTREE_c56103,
+    'https://d1kwci8ql2abxm.cloudfront.net/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree',
+  );
+  assert.equal(OCTREE_DEFAULT, OCTREE_c56103);
+});
 
 test('factory creates a provider descriptor and empty snapshot', () => {
   const provider = createStarOctreeProviderService({

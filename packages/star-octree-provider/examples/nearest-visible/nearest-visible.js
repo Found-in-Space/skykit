@@ -1,4 +1,5 @@
 import {
+  OCTREE_DEFAULT,
   createObserverShellStrategy,
   createStarOctreeProviderService,
 } from '../../src/index.js';
@@ -7,8 +8,6 @@ import {
   decodeTemperatureK,
 } from '@found-in-space/star-products';
 
-const DEFAULT_OCTREE_URL =
-  'https://d1kwci8ql2abxm.cloudfront.net/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree';
 const RESULT_LIMIT = 100;
 
 const elements = {
@@ -74,7 +73,7 @@ const state = {
  * }} NearestStarRow
  */
 
-elements.url.value = DEFAULT_OCTREE_URL;
+elements.url.value = OCTREE_DEFAULT;
 elements.form.addEventListener('submit', (event) => {
   event.preventDefault();
   applyQuery();
@@ -92,7 +91,7 @@ applyQuery();
 setInterval(render, 250);
 
 function applyQuery() {
-  const url = elements.url.value.trim() || DEFAULT_OCTREE_URL;
+  const url = elements.url.value.trim() || OCTREE_DEFAULT;
   const observerPc = {
     x: parseFiniteNumber(elements.x.value, 0),
     y: parseFiniteNumber(elements.y.value, 0),

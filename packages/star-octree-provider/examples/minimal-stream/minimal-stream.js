@@ -1,11 +1,9 @@
 import {
+  OCTREE_DEFAULT,
   createObserverShellStrategy,
   createStarOctreeProviderService,
 } from '../../src/index.js';
 import { decodeTemperatureK } from '@found-in-space/star-products';
-
-const OCTREE_URL =
-  'https://d1kwci8ql2abxm.cloudfront.net/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree';
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
@@ -16,7 +14,7 @@ const cellDefinitions = [
     lead: 'This cell creates the SkyKit provider against the public octree URL.',
     source: `provider = createStarOctreeProviderService({
   id: 'minimal-stream-scratchpad',
-  url: OCTREE_URL,
+  url: OCTREE_DEFAULT,
 });
 
 return provider.describe();`,
@@ -84,7 +82,7 @@ const elements = {
 const cells = new Map();
 
 const context = {
-  OCTREE_URL,
+  OCTREE_DEFAULT,
   createObserverShellStrategy,
   createStarOctreeProviderService,
   provider: null,

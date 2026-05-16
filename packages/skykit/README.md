@@ -27,12 +27,13 @@ import {
   createStreamingStarsPlugin,
 } from '@found-in-space/skykit';
 import {
+  OCTREE_DEFAULT,
   createObserverShellStrategy,
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
 import { createThreeStarField } from '@found-in-space/three-star-field';
 
-const provider = createStarOctreeProviderService({ url: STAR_OCTREE_URL });
+const provider = createStarOctreeProviderService({ url: OCTREE_DEFAULT });
 const starField = createThreeStarField();
 
 const viewer = await createSkykitViewer({

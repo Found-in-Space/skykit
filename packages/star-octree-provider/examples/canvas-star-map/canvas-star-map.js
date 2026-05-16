@@ -1,4 +1,5 @@
 import {
+  OCTREE_DEFAULT,
   createObserverShellStrategy,
   createStarOctreeProviderService,
 } from '../../src/index.js';
@@ -7,9 +8,6 @@ import {
   createStarRepresentationStore,
 } from '@found-in-space/star-products';
 import { createCanvasStarMap } from '@found-in-space/star-map-canvas';
-
-const DEFAULT_OCTREE_URL =
-  'https://d1kwci8ql2abxm.cloudfront.net/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree';
 
 const elements = {
   form: document.querySelector('[data-query-form]'),
@@ -48,7 +46,7 @@ const state = {
   lastRender: null,
 };
 
-elements.url.value = DEFAULT_OCTREE_URL;
+elements.url.value = OCTREE_DEFAULT;
 elements.form.addEventListener('submit', (event) => {
   event.preventDefault();
   applyView();
@@ -89,7 +87,7 @@ window.addEventListener('pagehide', () => {
 applyView();
 
 function applyView() {
-  const url = elements.url.value.trim() || DEFAULT_OCTREE_URL;
+  const url = elements.url.value.trim() || OCTREE_DEFAULT;
   state.observerPc = {
     x: parseFiniteNumber(elements.x.value, 0),
     y: parseFiniteNumber(elements.y.value, 0),

@@ -1,4 +1,5 @@
 import {
+  OCTREE_DEFAULT,
   combineStarOctreeStrategies,
   createObserverShellStrategy,
   createPathVolumeStrategy,
@@ -8,9 +9,7 @@ import {
   withMotionLookahead,
 } from '@found-in-space/star-octree-provider';
 
-const STAR_OCTREE_URL =
-  'https://d1kwci8ql2abxm.cloudfront.net/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree';
-const provider = createStarOctreeProviderService({ url: STAR_OCTREE_URL });
+const provider = createStarOctreeProviderService({ url: OCTREE_DEFAULT });
 const status = document.querySelector('[data-status]');
 const results = document.querySelector('[data-results]');
 const log = document.querySelector('[data-log]');

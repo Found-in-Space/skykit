@@ -1,12 +1,10 @@
 import * as THREE from 'three';
 import {
+  OCTREE_DEFAULT,
   createStarOctreeProviderService,
   streamVolumeProducts,
 } from '@found-in-space/star-octree-provider';
 import { createHrDiagramRenderer } from '@found-in-space/hr-diagram';
-
-const DEFAULT_OCTREE_URL =
-  'https://d1kwci8ql2abxm.cloudfront.net/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree';
 
 const canvas = document.querySelector('#hr');
 const status = document.querySelector('#status');
@@ -16,7 +14,7 @@ const hr = createHrDiagramRenderer({
   mode: 'volume-complete',
   volumeRadiusPc: radiusPc,
 });
-const provider = createStarOctreeProviderService({ url: DEFAULT_OCTREE_URL });
+const provider = createStarOctreeProviderService({ url: OCTREE_DEFAULT });
 
 function resize() {
   const width = Math.max(1, canvas.clientWidth);

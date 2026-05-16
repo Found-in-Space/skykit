@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createStarOctreeProviderService } from '../index.js';
-
-const DEFAULT_FOUND_IN_SPACE_OCTREE_URL =
-  'https://d1kwci8ql2abxm.cloudfront.net/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree';
+import {
+  OCTREE_DEFAULT,
+  createStarOctreeProviderService,
+} from '../index.js';
 
 const integrationEnabled = process.env.STAR_OCTREE_PROVIDER_INTEGRATION === '1';
 
@@ -19,7 +19,7 @@ test('streamObjectBatches supports nearest visible stars against the public octr
   const provider = createStarOctreeProviderService({
     id: 'provider-integration',
     url: process.env.STAR_OCTREE_PROVIDER_INTEGRATION_URL ??
-      DEFAULT_FOUND_IN_SPACE_OCTREE_URL,
+      OCTREE_DEFAULT,
   });
   const nearest = [];
   let upsertCount = 0;

@@ -1,4 +1,5 @@
 import {
+  OCTREE_DEFAULT,
   createObserverShellStrategy,
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
@@ -19,8 +20,6 @@ import {
 } from '@found-in-space/anchored-image';
 import { drawAnchoredImageMeshCanvas } from '@found-in-space/anchored-image/canvas';
 
-const DEFAULT_OCTREE_URL =
-  'https://d1kwci8ql2abxm.cloudfront.net/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree';
 const DEFAULT_SKYCULTURE_MANIFEST_URL =
   'https://unpkg.com/@found-in-space/stellarium-skycultures-western@0.1.0/dist/manifest.json';
 const DEFAULT_ART_GROUPS = new Set(['Ori']);
@@ -77,7 +76,7 @@ const state = {
   animating: false,
 };
 
-elements.url.value = DEFAULT_OCTREE_URL;
+elements.url.value = OCTREE_DEFAULT;
 elements.form.addEventListener('submit', (event) => {
   event.preventDefault();
   applyView();
@@ -140,7 +139,7 @@ void loadDemoArt().then((items) => {
 applyView();
 
 function applyView() {
-  const url = elements.url.value.trim() || DEFAULT_OCTREE_URL;
+  const url = elements.url.value.trim() || OCTREE_DEFAULT;
   state.observerPc = {
     x: parseFiniteNumber(elements.x.value, 0),
     y: parseFiniteNumber(elements.y.value, 0),

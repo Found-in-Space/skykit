@@ -25,6 +25,9 @@ and current implementation status.
 
 ## Examples
 
+The package exports `OCTREE_c56103` for the current public Gaia-derived octree
+and `OCTREE_DEFAULT` as the teaching-friendly alias used by examples.
+
 - `examples/minimal-stream/` is a small browser scratchpad that creates a
   provider, lets learners edit observer coordinates and magnitude inside
   `streamObjectBatches()`, streams until the current representation is complete,

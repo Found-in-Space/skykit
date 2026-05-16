@@ -1,13 +1,11 @@
-import { createStarOctreeProviderService } from '@found-in-space/star-octree-provider';
 import {
+  OCTREE_DEFAULT,
   buildTravelVolumeRequests,
+  createStarOctreeProviderService,
   warmVolumeRequests,
 } from '@found-in-space/star-octree-provider';
 
-const DEFAULT_OCTREE_URL =
-  'https://d1kwci8ql2abxm.cloudfront.net/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree';
-
-const provider = createStarOctreeProviderService({ url: DEFAULT_OCTREE_URL });
+const provider = createStarOctreeProviderService({ url: OCTREE_DEFAULT });
 const requests = buildTravelVolumeRequests({
   routePointsPc: [
     { x: 0, y: 0, z: 0 },
