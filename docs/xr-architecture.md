@@ -1,11 +1,9 @@
 # XR Architecture
 
-Status: current alpha package-boundary document. The first `@found-in-space/xr`
-package slice has landed.
+Status: current alpha package documentation for `@found-in-space/xr`.
 
-This note replaces the proof-of-concept XR implementation notes. It describes
-the intended package boundary for XR-related functionality as SkyKit moves into
-first alpha.
+This note describes the package boundary for XR-related functionality in the
+alpha architecture.
 
 The short version:
 
@@ -115,10 +113,8 @@ XR into a dumping ground for every homeless viewer feature.
 - pointer/ray input into those surfaces
 - blocking/hit information for surfaces that consume a ray
 
-The old SkyKit `xr-tablet-controller` should be treated as reference material
-for touch-os native requirements, not as a permanent XR adapter. The target is
-that a touch-os surface can natively bind to XR placement and input contracts
-without a special SkyKit wrapper.
+The target is that a touch-os surface can natively bind to XR placement and
+input contracts without a special SkyKit wrapper.
 
 XR may provide poses and rays. touch-os decides how surfaces are mounted,
 rendered, interacted with, and whether a ray is consumed.
@@ -369,7 +365,7 @@ const pickRouter = createXrPickRouter({
 
 ## 8. Control Bindings
 
-The proof-of-concept XR demo used useful defaults:
+Useful teaching defaults:
 
 - right stick: translation/thrust
 - left stick: attitude
@@ -377,9 +373,8 @@ The proof-of-concept XR demo used useful defaults:
 - right trigger: select
 - left hand: tablet/surface placement
 
-Those defaults are good reference behavior, not hard-coded semantics. The alpha
-XR package should expose configurable control bindings as a clear public
-surface.
+Those defaults are not hard-coded semantics. The XR package exposes configurable
+control bindings as a clear public surface.
 
 The important split is:
 
@@ -502,9 +497,7 @@ bridge. It accepts a computed XR depth range and a session/session handle, calls
 the update was applied. This keeps render-state mutation explicit instead of
 hiding it inside the depth calculation itself.
 
-Depth helpers deserve special care. The proof-of-concept dynamically sized the
-XR far plane from selected octree node bounds, observer position, scale, and an
-optional constellation/sky sphere. In alpha, the equivalent helper should be
+Depth helpers deserve special care. XR far-plane sizing should be
 domain-neutral:
 
 ```txt
@@ -521,7 +514,7 @@ clipped content.
 
 ## 10. Renderer Readability Is Not XR Ownership
 
-The old XR demo contained star-renderer tuning for headset readability:
+Headset readability often benefits from renderer tuning:
 
 - stronger exposure
 - nearby magnitude floors
@@ -560,9 +553,9 @@ layer unless they genuinely share the XR embodiment model.
 
 ---
 
-## 12. Implemented Alpha Slice
+## 12. Current Implementation Status
 
-The first alpha slice for `@found-in-space/xr` implements:
+`@found-in-space/xr` implements:
 
 - plain ESM package with hand-written `.d.ts`.
 - XR rig/body roots and custom spaceship mount points.
@@ -576,14 +569,8 @@ The first alpha slice for `@found-in-space/xr` implements:
   render-state depth application.
 - tests using fake XR frame/session/input-source objects.
 
-The package intentionally does not rewrite old `src/` viewers yet. Integration
-with the alpha `@found-in-space/skykit` composition layer should happen through
-public rig, motion, ray, and session helpers rather than by porting old viewer
-internals.
-
-The old `src/controllers/xr-*`, `src/core/runtime-rig.js`, and
-`src/services/render/xr-depth-range.js` files are reference material only.
-Alpha implementation should be rewritten into the new package shape.
+Integration with the alpha `@found-in-space/skykit` composition layer should
+happen through public rig, motion, ray, and session helpers.
 
 ---
 

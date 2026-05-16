@@ -2,13 +2,12 @@
 
 Status: this is a current alpha-direction document.
 
-The proof-of-concept phase is complete. The project is now moving toward a
-first alpha architecture.
+The project is now moving through the first alpha architecture.
 
 Alpha work is a clean rewrite into the right package shape, not a migration of
-old experimental code. Old `src/` code may be read as reference material, but
-new alpha packages must not import it, copy its service structure wholesale, or
-preserve proof-of-concept habits just because they exist.
+earlier experimental code. New alpha packages must not import old implementation
+modules, copy service structure wholesale, or preserve historical habits just
+because they exist.
 
 The approach is:
 
@@ -16,7 +15,7 @@ The approach is:
 1. Create the replacement with the right boundary.
 2. Test it thoroughly.
 3. Integrate it through a narrow adapter or teaching example.
-4. Remove the old code only after the alpha replacement is real.
+4. Remove superseded code only after the alpha replacement is real.
 ```
 
 Core `skykit` should become a slim teaching toolkit and composition layer over

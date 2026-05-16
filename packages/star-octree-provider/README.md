@@ -4,9 +4,9 @@ Status: current alpha package.
 
 Alpha package for the clean Star Octree Provider rewrite.
 
-This package is intentionally separate from the existing proof-of-concept SkyKit
-source tree. The alpha implementation should be built into this package first,
-tested thoroughly, and only then should old code be removed.
+This package is intentionally self-contained. Octree loading, traversal,
+strategies, payload decode, and star product emission live here; viewers,
+renderers, sidecars, controls, and lessons live in separate packages.
 
 Do not add viewer, renderer, UI, sidecar, kinematics, or ephemeris behavior to
 this package. Those belong in separate `@found-in-space/*` packages that compose

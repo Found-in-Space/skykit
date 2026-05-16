@@ -2,17 +2,15 @@
 
 Part of [Found in Space](https://foundin.space/), a project that turns real astronomical measurements into interactive explorations of the solar neighbourhood. See all repositories at [github.com/Found-in-Space](https://github.com/Found-in-Space).
 
-The proof-of-concept phase is complete. SkyKit is moving toward a slim teaching
-toolkit built from narrow-purpose, reusable `@found-in-space/*` modules. The
-goal is that students and builders can start with real astronomical data, then
-progressively learn how to stream it, analyse it, draw it, enrich it with
-sidecars, and compose it into interactive scenes without needing to adopt a
-large monolithic viewer.
+SkyKit is becoming a slim teaching toolkit built from narrow-purpose, reusable
+`@found-in-space/*` modules. The goal is that students and builders can start
+with real astronomical data, then progressively learn how to stream it, analyse
+it, draw it, enrich it with sidecars, and compose it into interactive scenes
+without needing to adopt a large monolithic viewer.
 
-During the alpha transition, the old root `src/` viewer remains in the repo as
-working proof-of-concept code and reference material. New reusable work should
-land in focused packages under `packages/`, with `@found-in-space/skykit`
-serving as the friendly composition layer.
+The live alpha path is package-first: reusable work lands in focused packages
+under `packages/`, with `@found-in-space/skykit` serving as the friendly
+composition layer.
 
 If you are reading this README on GitHub, you can open **[SkyKit experiments](https://foundin.space/skykit/)** on the Found in Space site to try the latest interactive demos in the browser—development sandboxes that exercise new ideas in the runtime before they settle into stable APIs.
 
@@ -24,9 +22,8 @@ npm install @found-in-space/skykit
 
 ## Architecture
 
-Reusable alpha code lives under `packages/`. Root `src/` is the legacy
-proof-of-concept implementation and should not be the default home for new
-architecture.
+Reusable alpha code lives under `packages/`. The root package is a workspace and
+demo shell; new architecture should be package-owned.
 
 Current package direction:
 
@@ -50,13 +47,6 @@ example, [`touch-os`](https://github.com/found-in-Space/touch-os/) is a Found in
 Space project that `skykit` can depend on for interactive surfaces, but it
 should not be folded back into core `skykit`.
 
-The old `src/` folders still contain useful reference implementations for
-viewer runtime, controllers, fields, layers, sidecars, and diagnostics. Treat
-those modules as proof-of-concept context unless a task explicitly asks to work
-on the old demos. In alpha packages, the corresponding responsibilities now
-belong to provider strategies, product stores, renderer packages, XR helpers,
-sidecar providers, and the slim `@found-in-space/skykit` composition layer.
-
 ## Development
 
 ```bash
@@ -77,11 +67,9 @@ Override with `?constellationManifestUrl=...`. Dataset URLs can be overridden wi
 ## Docs
 
 - [`docs/alpha-rules.md`](./docs/alpha-rules.md): current alpha rewrite rules and package-boundary guidance
-- [`docs/package-learning-architecture.md`](./docs/package-learning-architecture.md): alpha package direction for teaching-oriented modules
+- [`docs/package-learning-architecture.md`](./docs/package-learning-architecture.md): alpha learning path and lesson direction
 - [`docs/star-octree-provider.md`](./docs/star-octree-provider.md): current alpha contract for `@found-in-space/star-octree-provider`
 - [`docs/star-map-canvas.md`](./docs/star-map-canvas.md): current alpha contract for `@found-in-space/star-map-canvas`
 - [`docs/anchored-image.md`](./docs/anchored-image.md): current alpha contract for `@found-in-space/anchored-image`
 - [`docs/skykit-core-composition.md`](./docs/skykit-core-composition.md): current alpha direction for core `@found-in-space/skykit`
 - [`docs/xr-architecture.md`](./docs/xr-architecture.md): current alpha boundary for `@found-in-space/xr`
-- [`docs/viewer-architecture.md`](./docs/viewer-architecture.md): legacy proof-of-concept viewer architecture; may be stale
-- [`docs/hr-diagram-touch-display.md`](./docs/hr-diagram-touch-display.md): legacy proof-of-concept touch-display design; may be stale

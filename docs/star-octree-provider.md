@@ -4,16 +4,15 @@ Status: current alpha package documentation for
 `@found-in-space/star-octree-provider`.
 
 This document describes the package boundary, public API, runtime semantics, and
-current implementation status for the alpha star octree provider. It replaces
-the earlier sprint-era implementation plan. New work should keep this document
-focused on this one package; broader teaching, lesson, renderer, sidecar, and
-application composition concerns belong in
+current implementation status for the alpha star octree provider. New work
+should keep this document focused on this one package; broader teaching, lesson,
+renderer, sidecar, and application composition concerns belong in
 [`package-learning-architecture.md`](./package-learning-architecture.md).
 
-The proof-of-concept phase is complete. This package is a clean alpha rewrite in
-`packages/star-octree-provider`. Old `src/` octree code may be read as reference
-material, but it must not be imported, migrated wholesale, or allowed to dictate
-the new package shape.
+This package is a clean alpha implementation in
+`packages/star-octree-provider`. Keep it self-contained and package-shaped:
+octree loading belongs here, while renderers, sidecars, controls, lessons, and
+application merging belong elsewhere.
 
 ---
 
@@ -429,8 +428,7 @@ Target-derived mode may use `targetPc` or `directionIcrs` when orientation is
 not supplied. Quaternion and frustum math are plain data; this package does not
 import Three.js.
 
-Defaults for target-derived mode are intentionally practical for teaching and
-POC parity:
+Defaults for target-derived mode are intentionally practical for teaching:
 
 ```txt
 verticalFovDeg: 40

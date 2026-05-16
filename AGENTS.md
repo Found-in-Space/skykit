@@ -1,88 +1,96 @@
 # Agent Instructions
 
-## JavaScript / Node.js project
+## JavaScript / Node.js Project
 
 - Runtime: plain ES modules (`"type": "module"`).
-- Alpha library code lives in workspace packages under `packages/`; package entry
-  points are plain `src/index.js` files with hand-written `.d.ts` contracts.
-- The root `src/` tree is the legacy proof-of-concept entry point and reference
-  implementation during the alpha transition.
-- Dependency on `three` (THREE.js), usually as a package peer dependency for
-  reusable renderer/runtime packages.
+- Alpha library code lives in workspace packages under `packages/`.
+- Package entry points are plain `src/index.js` files with hand-written `.d.ts`
+  contracts.
+- Use `three` as a peer dependency for reusable renderer/runtime packages unless
+  a package is explicitly application-only.
 
-## Alpha package direction
+## Alpha Package Direction
 
-- The proof-of-concept phase is complete. New work should be shaped for first alpha, not added to the old `src/` architecture by default.
-- Core `skykit` is being reshaped into a slim teaching toolkit built from narrow-purpose, reusable `@found-in-space/*` modules.
-- Prefer focused workspace packages under `packages/` for new reusable capabilities. Use core `skykit` as a composition/convenience layer for teaching examples and demos.
-- Keep package boundaries clear: generic product lifecycle belongs in reusable product-stream style packages; star interpretation belongs in star-specific packages; rendering adapters should consume products/stores rather than owning data loading.
-- Do not fold sidecars, ephemerides, kinematics, H-alpha maps, galaxy models, or renderer-specific logic into the star octree provider. Those should remain separate product/provider lanes that can be composed by applications.
-- Not every Found in Space package has to be a universe-data module. Interaction/surface infrastructure such as `touch-os` should stay as a separate package that `skykit` can depend on rather than being folded into core `skykit`.
-- Current extracted alpha packages include `@found-in-space/product-stream`, `@found-in-space/star-products`, `@found-in-space/star-octree-provider`, `@found-in-space/meta-sidecar-provider`, `@found-in-space/star-map-canvas`, `@found-in-space/three-star-field`, `@found-in-space/hr-diagram`, `@found-in-space/anchored-image`, `@found-in-space/xr`, `@found-in-space/skykit`, and the experimental preservation package `@found-in-space/experimental-structure-layers`.
-- Star-octree strategies now live in `@found-in-space/star-octree-provider`, including observer-shell, target-frustum, sphere/path volume, explicit motion-lookahead, custom strategies, and union composition. Do not create separate strategy wrapper packages unless a new boundary is clearly justified.
-- Follow `docs/alpha-rules.md`: alpha work is a clean rewrite into the new package shape. Old proof-of-concept code is reference-only unless the user explicitly asks otherwise.
-- Use `docs/package-learning-architecture.md` as the current package-learning direction when deciding where new teaching-oriented functionality should live.
+- Core `skykit` is a slim teaching/composition toolkit built from focused
+  `@found-in-space/*` modules.
+- Prefer focused workspace packages under `packages/` for reusable capabilities.
+  Use core `skykit` for composition helpers, teaching examples, and demo glue.
+- Keep package boundaries clear:
+  - generic product lifecycle belongs in `product-stream` style packages.
+  - star interpretation belongs in star-specific packages.
+  - renderer adapters consume products/stores rather than owning data loading.
+  - XR owns embodiment/input/motion/rays, not star rendering or panels.
+  - touch-os owns visual surfaces, panels, HUDs, and forwarded surface input.
+- Do not fold sidecars, ephemerides, kinematics, H-alpha maps, galaxy models, or
+  renderer-specific logic into the star octree provider. Those remain separate
+  product/provider lanes that applications compose.
+- Star-octree strategies live in `@found-in-space/star-octree-provider`,
+  including observer-shell, target-frustum, sphere/path volume,
+  motion-lookahead, custom strategies, and union composition.
+- Do not create wrapper packages or string registries unless a new boundary is
+  clearly justified by the learning path.
+- Follow `docs/alpha-rules.md`: alpha work is a clean rewrite into the package
+  shape, with old implementation details preserved by git history rather than
+  repeated in live docs.
+- Use `docs/package-learning-architecture.md` when deciding which lesson a new
+  feature should unlock.
 
-### Standard commands
+## Current Package Map
+
+- `@found-in-space/product-stream`: generic product lifecycle.
+- `@found-in-space/star-products`: star products, stores, iteration, and math.
+- `@found-in-space/star-octree-provider`: octree loading, strategies, streaming,
+  payload decode, and star product emission.
+- `@found-in-space/meta-sidecar-provider`: metadata facts keyed by star refs.
+- `@found-in-space/star-map-canvas`: 2D starmap rendering.
+- `@found-in-space/three-star-field`: Three.js star product renderer and picking.
+- `@found-in-space/hr-diagram`: HR diagram model, Canvas fallback, WebGL renderer,
+  and optional touch-os surface adapter.
+- `@found-in-space/anchored-image`: anchored image manifests, solving, and
+  Canvas2D/Three.js adapters.
+- `@found-in-space/xr`: immersive rig/input/motion/ray/session/depth helpers.
+- `@found-in-space/skykit`: plugin-first composition and teaching helpers.
+- `@found-in-space/experimental-structure-layers`: experimental H-alpha/dust
+  preservation package, not stable core.
+
+## Standard Commands
 
 - Install dependencies: `npm install`
 - Run tests: `node --test`
 - Run tests in watch mode: `node --test --watch`
-- Dev server (Vite): `npm run dev`
+- Workspace typecheck: `npm run typecheck`
+- Dev server: `npm run dev`
 - Build demos: `npm run build`
 
-### Demo pages
+## Documentation
 
-- Demo HTML lives in `demos/`.
-- All demo pages link `demos/shared.css` for common styles — add page-specific CSS inline only when needed.
-- `index.html` at the project root is the demo directory page with links to each demo.
-- To add a new demo: create `demos/<name>.html` (link `shared.css`), add a `<script type="module">` pointing at a new entry in `src/demo/`, register the HTML file in `vite.config.js` under `rollupOptions.input`, and add a link in `index.html`. Example automation demo: `demos/fly-orbit.html` + `src/demo/fly-orbit.js`.
+- `docs/alpha-rules.md`: alpha rewrite and package-boundary rules.
+- `docs/package-learning-architecture.md`: current teaching path and lessons.
+- `docs/star-octree-provider.md`: provider/strategy/planner/session semantics.
+- `docs/star-map-canvas.md`: Canvas2D starmap package contract.
+- `docs/anchored-image.md`: anchored image package contract.
+- `docs/skykit-core-composition.md`: core SkyKit composition contract.
+- `docs/xr-architecture.md`: XR package boundary and rules.
 
-### Star rendering
+## WebXR And Scene Graph Constraints
 
-- Default apparent magnitude limit is **6.5** — the naked-eye limit under good conditions.
-- `DEFAULT_MAG_LIMIT = 6.5` in `src/layers/star-field-materials.js` is the source of truth.
-- Magnitude scale: lower = brighter (Vega ≈ 0, Sirius ≈ −1.4, faintest naked-eye ≈ +6.5).
-- Scene scale: 1 parsec = 0.001 Three.js world units (`SCALE` in `src/services/octree/scene-scale.js`).
+See `docs/xr-architecture.md` for the full XR boundary. Critical rules:
 
-### Controllers
+1. Never mutate the WebXR camera directly for headset orientation.
+2. XR scene graphs must keep scene content roots and the spaceship/navigation
+   root distinct.
+3. Use separate roots for origin-pinned content, observer-centric content, and
+   scale-banded context layers.
+4. Observer-centric layers follow observer translation without inheriting
+   ship/head rotation.
+5. Controller visuals and ray sources belong inside XR-owned mount roots.
+6. Motion helpers consume a scale profile; data packages do not own physical
+   meter-scale policy.
 
-- `camera-rig.js` — pure camera state and quaternion math, no input or DOM.
-- `camera-rig-controller.js` — desktop-only: `direct` / `inertial` movement and automation (`flyTo`, `orbit`, `lookAt`). No XR code.
-- `xr-locomotion-controller.js` — XR-only: thumbstick locomotion, moves spaceship through the stationary universe. No desktop code.
-- `xr-pick-controller.js` — XR-only: laser pointer and trigger-based star picking, visuals parented to xrOrigin. No desktop code.
-- `pick-controller.js` — desktop-only: pointer click star picking with CSS highlight overlay. No XR code.
-- Desktop and XR controllers are fully separate — they share `camera-rig.js` math but never mix input concerns.
-- All orientation is quaternion-based to avoid gimbal lock.
+## Examples
 
-### Rig factories
-
-- Legacy `createDesktopRig(camera)` exposes `contentRoot` and `navigationRoot` as scene siblings. In the alpha architecture, treat `contentRoot` as a compatibility alias for `originContentRoot`, not as the only content root.
-- Legacy `createXrRig(camera, options)` exposes `contentRoot` (universe) and `navigationRoot` (spaceship) as siblings. In the alpha architecture, scene content must be split by anchor policy: origin-pinned content, observer-centric content, and scale-banded content roots are siblings of the spaceship/navigation root. Spaceship moves; origin-pinned content stays at origin; observer-centric content follows observer translation without inheriting ship/head rotation. `deck` → `xrOrigin` → camera hierarchy remains structural and static.
-- `ViewerRuntime` accepts a `rig` option — desktop viewers omit it (default), XR viewers pass the XR rig.
-
-### Documentation
-
-- `docs/alpha-rules.md` — current alpha rewrite rules and package-boundary guidance.
-- `docs/package-learning-architecture.md` — current alpha package-learning direction.
-- `docs/star-octree-provider.md` — current alpha contract for `@found-in-space/star-octree-provider`.
-- `docs/star-map-canvas.md` — current alpha contract for `@found-in-space/star-map-canvas`.
-- `docs/anchored-image.md` — current alpha contract for `@found-in-space/anchored-image`.
-- `docs/skykit-core-composition.md` — current alpha composition architecture for `@found-in-space/skykit`.
-- `docs/xr-architecture.md` — current alpha boundary for `@found-in-space/xr` immersive embodiment, input, ray, and motion infrastructure.
-- `docs/viewer-architecture.md` — legacy proof-of-concept viewer architecture; may be stale.
-
-### WebXR & Camera Constraints (STRICT)
-
-See `docs/xr-architecture.md` for the full spec. Desktop and XR are separate viewer instances with different rig topologies — there is no seamless transition between them. Critical rules:
-
-1. **Never mutate the camera directly for VR orientation.** WebXR overrides `camera.rotation`, `camera.quaternion`, `camera.lookAt()`, and `camera.up`.
-2. **Always use the spaceship rig for XR.** XR viewers must be created with the XR rig topology: scene content roots and spaceship are siblings, with the deck/xrOrigin hierarchy inside the spaceship. Do not reuse the desktop rig, and do not collapse all content into one universe root.
-3. **Parent controllers inside `xrOrigin` / `cameraMount`.** Controller visuals must be children of the XR origin group inside the spaceship. Never add them to the scene root.
-4. **Keep the deck offset static.** The `deck` group position is set once at rig creation, not recalculated per frame from head pose.
-5. **Use an XR scale profile / `starFieldScale` for XR scale, not `SCALE`.** The octree constant `SCALE` (0.001) is for the legacy data pipeline. Alpha XR code should consume a composition-provided scale profile; legacy `src/` XR code reads `state.starFieldScale` (default 1.0 m/pc).
-
-### Examples
-
-- `node --test src/controllers/__tests__/camera-rig.test.js`
-- `npm run dev` then open `http://localhost:5173/`
+- Package examples should teach direct package usage.
+- `packages/skykit/examples/` should teach composition: viewer, provider,
+  renderer, controls, status/debug, and small custom plugins.
+- Root demos are transition sandboxes. Prefer package examples for new learning
+  material unless the user explicitly asks to work on a root demo.

@@ -2,8 +2,8 @@
 
 Status: experimental preservation package.
 
-This package preserves the old SkyKit H-alpha tiled volume and dust/structure
-layer code outside core `@found-in-space/skykit`. It is intentionally not a
+This package preserves experimental H-alpha tiled volume and dust/structure
+layer work outside core `@found-in-space/skykit`. It is intentionally not a
 stable product/provider API yet.
 
 Use it when an existing experiment needs the current H-alpha or dust rendering

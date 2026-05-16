@@ -35,4 +35,4 @@ for await (const delta of provider.streamObjectBatches({
 
 Product coordinates are treated as already being in the requested output
 profile. `renderScale` scales the returned `object3d`; it does not mutate product
-arrays or bake in old SkyKit scene-scale constants.
+arrays or bake in application scene-scale constants.
