@@ -20,6 +20,7 @@ export interface ThreeStarFieldView {
   exposure: number;
   magFadeRange: number;
   baseSize: number;
+  sizeFluxScale: number;
   sizeScale: number;
   sizePower: number;
   sizeMax: number;
@@ -27,6 +28,12 @@ export interface ThreeStarFieldView {
   haloScale: number;
   haloPower: number;
   haloSizeMax: number;
+  extinctionScale: number;
+  nearMagLimitFloor: number;
+  nearMagLimitRadiusPc: number;
+  nearMagLimitFeatherPc: number;
+  nearSizeFloor: number;
+  nearAlphaFloor: number;
 }
 
 export interface ThreeStarFieldOptions extends Partial<ThreeStarFieldView> {
@@ -131,6 +138,20 @@ export declare function createThreeStarFieldGeometryFromProduct(
 
 export declare function createDefaultThreeStarFieldMaterialProfile(
   options?: Partial<ThreeStarFieldView>
+): ThreeStarFieldMaterialProfile;
+
+export declare function createVrThreeStarFieldMaterialProfile(
+  options?: Partial<ThreeStarFieldView> & {
+    sizeMin?: number;
+    magLimitNear?: number;
+    nearDistanceLo?: number;
+    nearDistanceHi?: number;
+    clipMargin?: number;
+    safeMinSize?: number;
+    hyperlocalSizeMax?: number;
+    nearfieldRadiusPc?: number;
+    nearfieldMinIntensity?: number;
+  }
 ): ThreeStarFieldMaterialProfile;
 
 export declare function computeThreeStarFieldVisualRadiusPx(

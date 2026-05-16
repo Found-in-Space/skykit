@@ -46,6 +46,15 @@
         color: var(--text-muted);
       }
 
+      .section-title {
+        margin: 26px 0 8px;
+        color: var(--accent);
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
       nav {
         display: flex;
         flex-direction: column;
@@ -77,31 +86,58 @@
         padding-left: 16px;
         font-size: 0.85em;
       }
+
+      .legacy a {
+        border-color: rgba(159, 179, 200, 0.18);
+        opacity: 0.76;
+      }
     </style>
   </head>
   <body>
     <div class="container">
-      <h1>SkyKit</h1>
-      <p>Development sandboxes for the Found in Space sky runtime.</p>
+      <h1>SkyKit Lessons</h1>
+      <p>Alpha examples that show how to use the package-based Found in Space toolkit.</p>
+
+      <p class="section-title">Start Here</p>
       <nav>
-        <a href="./demos/free-roam.html">Free Roam Console <span>Navigation + picking + constellation + shader tuning</span></a>
-        <a href="./demos/galaxy-map.html">Galaxy Map Desktop <span>XR galaxy-map path in desktop mode with picking + flyTo</span></a>
-        <a href="./demos/fly-orbit.html">Fly &amp; Orbit <span>flyTo, orbit, lookAt</span></a>
-        <a href="./demos/shared-session.html">Shared Session <span>Two viewers, one dataset</span></a>
-        <a href="./demos/xr-free-roam.html">XR Free Roam <span>WebXR headset</span></a>
-        <a href="./demos/parallax-debug.html">Parallax Sensor Debug <span>Device tilt tuning</span></a>
-        <a href="./demos/shader-tuning.html">Shader Tuning <span>Magnitude ladder</span></a>
-        <a href="./demos/hr-diagram.html">HR Diagram <span>Volume-complete loader</span></a>
-        <a href="./demos/hr-diagram-touch.html">HR Diagram Touch Display <span>Live HR panel on in-scene tablet</span></a>
-        <a href="./demos/radio-bubble.html">Radio Bubble <span>Earth's radio wavefront in space</span></a>
-        <a href="./demos/clusters.html">Cluster Explorer <span>Fly-to + orbit presets</span></a>
-        <a href="./demos/data-shape.html">Data Shape <span>Density field · catalog structure</span></a>
-        <a href="./demos/dust-roam.html">Dust Roam <span>Star field + volumetric dust</span></a>
-        <a href="./demos/h-alpha-volume.html">H-alpha Volume <span>McCallum 2025 · fixed-grid tiled volume</span></a>
-        <a href="./packages/star-octree-provider/examples/minimal-stream/index.html">Star Octree Provider Scratchpad <span>Editable browser quickstart</span></a>
-        <a href="./packages/star-octree-provider/examples/nearest-visible/index.html">Star Octree Provider <span>Streaming query + nearest visible table</span></a>
-        <a href="./packages/star-octree-provider/examples/canvas-star-map/index.html">Canvas Star Map <span>Provider session + star-products store + 2D map</span></a>
-        <a href="./packages/star-map-canvas/examples/use-cases/index.html">Star Map Canvas Use Cases <span>Real octree stream + projections + layers</span></a>
+        <a href="./packages/star-octree-provider/examples/minimal-stream/index.html">Provider Scratchpad <span>stream real stars</span></a>
+        <a href="./packages/star-octree-provider/examples/nearest-visible/index.html">Nearest Visible <span>application-side processing</span></a>
+        <a href="./packages/skykit/examples/free-roam-lesson/index.html">SkyKit Free Roam <span>stars + move/look controls</span></a>
+        <a href="./packages/skykit/examples/custom-object-layer/index.html">Custom Object Layer <span>tiny app-owned visual</span></a>
+      </nav>
+
+      <p class="section-title">Provider And Renderers</p>
+      <nav>
+        <a href="./packages/star-octree-provider/examples/strategy-diagnostics/index.html">Strategy Diagnostics <span>what nodes matter</span></a>
+        <a href="./packages/star-octree-provider/examples/shared-session/index.html">Shared Sessions <span>one provider, two consumers</span></a>
+        <a href="./packages/star-octree-provider/examples/canvas-star-map/index.html">Canvas Star Map <span>provider + store + 2D map</span></a>
+        <a href="./packages/star-map-canvas/examples/use-cases/index.html">Star Map Canvas Use Cases <span>direct package usage</span></a>
+        <a href="./packages/three-star-field/examples/shader-tuning/index.html">Three Star Field Shader Tuning <span>renderer settings</span></a>
+      </nav>
+
+      <p class="section-title">Instruments And Navigation</p>
+      <nav>
+        <a href="./packages/hr-diagram/examples/minimal-hr/index.html">HR Diagram Minimal <span>scientific instrument</span></a>
+        <a href="./packages/hr-diagram/examples/volume-hr/index.html">HR Diagram Volume <span>volume strategy</span></a>
+        <a href="./packages/skykit/examples/navigation-automation/index.html">Navigation Automation <span>route + orbit helpers</span></a>
+      </nav>
+
+      <p class="section-title">Legacy / POC Demos</p>
+      <nav class="legacy">
+        <a href="./demos/free-roam.html">Free Roam Console <span>old runtime sandbox</span></a>
+        <a href="./demos/galaxy-map.html">Galaxy Map Desktop <span>old runtime sandbox</span></a>
+        <a href="./demos/fly-orbit.html">Fly &amp; Orbit <span>old runtime sandbox</span></a>
+        <a href="./demos/shared-session.html">Shared Session <span>old runtime sandbox</span></a>
+        <a href="./demos/xr-free-roam.html">XR Free Roam <span>old runtime sandbox</span></a>
+        <a href="./demos/parallax-debug.html">Parallax Sensor Debug <span>old runtime sandbox</span></a>
+        <a href="./demos/shader-tuning.html">Shader Tuning <span>old runtime sandbox</span></a>
+        <a href="./demos/hr-diagram.html">HR Diagram <span>old runtime sandbox</span></a>
+        <a href="./demos/hr-diagram-touch.html">HR Diagram Touch Display <span>old runtime sandbox</span></a>
+        <a href="./demos/radio-bubble.html">Radio Bubble <span>old runtime sandbox</span></a>
+        <a href="./demos/clusters.html">Cluster Explorer <span>old runtime sandbox</span></a>
+        <a href="./demos/data-shape.html">Data Shape <span>old runtime sandbox</span></a>
+        <a href="./demos/dust-roam.html">Dust Roam <span>old runtime sandbox</span></a>
+        <a href="./demos/h-alpha-volume.html">H-alpha Volume <span>old runtime sandbox</span></a>
       </nav>
     </div>
   </body>

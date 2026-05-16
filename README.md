@@ -12,7 +12,7 @@ The live alpha path is package-first: reusable work lands in focused packages
 under `packages/`, with `@found-in-space/skykit` serving as the friendly
 composition layer.
 
-If you are reading this README on GitHub, you can open **[SkyKit experiments](https://foundin.space/skykit/)** on the Found in Space site to try the latest interactive demos in the browser—development sandboxes that exercise new ideas in the runtime before they settle into stable APIs.
+If you are reading this README on GitHub, you can open **[SkyKit lessons](https://foundin.space/skykit/)** on the Found in Space site to try the browser examples.
 
 ## Install
 
@@ -37,8 +37,6 @@ Current package direction:
 - `@found-in-space/anchored-image`: renderer-neutral anchored image manifests, solving, and Canvas2D/Three.js image adapters
 - `@found-in-space/xr`: immersive rig/input/motion/ray/depth helpers
 - `@found-in-space/experimental-structure-layers`: preserved experimental H-alpha/dust helpers, not stable core
-- `@found-in-space/star-kinematics-provider`: proper-motion and velocity sidecars for dynamic-universe lessons
-- `@found-in-space/solar-ephemeris`: time-aware solar-system and trajectory products
 - `@found-in-space/skykit`: friendly composition exports and teaching-oriented examples
 
 This split is not limited to "universe data" packages. Shared interaction or
@@ -56,7 +54,9 @@ node --test          # run all tests
 node --test --watch  # watch mode
 ```
 
-Demo pages live in `demos/` and share `demos/shared.css`. The root `index.html` is a directory page linking to each demo.
+Package lessons live under `packages/*/examples/`. The root `index.html` is a
+lesson directory and keeps old root demos in a legacy section during the alpha
+transition.
 
 Constellation art defaults to Western art from:
 

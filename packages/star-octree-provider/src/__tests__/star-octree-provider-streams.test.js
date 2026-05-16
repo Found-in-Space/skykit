@@ -116,6 +116,40 @@ test('streamPayloads reuses cached decompressed payloads', async () => {
   }
 });
 
+test('inspectDemand returns public strategy diagnostics without fetching payloads', async () => {
+  const fixture = createObjectStreamFixture();
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fixture.fileBytes, requests);
+
+  try {
+    const provider = createStarOctreeProviderService({
+      id: 'provider-a',
+      url: 'memory://stars.octree',
+    });
+
+    const inspection = await provider.inspectDemand({
+      id: 'diagnostic',
+      view: { observerPc: { x: 0, y: 0, z: 0 }, limitingMagnitude: 6.5 },
+    });
+
+    assert.equal(inspection.providerId, 'provider-a');
+    assert.equal(inspection.strategy.kind, 'observer-shell');
+    assert.equal(inspection.counts.nodeCount, 2);
+    assert.equal(inspection.counts.currentNodeCount, 2);
+    assert.equal(inspection.counts.prefetchNodeCount, 0);
+    assert.equal(inspection.counts.payloadNodeCount, 2);
+    assert.equal(typeof inspection.counts.maxLevel, 'number');
+    assert.deepEqual(
+      inspection.nodes.map((node) => node.nodeKey),
+      fixture.payloadNodeKeys,
+    );
+    assert.equal(provider.getSnapshot().stats.payloadNodesFetched, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('decoded cache avoids repeat decode and reports LRU eviction', async () => {
   const fixture = createObjectStreamFixture();
   const originalFetch = globalThis.fetch;

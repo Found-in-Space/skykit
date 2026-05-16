@@ -19,6 +19,7 @@ import { traverseOctree } from './star-octree-traversal.js';
  * @typedef {import('@found-in-space/star-products').StarObjectBatchProduct} StarObjectBatchProduct
  * @typedef {import('./index.js').StarOctreeCoordinateOutput} StarOctreeCoordinateOutput
  * @typedef {import('./index.js').StarOctreeDemandEntry} StarOctreeDemandEntry
+ * @typedef {import('./index.js').StarOctreeDemandInspection} StarOctreeDemandInspection
  * @typedef {import('./index.js').StarOctreeDemandPlan} StarOctreeDemandPlan
  * @typedef {import('./index.js').StarOctreeFetchStrategy} StarOctreeFetchStrategy
  * @typedef {import('./index.js').StarOctreeObjectBatchStreamOptions} StarOctreeObjectBatchStreamOptions
@@ -62,6 +63,7 @@ export function createStarOctreePipeline(options) {
     planDemandForStreamOptions,
     streamPayloads,
     streamObjectBatches,
+    inspectDemand,
     streamProductsForEntries,
     warmEntries,
     fetchObjectBatch,
@@ -95,6 +97,58 @@ export function createStarOctreePipeline(options) {
     const context = createSelectionContext(options.providerId, streamOptions, extras);
     const plan = await planDemandForContext(context);
     return { context, plan };
+  }
+
+  /**
+   * @param {StarOctreeObjectBatchStreamOptions} streamOptions
+   * @returns {Promise<StarOctreeDemandInspection>}
+   */
+  async function inspectDemand(streamOptions = {}) {
+    const streamId = streamOptions.id ?? createStreamId('inspect');
+    const { context, plan } = await planDemandForStreamOptions(streamOptions);
+    const entries = plan.entries;
+    const levels = entries.map((entry) => entry.node.level);
+    const currentEntries = entries.filter((entry) => (entry.role ?? 'current') === 'current');
+    const prefetchEntries = entries.filter((entry) => entry.role === 'prefetch');
+    const payloadEntries = entries.filter((entry) => entry.node.payloadLength > 0);
+
+    return {
+      providerId: options.providerId,
+      streamId,
+      strategy: context.strategy,
+      view: context.view,
+      reasons: plan.reasons ?? [],
+      signature: plan.signature,
+      metadata: plan.metadata,
+      counts: {
+        nodeCount: entries.length,
+        currentNodeCount: currentEntries.length,
+        prefetchNodeCount: prefetchEntries.length,
+        payloadNodeCount: payloadEntries.length,
+        totalPayloadBytes: payloadEntries.reduce(
+          (sum, entry) => sum + entry.node.payloadLength,
+          0,
+        ),
+        minLevel: levels.length ? Math.min(...levels) : null,
+        maxLevel: levels.length ? Math.max(...levels) : null,
+      },
+      nodes: entries.map((entry) => ({
+        nodeKey: entry.node.nodeKey,
+        level: entry.node.level,
+        centerPc: {
+          x: entry.node.centerX,
+          y: entry.node.centerY,
+          z: entry.node.centerZ,
+        },
+        halfSizePc: entry.node.halfSize,
+        payloadBytes: entry.node.payloadLength,
+        role: entry.role ?? 'current',
+        priority: entry.priority,
+        relevance: entry.relevance,
+        reasons: entry.reasons,
+        metadata: entry.metadata,
+      })),
+    };
   }
 
   /**

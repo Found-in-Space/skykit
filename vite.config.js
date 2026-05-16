@@ -24,6 +24,18 @@ export default defineConfig({
         dataShape: path.resolve(__dirname, 'demos/data-shape.html'),
         dustRoam: path.resolve(__dirname, 'demos/dust-roam.html'),
         hAlphaVolume: path.resolve(__dirname, 'demos/h-alpha-volume.html'),
+        skykitFreeRoamLesson: path.resolve(
+          __dirname,
+          'packages/skykit/examples/free-roam-lesson/index.html',
+        ),
+        skykitCustomObjectLayer: path.resolve(
+          __dirname,
+          'packages/skykit/examples/custom-object-layer/index.html',
+        ),
+        skykitNavigationAutomation: path.resolve(
+          __dirname,
+          'packages/skykit/examples/navigation-automation/index.html',
+        ),
         starOctreeProviderMinimalStream: path.resolve(
           __dirname,
           'packages/star-octree-provider/examples/minimal-stream/index.html',
@@ -36,9 +48,29 @@ export default defineConfig({
           __dirname,
           'packages/star-octree-provider/examples/canvas-star-map/index.html',
         ),
+        starOctreeProviderStrategyDiagnostics: path.resolve(
+          __dirname,
+          'packages/star-octree-provider/examples/strategy-diagnostics/index.html',
+        ),
+        starOctreeProviderSharedSession: path.resolve(
+          __dirname,
+          'packages/star-octree-provider/examples/shared-session/index.html',
+        ),
         starMapCanvasUseCases: path.resolve(
           __dirname,
           'packages/star-map-canvas/examples/use-cases/index.html',
+        ),
+        threeStarFieldShaderTuning: path.resolve(
+          __dirname,
+          'packages/three-star-field/examples/shader-tuning/index.html',
+        ),
+        hrDiagramMinimal: path.resolve(
+          __dirname,
+          'packages/hr-diagram/examples/minimal-hr/index.html',
+        ),
+        hrDiagramVolume: path.resolve(
+          __dirname,
+          'packages/hr-diagram/examples/volume-hr/index.html',
         ),
       },
     },

@@ -19,6 +19,7 @@ import {
 export function createDesktopSkykitObserverRig(options = {}) {
   let observerPc = normalizeVector3(options.observerPc, { x: 0, y: 0, z: 0 });
   let orientationIcrs = normalizeQuaternion(options.orientationIcrs, IDENTITY_QUATERNION);
+  const coordinateUnitsPerParsec = Math.max(0, finiteNumber(options.coordinateUnitsPerParsec, 1)) || 1;
   let previousObserverPc = cloneVector3(observerPc);
   let motion = {
     velocityPcPerSec: { x: 0, y: 0, z: 0 },
@@ -33,7 +34,11 @@ export function createDesktopSkykitObserverRig(options = {}) {
     },
     getRenderObserverPosition() {
       assertActive();
-      return cloneVector3(observerPc);
+      return {
+        x: observerPc.x * coordinateUnitsPerParsec,
+        y: observerPc.y * coordinateUnitsPerParsec,
+        z: observerPc.z * coordinateUnitsPerParsec,
+      };
     },
     getOrientationIcrs() {
       assertActive();

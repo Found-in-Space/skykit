@@ -70,10 +70,11 @@ export function createStreamingStarLayer(options) {
       const sessionOptions = /** @type {import('@found-in-space/star-octree-provider').StarOctreeSessionOptions | undefined} */ (
         isProviderSession(options.session) ? undefined : options.session
       );
+      const initialView = context.getViewState();
       session = options.provider.createSession({
         ...(sessionOptions ?? {}),
         ...(options.attributes ? { attributes: Array.from(options.attributes) } : {}),
-        ...(options.coordinates ? { coordinates: options.coordinates } : {}),
+        coordinates: options.coordinates ?? createRenderCoordinateOutput(initialView.coordinateUnitsPerParsec),
       });
     }
   }
@@ -127,4 +128,33 @@ export function createStreamingStarLayer(options) {
       lastError,
     };
   }
+}
+
+/**
+ * @param {number} coordinateUnitsPerParsec
+ * @returns {import('@found-in-space/star-octree-provider').StarOctreeCoordinateOutput}
+ */
+function createRenderCoordinateOutput(coordinateUnitsPerParsec) {
+  const scale = Number.isFinite(coordinateUnitsPerParsec) && coordinateUnitsPerParsec > 0
+    ? coordinateUnitsPerParsec
+    : 1;
+  if (scale === 1) {
+    return {
+      name: 'icrs-parsec-position',
+      frame: 'icrs',
+      units: ['pc', 'pc', 'pc'],
+    };
+  }
+  return {
+    name: 'skykit-render-position',
+    frame: 'icrs',
+    units: ['render-unit', 'render-unit', 'render-unit'],
+    transformPosition({ xPc, yPc, zPc }) {
+      return {
+        x: xPc * scale,
+        y: yPc * scale,
+        z: zPc * scale,
+      };
+    },
+  };
 }

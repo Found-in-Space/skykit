@@ -8,6 +8,7 @@ import {
   createDefaultThreeStarFieldMaterialProfile,
   createThreeStarField,
   createThreeStarFieldGeometryFromProduct,
+  createVrThreeStarFieldMaterialProfile,
   DEFAULT_THREE_STAR_FIELD_VIEW,
   pickThreeStarFieldData,
 } from '../index.js';
@@ -167,8 +168,8 @@ test('setView updates uniforms, render scale, and halo visibility', () => {
   assert.equal(uniforms.uObserverPosition.value.x, 1);
   assert.equal(uniforms.uObserverPosition.value.y, 2);
   assert.equal(uniforms.uObserverPosition.value.z, 3);
-  assert.equal(uniforms.uLimitingMagnitude.value, 8);
-  assert.equal(uniforms.uCoordinateUnitsPerParsec.value, 0.001);
+  assert.equal(uniforms.uMagLimit.value, 8);
+  assert.equal(uniforms.uScale.value, 0.001);
   assert.equal(halo.visible, false);
 
   field.dispose();
@@ -245,7 +246,23 @@ test('visual radius helper and default material profile are DOM-free', () => {
   assert.equal(hidden, 0);
   assert.ok(profile.material instanceof THREE.ShaderMaterial);
   assert.ok(profile.haloMaterial instanceof THREE.ShaderMaterial);
-  assert.equal(profile.material.uniforms.uLimitingMagnitude.value, 7);
+  assert.equal(profile.material.uniforms.uMagLimit.value, 7);
+  assert.ok(profile.material.uniforms.map.value instanceof THREE.Texture);
+  profile.dispose?.();
+});
+
+test('VR material profile preserves the old XR shader path as a separate option', () => {
+  const profile = createVrThreeStarFieldMaterialProfile({
+    limitingMagnitude: 7.5,
+    coordinateUnitsPerParsec: 1.2,
+  });
+
+  assert.ok(profile.material instanceof THREE.ShaderMaterial);
+  assert.equal(profile.haloMaterial, null);
+  assert.equal(profile.material.uniforms.uMagLimit.value, 7.5);
+  assert.equal(profile.material.uniforms.uScale.value, 1.2);
+  assert.equal(profile.material.uniforms.uExposure.value, 100_000);
+  assert.ok(profile.material.uniforms.map.value instanceof THREE.Texture);
   profile.dispose?.();
 });
 

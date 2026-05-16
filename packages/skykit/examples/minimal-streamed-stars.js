@@ -22,9 +22,10 @@ import { createThreeStarField } from '@found-in-space/three-star-field';
  */
 export async function createMinimalStreamedStarViewer(options) {
   const provider = createStarOctreeProviderService({ url: options.octreeUrl });
-  const starField = createThreeStarField({ renderScale: 0.001 });
+  const starField = createThreeStarField();
   const viewer = await createSkykitViewer({
     host: options.host,
+    view: { coordinateUnitsPerParsec: 0.001 },
     plugins: [
       createStreamingStarsPlugin({
         provider,

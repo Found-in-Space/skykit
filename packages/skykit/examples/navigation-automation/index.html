@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit Lesson: Navigation Automation</title>
+    <link rel="stylesheet" href="../../../../demos/shared.css" />
+    <link rel="stylesheet" href="./navigation-automation.css" />
+  </head>
+  <body>
+    <aside>
+      <p class="breadcrumb"><a href="../../../../index.html">SkyKit lessons</a> <span>/ Navigation automation</span></p>
+      <h1>Navigation Automation</h1>
+      <p>Route, orbit, and look-at helpers come from the XR package and can drive a desktop SkyKit viewer.</p>
+      <div class="controls">
+        <button type="button" data-fly>Fly route</button>
+        <button type="button" data-orbit>Orbit</button>
+        <button type="button" data-stop>Stop</button>
+      </div>
+      <pre data-status></pre>
+    </aside>
+    <main>
+      <div class="viewer-shell" data-viewer></div>
+    </main>
+    <script type="module" src="./navigation-automation.js"></script>
+  </body>
+</html>

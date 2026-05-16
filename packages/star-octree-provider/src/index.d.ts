@@ -539,6 +539,37 @@ export interface StarOctreeObjectBatchStreamOptions {
   };
 }
 
+export interface StarOctreeDemandInspection {
+  providerId: string;
+  streamId?: string;
+  strategy: StarOctreeFetchStrategy;
+  view: StarOctreeViewState;
+  reasons: string[];
+  signature?: string;
+  metadata?: Record<string, unknown>;
+  counts: {
+    nodeCount: number;
+    currentNodeCount: number;
+    prefetchNodeCount: number;
+    payloadNodeCount: number;
+    totalPayloadBytes: number;
+    minLevel: number | null;
+    maxLevel: number | null;
+  };
+  nodes: Array<{
+    nodeKey: string;
+    level: number;
+    centerPc: StarOctreePointPc;
+    halfSizePc: number;
+    payloadBytes: number;
+    role: 'current' | 'prefetch';
+    priority?: number;
+    relevance?: number;
+    reasons?: string[];
+    metadata?: Record<string, unknown>;
+  }>;
+}
+
 export interface StarOctreePayloadStreamOptions {
   id?: string;
   strategy?: StarOctreeFetchStrategy;
@@ -574,6 +605,9 @@ export interface StarOctreeProviderService {
   streamObjectBatches(
     options: StarOctreeObjectBatchStreamOptions
   ): AsyncIterable<StarOctreeProductDelta>;
+  inspectDemand(
+    options: StarOctreeObjectBatchStreamOptions
+  ): Promise<StarOctreeDemandInspection>;
   fetchObjectBatch(
     options: StarOctreeObjectBatchStreamOptions
   ): Promise<StarObjectBatchProduct>;

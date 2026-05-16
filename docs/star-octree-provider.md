@@ -130,6 +130,10 @@ interface StarOctreeProviderService {
     options: StarOctreeObjectBatchStreamOptions
   ): AsyncIterable<StarOctreeProductDelta>;
 
+  inspectDemand(
+    options: StarOctreeObjectBatchStreamOptions
+  ): Promise<StarOctreeDemandInspection>;
+
   fetchObjectBatch(
     options: StarOctreeObjectBatchStreamOptions
   ): Promise<StarObjectBatchProduct>;
@@ -162,6 +166,11 @@ Most applications should use object batches instead.
 `streamObjectBatches()` is a bounded object-product stream. It runs a strategy
 for a view, fetches/decompresses/decodes payloads, emits non-cumulative
 `StarObjectBatchProduct` upserts, and ends with `data/representation-current`.
+
+`inspectDemand()` runs strategy planning and returns public diagnostics about
+the selected demand without fetching payloads. It exists for lessons, debugging,
+and strategy tuning so applications do not need root shard or runtime-node
+internals.
 
 `fetchObjectBatch()` consumes the object stream and returns one merged product
 for bounded one-shot callers. Live viewers should prefer sessions or

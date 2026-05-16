@@ -33,6 +33,13 @@ for await (const delta of provider.streamObjectBatches({
 }
 ```
 
+The default material preserves the tuned desktop star shader used by the old
+free-roam demo. `createVrThreeStarFieldMaterialProfile()` preserves the old XR
+star shader as a separate opt-in profile.
+
 Product coordinates are treated as already being in the requested output
 profile. `renderScale` scales the returned `object3d`; it does not mutate product
 arrays or bake in application scene-scale constants.
+
+See `examples/shader-tuning/` for a browser lesson that changes the renderer
+view and material response without changing star product data.

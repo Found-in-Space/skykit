@@ -28,21 +28,27 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-for await (const delta of streamVolumeProducts(provider, {
-  type: 'sphere',
-  centerPc: { x: 0, y: 0, z: 0 },
-  radiusPc,
-}, {
-  attributes: ['position', 'magAbs', 'teffLog8'],
-  streaming: { batchMode: 'payload-range' },
-})) {
-  if (delta.type === 'data/product-upsert' || delta.type === 'data/product-remove') {
-    hr.apply(delta);
-    status.textContent = `${hr.getSnapshot().starCount.toLocaleString()} decoded stars`;
-  }
-  if (delta.type === 'data/representation-current') {
-    status.textContent = `${hr.getSnapshot().starCount.toLocaleString()} stars in ${radiusPc} pc volume`;
-    break;
+main().catch((error) => {
+  status.textContent = error.stack ?? String(error);
+});
+
+async function main() {
+  for await (const delta of streamVolumeProducts(provider, {
+    type: 'sphere',
+    centerPc: { x: 0, y: 0, z: 0 },
+    radiusPc,
+  }, {
+    attributes: ['position', 'magAbs', 'teffLog8'],
+    streaming: { batchMode: 'payload-range' },
+  })) {
+    if (delta.type === 'data/product-upsert' || delta.type === 'data/product-remove') {
+      hr.apply(delta);
+      status.textContent = `${hr.getSnapshot().starCount.toLocaleString()} decoded stars`;
+    }
+    if (delta.type === 'data/representation-current') {
+      status.textContent = `${hr.getSnapshot().starCount.toLocaleString()} stars in ${radiusPc} pc volume`;
+      break;
+    }
   }
 }
 

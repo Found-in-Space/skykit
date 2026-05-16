@@ -9,6 +9,7 @@ export const DEFAULT_THREE_STAR_FIELD_VIEW = Object.freeze({
   exposure: 2500,
   magFadeRange: 3,
   baseSize: 0.9,
+  sizeFluxScale: 2500,
   sizeScale: 3,
   sizePower: 0.32,
   sizeMax: 384,
@@ -16,12 +17,28 @@ export const DEFAULT_THREE_STAR_FIELD_VIEW = Object.freeze({
   haloScale: 1.5,
   haloPower: 0.22,
   haloSizeMax: 1024,
+  extinctionScale: 1,
+  nearMagLimitFloor: 25,
+  nearMagLimitRadiusPc: 0,
+  nearMagLimitFeatherPc: 0.25,
+  nearSizeFloor: 0,
+  nearAlphaFloor: 0,
 });
 
 const SOLAR_TEFF_LOG8 = 255;
 const HIDDEN_MAG_ABS = 99;
 const DEFAULT_PICK_TOLERANCE_DEG = 3;
 const DEFAULT_MIN_CLICK_RADIUS_DEG = 0.15;
+const DEFAULT_VR_EXPOSURE = 100_000;
+const DEFAULT_VR_SIZE_MIN = 1;
+const DEFAULT_VR_SIZE_MAX = 8;
+const DEFAULT_VR_HYPERLOCAL_SIZE_MAX = 64;
+const DEFAULT_VR_MAG_LIMIT_NEAR = 25;
+const DEFAULT_VR_NEAR_DISTANCE_LO = 4;
+const DEFAULT_VR_NEAR_DISTANCE_HI = 15;
+const DEFAULT_VR_SAFE_MIN_SIZE = 4;
+const DEFAULT_VR_NEARFIELD_RADIUS_PC = 5;
+const DEFAULT_VR_NEARFIELD_MIN_INTENSITY = 0.15;
 const DEG_TO_RAD = Math.PI / 180;
 const RAD_TO_DEG = 180 / Math.PI;
 
@@ -295,19 +312,21 @@ export function createThreeStarFieldGeometryFromProduct(product) {
  */
 export function createDefaultThreeStarFieldMaterialProfile(options = {}) {
   const view = normalizeView(options);
+  const pointTexture = createCircleTexture();
+  const haloTexture = createBigHaloTexture();
   const material = new THREE.ShaderMaterial({
-    uniforms: createBaseUniforms(view),
-    vertexShader: STAR_FIELD_VERTEX_SHADER,
-    fragmentShader: STAR_FIELD_FRAGMENT_SHADER,
+    uniforms: createTunedPointUniforms(view, pointTexture),
+    vertexShader: TUNED_STAR_FIELD_VERTEX_SHADER,
+    fragmentShader: TUNED_STAR_FIELD_FRAGMENT_SHADER,
     transparent: true,
     alphaTest: 0.003,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   });
   const haloMaterial = new THREE.ShaderMaterial({
-    uniforms: createHaloUniforms(view),
-    vertexShader: STAR_FIELD_HALO_VERTEX_SHADER,
-    fragmentShader: STAR_FIELD_HALO_FRAGMENT_SHADER,
+    uniforms: createTunedHaloUniforms(view, haloTexture),
+    vertexShader: TUNED_STAR_FIELD_HALO_VERTEX_SHADER,
+    fragmentShader: TUNED_STAR_FIELD_HALO_FRAGMENT_SHADER,
     transparent: true,
     alphaTest: 0.003,
     depthWrite: false,
@@ -319,12 +338,48 @@ export function createDefaultThreeStarFieldMaterialProfile(options = {}) {
     haloMaterial,
     updateUniforms(context = { view }) {
       const nextView = normalizeView(context.view);
-      syncBaseUniforms(material.uniforms, nextView);
-      syncHaloUniforms(haloMaterial.uniforms, nextView);
+      syncTunedUniforms(material.uniforms, nextView);
+      syncTunedUniforms(haloMaterial.uniforms, nextView);
     },
     dispose() {
       material.dispose();
       haloMaterial.dispose();
+      pointTexture.dispose();
+      haloTexture.dispose();
+    },
+  };
+}
+
+/**
+ * @param {Partial<ThreeStarFieldView>} [options]
+ * @returns {ThreeStarFieldMaterialProfile}
+ */
+export function createVrThreeStarFieldMaterialProfile(options = {}) {
+  const view = normalizeView({
+    exposure: DEFAULT_VR_EXPOSURE,
+    sizeMax: DEFAULT_VR_SIZE_MAX,
+    ...options,
+  });
+  const texture = createCircleTexture();
+  const material = new THREE.ShaderMaterial({
+    uniforms: createVrUniforms(view, texture, options),
+    vertexShader: VR_STAR_FIELD_VERTEX_SHADER,
+    fragmentShader: VR_STAR_FIELD_FRAGMENT_SHADER,
+    transparent: true,
+    alphaTest: 0.01,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+
+  return {
+    material,
+    haloMaterial: null,
+    updateUniforms(context = { view }) {
+      syncVrUniforms(material.uniforms, normalizeView(context.view));
+    },
+    dispose() {
+      material.dispose();
+      texture.dispose();
     },
   };
 }
@@ -345,12 +400,13 @@ export function computeThreeStarFieldVisualRadiusPx(input) {
 
   if (!Number.isFinite(mApp)) return 0;
 
-  const fade = computeMagnitudeFade(mApp, view.limitingMagnitude, view.magFadeRange);
+  const effectiveLimit = computeEffectiveMagnitudeLimit(view.limitingMagnitude, input.distancePc, view);
+  const fade = computeMagnitudeFade(mApp, effectiveLimit, view.magFadeRange);
   if (fade <= 0) return 0;
 
   const flux = Math.pow(10, -0.4 * mApp);
   const sizeSignal = Math.max(
-    Math.pow(1 + Math.max(flux * view.exposure, 0), view.sizePower) - 1,
+    Math.pow(1 + Math.max(flux * view.sizeFluxScale, 0), view.sizePower) - 1,
     0,
   );
   return Math.min(
@@ -523,6 +579,7 @@ function normalizeView(input = {}) {
     exposure: normalizePositiveNumber(input.exposure, defaults.exposure),
     magFadeRange: Math.max(0, normalizeFiniteNumber(input.magFadeRange, defaults.magFadeRange)),
     baseSize: Math.max(0, normalizeFiniteNumber(input.baseSize, defaults.baseSize)),
+    sizeFluxScale: Math.max(0, normalizeFiniteNumber(input.sizeFluxScale, defaults.sizeFluxScale)),
     sizeScale: Math.max(0, normalizeFiniteNumber(input.sizeScale, defaults.sizeScale)),
     sizePower: Math.max(0, normalizeFiniteNumber(input.sizePower, defaults.sizePower)),
     sizeMax: normalizePositiveNumber(input.sizeMax, defaults.sizeMax),
@@ -530,6 +587,12 @@ function normalizeView(input = {}) {
     haloScale: Math.max(0, normalizeFiniteNumber(input.haloScale, defaults.haloScale)),
     haloPower: Math.max(0, normalizeFiniteNumber(input.haloPower, defaults.haloPower)),
     haloSizeMax: normalizePositiveNumber(input.haloSizeMax, defaults.haloSizeMax),
+    extinctionScale: normalizeFiniteNumber(input.extinctionScale, defaults.extinctionScale),
+    nearMagLimitFloor: normalizeFiniteNumber(input.nearMagLimitFloor, defaults.nearMagLimitFloor),
+    nearMagLimitRadiusPc: Math.max(0, normalizeFiniteNumber(input.nearMagLimitRadiusPc, defaults.nearMagLimitRadiusPc)),
+    nearMagLimitFeatherPc: Math.max(0, normalizeFiniteNumber(input.nearMagLimitFeatherPc, defaults.nearMagLimitFeatherPc)),
+    nearSizeFloor: Math.max(0, normalizeFiniteNumber(input.nearSizeFloor, defaults.nearSizeFloor)),
+    nearAlphaFloor: Math.max(0, normalizeFiniteNumber(input.nearAlphaFloor, defaults.nearAlphaFloor)),
   };
 }
 
@@ -586,6 +649,25 @@ function computeMagnitudeFade(mag, limit, range) {
 }
 
 /**
+ * @param {number} magLimit
+ * @param {unknown} distancePc
+ * @param {ThreeStarFieldView} view
+ */
+function computeEffectiveMagnitudeLimit(magLimit, distancePc, view) {
+  const distance = Number(distancePc);
+  if (!(Number.isFinite(distance) && view.nearMagLimitRadiusPc > 0)) return magLimit;
+  const floorLimit = Math.max(view.nearMagLimitFloor, magLimit);
+  if (!(floorLimit > magLimit)) return magLimit;
+  const feather = Math.max(view.nearMagLimitFeatherPc, 0.0001);
+  const blend = 1 - smoothstep(
+    view.nearMagLimitRadiusPc,
+    view.nearMagLimitRadiusPc + feather,
+    distance,
+  );
+  return magLimit + (floorLimit - magLimit) * blend;
+}
+
+/**
  * @param {number} edge0
  * @param {number} edge1
  * @param {number} value
@@ -612,34 +694,58 @@ function createFallbackMagAbs(count) {
 
 /**
  * @param {ThreeStarFieldView} view
+ * @param {THREE.Texture} texture
  */
-function createBaseUniforms(view) {
+function createTunedPointUniforms(view, texture) {
   const uniforms = {
     uObserverPosition: { value: new THREE.Vector3() },
-    uCoordinateUnitsPerParsec: { value: 1 },
-    uLimitingMagnitude: { value: 6.5 },
+    uScale: { value: 1 },
+    uMagLimit: { value: 6.5 },
     uMagFadeRange: { value: 3 },
+    uExtinctionScale: { value: 1 },
     uExposure: { value: 2500 },
+    uSizeFluxScale: { value: 2500 },
     uBaseSize: { value: 0.9 },
     uSizeScale: { value: 3 },
     uSizePower: { value: 0.32 },
     uSizeMax: { value: 384 },
+    uNearMagLimitFloor: { value: 25 },
+    uNearMagLimitRadiusPc: { value: 0 },
+    uNearMagLimitFeatherPc: { value: 0.25 },
+    uNearSizeFloor: { value: 0 },
+    uNearAlphaFloor: { value: 0 },
+    map: { value: texture },
   };
-  syncBaseUniforms(uniforms, view);
+  syncTunedUniforms(uniforms, view);
   return uniforms;
 }
 
 /**
  * @param {ThreeStarFieldView} view
+ * @param {THREE.Texture} texture
  */
-function createHaloUniforms(view) {
+function createTunedHaloUniforms(view, texture) {
   const uniforms = {
-    ...createBaseUniforms(view),
-    uHaloScale: { value: 1.5 },
-    uHaloPower: { value: 0.22 },
+    uObserverPosition: { value: new THREE.Vector3() },
+    uScale: { value: 1 },
+    uMagLimit: { value: 6.5 },
+    uMagFadeRange: { value: 3 },
+    uExtinctionScale: { value: 1 },
+    uExposure: { value: 2500 },
+    uSizeFluxScale: { value: 2500 },
+    uBaseSize: { value: 0.9 },
+    uSizeScale: { value: 3 },
+    uSizePower: { value: 0.32 },
+    uSizeMax: { value: 384 },
+    uGlowScale: { value: 1.5 },
+    uGlowPower: { value: 0.22 },
     uHaloSizeMax: { value: 1024 },
+    uNearMagLimitFloor: { value: 25 },
+    uNearMagLimitRadiusPc: { value: 0 },
+    uNearMagLimitFeatherPc: { value: 0.25 },
+    map: { value: texture },
   };
-  syncHaloUniforms(uniforms, view);
+  syncTunedUniforms(uniforms, view);
   return uniforms;
 }
 
@@ -647,28 +753,151 @@ function createHaloUniforms(view) {
  * @param {Record<string, { value: unknown }>} uniforms
  * @param {ThreeStarFieldView} view
  */
-function syncBaseUniforms(uniforms, view) {
+function syncTunedUniforms(uniforms, view) {
   /** @type {THREE.Vector3} */ (uniforms.uObserverPosition.value)
     .set(view.observerPosition.x, view.observerPosition.y, view.observerPosition.z);
-  uniforms.uCoordinateUnitsPerParsec.value = view.coordinateUnitsPerParsec;
-  uniforms.uLimitingMagnitude.value = view.limitingMagnitude;
+  uniforms.uScale.value = view.coordinateUnitsPerParsec;
+  uniforms.uMagLimit.value = view.limitingMagnitude;
   uniforms.uMagFadeRange.value = view.magFadeRange;
+  uniforms.uExtinctionScale.value = view.extinctionScale;
   uniforms.uExposure.value = view.exposure;
+  uniforms.uSizeFluxScale.value = view.sizeFluxScale;
   uniforms.uBaseSize.value = view.baseSize;
   uniforms.uSizeScale.value = view.sizeScale;
   uniforms.uSizePower.value = view.sizePower;
   uniforms.uSizeMax.value = view.sizeMax;
+  if (uniforms.uGlowScale) uniforms.uGlowScale.value = view.haloScale;
+  if (uniforms.uGlowPower) uniforms.uGlowPower.value = view.haloPower;
+  if (uniforms.uHaloSizeMax) uniforms.uHaloSizeMax.value = view.haloSizeMax;
+  if (uniforms.uNearMagLimitFloor) uniforms.uNearMagLimitFloor.value = view.nearMagLimitFloor;
+  if (uniforms.uNearMagLimitRadiusPc) uniforms.uNearMagLimitRadiusPc.value = view.nearMagLimitRadiusPc;
+  if (uniforms.uNearMagLimitFeatherPc) uniforms.uNearMagLimitFeatherPc.value = view.nearMagLimitFeatherPc;
+  if (uniforms.uNearSizeFloor) uniforms.uNearSizeFloor.value = view.nearSizeFloor;
+  if (uniforms.uNearAlphaFloor) uniforms.uNearAlphaFloor.value = view.nearAlphaFloor;
+}
+
+/**
+ * @param {ThreeStarFieldView} view
+ * @param {THREE.Texture} texture
+ * @param {Partial<ThreeStarFieldView> & Record<string, unknown>} options
+ */
+function createVrUniforms(view, texture, options) {
+  const uniforms = {
+    uSizeMin: { value: Number(options.sizeMin) || DEFAULT_VR_SIZE_MIN },
+    uSizeMax: { value: view.sizeMax || DEFAULT_VR_SIZE_MAX },
+    uScale: { value: view.coordinateUnitsPerParsec },
+    uMagLimit: { value: view.limitingMagnitude },
+    uMagLimitNear: { value: Number(options.magLimitNear) || DEFAULT_VR_MAG_LIMIT_NEAR },
+    uNearDistanceLo: { value: Number(options.nearDistanceLo) || DEFAULT_VR_NEAR_DISTANCE_LO },
+    uNearDistanceHi: { value: Number(options.nearDistanceHi) || DEFAULT_VR_NEAR_DISTANCE_HI },
+    uObserverPosition: { value: new THREE.Vector3() },
+    uClipMargin: { value: Number(options.clipMargin) || 1 },
+    uExposure: { value: view.exposure },
+    uSafeMinSize: { value: Number(options.safeMinSize) || DEFAULT_VR_SAFE_MIN_SIZE },
+    uMagFadeRange: { value: view.magFadeRange },
+    uExtinctionScale: { value: view.extinctionScale },
+    uTime: { value: 0 },
+    uHyperlocalSizeMax: { value: Number(options.hyperlocalSizeMax) || DEFAULT_VR_HYPERLOCAL_SIZE_MAX },
+    uNearfieldRadiusPc: { value: Number(options.nearfieldRadiusPc) || DEFAULT_VR_NEARFIELD_RADIUS_PC },
+    uNearfieldMinIntensity: { value: Number(options.nearfieldMinIntensity) || DEFAULT_VR_NEARFIELD_MIN_INTENSITY },
+    map: { value: texture },
+  };
+  syncVrUniforms(uniforms, view);
+  return uniforms;
 }
 
 /**
  * @param {Record<string, { value: unknown }>} uniforms
  * @param {ThreeStarFieldView} view
  */
-function syncHaloUniforms(uniforms, view) {
-  syncBaseUniforms(uniforms, view);
-  uniforms.uHaloScale.value = view.haloScale;
-  uniforms.uHaloPower.value = view.haloPower;
-  uniforms.uHaloSizeMax.value = view.haloSizeMax;
+function syncVrUniforms(uniforms, view) {
+  /** @type {THREE.Vector3} */ (uniforms.uObserverPosition.value)
+    .set(view.observerPosition.x, view.observerPosition.y, view.observerPosition.z);
+  uniforms.uScale.value = view.coordinateUnitsPerParsec;
+  uniforms.uMagLimit.value = view.limitingMagnitude;
+  uniforms.uMagFadeRange.value = view.magFadeRange;
+  uniforms.uExtinctionScale.value = view.extinctionScale;
+  uniforms.uExposure.value = view.exposure;
+}
+
+function createCircleTexture() {
+  return createRadialTexture(64, [
+    [0, [255, 255, 255, 255]],
+    [0.12, [255, 255, 255, 230]],
+    [0.28, [255, 255, 255, 64]],
+    [0.45, [255, 255, 255, 0]],
+    [1, [255, 255, 255, 0]],
+  ]);
+}
+
+function createBigHaloTexture() {
+  return createRadialTexture(128, [
+    [0, [255, 255, 255, 115]],
+    [0.08, [255, 255, 255, 64]],
+    [0.25, [255, 255, 255, 15]],
+    [0.5, [255, 255, 255, 4]],
+    [1, [255, 255, 255, 0]],
+  ]);
+}
+
+/**
+ * @param {number} size
+ * @param {Array<[number, [number, number, number, number]]>} stops
+ */
+function createRadialTexture(size, stops) {
+  const documentRef = globalThis.document;
+  if (documentRef?.createElement) {
+    const canvas = documentRef.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext('2d');
+    const gradient = context.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    for (const [offset, rgba] of stops) {
+      gradient.addColorStop(offset, `rgba(${rgba[0]},${rgba[1]},${rgba[2]},${rgba[3] / 255})`);
+    }
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, size, size);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  const data = new Uint8Array(size * size * 4);
+  const half = (size - 1) / 2;
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const dx = x - half;
+      const dy = y - half;
+      const r = Math.min(Math.hypot(dx, dy) / half, 1);
+      const color = sampleRadialStops(stops, r);
+      const offset = (y * size + x) * 4;
+      data[offset] = color[0];
+      data[offset + 1] = color[1];
+      data[offset + 2] = color[2];
+      data[offset + 3] = color[3];
+    }
+  }
+  const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/**
+ * @param {Array<[number, [number, number, number, number]]>} stops
+ * @param {number} r
+ */
+function sampleRadialStops(stops, r) {
+  let previous = stops[0];
+  for (let index = 1; index < stops.length; index += 1) {
+    const next = stops[index];
+    if (r <= next[0]) {
+      const span = Math.max(next[0] - previous[0], 1e-6);
+      const t = Math.min(Math.max((r - previous[0]) / span, 0), 1);
+      return previous[1].map((value, component) => Math.round(value + (next[1][component] - value) * t));
+    }
+    previous = next;
+  }
+  return previous[1];
 }
 
 /**
@@ -689,15 +918,20 @@ function createLocalRay(ray, object3d) {
   return { origin, direction };
 }
 
-const STAR_FIELD_SHARED_VERTEX = /* glsl */ `
+const TUNED_STAR_FIELD_SHARED_VERTEX = /* glsl */ `
   attribute float teff_log8;
   attribute float magAbs;
 
   uniform vec3 uObserverPosition;
-  uniform float uCoordinateUnitsPerParsec;
-  uniform float uLimitingMagnitude;
+  uniform float uScale;
+  uniform float uMagLimit;
   uniform float uMagFadeRange;
+  uniform float uExtinctionScale;
   uniform float uExposure;
+  uniform float uSizeFluxScale;
+  uniform float uNearMagLimitFloor;
+  uniform float uNearMagLimitRadiusPc;
+  uniform float uNearMagLimitFeatherPc;
 
   float decodeTemperature(float log8) {
     if (log8 >= 0.996) return 5800.0;
@@ -717,59 +951,91 @@ const STAR_FIELD_SHARED_VERTEX = /* glsl */ `
     return clamp(c / 255.0, 0.0, 1.0);
   }
 
-  float smoothMagnitudeFade(float mApp) {
-    if (uMagFadeRange <= 0.0) {
-      return mApp <= uLimitingMagnitude ? 1.0 : 0.0;
-    }
-    return 1.0 - smoothstep(uLimitingMagnitude - uMagFadeRange, uLimitingMagnitude, mApp);
-  }
-
-  float apparentFlux(float mApp) {
+  float apparentFluxFromMagnitude(float mApp) {
     return pow(10.0, -0.4 * mApp);
   }
 
+  float fluxSignal(float flux, float power) {
+    return max(pow(1.0 + max(flux, 0.0), power) - 1.0, 0.0);
+  }
+
+  float brightnessSignal(float displayFlux) {
+    return max(log(1.0 + max(displayFlux, 0.0)) / log(2.0), 0.0);
+  }
+
+  float nearDistanceBlend(float dPc) {
+    if (!(uNearMagLimitRadiusPc > 0.0)) {
+      return 0.0;
+    }
+    float feather = max(uNearMagLimitFeatherPc, 0.0001);
+    return 1.0 - smoothstep(uNearMagLimitRadiusPc, uNearMagLimitRadiusPc + feather, dPc);
+  }
+
+  float effectiveMagnitudeLimit(float nearBlend) {
+    float floorLimit = max(uNearMagLimitFloor, uMagLimit);
+    if (!(floorLimit > uMagLimit)) {
+      return uMagLimit;
+    }
+    return mix(uMagLimit, floorLimit, nearBlend);
+  }
+
+  float magnitudeFade(float mApp, float effectiveMagLimit) {
+    return 1.0 - smoothstep(effectiveMagLimit - uMagFadeRange, effectiveMagLimit, mApp);
+  }
+
   void computeStarBase(
-    out float apparentMag,
-    out float flux,
+    out float mApp,
+    out float apparentFlux,
+    out float displayFlux,
     out float fade,
+    out float nearBlend,
     out vec3 color
   ) {
     float distanceUnits = max(length(position - uObserverPosition), 0.000001);
-    float distancePc = max(distanceUnits / max(uCoordinateUnitsPerParsec, 0.000001), 0.000001);
-    apparentMag = magAbs + 5.0 * (log(distancePc) / log(10.0) - 1.0);
-    flux = apparentFlux(apparentMag);
-    fade = smoothMagnitudeFade(apparentMag);
+    float dPc = max(distanceUnits / max(uScale, 0.000001), 0.001);
+    nearBlend = nearDistanceBlend(dPc);
+    float effectiveMagLimit = effectiveMagnitudeLimit(nearBlend);
+    mApp = magAbs + uExtinctionScale * (5.0 * log(dPc) / log(10.0) - 5.0);
+    apparentFlux = apparentFluxFromMagnitude(mApp);
+    displayFlux = apparentFlux * uExposure;
+    fade = magnitudeFade(mApp, effectiveMagLimit);
     color = blackbodyToRGB(decodeTemperature(teff_log8));
   }
 `;
 
-const STAR_FIELD_VERTEX_SHADER = STAR_FIELD_SHARED_VERTEX + /* glsl */ `
+const TUNED_STAR_FIELD_VERTEX_SHADER = TUNED_STAR_FIELD_SHARED_VERTEX + /* glsl */ `
   uniform float uBaseSize;
   uniform float uSizeScale;
   uniform float uSizePower;
   uniform float uSizeMax;
+  uniform float uNearSizeFloor;
+  uniform float uNearAlphaFloor;
 
   varying vec3 vColor;
   varying float vAlpha;
   varying float vWhiteMix;
 
   void main() {
-    float apparentMag;
-    float flux;
-    float fade;
-    vec3 color;
-    computeStarBase(apparentMag, flux, fade, color);
+    float mApp, apparentFlux, displayFlux, fade, nearBlend;
+    vec3 starColor;
+    computeStarBase(mApp, apparentFlux, displayFlux, fade, nearBlend, starColor);
+    vColor = starColor;
 
-    float sizeSignal = max(pow(1.0 + max(flux * uExposure, 0.0), uSizePower) - 1.0, 0.0);
-    gl_PointSize = fade > 0.0 ? clamp(uBaseSize + uSizeScale * sizeSignal, 0.0, uSizeMax) : 0.0;
-    vColor = color;
-    vAlpha = fade * clamp(1.0 - exp(-flux * uExposure), 0.05, 1.0);
-    vWhiteMix = clamp(0.15 + 0.1 * sizeSignal, 0.0, 0.85);
+    float sizeSignal = fluxSignal(apparentFlux * max(uSizeFluxScale, 0.0), uSizePower);
+    float radius = uBaseSize + uSizeScale * sizeSignal;
+    radius = max(radius, max(uNearSizeFloor, 0.0) * nearBlend);
+    gl_PointSize = clamp(radius, 0.0, uSizeMax);
+
+    float alphaSignal = 1.0 - exp(-0.25 * brightnessSignal(displayFlux));
+    vAlpha = fade * mix(0.18, 1.0, alphaSignal);
+    vAlpha = max(vAlpha, fade * clamp(uNearAlphaFloor * nearBlend, 0.0, 1.0));
+    vWhiteMix = clamp(0.2 + 0.12 * brightnessSignal(displayFlux), 0.0, 0.95);
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
 
-const STAR_FIELD_FRAGMENT_SHADER = /* glsl */ `
+const TUNED_STAR_FIELD_FRAGMENT_SHADER = /* glsl */ `
+  uniform sampler2D map;
   varying vec3 vColor;
   varying float vAlpha;
   varying float vWhiteMix;
@@ -778,54 +1044,173 @@ const STAR_FIELD_FRAGMENT_SHADER = /* glsl */ `
     if (vAlpha <= 0.0) discard;
     float dist = distance(gl_PointCoord, vec2(0.5));
     if (dist > 0.5) discard;
+    vec4 texColor = texture2D(map, gl_PointCoord);
     float core = exp(-dist * 18.0);
-    float soft = 1.0 - smoothstep(0.1, 0.5, dist);
-    float alpha = max(core, soft * 0.35) * vAlpha;
-    if (alpha < 0.003) discard;
-    vec3 color = mix(vColor, vec3(1.0), core * vWhiteMix);
-    gl_FragColor = vec4(color, alpha);
+    float halo = texColor.a;
+    vec3 finalColor = mix(vColor, vec3(1.0), core * vWhiteMix);
+    float starAlpha = min(halo + core, 1.0) * vAlpha;
+    if (starAlpha < 0.003) discard;
+    gl_FragColor = vec4(finalColor, starAlpha);
   }
 `;
 
-const STAR_FIELD_HALO_VERTEX_SHADER = STAR_FIELD_SHARED_VERTEX + /* glsl */ `
+const TUNED_STAR_FIELD_HALO_VERTEX_SHADER = TUNED_STAR_FIELD_SHARED_VERTEX + /* glsl */ `
   uniform float uBaseSize;
   uniform float uSizeScale;
   uniform float uSizePower;
   uniform float uSizeMax;
-  uniform float uHaloScale;
-  uniform float uHaloPower;
+  uniform float uGlowScale;
+  uniform float uGlowPower;
   uniform float uHaloSizeMax;
 
   varying vec3 vColor;
-  varying float vAlpha;
+  varying float vHaloAlpha;
 
   void main() {
-    float apparentMag;
-    float flux;
-    float fade;
-    vec3 color;
-    computeStarBase(apparentMag, flux, fade, color);
+    float mApp, apparentFlux, displayFlux, fade, nearBlend;
+    vec3 starColor;
+    computeStarBase(mApp, apparentFlux, displayFlux, fade, nearBlend, starColor);
+    vColor = starColor;
 
-    float sizeSignal = max(pow(1.0 + max(flux * uExposure, 0.0), uSizePower) - 1.0, 0.0);
-    float haloSignal = max(pow(1.0 + max(flux * uExposure, 0.0), uHaloPower) - 1.0, 0.0);
-    float coreSize = clamp(uBaseSize + uSizeScale * sizeSignal, 0.0, uSizeMax);
-    gl_PointSize = fade > 0.0 ? clamp(coreSize * (1.0 + uHaloScale * haloSignal), 0.0, uHaloSizeMax) : 0.0;
-    vColor = color;
-    vAlpha = fade * clamp(1.0 - exp(-flux * uExposure * 0.18), 0.0, 0.55);
+    float sizeSignal = fluxSignal(apparentFlux * max(uSizeFluxScale, 0.0), uSizePower);
+    float coreSize = uBaseSize + uSizeScale * sizeSignal;
+    float glowSignal = fluxSignal(apparentFlux * max(uSizeFluxScale, 0.0), uGlowPower);
+    float haloSize = coreSize * (1.0 + uGlowScale * glowSignal);
+
+    vHaloAlpha = fade * (1.0 - exp(-0.12 * brightnessSignal(displayFlux)));
+    gl_PointSize = vHaloAlpha > 0.001 ? clamp(haloSize, 0.0, max(uHaloSizeMax, uSizeMax)) : 0.0;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
 
-const STAR_FIELD_HALO_FRAGMENT_SHADER = /* glsl */ `
+const TUNED_STAR_FIELD_HALO_FRAGMENT_SHADER = /* glsl */ `
+  uniform sampler2D map;
   varying vec3 vColor;
-  varying float vAlpha;
+  varying float vHaloAlpha;
 
   void main() {
-    if (vAlpha <= 0.0) discard;
+    if (vHaloAlpha <= 0.0) discard;
     float dist = distance(gl_PointCoord, vec2(0.5));
     if (dist > 0.5) discard;
-    float alpha = (1.0 - smoothstep(0.0, 0.5, dist)) * vAlpha;
+    vec4 texColor = texture2D(map, gl_PointCoord);
+    float alpha = texColor.a * vHaloAlpha;
     if (alpha < 0.003) discard;
     gl_FragColor = vec4(vColor * alpha, alpha);
+  }
+`;
+
+const VR_STAR_FIELD_VERTEX_SHADER = /* glsl */ `
+  attribute float teff_log8;
+  attribute float magAbs;
+
+  varying vec3 vColor;
+  varying float vIntensity;
+  varying float vCoronaStrength;
+
+  uniform float uSizeMin;
+  uniform float uSizeMax;
+  uniform float uScale;
+  uniform float uMagLimit;
+  uniform float uMagLimitNear;
+  uniform float uNearDistanceLo;
+  uniform float uNearDistanceHi;
+  uniform vec3 uObserverPosition;
+  uniform float uClipMargin;
+  uniform float uExposure;
+  uniform float uSafeMinSize;
+  uniform float uMagFadeRange;
+  uniform float uExtinctionScale;
+  uniform float uNearfieldRadiusPc;
+  uniform float uNearfieldMinIntensity;
+  uniform float uHyperlocalSizeMax;
+
+  float decodeTemperature(float log8) {
+    if (log8 >= 0.996) return 5800.0;
+    return 2000.0 * pow(25.0, log8);
+  }
+
+  vec3 blackbodyToRGB(float temp) {
+    float t = clamp(temp, 1000.0, 40000.0) / 100.0;
+    vec3 c;
+    if (t <= 66.0) c.r = 255.0;
+    else c.r = 329.698727446 * pow(t - 60.0, -0.1332047592);
+    if (t <= 66.0) c.g = 99.4708025861 * log(t) - 161.119568166;
+    else c.g = 288.1221695283 * pow(t - 60.0, -0.0755148492);
+    if (t >= 66.0) c.b = 255.0;
+    else if (t <= 19.0) c.b = 0.0;
+    else c.b = 138.5177312231 * log(t - 10.0) - 305.0447927307;
+    return clamp(c / 255.0, 0.0, 1.0);
+  }
+
+  void main() {
+    float d = max(length(position - uObserverPosition), 0.000001);
+    float dPc = max(d / max(uScale, 0.000001), 0.001);
+    float mApp = magAbs + uExtinctionScale * (5.0 * log(dPc) / log(10.0) - 5.0);
+
+    float tempK = decodeTemperature(teff_log8);
+    vColor = blackbodyToRGB(tempK);
+
+    float t = smoothstep(uNearDistanceLo, uNearDistanceHi, dPc);
+    float effectiveMagLimit = mix(uMagLimitNear, uMagLimit, t);
+    float magDiff = effectiveMagLimit - mApp;
+    float baseSize = pow(max(magDiff, 0.0), 1.2);
+
+    float flux = pow(10.0, -0.4 * mApp);
+    float rawEnergy = flux * uExposure;
+    vIntensity = clamp(rawEnergy, 0.05, 1.0);
+
+    float targetSize = baseSize + (flux * 0.5);
+    float renderedSize = max(max(targetSize, uSizeMin), uSafeMinSize);
+    if (targetSize < uSafeMinSize) {
+      float areaRatio = (targetSize * targetSize) / (uSafeMinSize * uSafeMinSize);
+      vIntensity *= areaRatio;
+    }
+
+    float hyperlocalFade = 1.0 - smoothstep(0.5, 2.0, dPc);
+    float inverseDistBoost = min(1.0 / max(dPc, 0.01), 8.0);
+    renderedSize *= mix(1.0, inverseDistBoost, hyperlocalFade);
+    float effectiveSizeMax = mix(uSizeMax, uHyperlocalSizeMax, hyperlocalFade);
+
+    float closeFade = 1.0 - smoothstep(1.0, 3.0, dPc);
+    renderedSize *= 1.0 + closeFade;
+    gl_PointSize = min(renderedSize, effectiveSizeMax);
+    vCoronaStrength = max(hyperlocalFade, closeFade * max(0.5, smoothstep(1000.0, 50000.0, rawEnergy)));
+
+    float nearfieldFade = 1.0 - smoothstep(0.0, uNearfieldRadiusPc, dPc);
+    vIntensity = max(vIntensity, uNearfieldMinIntensity * nearfieldFade);
+
+    float edgeFade = 1.0 - smoothstep(effectiveMagLimit - uMagFadeRange, effectiveMagLimit, mApp);
+    vIntensity *= edgeFade;
+
+    vec4 clipPos = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    clipPos.xy *= uClipMargin;
+    gl_Position = clipPos;
+  }
+`;
+
+const VR_STAR_FIELD_FRAGMENT_SHADER = /* glsl */ `
+  uniform sampler2D map;
+  uniform float uTime;
+  varying vec3 vColor;
+  varying float vIntensity;
+  varying float vCoronaStrength;
+
+  void main() {
+    if (vIntensity <= 0.0) discard;
+
+    float dist = distance(gl_PointCoord, vec2(0.5));
+    if (dist > 0.5) discard;
+
+    vec4 texColor = texture2D(map, gl_PointCoord);
+    float core = exp(-dist * 8.0);
+    float halo = texColor.a;
+
+    vec3 finalColor = mix(vColor, vec3(1.0), core);
+    float wispyCorona = vCoronaStrength * 0.6 * exp(-2.0 * dist) * (1.0 - smoothstep(0.05, 0.6, dist));
+    wispyCorona *= (0.9 + 0.1 * sin(uTime * 2.0 + dist * 8.0));
+    finalColor += vColor * wispyCorona;
+
+    float starAlpha = min(halo + core + wispyCorona, 1.0) * vIntensity;
+    gl_FragColor = vec4(finalColor, starAlpha);
   }
 `;

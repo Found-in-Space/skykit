@@ -29,6 +29,12 @@
     "@found-in-space/three-star-field": "0.0.0-alpha.0"
   },
   "peerDependencies": {
+    "@found-in-space/xr": "0.0.0-alpha.0",
     "three": "^0.170.0"
+  },
+  "peerDependenciesMeta": {
+    "@found-in-space/xr": {
+      "optional": true
+    }
   }
 }

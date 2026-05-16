@@ -87,3 +87,6 @@ function animationFrame(deltaSeconds) {
 
 For visual surfaces use `touch-os`. For stars use `@found-in-space/three-star-field`.
 For application composition use alpha `@found-in-space/skykit`.
+
+See `examples/navigation-automation/` for a tiny package-level script that
+samples route, arrival, and orbit automation without a full viewer.

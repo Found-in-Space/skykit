@@ -36,3 +36,7 @@ and current implementation status.
   session to star-products store to `@found-in-space/star-map-canvas`.
 - `examples/volume-query/` shows sphere-volume streaming through the same
   provider strategy surface as observer-shell and target-frustum.
+- `examples/strategy-diagnostics/` uses `inspectDemand()` and `streamPayloads()`
+  to compare strategy demand with actual payload fetching.
+- `examples/shared-session/` shows one provider backing two independent
+  consumers while sharing source/cache state.

@@ -216,6 +216,11 @@ function createProviderService(options, internals, sourceConfig = {}) {
       return pipeline.streamObjectBatches(_options);
     },
 
+    async inspectDemand(_options) {
+      assertActive();
+      return pipeline.inspectDemand(_options);
+    },
+
     async fetchObjectBatch(_options) {
       assertActive();
       return pipeline.fetchObjectBatch(_options);
