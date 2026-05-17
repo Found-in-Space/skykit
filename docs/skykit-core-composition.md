@@ -376,7 +376,7 @@ SkyKit examples should demonstrate composition:
 
 ```txt
 minimal streamed star viewer
-plugin lab with falling/twinkle markers
+plugin lab with app-owned Three objects, annotations, and guide layers
 canvas starmap composition
 Three starfield game starter
 HR overlay or linked instrument

@@ -118,6 +118,8 @@ test('timed evaluator normalizes fis journey data and evaluates pose, cues, trac
   assert.ok(frame.preloadHints.some((hint) => hint.kind === 'path-volume'));
   assert.ok(frame.preloadHints.some((hint) => hint.kind === 'sphere-volume'));
   assert.ok(frame.preloadHints.some((hint) => hint.kind === 'view-lookahead'));
+  assert.equal(evaluator.getPreloadHints(), frame.preloadHints);
+  assert.equal(evaluator.evaluate(6).preloadHints, frame.preloadHints);
 
   const directFrame = evaluateTimedJourneyAtTime(journey, 3);
   assert.equal(directFrame.sceneTimeSecs, 3);

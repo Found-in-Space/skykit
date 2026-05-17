@@ -146,8 +146,9 @@ const viewer = await createSkykitViewer({
 });
 ```
 
-For a slightly more playful example, see `examples/plugin-lab.js`. It builds a
-small falling-marker plugin from the same public hooks a learner would use.
+For a slightly more playful example, see `examples/plugin-lab.js`. It builds
+app-owned Three objects and action-driven annotations from the same public hooks
+a learner would use.
 
 Browser lessons:
 
@@ -155,7 +156,7 @@ Browser lessons:
   sky-grab look controls, status, and debug.
 - `examples/custom-object-layer/` shows that app-owned Three.js visuals can be
   small plugins instead of core SkyKit features.
-- `examples/navigation-automation/` uses the XR navigation helpers to drive a
+- `examples/navigation-automation/` uses spatial navigation helpers to drive a
   desktop SkyKit viewer.
 
 ## Debug

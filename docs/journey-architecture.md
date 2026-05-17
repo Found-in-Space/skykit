@@ -293,7 +293,7 @@ Implemented first slice:
   createSkykitJourneyPlugin()
   skykit:journey.* action registration
   skykit:navigation.transitionTo
-  spatial preload hint to star-octree strategy mapping
+  spatial preload hint to star-octree preload request mapping
 
 @found-in-space/journey-video
   placeholder README/TODO/package boundary only

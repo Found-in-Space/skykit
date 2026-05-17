@@ -19,6 +19,7 @@ import {
   createSkykitDebugBridge,
   createSkykitJourneyPlugin,
   createSkykitNavigationPlugin,
+  createSkykitStarPreloadRequestsFromSpatialHints,
   createSkykitStarStrategiesFromSpatialHints,
   createSkykitStatusPlugin,
   createSkykitViewer,
@@ -719,7 +720,13 @@ test('navigation plugin registers semantic actions and resolves RA/Dec and bookm
 test('navigation transition action restores pose with independent lane durations', async () => {
   const viewer = await createSkykitViewer({
     renderer: createRenderer(),
-    plugins: [createSkykitNavigationPlugin()],
+    plugins: [
+      createSkykitNavigationPlugin({
+        resolveBookmark(bookmarkId) {
+          return bookmarkId === 'origin' ? { x: 0, y: 0, z: 0 } : null;
+        },
+      }),
+    ],
   });
 
   assert.equal(viewer.actions.listActions().some((entry) => entry.id === SKYKIT_ACTIONS.navigation.transitionTo), true);
@@ -739,6 +746,27 @@ test('navigation transition action restores pose with independent lane durations
   viewer.update(4);
   viewer.update(0);
   assert.deepEqual(viewer.getViewState().observerPc, { x: 10, y: 0, z: 0 });
+  const orientationAfterExplicitTransition = viewer.getViewState().orientationIcrs;
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+    raDeg: 0,
+    decDeg: 0,
+    distancePc: 10,
+    movement: { durationSecs: 1 },
+  });
+  viewer.update(1);
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 20, y: 0, z: 0 });
+  assert.deepEqual(viewer.getViewState().orientationIcrs, orientationAfterExplicitTransition);
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+    target: { bookmarkId: 'origin' },
+    movement: { durationSecs: 1 },
+  });
+  viewer.update(1);
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 0, y: 0, z: 0 });
+  assert.deepEqual(viewer.getViewState().orientationIcrs, orientationAfterExplicitTransition);
 
   await viewer.dispose();
 });
@@ -746,37 +774,41 @@ test('navigation transition action restores pose with independent lane durations
 test('journey plugin registers actions, applies scenes, timed frames, and preload hooks', async () => {
   const preloadEvents = [];
   const cueEvents = [];
+  const journeyPlugin = createSkykitJourneyPlugin({
+    scenes: {
+      intro: { title: 'Intro', view: { limitingMagnitude: 5 } },
+      hyades: {
+        title: 'Hyades',
+        view: { observerPc: { x: 1, y: 2, z: 3 } },
+        preloadHints: [
+          { kind: 'sphere-volume', centerPc: { x: 1, y: 2, z: 3 }, radiusPc: 4 },
+        ],
+      },
+    },
+    initialSceneId: 'intro',
+    timedJourney: {
+      durationSecs: 2,
+      locationWaypoints: [
+        { id: 'a', timeSecs: 0, positionPc: { x: 0, y: 0, z: 0 } },
+        { id: 'b', timeSecs: 2, positionPc: { x: 2, y: 0, z: 0 } },
+      ],
+      cameraLookWaypoints: [
+        { id: 'look', timeSecs: 0, kind: 'direction', forward: { x: 1, y: 0, z: 0 } },
+      ],
+      cues: [{ id: 'cue', startSecs: 0, endSecs: 2 }],
+    },
+    onPreloadHints: (hints) => preloadEvents.push(hints),
+    onCue: (cue) => cueEvents.push(cue.id),
+  });
   const viewer = await createSkykitViewer({
     renderer: createRenderer(),
-    plugins: [
-      createSkykitJourneyPlugin({
-        scenes: {
-          intro: { title: 'Intro', view: { limitingMagnitude: 5 } },
-          hyades: {
-            title: 'Hyades',
-            view: { observerPc: { x: 1, y: 2, z: 3 } },
-            preloadHints: [
-              { kind: 'sphere-volume', centerPc: { x: 1, y: 2, z: 3 }, radiusPc: 4 },
-            ],
-          },
-        },
-        initialSceneId: 'intro',
-        timedJourney: {
-          durationSecs: 2,
-          locationWaypoints: [
-            { id: 'a', timeSecs: 0, positionPc: { x: 0, y: 0, z: 0 } },
-            { id: 'b', timeSecs: 2, positionPc: { x: 2, y: 0, z: 0 } },
-          ],
-          cameraLookWaypoints: [
-            { id: 'look', timeSecs: 0, kind: 'direction', forward: { x: 1, y: 0, z: 0 } },
-          ],
-          cues: [{ id: 'cue', startSecs: 0, endSecs: 2 }],
-        },
-        onPreloadHints: (hints) => preloadEvents.push(hints),
-        onCue: (cue) => cueEvents.push(cue.id),
-      }),
-    ],
+    plugins: [journeyPlugin],
   });
+
+  viewer.update(0);
+  assert.equal(viewer.getViewState().limitingMagnitude, 5);
+  assert.equal(journeyPlugin.getSnapshot().initialSceneApplied, true);
+  assert.equal(journeyPlugin.getSnapshot().timedPreloadHintsEmitted, true);
 
   assert.equal(viewer.actions.listActions().some((entry) => entry.id === SKYKIT_ACTIONS.journey.goToChapter), true);
   await viewer.actions.invoke(SKYKIT_ACTIONS.journey.goToChapter, 'hyades');
@@ -798,8 +830,43 @@ test('journey plugin registers actions, applies scenes, timed frames, and preloa
   await viewer.dispose();
 });
 
-test('spatial preload hints map to star-octree strategies without exposing provider internals', () => {
-  const combined = createSkykitStarStrategiesFromSpatialHints([
+test('journey plugin emits timed preload hints once and not on every frame', async () => {
+  const preloadEvents = [];
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [
+      createSkykitJourneyPlugin({
+        autoPlay: true,
+        timedJourney: {
+          durationSecs: 4,
+          locationWaypoints: [
+            { id: 'a', timeSecs: 0, positionPc: { x: 0, y: 0, z: 0 } },
+            { id: 'b', timeSecs: 4, positionPc: { x: 4, y: 0, z: 0 } },
+          ],
+        },
+        evaluatorOptions: {
+          pathRadiusPc: 2,
+          lookaheadSecs: 1,
+          preloadStepSecs: 1,
+        },
+        onPreloadHints: (hints, source) => preloadEvents.push({ hints, source }),
+      }),
+    ],
+  });
+
+  assert.equal(preloadEvents.length, 1);
+  assert.equal(preloadEvents[0].source.type, 'journey/timed-preload');
+  viewer.update(1);
+  viewer.update(1);
+  await viewer.actions.invoke(SKYKIT_ACTIONS.journey.seek, { timeSecs: 2 });
+  await viewer.actions.invoke(SKYKIT_ACTIONS.journey.play);
+  assert.equal(preloadEvents.length, 1);
+
+  await viewer.dispose();
+});
+
+test('spatial preload hints map to star-octree requests without exposing provider internals', () => {
+  const hints = [
     {
       kind: 'path-volume',
       pointsPc: [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }],
@@ -819,14 +886,28 @@ test('spatial preload hints map to star-octree strategies without exposing provi
       velocity: { x: 1, y: 0, z: 0 },
       lookaheadSecs: 5,
     },
+  ];
+  const requests = createSkykitStarPreloadRequestsFromSpatialHints(hints);
+
+  assert.deepEqual(requests.map((request) => request.strategy.kind), [
+    'path-volume',
+    'sphere-volume',
+    'motion-lookahead',
   ]);
+  assert.equal(requests[0].view, undefined);
+  assert.equal(requests[2].view.observerPc.x, 0);
+  assert.deepEqual(requests[2].view.motion.velocityPcPerSec, { x: 1, y: 0, z: 0 });
+  assert.equal(requests[2].view.motion.speedPcPerSec, 1);
+  assert.equal(requests[2].view.motion.lookaheadSecs, 5);
+
+  const combined = createSkykitStarStrategiesFromSpatialHints(hints);
 
   assert.equal(combined?.kind, 'composite');
   assert.deepEqual(combined.strategies.map((strategy) => strategy.kind), [
     'path-volume',
     'sphere-volume',
-    'motion-lookahead',
   ]);
+  assert.equal(createSkykitStarStrategiesFromSpatialHints([hints[2]]), null);
 
   const separate = createSkykitStarStrategiesFromSpatialHints([], { combine: false });
   assert.deepEqual(separate, []);

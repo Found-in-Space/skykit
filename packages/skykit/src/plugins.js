@@ -351,7 +351,7 @@ export function createSkykitNavigationPlugin(options = {}) {
           : source
     );
     const current = context.getViewState();
-    const positionInput = targetSource.observerPc ?? targetSource.position;
+    const positionInput = resolveTransitionPositionInput(targetSource);
     const position = positionInput === undefined
       ? current.observerPc
       : await resolveTarget(positionInput, context) ?? current.observerPc;
@@ -392,6 +392,8 @@ export function createSkykitJourneyPlugin(options = {}) {
   let playing = options.autoPlay === true;
   let currentTimeSecs = Math.max(0, finiteNumber(options.startTimeSecs, 0));
   let lastCueId = /** @type {string | null} */ (null);
+  let initialSceneApplied = false;
+  let timedPreloadHintsEmitted = false;
   /** @type {import('./index.d.ts').SkykitThreePluginContext | null} */
   let pluginContext = null;
   /** @type {(() => void) | null} */
@@ -407,7 +409,9 @@ export function createSkykitJourneyPlugin(options = {}) {
         unsubscribeController = controller.subscribe((event) => {
           applySceneSpec(event.spec, context, event);
         });
+        applyInitialScene(context);
       }
+      emitTimedPreloadHints(context, 'attach');
     },
     update(frame) {
       if (disposed || !evaluator || !playing) return;
@@ -460,6 +464,7 @@ export function createSkykitJourneyPlugin(options = {}) {
       context.actions.registerAction(SKYKIT_ACTIONS.journey.seek, ({ payload }) => {
         currentTimeSecs = clampTime(resolveTimeSecs(payload), evaluator?.durationSecs ?? Number.POSITIVE_INFINITY);
         if (evaluator) applyTimedFrame(evaluator.evaluate(currentTimeSecs), { viewer: context.viewer, view: context.getViewState() });
+        emitTimedPreloadHints(context, 'seek');
         return currentTimeSecs;
       }, { label: 'Seek journey time' }),
       context.actions.registerAction(SKYKIT_ACTIONS.journey.play, ({ payload }) => {
@@ -467,6 +472,7 @@ export function createSkykitJourneyPlugin(options = {}) {
           currentTimeSecs = clampTime(resolveTimeSecs(payload), evaluator?.durationSecs ?? Number.POSITIVE_INFINITY);
         }
         playing = true;
+        emitTimedPreloadHints(context, 'play');
         return currentTimeSecs;
       }, { label: 'Play journey' }),
       context.actions.registerAction(SKYKIT_ACTIONS.journey.pause, () => {
@@ -477,6 +483,45 @@ export function createSkykitJourneyPlugin(options = {}) {
     return () => {
       for (const unregister of unregisters.reverse()) unregister();
     };
+  }
+
+  /** @param {import('./index.d.ts').SkykitThreePluginContext} context */
+  function applyInitialScene(context) {
+    if (!controller || initialSceneApplied) return;
+    const snapshot = controller.getSnapshot();
+    const sceneId = snapshot.activeSceneId;
+    if (!sceneId) {
+      initialSceneApplied = true;
+      return;
+    }
+    initialSceneApplied = true;
+    const spec = controller.graph.resolveSceneSpec(sceneId, { fromSceneId: snapshot.previousSceneId });
+    applySceneSpec(spec, context, {
+      type: 'journey/initial',
+      sceneId,
+      previousSceneId: snapshot.previousSceneId,
+      source: 'attach',
+      spec,
+    });
+  }
+
+  /**
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   * @param {string} source
+   */
+  function emitTimedPreloadHints(context, source) {
+    if (!evaluator || timedPreloadHintsEmitted) return;
+    const preloadHints = typeof evaluator.getPreloadHints === 'function'
+      ? evaluator.getPreloadHints()
+      : evaluator.evaluate(currentTimeSecs).preloadHints;
+    timedPreloadHintsEmitted = true;
+    if (preloadHints.length > 0) {
+      options.onPreloadHints?.(preloadHints, {
+        type: 'journey/timed-preload',
+        journeyId: evaluator.journey.id,
+        source,
+      }, context);
+    }
   }
 
   /**
@@ -526,9 +571,6 @@ export function createSkykitJourneyPlugin(options = {}) {
     } else if (!frameState.cue) {
       lastCueId = null;
     }
-    if (frameState.preloadHints.length > 0) {
-      options.onPreloadHints?.(frameState.preloadHints, frameState, context);
-    }
   }
 
   function getSnapshot() {
@@ -537,6 +579,8 @@ export function createSkykitJourneyPlugin(options = {}) {
       disposed,
       playing,
       currentTimeSecs,
+      initialSceneApplied,
+      timedPreloadHintsEmitted,
       controller: controller?.getSnapshot?.() ?? null,
       timedJourney: evaluator
         ? {
@@ -549,37 +593,71 @@ export function createSkykitJourneyPlugin(options = {}) {
 }
 
 /**
+ * Strategy-only convenience helper. view-lookahead hints are skipped because
+ * they need a matching authored view state; use
+ * createSkykitStarPreloadRequestsFromSpatialHints() for provider warming.
+ *
  * @param {Iterable<import('@found-in-space/spatial').SpatialPreloadHint>} hints
  * @param {import('./index.d.ts').SkykitSpatialPreloadStrategyOptions} [options]
  */
 export function createSkykitStarStrategiesFromSpatialHints(hints, options = {}) {
-  /** @type {import('@found-in-space/star-octree-provider').StarOctreeFetchStrategy[]} */
-  const strategies = [];
-  let addedLookahead = false;
-  for (const hint of Array.from(hints ?? [])) {
-    if (!hint || typeof hint !== 'object') continue;
-    if (hint.kind === 'path-volume' && hint.pointsPc.length >= 2 && hint.radiusPc > 0) {
-      strategies.push(createPathVolumeStrategy({
-        pointsPc: hint.pointsPc,
-        radiusPc: hint.radiusPc,
-      }));
-      continue;
-    }
-    if (hint.kind === 'sphere-volume' && hint.radiusPc > 0) {
-      strategies.push(createSphereVolumeStrategy({
-        centerPc: hint.centerPc,
-        radiusPc: hint.radiusPc,
-      }));
-      continue;
-    }
-    if (hint.kind === 'view-lookahead' && !addedLookahead) {
-      addedLookahead = true;
-      strategies.push(withMotionLookahead(options.baseStrategy ?? createObserverShellStrategy()));
-    }
-  }
+  const requests = createSkykitStarPreloadRequestsFromSpatialHints(hints, options);
+  const strategies = requests
+    .filter((request) => !request.view)
+    .map((request) => request.strategy);
   if (options.combine === false) return strategies;
   if (strategies.length === 0) return null;
   return strategies.length === 1 ? strategies[0] : combineStarOctreeStrategies(strategies);
+}
+
+/**
+ * @param {Iterable<import('@found-in-space/spatial').SpatialPreloadHint>} hints
+ * @param {import('./index.d.ts').SkykitSpatialPreloadStrategyOptions} [options]
+ * @returns {import('./index.d.ts').SkykitStarPreloadRequest[]}
+ */
+export function createSkykitStarPreloadRequestsFromSpatialHints(hints, options = {}) {
+  /** @type {import('./index.d.ts').SkykitStarPreloadRequest[]} */
+  const requests = [];
+  for (const hint of Array.from(hints ?? [])) {
+    if (!hint || typeof hint !== 'object') continue;
+    if (hint.kind === 'path-volume' && hint.pointsPc.length >= 2 && hint.radiusPc > 0) {
+      requests.push({
+        strategy: createPathVolumeStrategy({
+          pointsPc: hint.pointsPc,
+          radiusPc: hint.radiusPc,
+        }),
+        sourceHint: hint,
+      });
+      continue;
+    }
+    if (hint.kind === 'sphere-volume' && hint.radiusPc > 0) {
+      requests.push({
+        strategy: createSphereVolumeStrategy({
+          centerPc: hint.centerPc,
+          radiusPc: hint.radiusPc,
+        }),
+        sourceHint: hint,
+      });
+      continue;
+    }
+    if (hint.kind === 'view-lookahead' && hint.lookaheadSecs > 0) {
+      const velocity = cloneVector3(hint.velocity);
+      requests.push({
+        strategy: withMotionLookahead(options.baseStrategy ?? createObserverShellStrategy()),
+        view: {
+          observerPc: cloneVector3(hint.pose.position),
+          orientationIcrs: normalizeQuaternion(hint.pose.orientation, IDENTITY_QUATERNION),
+          motion: {
+            velocityPcPerSec: velocity,
+            speedPcPerSec: Math.hypot(velocity.x, velocity.y, velocity.z),
+            lookaheadSecs: hint.lookaheadSecs,
+          },
+        },
+        sourceHint: hint,
+      });
+    }
+  }
+  return requests;
 }
 
 /**
@@ -1110,6 +1188,28 @@ function payloadOptions(payload) {
   delete options.points;
   delete options.bookmarkId;
   return options;
+}
+
+/** @param {Record<string, unknown>} targetSource */
+function resolveTransitionPositionInput(targetSource) {
+  if (targetSource.observerPc !== undefined) return targetSource.observerPc;
+  if (targetSource.position !== undefined) return targetSource.position;
+  if (targetSource.targetPc !== undefined) return targetSource.targetPc;
+  if (targetSource.target !== undefined) return targetSource.target;
+  return isSpatialTargetLike(targetSource) ? targetSource : undefined;
+}
+
+/** @param {unknown} value */
+function isSpatialTargetLike(value) {
+  if (!value || typeof value !== 'object') return false;
+  const source = /** @type {Record<string, unknown>} */ (value);
+  if ([source.x, source.y, source.z].every((component) => Number.isFinite(Number(component)))) return true;
+  if ((Number.isFinite(Number(source.raDeg)) || Number.isFinite(Number(source.raHours)))
+    && Number.isFinite(Number(source.decDeg))
+    && Number.isFinite(Number(source.distancePc))) return true;
+  if (typeof source.bookmarkId === 'string') return true;
+  if (source.kind === 'bookmark' && typeof source.id === 'string') return true;
+  return Array.isArray(value) && value.length >= 3;
 }
 
 /** @param {unknown} payload */

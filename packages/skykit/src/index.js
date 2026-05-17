@@ -16,6 +16,7 @@ export {
   createObject3dPlugin,
   createSkykitJourneyPlugin,
   createSkykitNavigationPlugin,
+  createSkykitStarPreloadRequestsFromSpatialHints,
   createSkykitStarStrategiesFromSpatialHints,
   createSkyGrabPlugin,
   createSkykitStatusPlugin,

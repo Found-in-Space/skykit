@@ -567,6 +567,12 @@ export interface SkykitSpatialPreloadStrategyOptions {
   baseStrategy?: StarOctreeFetchStrategy;
 }
 
+export interface SkykitStarPreloadRequest {
+  strategy: StarOctreeFetchStrategy;
+  view?: StarOctreeViewPatch;
+  sourceHint: SpatialPreloadHint;
+}
+
 export interface SkykitAnimationLoopOptions {
   autoStart?: boolean;
   render?: boolean;
@@ -721,6 +727,15 @@ export declare function createSkykitNavigationPlugin(options?: SkykitNavigationP
 export declare function createSkykitJourneyPlugin(options?: SkykitJourneyPluginOptions): SkykitPlugin & {
   getSnapshot(): unknown;
 };
+export declare function createSkykitStarPreloadRequestsFromSpatialHints(
+  hints: Iterable<SpatialPreloadHint>,
+  options?: SkykitSpatialPreloadStrategyOptions
+): SkykitStarPreloadRequest[];
+/**
+ * Strategy-only convenience helper. It intentionally skips view-lookahead hints
+ * because those require a matching authored view state; use
+ * createSkykitStarPreloadRequestsFromSpatialHints() when warming providers.
+ */
 export declare function createSkykitStarStrategiesFromSpatialHints(
   hints: Iterable<SpatialPreloadHint>,
   options?: SkykitSpatialPreloadStrategyOptions

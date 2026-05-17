@@ -176,6 +176,7 @@ export interface TimedJourneyEvaluator {
   sample(options?: { stepSecs?: number }): TimedJourneyFrame[];
   getCueAt(timeSecs: number): TimedJourneyCue | null;
   getCueOpacity(timeSecs: number, fadeSecs?: number): number;
+  getPreloadHints(): SpatialPreloadHint[];
 }
 
 export interface JourneyLocationRangeSpeedStats {

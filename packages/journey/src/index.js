@@ -197,6 +197,12 @@ export function createTimedJourneyEvaluator(journeyInput, options = {}) {
     useLinearInterpolation: options.useLinearInterpolation,
     targetDistance: options.targetDistancePc ?? journey.targetDistancePc,
   });
+  const preloadHints = path.materializePreloadHints({
+    stepSecs: options.preloadStepSecs ?? 1,
+    pathRadiusPc: options.pathRadiusPc,
+    sphereRadiusPc: options.sphereRadiusPc,
+    lookaheadSecs: options.lookaheadSecs,
+  });
 
   function evaluate(sceneTimeSecs) {
     const timeSecs = clamp(finiteNumber(sceneTimeSecs, 0), 0, journey.durationSecs);
@@ -216,12 +222,7 @@ export function createTimedJourneyEvaluator(journeyInput, options = {}) {
       cue,
       cueOpacity: cue ? getTimedJourneyCueOpacity(cue, timeSecs, options.cueFadeSecs) : 0,
       tracks: evaluateTracks(journey.tracks, timeSecs),
-      preloadHints: path.materializePreloadHints({
-        stepSecs: options.preloadStepSecs ?? 1,
-        pathRadiusPc: options.pathRadiusPc,
-        sphereRadiusPc: options.sphereRadiusPc,
-        lookaheadSecs: options.lookaheadSecs,
-      }),
+      preloadHints,
     };
   }
 
@@ -240,6 +241,9 @@ export function createTimedJourneyEvaluator(journeyInput, options = {}) {
     getCueOpacity(timeSecs, fadeSecs) {
       const cue = getTimedJourneyCueAt(journey, timeSecs);
       return cue ? getTimedJourneyCueOpacity(cue, timeSecs, fadeSecs) : 0;
+    },
+    getPreloadHints() {
+      return preloadHints;
     },
   };
 }
