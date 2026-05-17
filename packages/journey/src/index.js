@@ -280,6 +280,52 @@ export function getJourneyLocationRangeSpeedStats(locationWaypoints, anchorId, f
   return statsFromRangeContext(context);
 }
 
+/**
+ * @param {Iterable<unknown>} locationWaypoints
+ * @param {{ samplesPerSegment?: number }} [options]
+ * @returns {import('./index.d.ts').JourneyLocationArcSegment[]}
+ */
+export function getJourneyLocationArcSegments(locationWaypoints, options = {}) {
+  const sorted = sortLocationWaypoints(locationWaypoints);
+  const track = createSpatialPositionTrack(sorted.map((waypoint) => ({
+    id: waypoint.id,
+    timeSecs: waypoint.timeSecs,
+    positionPc: waypoint.positionPc,
+  })), options);
+  return track.segments.map((segment) => ({
+    index: segment.index,
+    startId: segment.start.id,
+    endId: segment.end.id,
+    startTimeSecs: segment.start.timeSecs,
+    endTimeSecs: segment.end.timeSecs,
+    durationSecs: segment.durationSecs,
+    lengthPc: segment.length,
+    held: segment.held,
+    speedPcPerSec: segment.speed,
+  }));
+}
+
+/**
+ * @param {Iterable<unknown>} locationWaypoints
+ * @param {number} segmentIndex
+ * @param {number} distancePc
+ * @param {{ samplesPerSegment?: number }} [options]
+ * @returns {import('@found-in-space/spatial').SpatialVector3}
+ */
+export function sampleJourneyLocationArcPoint(locationWaypoints, segmentIndex, distancePc, options = {}) {
+  const sorted = sortLocationWaypoints(locationWaypoints);
+  const track = createSpatialPositionTrack(sorted.map((waypoint) => ({
+    id: waypoint.id,
+    timeSecs: waypoint.timeSecs,
+    positionPc: waypoint.positionPc,
+  })), options);
+  const segment = track.segments[segmentIndex];
+  if (!segment) return { ...(sorted[sorted.length - 1]?.positionPc ?? ZERO_VECTOR) };
+  if (segment.held || segment.length <= EPSILON) return { ...segment.start.position };
+  const targetDistance = clamp(finiteNumber(distancePc, 0), 0, segment.length);
+  return pointAtArcDistance(segment.arc.samples, targetDistance);
+}
+
 /** @param {ReturnType<typeof rangeContext>} context */
 function statsFromRangeContext(context) {
   if (!context) return null;
@@ -425,6 +471,70 @@ export function easeJourneyLocationRangeStartEnd(locationWaypoints, anchorId, fo
     effectiveEaseSecs: easeSecs,
     groupId,
   };
+}
+
+/**
+ * @param {Iterable<unknown>} locationWaypoints
+ * @param {string} groupId
+ * @param {{ phase?: string }} [options]
+ * @returns {import('./index.d.ts').DeleteJourneyEaseLocationGroupResult}
+ */
+export function deleteJourneyEaseLocationGroupHelpers(locationWaypoints, groupId, options = {}) {
+  const phase = options.phase === 'start' || options.phase === 'end' ? options.phase : null;
+  /** @type {string[]} */
+  const deletedIds = [];
+  /** @type {string[]} */
+  const clearedIds = [];
+  /** @type {import('./index.d.ts').TimedJourneyLocationWaypoint[]} */
+  const locationWaypointsNext = [];
+  for (const waypoint of sortLocationWaypoints(locationWaypoints)) {
+    const group = normalizeMotionGroup(waypoint.motionGroup);
+    if (!group || group.id !== groupId || group.kind !== 'ease' || (phase && group.phase !== phase)) {
+      locationWaypointsNext.push(waypoint);
+      continue;
+    }
+    if (group.role === 'helper') {
+      deletedIds.push(waypoint.id);
+      continue;
+    }
+    const next = cloneLocationWaypoint(waypoint);
+    delete next.motionGroup;
+    clearedIds.push(waypoint.id);
+    locationWaypointsNext.push(next);
+  }
+  return {
+    locationWaypoints: sortLocationWaypoints(locationWaypointsNext),
+    deletedIds,
+    clearedIds,
+  };
+}
+
+/**
+ * @param {Iterable<unknown>} locationWaypoints
+ * @param {string} groupId
+ * @param {{ easeSecs?: number; rampSampleSecs?: number; samplesPerSegment?: number; phase?: string }} [options]
+ * @returns {import('./index.d.ts').JourneyRetimingResult}
+ */
+export function rebuildJourneyEaseLocationGroup(locationWaypoints, groupId, options = {}) {
+  const phase = options.phase === 'start' || options.phase === 'end' ? options.phase : null;
+  const sorted = sortLocationWaypoints(locationWaypoints);
+  const groupWaypoints = sorted.filter((waypoint) => {
+    const group = normalizeMotionGroup(waypoint.motionGroup);
+    return group?.id === groupId && group.kind === 'ease' && (!phase || group.phase === phase);
+  });
+  const anchors = groupWaypoints.filter((waypoint) => normalizeMotionGroup(waypoint.motionGroup)?.role === 'anchor');
+  const endpoints = anchors.length >= 2 ? anchors : groupWaypoints;
+  if (endpoints.length < 2) {
+    return noRetimingChange(sorted, null, { effectiveEaseSecs: 0, groupId });
+  }
+  const withoutHelpers = sorted.filter((waypoint) => {
+    const group = normalizeMotionGroup(waypoint.motionGroup);
+    return !(group?.id === groupId && group.role === 'helper' && (!phase || group.phase === phase));
+  });
+  return easeJourneyLocationRangeStartEnd(withoutHelpers, endpoints[0].id, endpoints[endpoints.length - 1].id, {
+    ...options,
+    groupId,
+  });
 }
 
 /** @param {unknown} value @param {number} fallback */
@@ -653,4 +763,41 @@ function nextEaseGroupId(waypoints) {
     if (match) max = Math.max(max, Number(match[1]));
   }
   return `ease-${max + 1}`;
+}
+
+/**
+ * @param {{ distance: number; point: import('@found-in-space/spatial').SpatialVector3 }[]} samples
+ * @param {number} targetDistance
+ */
+function pointAtArcDistance(samples, targetDistance) {
+  if (!samples.length) return { ...ZERO_VECTOR };
+  if (targetDistance <= samples[0].distance) return { ...samples[0].point };
+  for (let index = 1; index < samples.length; index += 1) {
+    const left = samples[index - 1];
+    const right = samples[index];
+    if (targetDistance <= right.distance) {
+      const span = right.distance - left.distance;
+      const t = span > EPSILON ? (targetDistance - left.distance) / span : 0;
+      return {
+        x: left.point.x + (right.point.x - left.point.x) * t,
+        y: left.point.y + (right.point.y - left.point.y) * t,
+        z: left.point.z + (right.point.z - left.point.z) * t,
+      };
+    }
+  }
+  return { ...samples[samples.length - 1].point };
+}
+
+/** @param {unknown} motionGroup */
+function normalizeMotionGroup(motionGroup) {
+  if (!motionGroup || typeof motionGroup !== 'object') return null;
+  const source = /** @type {Record<string, unknown>} */ (motionGroup);
+  if (source.id == null) return null;
+  return {
+    ...source,
+    id: String(source.id),
+    kind: source.kind === 'ease' ? 'ease' : String(source.kind ?? 'ease'),
+    role: ['anchor', 'real', 'helper'].includes(String(source.role)) ? String(source.role) : 'real',
+    ...(source.phase === 'start' || source.phase === 'end' ? { phase: source.phase } : {}),
+  };
 }

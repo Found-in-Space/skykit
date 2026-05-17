@@ -5,12 +5,16 @@ import {
   createJourneyController,
   createJourneyGraph,
   createTimedJourneyEvaluator,
+  deleteJourneyEaseLocationGroupHelpers,
   easeJourneyLocationRangeStartEnd,
   equalizeJourneyLocationRangeSpeeds,
   evaluateTimedJourneyAtTime,
+  getJourneyLocationArcSegments,
   getJourneyLocationRangeSpeedStats,
   getTimedJourneyCueOpacity,
   normalizeTimedJourney,
+  rebuildJourneyEaseLocationGroup,
+  sampleJourneyLocationArcPoint,
 } from '../index.js';
 
 test('interactive graph resolves scenes and transition overrides', () => {
@@ -169,4 +173,60 @@ test('retiming helpers report range speeds, equalize movement, and insert ease h
   assert.equal(eased.groupId, 'ease-test');
   assert.equal(eased.insertedCount, 2);
   assert.ok(eased.insertedIds.every((id) => id.startsWith('loc-ease-test')));
+});
+
+test('arc diagnostics and sampling expose editor-friendly path data', () => {
+  const waypoints = [
+    { id: 'a', timeSecs: 0, positionPc: { x: 0, y: 0, z: 0 } },
+    { id: 'b', timeSecs: 10, positionPc: { x: 10, y: 0, z: 0 } },
+    { id: 'c', timeSecs: 20, positionPc: { x: 10, y: 0, z: 0 } },
+  ];
+
+  const segments = getJourneyLocationArcSegments(waypoints);
+  assert.equal(segments.length, 2);
+  assert.equal(segments[0].startId, 'a');
+  assert.equal(segments[0].endId, 'b');
+  assert.ok(segments[0].lengthPc > 9);
+  assert.equal(segments[1].held, true);
+
+  const midpoint = sampleJourneyLocationArcPoint(waypoints, 0, segments[0].lengthPc / 2);
+  assert.ok(midpoint.x > 4 && midpoint.x < 6);
+  assert.deepEqual(sampleJourneyLocationArcPoint(waypoints, 1, 100), { x: 10, y: 0, z: 0 });
+});
+
+test('ease group helpers delete and rebuild editor helper waypoints', () => {
+  const waypoints = [
+    {
+      id: 'a',
+      timeSecs: 0,
+      positionPc: { x: 0, y: 0, z: 0 },
+      motionGroup: { id: 'ease-a', kind: 'ease', role: 'anchor', phase: 'start' },
+    },
+    {
+      id: 'helper',
+      timeSecs: 1,
+      positionPc: { x: 1, y: 0, z: 0 },
+      motionGroup: { id: 'ease-a', kind: 'ease', role: 'helper', phase: 'start' },
+    },
+    {
+      id: 'b',
+      timeSecs: 10,
+      positionPc: { x: 10, y: 0, z: 0 },
+      motionGroup: { id: 'ease-a', kind: 'ease', role: 'anchor', phase: 'end' },
+    },
+  ];
+
+  const deleted = deleteJourneyEaseLocationGroupHelpers(waypoints, 'ease-a', { phase: 'start' });
+  assert.deepEqual(deleted.deletedIds, ['helper']);
+  assert.deepEqual(deleted.clearedIds, ['a']);
+  assert.equal(deleted.locationWaypoints.some((waypoint) => waypoint.id === 'helper'), false);
+  assert.equal(deleted.locationWaypoints.find((waypoint) => waypoint.id === 'b')?.motionGroup?.id, 'ease-a');
+
+  const rebuilt = rebuildJourneyEaseLocationGroup(waypoints, 'ease-a', {
+    easeSecs: 2,
+    rampSampleSecs: 1,
+  });
+  assert.equal(rebuilt.groupId, 'ease-a');
+  assert.ok(rebuilt.insertedCount >= 2);
+  assert.ok(rebuilt.insertedIds.every((id) => id.startsWith('loc-ease-a')));
 });

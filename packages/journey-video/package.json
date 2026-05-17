@@ -1,7 +1,7 @@
 {
   "name": "@found-in-space/journey-video",
   "version": "0.0.0-alpha.0",
-  "description": "Placeholder for deterministic journey video export tooling",
+  "description": "Standalone journey video editor and future deterministic export tooling",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.js",
@@ -10,10 +10,15 @@
     ".": {
       "types": "./src/index.d.ts",
       "default": "./src/index.js"
+    },
+    "./editor": {
+      "types": "./src/editor.d.ts",
+      "default": "./src/editor.js"
     }
   },
   "files": [
     "src",
+    "examples",
     "README.md",
     "TODO.md"
   ],
@@ -21,5 +26,15 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test"
+  },
+  "dependencies": {
+    "@found-in-space/journey": "0.0.0-alpha.0",
+    "@found-in-space/skykit": "0.0.0-alpha.0",
+    "@found-in-space/spatial": "0.0.0-alpha.0",
+    "@found-in-space/star-octree-provider": "0.0.0-alpha.0",
+    "@found-in-space/three-star-field": "0.0.0-alpha.0"
+  },
+  "peerDependencies": {
+    "three": "^0.170.0"
   }
 }

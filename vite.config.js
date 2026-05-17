@@ -72,6 +72,10 @@ export default defineConfig({
           __dirname,
           'packages/hr-diagram/examples/volume-hr/index.html',
         ),
+        journeyVideoEditor: path.resolve(
+          __dirname,
+          'packages/journey-video/examples/editor/index.html',
+        ),
       },
     },
   },

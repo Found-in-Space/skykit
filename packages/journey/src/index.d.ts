@@ -206,6 +206,18 @@ export interface JourneyLocationRangeSpeedStats {
   }>;
 }
 
+export interface JourneyLocationArcSegment {
+  index: number;
+  startId: string;
+  endId: string;
+  startTimeSecs: number;
+  endTimeSecs: number;
+  durationSecs: number;
+  lengthPc: number;
+  held: boolean;
+  speedPcPerSec: number;
+}
+
 export interface JourneyRetimingResult {
   locationWaypoints: TimedJourneyLocationWaypoint[];
   before: JourneyLocationRangeSpeedStats | null;
@@ -215,6 +227,12 @@ export interface JourneyRetimingResult {
   insertedCount: number;
   effectiveEaseSecs?: number;
   groupId?: string;
+}
+
+export interface DeleteJourneyEaseLocationGroupResult {
+  locationWaypoints: TimedJourneyLocationWaypoint[];
+  deletedIds: string[];
+  clearedIds: string[];
 }
 
 export declare function createJourneyGraph(options?: CreateJourneyGraphOptions): JourneyGraph;
@@ -237,6 +255,16 @@ export declare function getJourneyLocationRangeSpeedStats(
   focusId: string,
   options?: { samplesPerSegment?: number }
 ): JourneyLocationRangeSpeedStats | null;
+export declare function getJourneyLocationArcSegments(
+  locationWaypoints: Iterable<unknown>,
+  options?: { samplesPerSegment?: number }
+): JourneyLocationArcSegment[];
+export declare function sampleJourneyLocationArcPoint(
+  locationWaypoints: Iterable<unknown>,
+  segmentIndex: number,
+  distancePc: number,
+  options?: { samplesPerSegment?: number }
+): SpatialVector3;
 export declare function equalizeJourneyLocationRangeSpeeds(
   locationWaypoints: Iterable<unknown>,
   anchorId: string,
@@ -248,6 +276,16 @@ export declare function easeJourneyLocationRangeStartEnd(
   anchorId: string,
   focusId: string,
   options?: { easeSecs?: number; rampSampleSecs?: number; samplesPerSegment?: number; groupId?: string }
+): JourneyRetimingResult;
+export declare function deleteJourneyEaseLocationGroupHelpers(
+  locationWaypoints: Iterable<unknown>,
+  groupId: string,
+  options?: { phase?: string }
+): DeleteJourneyEaseLocationGroupResult;
+export declare function rebuildJourneyEaseLocationGroup(
+  locationWaypoints: Iterable<unknown>,
+  groupId: string,
+  options?: { easeSecs?: number; rampSampleSecs?: number; samplesPerSegment?: number; phase?: string }
 ): JourneyRetimingResult;
 
 export type { SpatialPreloadHint, SpatialSmoothPathSample, SpatialVector3, SpatialQuaternion };

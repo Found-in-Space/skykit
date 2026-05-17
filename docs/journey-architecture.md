@@ -54,20 +54,17 @@ video capture
 timeline editor UI
 ```
 
-Optional packages can sit on top later:
+Optional packages can sit on top:
 
 ```txt
 @found-in-space/journey-video
-  placeholder for deterministic render/export orchestration, capture metadata,
-  render settling, layout presets, editor/export tooling
-
-@found-in-space/journey-editor
-  possible later standalone timeline editor, tiled previews, JSON import/export,
-  retiming UI
+  standalone alpha editor for timed journey JSON, projection/perspective/SkyKit
+  preview tiles, guide/timeline editing, retiming tools, draft storage, and
+  future deterministic render/export orchestration
 ```
 
-The editor should be available outside the website, but it is an optional extra
-project rather than a core runtime dependency.
+The editor is available outside the website through `@found-in-space/journey-video`.
+It is an optional extra project rather than a core runtime dependency.
 
 DOM scroll/nav wiring should stay in the website or consuming application for
 now. The current reusable part is small once scene changes are triggered through
@@ -296,18 +293,21 @@ Implemented first slice:
   spatial preload hint to star-octree preload request mapping
 
 @found-in-space/journey-video
-  placeholder README/TODO/package boundary only
+  JOURNEY_VIDEO_PACKAGE_STATUS = 'alpha-editor'
+  createJourneyVideoEditor()
+  editor document/state import/export helpers
+  projection, perspective, and SkyKit streamed-stars preview tiles
+  guide/timeline editing and retiming/ease tools
 ```
 
 Still deferred:
 
 ```txt
-standalone editor package
 substantial video capture/export runtime
 Blender interchange tooling
 website migration
 no-code static-page journey helper
 ```
 
-This keeps the first package useful immediately without turning it into another
-large application.
+This keeps the first package useful immediately while capture/export remains a
+separate future slice.

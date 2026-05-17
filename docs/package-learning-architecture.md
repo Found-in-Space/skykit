@@ -613,8 +613,9 @@ fetch nearby lower-priority payloads early when range batching makes that faster
   and evaluation, cues, generic tracks, preload hints, and retiming helpers
 
 @found-in-space/journey-video
-  placeholder: future deterministic video/export orchestration, render settling,
-  capture metadata, editor/export tooling, and layout presets
+  implemented: standalone alpha journey video editor, editor document/state
+  helpers, JSON import/export, projection/perspective/SkyKit preview tiles, and
+  guide/timeline retiming workflows; deterministic capture/export remains future
 
 @found-in-space/star-products
   implemented: StarObjectBatchProduct types, star representation store,

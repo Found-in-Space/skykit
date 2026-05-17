@@ -1,13 +1,19 @@
 # Journey Video TODO
 
-Future work for this package:
+Implemented in the first alpha editor slice:
 
-- define deterministic frame stepping against `@found-in-space/journey`;
-- describe settling rules for star streams and custom layers before capture;
-- store capture metadata, viewport, scale, codec, and timing profiles;
-- provide an editor/export contract that can be used outside the website;
-- decide which browser capture, ffmpeg, Playwright, or Blender helpers belong
-  here after the first real export workflow exists.
+- standalone vanilla-DOM editor package and example app;
+- timed journey JSON import/export/download;
+- projection, perspective, and SkyKit streamed-stars preview tiles;
+- guide/timeline editing and retiming/ease controls.
 
-No website editor code, Playwright scripts, ffmpeg wrappers, or Blender behavior
-has been moved in this alpha slice.
+Future work for deterministic capture/export:
+
+- deterministic frame stepping and render-settling rules;
+- capture metadata, viewport, scale, codec, and timing profiles;
+- browser capture orchestration;
+- optional ffmpeg, Playwright, or Blender helpers;
+- an editor/export split if capture tooling becomes large enough.
+
+The website editor route is reference material only; this package should remain
+the home for reusable journey video editor and export tooling.
