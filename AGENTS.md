@@ -11,6 +11,23 @@
 
 ## Alpha Package Direction
 
+Alpha SkyKit is a package-first teaching toolkit, not a monolithic viewer. New
+work should identify the smallest reusable boundary that makes lessons clearer:
+data providers stream products, product packages interpret domain data, renderers
+consume products, XR owns embodied interaction, touch-os owns surfaces, and core
+`@found-in-space/skykit` composes those pieces through public plugin/action
+hooks. Avoid hidden wrapper layers, string-based factory registries, or "just one
+more helper" packages unless they remove real lesson code and have a durable
+boundary.
+
+The goal is hackable clarity: a learner should be able to build from small,
+explicit pieces, replace any part with their own implementation, and understand
+which frame of reference an action uses. Prefer semantic actions such as
+`skykit:ship.move.forward` over fake keypresses or private controller calls;
+prefer app-owned plugins for creative layers; keep high-throughput star data on
+product streams rather than event buses; and preserve old PoC behavior only by
+rewriting it into the alpha package shape, never by importing old internals.
+
 - Core `skykit` is a slim teaching/composition toolkit built from focused
   `@found-in-space/*` modules.
 - Prefer focused workspace packages under `packages/` for reusable capabilities.
@@ -53,6 +70,23 @@
 - `@found-in-space/experimental-structure-layers`: experimental H-alpha/dust
   preservation package, not stable core.
 
+## Release And Versioning
+
+- The repository root is a private workspace shell and should not be published.
+- Workspace packages should be versioned independently, not forced to share one
+  lockstep version.
+- During alpha, prefer coordinated release batches: publish the changed packages
+  together, update internal dependency ranges together, and write one human
+  release note for the batch.
+- Use Changesets for package releases once release tooling is added. A changeset
+  should be committed with meaningful package changes and should name the
+  package(s), semver bump(s), and short release note.
+- `@found-in-space/skykit` is the beginner-facing compatibility anchor: learners
+  can install SkyKit and get a compatible set of focused modules, while the
+  focused modules still keep their own versions.
+- Keep `@found-in-space/experimental-structure-layers` out of normal stable
+  release expectations unless the user explicitly decides to publish it.
+
 ## Standard Commands
 
 - Install dependencies: `npm install`
@@ -71,6 +105,7 @@
 - `docs/anchored-image.md`: anchored image package contract.
 - `docs/skykit-core-composition.md`: core SkyKit composition contract.
 - `docs/xr-architecture.md`: XR package boundary and rules.
+- `docs/journey-architecture.md`: shared journey/runtime/editor boundary.
 
 ## WebXR And Scene Graph Constraints
 

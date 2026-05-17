@@ -1,0 +1,286 @@
+# Journey Architecture
+
+Status: alpha planning note.
+
+Found in Space has two useful journey patterns in the website today:
+
+```txt
+interactive, event-driven journeys
+  user or scroll position chooses scenes/chapters
+  scenes have clear transitions
+  examples: narrated article chapters, HR diagram scenes, cluster tours
+
+timed, automatic journeys
+  a clock chooses camera/cue state
+  useful for autoplay, video recording, and deterministic exports
+  examples: radio bubble video renderer and journey editor
+```
+
+These should become shared package infrastructure rather than website-only
+scripts, but they should not be folded into core `@found-in-space/skykit`.
+
+---
+
+## 1. Package Boundary
+
+The likely stable package is:
+
+```txt
+@found-in-space/journey
+```
+
+It should own plain data, normalization, state machines, and evaluators:
+
+```txt
+interactive scene graphs
+timed journey schema/evaluator
+cue lookup
+waypoint normalization
+route/path sampling
+camera look interpolation
+retiming helpers
+plain vector/quaternion outputs
+```
+
+It should not own:
+
+```txt
+SkyKit viewer construction
+star loading
+Three.js rendering
+DOM scroll wiring
+website layouts
+video capture
+timeline editor UI
+```
+
+Optional packages can sit on top later:
+
+```txt
+@found-in-space/journey-editor
+  standalone timeline editor, tiled previews, JSON import/export, retiming UI
+```
+
+The editor should be available outside the website, but it is an optional extra
+project rather than a core runtime dependency.
+
+DOM scroll/nav wiring should stay in the website or consuming application for
+now. The current reusable part is small once scene changes are triggered through
+standard actions such as `skykit:journey.goToChapter`.
+
+A future DOM support package is only worth considering if it becomes a genuine
+no-code static-page helper:
+
+```txt
+author writes HTML sections + text
+includes one script tag
+journey navigation is created automatically
+```
+
+Until then, a `journey-dom` package would likely be too thin.
+
+---
+
+## 2. Interactive Lane
+
+The website's current `journey-builder.js` is the seed for the interactive lane.
+
+Core concepts:
+
+```txt
+scene
+  named chapter/state with app-owned payload
+
+transition
+  optional app-owned payload from one scene to another
+
+journey graph
+  resolves the active scene plus transition metadata
+```
+
+The package should expose a small graph/controller surface:
+
+```js
+const graph = createJourneyGraph({
+  initialSceneId: 'sol',
+  scenes,
+  transitions,
+});
+
+const scene = graph.resolveSceneSpec('hyades', { fromSceneId: 'sol' });
+```
+
+The interactive runtime should be event-driven:
+
+```txt
+goTo(sceneId, { source })
+next()
+previous()
+getSnapshot()
+subscribe(listener)
+```
+
+Scene payloads stay app-owned. A star lesson might store camera targets and
+volume preload hints; a game might store spawn rules or UI state. The journey
+package should not try to understand those fields.
+
+---
+
+## 3. Timed Lane
+
+The website's current `fis-journey-v1` evaluator is the seed for the timed lane.
+
+Core concepts:
+
+```txt
+durationSecs
+locationWaypoints
+cameraLookWaypoints
+cues
+guides
+```
+
+Location evaluation should preserve the existing useful behavior:
+
+```txt
+timestamped waypoints
+centripetal Catmull-Rom path interpolation
+arc-length sampling so segment speed is stable between timestamps
+speed / velocity metadata for streaming lookahead
+```
+
+Camera evaluation should preserve:
+
+```txt
+direction look keys
+target look keys
+up vectors
+quaternion/slerp interpolation
+plain output quaternion + forward/up vectors
+```
+
+The runtime surface should remain plain:
+
+```js
+const evaluator = createJourneyEvaluator(journey);
+
+const frame = evaluator.evaluate(12.5);
+
+// frame:
+// observerPc
+// targetPc
+// cameraQuaternion
+// cameraForwardPc
+// cameraUpPc
+// velocityUnitVectorPc
+// speedPcPerSec
+```
+
+Timed journeys should also expose cue helpers:
+
+```txt
+getCueAt(timeSecs)
+getCueOpacity(timeSecs, fadeSecs)
+sample({ stepSecs })
+```
+
+Video capture and render settling are not part of `@found-in-space/journey`.
+Those belong to a renderer/export adapter.
+
+---
+
+## 4. Relationship To SkyKit Actions
+
+Core SkyKit now has a namespaced action registry. Journey runtimes should use
+that instead of faking keypresses or calling private viewer methods.
+
+Reserved action IDs:
+
+```txt
+skykit:journey.goToChapter
+skykit:journey.next
+skykit:journey.previous
+skykit:journey.seek
+skykit:journey.play
+skykit:journey.pause
+```
+
+A SkyKit journey plugin can register these actions:
+
+```js
+ctx.actions.registerContext('skykit:journey', {
+  goToChapter({ payload }) {
+    controller.goTo(payload.chapterId, { source: payload.source ?? 'action' });
+  },
+  seek({ payload }) {
+    timedRuntime.seek(payload.timeSecs);
+  },
+});
+```
+
+The journey package itself should not depend on SkyKit. SkyKit adapters translate
+journey state into:
+
+```txt
+viewer.requestViewState(...)
+navigation automation
+layer visibility
+preload requests
+status/debug output
+```
+
+---
+
+## 5. What The Website Already Proves
+
+Useful website references:
+
+```txt
+src/scripts/journey-builder.js
+  minimal interactive scene graph
+
+src/scripts/narrated-tour.js
+  DOM scroll/nav adapter for chapter activation
+
+src/scripts/journey-evaluator.js
+  timed journey normalization and camera/path evaluation
+
+src/scripts/journey-retiming.js
+  authoring helpers for speed/ease cleanup
+
+src/pages/video/journey-editor.astro
+  standalone editor direction
+
+src/pages/video/radio-bubble-full.astro
+  deterministic video/export use case
+```
+
+These are reference implementations. New alpha packages should rewrite the
+useful behavior into package-shaped APIs rather than importing website scripts.
+
+---
+
+## 6. Initial Implementation Order
+
+Recommended first slice:
+
+```txt
+1. Create @found-in-space/journey.
+2. Port/rewrite createJourneyGraph() and tests.
+3. Port/rewrite timed journey normalization/evaluation and tests.
+4. Port/rewrite retiming helpers as package exports.
+5. Add a small SkyKit journey plugin example using skykit:journey actions.
+```
+
+Defer:
+
+```txt
+standalone editor package
+video capture/export package
+Blender interchange tooling
+website migration
+no-code static-page journey helper
+```
+
+This keeps the first package useful immediately without turning it into another
+large application.
