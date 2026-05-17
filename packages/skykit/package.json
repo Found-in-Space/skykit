@@ -11,6 +11,10 @@
       "types": "./src/index.d.ts",
       "default": "./src/index.js"
     },
+    "./parallax": {
+      "types": "./src/parallax.d.ts",
+      "default": "./src/parallax.js"
+    },
     "./xr": {
       "types": "./src/xr.d.ts",
       "default": "./src/xr.js"

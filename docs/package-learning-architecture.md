@@ -109,6 +109,10 @@ hr-diagram
 
 skykit/xr
   -> build WebXR rigs, bindings, rays, and session helpers
+
+skykit/parallax
+  -> turn pointer/touch/device tilt into semantic controls
+  -> consume those controls as target-relative observer motion
 ```
 
 SkyKit lessons teach composition:
@@ -478,12 +482,13 @@ src/demo/parallax-sensor-debug.js
 Replacement lesson:
 
 ```txt
-not first priority
+optional package lesson under packages/skykit/examples/ when needed
 ```
 
-This is useful, but it is not central to the current package learning path. If
-kept, it should become a small interactivity/plugin lesson rather than core
-SkyKit behavior.
+The reusable pieces now live in `@found-in-space/skykit/parallax`. Any lesson
+should show the two-plugin split: input writes
+`SKYKIT_CONTROLS.observer.parallaxOffset`, while observer behavior reads that
+control and requests view-state patches.
 
 ### 3.12 Radio Bubble
 
@@ -648,7 +653,8 @@ fetch nearby lower-priority payloads early when range batching makes that faster
 @found-in-space/skykit
   implemented alpha composition slice: slim Three.js viewer, plugin/part
   lifecycle, streaming star plugin/layer, object3d plugin/layer, keyboard
-  navigation helper, sky-grab and mouse-look helpers, status helper,
+  navigation helper, sky-grab and mouse-look helpers, parallax subpath plugins,
+  status helper,
   navigation actions/plugin backed by spatial, journey plugin/action bridge,
   animation loop, desktop observer rig, debug bridge, and optional `skykit/xr`
   WebXR rig/input/ray/session/depth helpers
@@ -711,7 +717,7 @@ Remaining demo replacements:
 1. XR Free Roam -> XR package free-roam lesson plus SkyKit XR starfield lesson.
 2. Clusters / Galaxy Map -> navigation-targets and scale-banded-roots lessons.
 3. Dust / H-alpha -> full experimental structure browser lessons.
-4. Parallax Sensor Debug -> defer or rebuild as a small interactivity plugin lesson.
+4. Parallax Sensor Debug -> rebuild only if a current lesson needs pointer/tilt parallax.
 5. Remove old root demo links once their replacement lessons are good enough.
 ```
 

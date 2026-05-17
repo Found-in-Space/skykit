@@ -4,6 +4,10 @@ export const SKYKIT_ACTIONS = Object.freeze({
   viewer: Object.freeze({
     reset: 'skykit:viewer.reset',
   }),
+  observer: Object.freeze({
+    recenterParallax: 'skykit:observer.parallax.recenter',
+    enableParallaxTilt: 'skykit:observer.parallax.enableTilt',
+  }),
   navigation: Object.freeze({
     flyTo: 'skykit:navigation.flyTo',
     flyPolyline: 'skykit:navigation.flyPolyline',
@@ -53,6 +57,9 @@ export const SKYKIT_ACTIONS = Object.freeze({
 });
 
 export const SKYKIT_CONTROLS = Object.freeze({
+  observer: Object.freeze({
+    parallaxOffset: 'skykit:observer.control.parallaxOffset',
+  }),
   ship: Object.freeze({
     move: 'skykit:ship.control.move',
     attitude: 'skykit:ship.control.attitude',

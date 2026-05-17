@@ -33,6 +33,7 @@ action/context registry
 streaming star layer/plugin
 plain Object3D layer/plugin
 desktop learning navigation
+optional browser parallax controls
 status helper
 animation loop helper
 debug bridge
@@ -289,6 +290,14 @@ installSkykitDebugGlobal()
 SKYKIT_ACTIONS / SKYKIT_CONTROLS
 ```
 
+The optional `@found-in-space/skykit/parallax` subpath currently exports:
+
+```txt
+createParallaxOffsetInputPlugin()
+createParallaxObserverPlugin()
+createDeviceTiltTracker()
+```
+
 These are learning helpers, not closed presets. Callers can replace the provider,
 renderer, strategy, controls, status output, or custom parts.
 
@@ -311,6 +320,37 @@ into one array, does not fetch sidecars, and does not own star interpretation.
 roots. This is the simplest path for creative plugins such as markers, bubbles,
 route previews, or lesson props.
 
+### Plugin Families And Boundaries
+
+Reusable SkyKit plugins should make their reads and writes clear:
+
+```txt
+raw input plugins
+  browser pointer/touch/tilt, keyboard, XR controls, DOM buttons
+  -> write semantic actions or controls
+
+observer/view behavior plugins
+  keyboard navigation, mouse look, parallax observer, smooth navigation
+  -> read semantic actions/controls and request view-state patches
+
+data/layer plugins
+  streaming stars, app-owned Object3D layers, annotations
+  -> attach parts or consume providers/renderers
+
+status/debug plugins
+  status text, debug bridge, logging helpers
+  -> read snapshots and public actions
+```
+
+Tiny lesson hacks can still be plain function plugins that call `ctx.addPart()`
+or `ctx.requestViewState()`. Reusable plugins should expose snapshots with
+useful `readsFrom` / `writesTo` style fields so conflicts are easy to diagnose
+without adding a heavy enforcement framework.
+
+Providers stream, renderers render, and plugins compose behavior. A plugin
+should not inspect individual stars unless it is deliberately an app-level
+teaching helper.
+
 ### Keyboard Navigation
 
 `createKeyboardNavigationPlugin()` is a small desktop learning control. Richer
@@ -323,6 +363,31 @@ Custom maps may bind keys to other action IDs such as
 one-off lesson hacks. `createSkykitDefaultKeyboardNavigationBindings(overrides)`
 returns an explicit complete map for lessons that want default bindings plus a
 few deliberate overrides.
+
+### Parallax
+
+Parallax lives under `@found-in-space/skykit/parallax` because it is optional and
+browser-oriented, but still uses the normal SkyKit action/control language.
+
+`createParallaxOffsetInputPlugin()` reads pointer hover, pointer drag/touch, and
+device orientation. It writes normalized values to:
+
+```txt
+SKYKIT_CONTROLS.observer.parallaxOffset
+```
+
+It also registers:
+
+```txt
+SKYKIT_ACTIONS.observer.recenterParallax
+SKYKIT_ACTIONS.observer.enableParallaxTilt
+```
+
+`createParallaxObserverPlugin()` reads that semantic control and applies a
+target-relative observer offset. It does not accumulate offsets frame to frame;
+each frame is recomputed from the anchor observer position, target, right/up
+plane, and current normalized input. By default it also updates orientation so
+the target stays centered.
 
 ### Status And Debug
 

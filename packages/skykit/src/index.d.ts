@@ -654,6 +654,10 @@ export declare const SKYKIT_ACTIONS: {
   readonly viewer: {
     readonly reset: 'skykit:viewer.reset';
   };
+  readonly observer: {
+    readonly recenterParallax: 'skykit:observer.parallax.recenter';
+    readonly enableParallaxTilt: 'skykit:observer.parallax.enableTilt';
+  };
   readonly navigation: {
     readonly flyTo: 'skykit:navigation.flyTo';
     readonly flyPolyline: 'skykit:navigation.flyPolyline';
@@ -702,6 +706,9 @@ export declare const SKYKIT_ACTIONS: {
   };
 };
 export declare const SKYKIT_CONTROLS: {
+  readonly observer: {
+    readonly parallaxOffset: 'skykit:observer.control.parallaxOffset';
+  };
   readonly ship: {
     readonly move: 'skykit:ship.control.move';
     readonly attitude: 'skykit:ship.control.attitude';

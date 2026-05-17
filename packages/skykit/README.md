@@ -87,6 +87,39 @@ namespaced actions such as `SKYKIT_ACTIONS.viewer.reset` or app-owned actions
 like `game:weapons.fire`. `createSkykitDefaultKeyboardNavigationBindings()`
 returns a fresh complete map, so overrides are explicit rather than implicit.
 
+## Optional Parallax
+
+Parallax is split into two small plugins so learners can replace either half:
+one plugin turns browser input into a semantic control, and the other turns that
+control into observer motion.
+
+```js
+import {
+  createParallaxObserverPlugin,
+  createParallaxOffsetInputPlugin,
+} from '@found-in-space/skykit/parallax';
+
+const viewer = await createSkykitViewer({
+  host: document.querySelector('#skykit'),
+  plugins: [
+    createParallaxOffsetInputPlugin({
+      target: document.querySelector('#skykit'),
+      pointer: { mode: 'hover' },
+      tilt: true,
+    }),
+    createParallaxObserverPlugin({
+      targetPc: { x: 0, y: 0, z: -10 },
+      offsetPc: 0.25,
+    }),
+  ],
+});
+```
+
+`createParallaxOffsetInputPlugin()` writes
+`SKYKIT_CONTROLS.observer.parallaxOffset`. It never moves the viewer. That makes
+it easy to swap pointer, touch, tilt, or custom game input without changing the
+view behavior plugin.
+
 ## Actions
 
 SkyKit reserves `skykit:` for built-in semantic actions. These are behavior
@@ -94,6 +127,7 @@ names, not renderer or loader factory names:
 
 ```js
 SKYKIT_ACTIONS.ship.moveForward; // "skykit:ship.move.forward"
+SKYKIT_CONTROLS.observer.parallaxOffset; // "skykit:observer.control.parallaxOffset"
 SKYKIT_ACTIONS.viewer.reset; // "skykit:viewer.reset"
 SKYKIT_ACTIONS.journey.goToChapter; // "skykit:journey.goToChapter"
 ```
