@@ -5,6 +5,10 @@ import {
   IDENTITY_QUATERNION,
   buildSpatialOrbitalInsertRoute,
   buildSpatialPolylineRoute,
+  createSpatialOrientationTrack,
+  createSpatialPoseTransition,
+  createSpatialPositionTrack,
+  createSpatialSmoothPath,
   computeSpatialLookAtOrientation,
   createDirectSpatialMotionModel,
   createFlyToSpatialMotionModel,
@@ -12,6 +16,11 @@ import {
   createSpatialNavigationAutomation,
   createThrustSpatialMotionModel,
   deriveSpatialOrbitAngle,
+  evaluateSpatialOrientationTrack,
+  evaluateSpatialPoseTransition,
+  evaluateSpatialPositionTrack,
+  materializeSpatialPathSamples,
+  materializeSpatialPreloadHints,
   icrsToRaDec,
   projectEquirectangular,
   raDecDistanceToIcrs,
@@ -61,6 +70,82 @@ test('polyline route builds and samples deterministic route positions', () => {
   assert.deepEqual(sampleSpatialPolylineRoutePosition(route, 15), { x: 5, y: 0, z: -10 });
   assert.deepEqual(sampleSpatialPolylineRoutePosition(route, -100), { x: 0, y: 0, z: 0 });
   assert.deepEqual(sampleSpatialPolylineRoutePosition(route, 100), { x: 10, y: 0, z: -10 });
+});
+
+test('timed Catmull-Rom position tracks sample by arc length and expose velocity', () => {
+  const track = createSpatialPositionTrack([
+    { id: 'a', timeSecs: 0, positionPc: { x: 0, y: 0, z: 0 } },
+    { id: 'b', timeSecs: 5, positionPc: { x: 0, y: 0, z: -10 } },
+    { id: 'c', timeSecs: 10, positionPc: { x: 10, y: 0, z: -10 } },
+  ]);
+  const mid = evaluateSpatialPositionTrack(track, 2.5);
+  assert.ok(mid.position.z < -4 && mid.position.z > -6);
+  assert.ok(mid.speed > 1.5);
+  assert.ok(mid.velocity.z < 0);
+  assert.equal(track.segments.length, 2);
+});
+
+test('orientation tracks evaluate direction, target, and quaternion keys', () => {
+  const track = createSpatialOrientationTrack([
+    { id: 'dir', timeSecs: 0, kind: 'direction', forward: { x: 0, y: 0, z: -1 } },
+    { id: 'target', timeSecs: 1, kind: 'target', targetPc: { x: 10, y: 0, z: 0 } },
+    { id: 'quat', timeSecs: 2, kind: 'quaternion', orientationIcrs: IDENTITY_QUATERNION },
+  ]);
+  const target = evaluateSpatialOrientationTrack(track, 1, { position: { x: 0, y: 0, z: 0 } });
+  assert.ok(target.forward.x > 0.99);
+  const identity = evaluateSpatialOrientationTrack(track, 2, { position: { x: 0, y: 0, z: 0 } });
+  assert.ok(Math.abs(identity.orientation.w - 1) < 1e-12);
+});
+
+test('smooth paths materialize samples and preload hints', () => {
+  const path = createSpatialSmoothPath({
+    durationSecs: 4,
+    positionWaypoints: [
+      { timeSecs: 0, positionPc: { x: 0, y: 0, z: 0 } },
+      { timeSecs: 4, positionPc: { x: 0, y: 0, z: -8 } },
+    ],
+    orientationWaypoints: [
+      { timeSecs: 0, kind: 'direction', forward: { x: 0, y: 0, z: -1 } },
+      { timeSecs: 4, kind: 'target', targetPc: { x: 8, y: 0, z: -8 } },
+    ],
+  });
+  const samples = materializeSpatialPathSamples(path, { stepSecs: 2 });
+  assert.equal(samples.length, 3);
+  assert.deepEqual(samples[0].pose.position, { x: 0, y: 0, z: 0 });
+  assert.ok(samples[1].speed > 0);
+  const hints = materializeSpatialPreloadHints(samples, {
+    pathRadiusPc: 2,
+    sphereRadiusPc: 1,
+    lookaheadSecs: 3,
+  });
+  assert.equal(hints.some((hint) => hint.kind === 'path-volume'), true);
+  assert.equal(hints.some((hint) => hint.kind === 'sphere-volume'), true);
+  assert.equal(hints.some((hint) => hint.kind === 'view-lookahead'), true);
+});
+
+test('pose transitions can move and rotate over independent durations', () => {
+  const transition = createSpatialPoseTransition({
+    from: {
+      position: { x: 0, y: 0, z: 0 },
+      orientation: IDENTITY_QUATERNION,
+    },
+    to: {
+      position: { x: 10, y: 0, z: 0 },
+      orientation: computeSpatialLookAtOrientation({
+        position: { x: 0, y: 0, z: 0 },
+        target: { x: 10, y: 0, z: 0 },
+      }),
+    },
+    movement: { durationSecs: 5 },
+    orientation: { durationSecs: 1 },
+  });
+  const oneSecond = evaluateSpatialPoseTransition(transition, 1);
+  assert.ok(oneSecond.pose.position.x > 0 && oneSecond.pose.position.x < 2);
+  assert.equal(oneSecond.orientationComplete, true);
+  assert.equal(oneSecond.movementComplete, false);
+  const final = evaluateSpatialPoseTransition(transition, 5);
+  assert.deepEqual(final.pose.position, { x: 10, y: 0, z: 0 });
+  assert.equal(final.complete, true);
 });
 
 test('direct, inertial, thrust, and fly-to motion models update poses', () => {

@@ -1,7 +1,21 @@
 import * as THREE from 'three';
 
 import {
+  createJourneyController,
+  createTimedJourneyEvaluator,
+} from '@found-in-space/journey';
+
+import {
+  combineStarOctreeStrategies,
+  createObserverShellStrategy,
+  createPathVolumeStrategy,
+  createSphereVolumeStrategy,
+  withMotionLookahead,
+} from '@found-in-space/star-octree-provider';
+
+import {
   IDENTITY_QUATERNION as SPATIAL_IDENTITY_QUATERNION,
+  createSpatialPoseTransition,
   createSpatialNavigationAutomation,
   resolveSpatialTarget,
 } from '@found-in-space/spatial';
@@ -131,6 +145,9 @@ export function createSkykitNavigationPlugin(options = {}) {
   const navigation = options.navigation ?? createSpatialNavigationAutomation(options);
   const scaleProfile = options.scaleProfile ?? { navigationUnits: 'pc', metersPerNavigationUnit: 3.085677581e16 };
   let disposed = false;
+  /** @type {import('@found-in-space/spatial').SpatialPoseTransition | null} */
+  let activeTransition = null;
+  let transitionElapsedSeconds = 0;
 
   /** @type {SkykitThreePart} */
   const part = {
@@ -138,6 +155,22 @@ export function createSkykitNavigationPlugin(options = {}) {
     priority: options.priority,
     update(frame) {
       if (disposed) return;
+      if (activeTransition) {
+        transitionElapsedSeconds += Math.max(0, finiteNumber(frame.deltaSeconds, 0));
+        const sample = activeTransition.evaluate(transitionElapsedSeconds);
+        const current = frame.view;
+        if (!sameVector(current.observerPc, sample.pose.position) || !sameQuaternion(current.orientationIcrs, sample.pose.orientation)) {
+          frame.viewer.requestViewState({
+            observerPc: sample.pose.position,
+            orientationIcrs: sample.pose.orientation,
+          }, id);
+        }
+        if (sample.complete) {
+          activeTransition = null;
+          transitionElapsedSeconds = 0;
+        }
+        return;
+      }
       const pose = navigation.update({
         pose: {
           position: frame.view.observerPc,
@@ -164,6 +197,13 @@ export function createSkykitNavigationPlugin(options = {}) {
         id,
         disposed,
         navigation: navigation.getSnapshot?.() ?? null,
+        transition: activeTransition
+          ? {
+              active: true,
+              elapsedSeconds: transitionElapsedSeconds,
+              durationSecs: activeTransition.durationSecs,
+            }
+          : { active: false },
       };
     },
   };
@@ -193,6 +233,12 @@ export function createSkykitNavigationPlugin(options = {}) {
         if (points.length >= 2) navigation.flyPolyline(points, payloadOptions(payload));
         return points;
       }, { label: 'Fly polyline' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.transitionTo, async ({ payload }) => {
+        activeTransition = await createTransition(payload, context);
+        transitionElapsedSeconds = 0;
+        navigation.cancel();
+        return activeTransition;
+      }, { label: 'Transition to view' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.orbit, async ({ payload }) => {
         const target = await resolveCenter(payload, context);
         if (target) navigation.orbit(target, payloadOptions(payload));
@@ -217,12 +263,18 @@ export function createSkykitNavigationPlugin(options = {}) {
         navigation.unlockAt();
       }, { label: 'Unlock look target' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancelMovement, () => {
+        activeTransition = null;
+        transitionElapsedSeconds = 0;
         navigation.cancelMovement();
       }, { label: 'Cancel movement' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancelOrientation, () => {
+        activeTransition = null;
+        transitionElapsedSeconds = 0;
         navigation.cancelOrientation();
       }, { label: 'Cancel orientation' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancel, () => {
+        activeTransition = null;
+        transitionElapsedSeconds = 0;
         navigation.cancel();
       }, { label: 'Cancel navigation' }),
     ];
@@ -284,6 +336,250 @@ export function createSkykitNavigationPlugin(options = {}) {
     }
     return points;
   }
+
+  /**
+   * @param {unknown} payload
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   */
+  async function createTransition(payload, context) {
+    const source = /** @type {Record<string, unknown>} */ (payload && typeof payload === 'object' ? payload : {});
+    const targetSource = /** @type {Record<string, unknown>} */ (
+      source.view && typeof source.view === 'object'
+        ? source.view
+        : source.to && typeof source.to === 'object'
+          ? source.to
+          : source
+    );
+    const current = context.getViewState();
+    const positionInput = targetSource.observerPc ?? targetSource.position;
+    const position = positionInput === undefined
+      ? current.observerPc
+      : await resolveTarget(positionInput, context) ?? current.observerPc;
+    const orientationInput = targetSource.orientationIcrs
+      ?? (targetSource.orientation && isQuaternionLike(targetSource.orientation) ? targetSource.orientation : undefined)
+      ?? source.orientationIcrs;
+    const orientation = normalizeQuaternion(orientationInput, current.orientationIcrs ?? IDENTITY_QUATERNION);
+    return createSpatialPoseTransition({
+      from: {
+        position: current.observerPc,
+        orientation: current.orientationIcrs ?? IDENTITY_QUATERNION,
+      },
+      to: {
+        position,
+        orientation,
+      },
+      durationSecs: finiteNumber(source.durationSecs ?? targetSource.durationSecs, 1),
+      movement: normalizeTransitionLane(source.movement ?? targetSource.movement, source.movementDurationSecs),
+      orientation: normalizeTransitionLane(
+        isQuaternionLike(source.orientation) ? undefined : source.orientation ?? targetSource.orientationTransition,
+        source.orientationDurationSecs,
+      ),
+    });
+  }
+}
+
+/**
+ * @param {import('./index.d.ts').SkykitJourneyPluginOptions} [options]
+ * @returns {SkykitPlugin & { getSnapshot(): unknown }}
+ */
+export function createSkykitJourneyPlugin(options = {}) {
+  const id = options.id ?? 'journey';
+  const controller = options.controller
+    ?? (options.graph || options.scenes ? createJourneyController(options) : null);
+  const evaluator = options.evaluator
+    ?? (options.timedJourney ? createTimedJourneyEvaluator(options.timedJourney, options.evaluatorOptions) : null);
+  let disposed = false;
+  let playing = options.autoPlay === true;
+  let currentTimeSecs = Math.max(0, finiteNumber(options.startTimeSecs, 0));
+  let lastCueId = /** @type {string | null} */ (null);
+  /** @type {import('./index.d.ts').SkykitThreePluginContext | null} */
+  let pluginContext = null;
+  /** @type {(() => void) | null} */
+  let unsubscribeController = null;
+
+  /** @type {SkykitThreePart} */
+  const part = {
+    id,
+    priority: options.priority,
+    attach(context) {
+      pluginContext = context;
+      if (controller) {
+        unsubscribeController = controller.subscribe((event) => {
+          applySceneSpec(event.spec, context, event);
+        });
+      }
+    },
+    update(frame) {
+      if (disposed || !evaluator || !playing) return;
+      currentTimeSecs = Math.min(
+        evaluator.durationSecs,
+        currentTimeSecs + Math.max(0, finiteNumber(frame.deltaSeconds, 0)),
+      );
+      applyTimedFrame(evaluator.evaluate(currentTimeSecs), frame);
+      if (currentTimeSecs >= evaluator.durationSecs) {
+        playing = options.loop === true;
+        currentTimeSecs = playing ? 0 : evaluator.durationSecs;
+      }
+    },
+    detach() {
+      unsubscribeController?.();
+      unsubscribeController = null;
+      pluginContext = null;
+    },
+    dispose() {
+      disposed = true;
+      this.detach?.();
+      if (options.disposeController !== false) controller?.dispose?.();
+    },
+    getSnapshot,
+  };
+
+  return {
+    id,
+    setup(context) {
+      const threeContext = /** @type {import('./index.d.ts').SkykitThreePluginContext} */ (context);
+      threeContext.addPart(part);
+      threeContext.addDisposable(registerJourneyActions(threeContext));
+    },
+    getSnapshot,
+  };
+
+  /** @param {import('./index.d.ts').SkykitThreePluginContext} context */
+  function registerJourneyActions(context) {
+    const unregisters = [
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.goToChapter, ({ payload }) => {
+        const sceneId = resolveSceneId(payload);
+        return sceneId && controller ? controller.goTo(sceneId, { source: SKYKIT_ACTIONS.journey.goToChapter }) : null;
+      }, { label: 'Go to journey chapter' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.next, () => controller?.next({ source: SKYKIT_ACTIONS.journey.next }) ?? null, {
+        label: 'Next journey chapter',
+      }),
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.previous, () => controller?.previous({ source: SKYKIT_ACTIONS.journey.previous }) ?? null, {
+        label: 'Previous journey chapter',
+      }),
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.seek, ({ payload }) => {
+        currentTimeSecs = clampTime(resolveTimeSecs(payload), evaluator?.durationSecs ?? Number.POSITIVE_INFINITY);
+        if (evaluator) applyTimedFrame(evaluator.evaluate(currentTimeSecs), { viewer: context.viewer, view: context.getViewState() });
+        return currentTimeSecs;
+      }, { label: 'Seek journey time' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.play, ({ payload }) => {
+        if (payload && typeof payload === 'object' && 'timeSecs' in payload) {
+          currentTimeSecs = clampTime(resolveTimeSecs(payload), evaluator?.durationSecs ?? Number.POSITIVE_INFINITY);
+        }
+        playing = true;
+        return currentTimeSecs;
+      }, { label: 'Play journey' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.pause, () => {
+        playing = false;
+        return currentTimeSecs;
+      }, { label: 'Pause journey' }),
+    ];
+    return () => {
+      for (const unregister of unregisters.reverse()) unregister();
+    };
+  }
+
+  /**
+   * @param {unknown} spec
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   * @param {unknown} event
+   */
+  function applySceneSpec(spec, context, event) {
+    const scene = /** @type {Record<string, unknown> | null} */ (spec && typeof spec === 'object' ? spec : null);
+    options.onScene?.(scene, context, event);
+    if (!scene) return;
+    if (scene.view && typeof scene.view === 'object') {
+      context.requestViewState(/** @type {Partial<import('./index.d.ts').SkykitViewState>} */ (scene.view), id);
+    }
+    const navigation = /** @type {Record<string, unknown> | null} */ (scene.navigation && typeof scene.navigation === 'object' ? scene.navigation : null);
+    if (navigation?.transitionTo) {
+      void context.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, navigation.transitionTo, {
+        source: id,
+      });
+    }
+    if (Array.isArray(scene.preloadHints)) {
+      options.onPreloadHints?.(scene.preloadHints, scene, context);
+    }
+    options.onLayerState?.(scene, context);
+  }
+
+  /**
+   * @param {import('@found-in-space/journey').TimedJourneyFrame} frameState
+   * @param {{ viewer: import('./index.d.ts').SkykitViewer; view: import('./index.d.ts').SkykitViewState }} frame
+   */
+  function applyTimedFrame(frameState, frame) {
+    const context = pluginContext;
+    const hookResult = options.applyFrame?.(frameState, context, frame);
+    if (hookResult === false) return;
+    frame.viewer.requestViewState({
+      observerPc: frameState.observerPc,
+      orientationIcrs: frameState.orientationIcrs,
+      targetPc: frameState.targetPc,
+      motion: {
+        velocityPcPerSec: frameState.velocityPcPerSec,
+        speedPcPerSec: frameState.speedPcPerSec,
+      },
+    }, id);
+    if (frameState.cue && frameState.cue.id !== lastCueId) {
+      lastCueId = frameState.cue.id;
+      options.onCue?.(frameState.cue, frameState, context);
+    } else if (!frameState.cue) {
+      lastCueId = null;
+    }
+    if (frameState.preloadHints.length > 0) {
+      options.onPreloadHints?.(frameState.preloadHints, frameState, context);
+    }
+  }
+
+  function getSnapshot() {
+    return {
+      id,
+      disposed,
+      playing,
+      currentTimeSecs,
+      controller: controller?.getSnapshot?.() ?? null,
+      timedJourney: evaluator
+        ? {
+            durationSecs: evaluator.durationSecs,
+            journeyId: evaluator.journey.id,
+          }
+        : null,
+    };
+  }
+}
+
+/**
+ * @param {Iterable<import('@found-in-space/spatial').SpatialPreloadHint>} hints
+ * @param {import('./index.d.ts').SkykitSpatialPreloadStrategyOptions} [options]
+ */
+export function createSkykitStarStrategiesFromSpatialHints(hints, options = {}) {
+  /** @type {import('@found-in-space/star-octree-provider').StarOctreeFetchStrategy[]} */
+  const strategies = [];
+  let addedLookahead = false;
+  for (const hint of Array.from(hints ?? [])) {
+    if (!hint || typeof hint !== 'object') continue;
+    if (hint.kind === 'path-volume' && hint.pointsPc.length >= 2 && hint.radiusPc > 0) {
+      strategies.push(createPathVolumeStrategy({
+        pointsPc: hint.pointsPc,
+        radiusPc: hint.radiusPc,
+      }));
+      continue;
+    }
+    if (hint.kind === 'sphere-volume' && hint.radiusPc > 0) {
+      strategies.push(createSphereVolumeStrategy({
+        centerPc: hint.centerPc,
+        radiusPc: hint.radiusPc,
+      }));
+      continue;
+    }
+    if (hint.kind === 'view-lookahead' && !addedLookahead) {
+      addedLookahead = true;
+      strategies.push(withMotionLookahead(options.baseStrategy ?? createObserverShellStrategy()));
+    }
+  }
+  if (options.combine === false) return strategies;
+  if (strategies.length === 0) return null;
+  return strategies.length === 1 ? strategies[0] : combineStarOctreeStrategies(strategies);
 }
 
 /**
@@ -814,6 +1110,55 @@ function payloadOptions(payload) {
   delete options.points;
   delete options.bookmarkId;
   return options;
+}
+
+/** @param {unknown} payload */
+function resolveSceneId(payload) {
+  if (typeof payload === 'string') return payload;
+  if (!payload || typeof payload !== 'object') return null;
+  const source = /** @type {Record<string, unknown>} */ (payload);
+  const value = source.chapterId ?? source.sceneId ?? source.id;
+  return typeof value === 'string' ? value : null;
+}
+
+/** @param {unknown} payload */
+function resolveTimeSecs(payload) {
+  if (Number.isFinite(Number(payload))) return Number(payload);
+  if (!payload || typeof payload !== 'object') return 0;
+  const value = /** @type {Record<string, unknown>} */ (payload).timeSecs
+    ?? /** @type {Record<string, unknown>} */ (payload).sceneTimeSecs
+    ?? /** @type {Record<string, unknown>} */ (payload).time;
+  return finiteNumber(value, 0);
+}
+
+/** @param {number} timeSecs @param {number} durationSecs */
+function clampTime(timeSecs, durationSecs) {
+  return Math.min(Math.max(0, finiteNumber(timeSecs, 0)), Math.max(0, finiteNumber(durationSecs, 0)));
+}
+
+/**
+ * @param {unknown} value
+ * @param {unknown} durationSecs
+ * @returns {{ durationSecs?: number } | undefined}
+ */
+function normalizeTransitionLane(value, durationSecs) {
+  if (value && typeof value === 'object' && 'durationSecs' in value) {
+    return { durationSecs: positiveFinite(/** @type {{ durationSecs?: unknown }} */ (value).durationSecs, finiteNumber(durationSecs, 1)) };
+  }
+  if (durationSecs !== undefined) {
+    return { durationSecs: positiveFinite(durationSecs, 1) };
+  }
+  return undefined;
+}
+
+/** @param {unknown} value */
+function isQuaternionLike(value) {
+  if (!value || typeof value !== 'object') return false;
+  const q = /** @type {Record<string, unknown>} */ (value);
+  return Number.isFinite(Number(q.x))
+    && Number.isFinite(Number(q.y))
+    && Number.isFinite(Number(q.z))
+    && Number.isFinite(Number(q.w));
 }
 
 /**

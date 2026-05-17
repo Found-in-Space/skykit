@@ -17,7 +17,9 @@ import {
   createSkykitDefaultKeyboardNavigationBindings,
   createSkykitAnimationLoop,
   createSkykitDebugBridge,
+  createSkykitJourneyPlugin,
   createSkykitNavigationPlugin,
+  createSkykitStarStrategiesFromSpatialHints,
   createSkykitStatusPlugin,
   createSkykitViewer,
   createStreamingStarLayer,
@@ -712,6 +714,122 @@ test('navigation plugin registers semantic actions and resolves RA/Dec and bookm
   assert.equal(viewer.getSnapshot().parts.some((part) => part.id === 'navigation'), true);
 
   await viewer.dispose();
+});
+
+test('navigation transition action restores pose with independent lane durations', async () => {
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [createSkykitNavigationPlugin()],
+  });
+
+  assert.equal(viewer.actions.listActions().some((entry) => entry.id === SKYKIT_ACTIONS.navigation.transitionTo), true);
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+    observerPc: { x: 10, y: 0, z: 0 },
+    orientationIcrs: { x: 0, y: Math.sin(Math.PI / 8), z: 0, w: Math.cos(Math.PI / 8) },
+    movement: { durationSecs: 5 },
+    orientation: { durationSecs: 1 },
+  });
+
+  viewer.update(1);
+  viewer.update(0);
+  const afterOneSecond = viewer.getViewState();
+  assert.ok(afterOneSecond.observerPc.x > 0 && afterOneSecond.observerPc.x < 10);
+  assert.ok(Math.abs(afterOneSecond.orientationIcrs.y - Math.sin(Math.PI / 8)) < 1e-6);
+
+  viewer.update(4);
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 10, y: 0, z: 0 });
+
+  await viewer.dispose();
+});
+
+test('journey plugin registers actions, applies scenes, timed frames, and preload hooks', async () => {
+  const preloadEvents = [];
+  const cueEvents = [];
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [
+      createSkykitJourneyPlugin({
+        scenes: {
+          intro: { title: 'Intro', view: { limitingMagnitude: 5 } },
+          hyades: {
+            title: 'Hyades',
+            view: { observerPc: { x: 1, y: 2, z: 3 } },
+            preloadHints: [
+              { kind: 'sphere-volume', centerPc: { x: 1, y: 2, z: 3 }, radiusPc: 4 },
+            ],
+          },
+        },
+        initialSceneId: 'intro',
+        timedJourney: {
+          durationSecs: 2,
+          locationWaypoints: [
+            { id: 'a', timeSecs: 0, positionPc: { x: 0, y: 0, z: 0 } },
+            { id: 'b', timeSecs: 2, positionPc: { x: 2, y: 0, z: 0 } },
+          ],
+          cameraLookWaypoints: [
+            { id: 'look', timeSecs: 0, kind: 'direction', forward: { x: 1, y: 0, z: 0 } },
+          ],
+          cues: [{ id: 'cue', startSecs: 0, endSecs: 2 }],
+        },
+        onPreloadHints: (hints) => preloadEvents.push(hints),
+        onCue: (cue) => cueEvents.push(cue.id),
+      }),
+    ],
+  });
+
+  assert.equal(viewer.actions.listActions().some((entry) => entry.id === SKYKIT_ACTIONS.journey.goToChapter), true);
+  await viewer.actions.invoke(SKYKIT_ACTIONS.journey.goToChapter, 'hyades');
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 1, y: 2, z: 3 });
+  assert.equal(preloadEvents.length, 1);
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.journey.seek, { timeSecs: 1 });
+  viewer.update(0);
+  assert.ok(viewer.getViewState().observerPc.x > 0);
+  assert.deepEqual(cueEvents, ['cue']);
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.journey.play);
+  const beforePlayX = viewer.getViewState().observerPc.x;
+  viewer.update(0.5);
+  viewer.update(0);
+  assert.ok(viewer.getViewState().observerPc.x > beforePlayX);
+
+  await viewer.dispose();
+});
+
+test('spatial preload hints map to star-octree strategies without exposing provider internals', () => {
+  const combined = createSkykitStarStrategiesFromSpatialHints([
+    {
+      kind: 'path-volume',
+      pointsPc: [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }],
+      radiusPc: 2,
+    },
+    {
+      kind: 'sphere-volume',
+      centerPc: { x: 1, y: 2, z: 3 },
+      radiusPc: 4,
+    },
+    {
+      kind: 'view-lookahead',
+      pose: {
+        position: { x: 0, y: 0, z: 0 },
+        orientation: { x: 0, y: 0, z: 0, w: 1 },
+      },
+      velocity: { x: 1, y: 0, z: 0 },
+      lookaheadSecs: 5,
+    },
+  ]);
+
+  assert.equal(combined?.kind, 'composite');
+  assert.deepEqual(combined.strategies.map((strategy) => strategy.kind), [
+    'path-volume',
+    'sphere-volume',
+    'motion-lookahead',
+  ]);
+
+  const separate = createSkykitStarStrategiesFromSpatialHints([], { combine: false });
+  assert.deepEqual(separate, []);
 });
 
 test('sky grab plugin maps drag movement to viewer orientation and cleans listeners', async () => {

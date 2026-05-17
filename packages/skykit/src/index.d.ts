@@ -1,14 +1,26 @@
 import type { ProductDelta } from '@found-in-space/product-stream';
 import type {
+  SpatialPreloadHint,
   SpatialNavigationAutomation,
   SpatialNavigationAutomationOptions,
   SpatialScaleProfile,
   SpatialTargetInput,
   SpatialVector3,
 } from '@found-in-space/spatial';
+import type {
+  CreateTimedJourneyEvaluatorOptions,
+  JourneyController,
+  JourneyGraph,
+  JourneySceneSpec,
+  TimedJourney,
+  TimedJourneyCue,
+  TimedJourneyEvaluator,
+  TimedJourneyFrame,
+} from '@found-in-space/journey';
 import type { StarObjectBatchProduct } from '@found-in-space/star-products';
 import type {
   StarOctreeCoordinateOutput,
+  StarOctreeFetchStrategy,
   StarOctreeProviderService,
   StarOctreeProviderSession,
   StarOctreeSessionOptions,
@@ -509,6 +521,52 @@ export interface SkykitNavigationPluginOptions extends SpatialNavigationAutomati
   ) => SpatialTargetInput | Promise<SpatialTargetInput | null> | null;
 }
 
+export interface SkykitJourneyPluginOptions {
+  id?: string;
+  priority?: number;
+  controller?: JourneyController | null;
+  graph?: JourneyGraph;
+  scenes?: Record<string, JourneySceneSpec>;
+  transitions?: Iterable<Record<string, unknown>>;
+  initialSceneId?: string | null;
+  timedJourney?: TimedJourney | Record<string, unknown>;
+  evaluator?: TimedJourneyEvaluator | null;
+  evaluatorOptions?: CreateTimedJourneyEvaluatorOptions;
+  autoPlay?: boolean;
+  loop?: boolean;
+  startTimeSecs?: number;
+  disposeController?: boolean;
+  applyFrame?: (
+    frame: TimedJourneyFrame,
+    context: SkykitThreePluginContext | null,
+    skykitFrame: { viewer: SkykitViewer; view: SkykitViewState }
+  ) => boolean | void;
+  onScene?: (
+    scene: JourneySceneSpec | Record<string, unknown> | null,
+    context: SkykitThreePluginContext,
+    event: unknown
+  ) => void;
+  onCue?: (
+    cue: TimedJourneyCue,
+    frame: TimedJourneyFrame,
+    context: SkykitThreePluginContext | null
+  ) => void;
+  onPreloadHints?: (
+    hints: SpatialPreloadHint[],
+    source: TimedJourneyFrame | JourneySceneSpec | Record<string, unknown>,
+    context: SkykitThreePluginContext | null
+  ) => void;
+  onLayerState?: (
+    scene: JourneySceneSpec | Record<string, unknown>,
+    context: SkykitThreePluginContext
+  ) => void;
+}
+
+export interface SkykitSpatialPreloadStrategyOptions {
+  combine?: boolean;
+  baseStrategy?: StarOctreeFetchStrategy;
+}
+
 export interface SkykitAnimationLoopOptions {
   autoStart?: boolean;
   render?: boolean;
@@ -593,6 +651,7 @@ export declare const SKYKIT_ACTIONS: {
   readonly navigation: {
     readonly flyTo: 'skykit:navigation.flyTo';
     readonly flyPolyline: 'skykit:navigation.flyPolyline';
+    readonly transitionTo: 'skykit:navigation.transitionTo';
     readonly orbit: 'skykit:navigation.orbit';
     readonly orbitalInsert: 'skykit:navigation.orbitalInsert';
     readonly lookAt: 'skykit:navigation.lookAt';
@@ -659,6 +718,13 @@ export declare function createKeyboardNavigationPlugin(options?: SkykitKeyboardN
 export declare function createSkykitNavigationPlugin(options?: SkykitNavigationPluginOptions): SkykitPlugin & {
   getSnapshot(): unknown;
 };
+export declare function createSkykitJourneyPlugin(options?: SkykitJourneyPluginOptions): SkykitPlugin & {
+  getSnapshot(): unknown;
+};
+export declare function createSkykitStarStrategiesFromSpatialHints(
+  hints: Iterable<SpatialPreloadHint>,
+  options?: SkykitSpatialPreloadStrategyOptions
+): StarOctreeFetchStrategy | StarOctreeFetchStrategy[] | null;
 export declare function createSkyGrabPlugin(options?: SkykitDragLookOptions): SkykitPlugin & {
   getSnapshot(): unknown;
 };

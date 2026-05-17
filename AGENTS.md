@@ -59,7 +59,12 @@ rewriting it into the alpha package shape, never by importing old internals.
 
 - `@found-in-space/product-stream`: generic product lifecycle.
 - `@found-in-space/spatial`: dependency-free coordinates, poses, routes,
-  target resolution, smooth navigation, orbit, look-at, and motion helpers.
+  target resolution, smooth paths, timed pose tracks, materialized preload
+  hints, smooth navigation, orbit, look-at, and motion helpers.
+- `@found-in-space/journey`: authored scene graphs, timed journey evaluators,
+  cue/track evaluation, and retiming helpers built on spatial.
+- `@found-in-space/journey-video`: placeholder package for future deterministic
+  journey export/editor tooling.
 - `@found-in-space/star-products`: star products, stores, iteration, and math.
 - `@found-in-space/star-octree-provider`: octree loading, strategies, streaming,
   payload decode, and star product emission.

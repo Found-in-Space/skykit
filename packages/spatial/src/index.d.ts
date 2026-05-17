@@ -99,6 +99,169 @@ export interface SpatialPolylineRoute {
   totalLength: number;
 }
 
+export interface SpatialTimedPositionWaypoint {
+  id: string;
+  timeSecs: number;
+  position: SpatialVector3;
+  motionGroup?: Record<string, unknown>;
+}
+
+export type SpatialTimedOrientationWaypoint =
+  | { id: string; timeSecs: number; kind: 'direction'; forward: SpatialVector3; up: SpatialVector3 }
+  | { id: string; timeSecs: number; kind: 'target'; target: SpatialVector3; up: SpatialVector3 }
+  | { id: string; timeSecs: number; kind: 'quaternion'; orientation: SpatialQuaternion };
+
+export interface SpatialArcSample {
+  u: number;
+  distance: number;
+  point: SpatialVector3;
+}
+
+export interface SpatialPositionTrackSegment {
+  index: number;
+  start: SpatialTimedPositionWaypoint;
+  end: SpatialTimedPositionWaypoint;
+  durationSecs: number;
+  held: boolean;
+  length: number;
+  speed: number;
+  arc: {
+    length: number;
+    samples: SpatialArcSample[];
+  };
+}
+
+export interface SpatialPositionTrack {
+  waypoints: SpatialTimedPositionWaypoint[];
+  segments: SpatialPositionTrackSegment[];
+  durationSecs: number;
+  samplesPerSegment: number;
+}
+
+export interface SpatialOrientationTrack {
+  waypoints: SpatialTimedOrientationWaypoint[];
+  durationSecs: number;
+  useLinearInterpolation: boolean;
+}
+
+export interface SpatialPositionTrackSample {
+  timeSecs: number;
+  position: SpatialVector3;
+  velocity: SpatialVector3;
+  velocityUnit: SpatialVector3;
+  speed: number;
+  segmentIndex: number | null;
+}
+
+export interface SpatialOrientationTrackSample {
+  timeSecs: number;
+  orientation: SpatialQuaternion;
+  forward: SpatialVector3;
+  up: SpatialVector3;
+}
+
+export interface CreateSpatialPositionTrackOptions {
+  samplesPerSegment?: number;
+}
+
+export interface CreateSpatialOrientationTrackOptions {
+  useLinearInterpolation?: boolean;
+}
+
+export interface CreateSpatialSmoothPathInput {
+  durationSecs?: number;
+  targetDistance?: number;
+  positionWaypoints?: Iterable<unknown>;
+  orientationWaypoints?: Iterable<unknown>;
+}
+
+export interface CreateSpatialSmoothPathOptions extends CreateSpatialPositionTrackOptions, CreateSpatialOrientationTrackOptions {
+  targetDistance?: number;
+}
+
+export interface SpatialSmoothPathSample {
+  frameIndex?: number;
+  timeSecs: number;
+  pose: SpatialPose;
+  position: SpatialVector3;
+  orientation: SpatialQuaternion;
+  target: SpatialVector3;
+  forward: SpatialVector3;
+  up: SpatialVector3;
+  velocity: SpatialVector3;
+  velocityUnit: SpatialVector3;
+  speed: number;
+  segmentIndex: number | null;
+}
+
+export interface MaterializeSpatialPathSamplesOptions {
+  stepSecs?: number;
+  pathRadiusPc?: number;
+  sphereRadiusPc?: number;
+  lookaheadSecs?: number;
+  priority?: number;
+}
+
+export interface SpatialSmoothPath {
+  durationSecs: number;
+  positionTrack: SpatialPositionTrack;
+  orientationTrack: SpatialOrientationTrack;
+  evaluate(timeSecs: number): SpatialSmoothPathSample;
+  sample(options?: MaterializeSpatialPathSamplesOptions): SpatialSmoothPathSample[];
+  materializePreloadHints(options?: MaterializeSpatialPreloadHintsOptions): SpatialPreloadHint[];
+}
+
+export interface SpatialPoseTransitionInput {
+  from: Partial<SpatialPose> | { observerPc?: SpatialVector3; orientationIcrs?: SpatialQuaternion };
+  to: Partial<SpatialPose> | { observerPc?: SpatialVector3; orientationIcrs?: SpatialQuaternion };
+  durationSecs?: number;
+  movement?: { durationSecs?: number };
+  orientation?: { durationSecs?: number };
+}
+
+export interface SpatialPoseTransition {
+  durationSecs: number;
+  from: SpatialPose;
+  to: SpatialPose;
+  movement?: { durationSecs?: number };
+  orientation?: { durationSecs?: number };
+  evaluate(elapsedSecs: number): SpatialPoseTransitionSample;
+}
+
+export interface SpatialPoseTransitionSample {
+  elapsedSecs: number;
+  complete: boolean;
+  movementComplete: boolean;
+  orientationComplete: boolean;
+  pose: SpatialPose;
+}
+
+export type SpatialPreloadHint =
+  | {
+      kind: 'path-volume';
+      pointsPc: SpatialVector3[];
+      radiusPc: number;
+      timeRangeSecs?: [number, number];
+      priority?: number;
+    }
+  | {
+      kind: 'sphere-volume';
+      centerPc: SpatialVector3;
+      radiusPc: number;
+      timeRangeSecs?: [number, number];
+      priority?: number;
+    }
+  | {
+      kind: 'view-lookahead';
+      pose: SpatialPose;
+      velocity: SpatialVector3;
+      lookaheadSecs: number;
+      timeRangeSecs?: [number, number];
+      priority?: number;
+    };
+
+export interface MaterializeSpatialPreloadHintsOptions extends MaterializeSpatialPathSamplesOptions {}
+
 export interface SpatialOrbitAngleInput {
   center: SpatialVector3;
   position: SpatialVector3;
@@ -319,3 +482,15 @@ export declare function createOrbitSpatialMotionModel(options?: SpatialOrbitOpti
 export declare function createOrbitalInsertSpatialMotionModel(options?: SpatialOrbitalInsertOptions): SpatialOrbitalInsertMotionModel;
 export declare function createLookAtSpatialMotionModel(options?: SpatialLookAtMotionOptions): SpatialLookAtMotionModel;
 export declare function createSpatialNavigationAutomation(options?: SpatialNavigationAutomationOptions): SpatialNavigationAutomation;
+export declare function normalizeTimedSpatialPositionWaypoints(waypoints?: Iterable<unknown>): SpatialTimedPositionWaypoint[];
+export declare function normalizeTimedSpatialOrientationWaypoints(waypoints?: Iterable<unknown>): SpatialTimedOrientationWaypoint[];
+export declare function createSpatialPositionTrack(waypoints?: Iterable<unknown>, options?: CreateSpatialPositionTrackOptions): SpatialPositionTrack;
+export declare function evaluateSpatialPositionTrack(track: SpatialPositionTrack, timeSecs: number): SpatialPositionTrackSample;
+export declare function createSpatialOrientationTrack(waypoints?: Iterable<unknown>, options?: CreateSpatialOrientationTrackOptions): SpatialOrientationTrack;
+export declare function evaluateSpatialOrientationTrack(track: SpatialOrientationTrack, timeSecs: number, context?: { position?: SpatialVector3 }): SpatialOrientationTrackSample;
+export declare function createSpatialSmoothPath(input?: CreateSpatialSmoothPathInput, options?: CreateSpatialSmoothPathOptions): SpatialSmoothPath;
+export declare function evaluateSpatialSmoothPath(path: SpatialSmoothPath, timeSecs: number, options?: { targetDistance?: number }): SpatialSmoothPathSample;
+export declare function createSpatialPoseTransition(input: SpatialPoseTransitionInput): SpatialPoseTransition;
+export declare function evaluateSpatialPoseTransition(transition: SpatialPoseTransition, elapsedSecs: number): SpatialPoseTransitionSample;
+export declare function materializeSpatialPathSamples(input: SpatialSmoothPath | { sample?: Function; evaluate?: Function; durationSecs?: number } | SpatialSmoothPathSample[], options?: MaterializeSpatialPathSamplesOptions): SpatialSmoothPathSample[];
+export declare function materializeSpatialPreloadHints(input: SpatialSmoothPathSample[] | SpatialSmoothPath, options?: MaterializeSpatialPreloadHintsOptions): SpatialPreloadHint[];

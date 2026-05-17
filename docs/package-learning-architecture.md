@@ -604,8 +604,17 @@ fetch nearby lower-priority payloads early when range batching makes that faster
 
 @found-in-space/spatial
   implemented: dependency-free coordinate conversion, target resolution, poses,
-  routes, smooth fly-to/route-follow, orbit, orbital insertion, look-at,
-  lock-at, and motion models
+  routes, smooth paths, timed pose tracks, materialized preload hints, smooth
+  fly-to/route-follow, orbit, orbital insertion, look-at, lock-at, and motion
+  models
+
+@found-in-space/journey
+  implemented: authored interactive scene graphs, timed journey normalization
+  and evaluation, cues, generic tracks, preload hints, and retiming helpers
+
+@found-in-space/journey-video
+  placeholder: future deterministic video/export orchestration, render settling,
+  capture metadata, editor/export tooling, and layout presets
 
 @found-in-space/star-products
   implemented: StarObjectBatchProduct types, star representation store,
@@ -636,9 +645,9 @@ fetch nearby lower-priority payloads early when range batching makes that faster
   implemented alpha composition slice: slim Three.js viewer, plugin/part
   lifecycle, streaming star plugin/layer, object3d plugin/layer, keyboard
   navigation helper, sky-grab and mouse-look helpers, status helper,
-  navigation actions/plugin backed by spatial, animation loop, desktop observer
-  rig, debug bridge, and optional `skykit/xr` WebXR rig/input/ray/session/depth
-  helpers
+  navigation actions/plugin backed by spatial, journey plugin/action bridge,
+  animation loop, desktop observer rig, debug bridge, and optional `skykit/xr`
+  WebXR rig/input/ray/session/depth helpers
 
 @found-in-space/experimental-structure-layers
   implemented: experimental preservation package for H-alpha tiled volumes,

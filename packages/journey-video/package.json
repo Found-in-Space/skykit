@@ -1,0 +1,25 @@
+{
+  "name": "@found-in-space/journey-video",
+  "version": "0.0.0-alpha.0",
+  "description": "Placeholder for deterministic journey video export tooling",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "TODO.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test"
+  }
+}

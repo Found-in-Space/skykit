@@ -28,7 +28,9 @@ demo shell; new architecture should be package-owned.
 Current package direction:
 
 - `@found-in-space/product-stream`: generic product delta/store lifecycle
-- `@found-in-space/spatial`: dependency-free coordinates, poses, routes, targets, and smooth navigation helpers
+- `@found-in-space/spatial`: dependency-free coordinates, poses, smooth paths, timed pose tracks, preload hints, routes, targets, and smooth navigation helpers
+- `@found-in-space/journey`: authored scene graphs, timed journeys, cues, tracks, and retiming helpers
+- `@found-in-space/journey-video`: placeholder boundary for future deterministic journey video/export tooling
 - `@found-in-space/star-products`: star product stores, iteration, star math, and display helpers
 - `@found-in-space/star-octree-provider`: star octree loading, provider-owned strategies, streaming sessions, and product emission
 - `@found-in-space/meta-sidecar-provider`: metadata sidecar facts keyed by star product refs
@@ -74,3 +76,4 @@ Override with `?constellationManifestUrl=...`. Dataset URLs can be overridden wi
 - [`docs/anchored-image.md`](./docs/anchored-image.md): current alpha contract for `@found-in-space/anchored-image`
 - [`docs/skykit-core-composition.md`](./docs/skykit-core-composition.md): current alpha direction for core `@found-in-space/skykit`
 - [`docs/xr-architecture.md`](./docs/xr-architecture.md): current alpha boundary for `@found-in-space/spatial` and `@found-in-space/skykit/xr`
+- [`docs/journey-architecture.md`](./docs/journey-architecture.md): current alpha boundary for authored journeys and future video/export tooling

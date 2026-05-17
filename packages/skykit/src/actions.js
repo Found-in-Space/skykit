@@ -7,6 +7,7 @@ export const SKYKIT_ACTIONS = Object.freeze({
   navigation: Object.freeze({
     flyTo: 'skykit:navigation.flyTo',
     flyPolyline: 'skykit:navigation.flyPolyline',
+    transitionTo: 'skykit:navigation.transitionTo',
     orbit: 'skykit:navigation.orbit',
     orbitalInsert: 'skykit:navigation.orbitalInsert',
     lookAt: 'skykit:navigation.lookAt',

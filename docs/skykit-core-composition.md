@@ -176,6 +176,7 @@ Examples:
 skykit:ship.move.forward
 skykit:ship.attitude.rollClockwise
 skykit:viewer.reset
+skykit:navigation.transitionTo
 skykit:journey.goToChapter
 game:weapons.fire
 lesson:highlight.next
@@ -192,6 +193,12 @@ Plugins register actions through `ctx.actions.registerAction()` or
 run in priority order. This lets keyboard, touch DOM, touch-os, WebXR, debug
 tools, and journey buttons call the same semantic action without faking
 keypresses.
+
+`createSkykitJourneyPlugin()` uses this same registry. Interactive journeys
+register `skykit:journey.goToChapter`, `next`, and `previous`; timed journeys
+register `seek`, `play`, and `pause`; authored view restores can drive
+`skykit:navigation.transitionTo` so movement and orientation durations can run
+in parallel.
 
 ---
 

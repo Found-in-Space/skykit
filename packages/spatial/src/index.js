@@ -51,3 +51,17 @@ export {
   deriveSpatialOrbitAngle,
   sampleSpatialPolylineRoutePosition,
 } from './navigation.js';
+export {
+  createSpatialOrientationTrack,
+  createSpatialPoseTransition,
+  createSpatialPositionTrack,
+  createSpatialSmoothPath,
+  evaluateSpatialOrientationTrack,
+  evaluateSpatialPoseTransition,
+  evaluateSpatialPositionTrack,
+  evaluateSpatialSmoothPath,
+  materializeSpatialPathSamples,
+  materializeSpatialPreloadHints,
+  normalizeTimedSpatialOrientationWaypoints,
+  normalizeTimedSpatialPositionWaypoints,
+} from './smooth-paths.js';

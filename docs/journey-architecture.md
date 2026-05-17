@@ -1,6 +1,6 @@
 # Journey Architecture
 
-Status: alpha planning note.
+Status: alpha implementation note.
 
 Found in Space has two useful journey patterns in the website today:
 
@@ -23,7 +23,7 @@ scripts, but they should not be folded into core `@found-in-space/skykit`.
 
 ## 1. Package Boundary
 
-The likely stable package is:
+The alpha runtime package is:
 
 ```txt
 @found-in-space/journey
@@ -57,8 +57,13 @@ timeline editor UI
 Optional packages can sit on top later:
 
 ```txt
+@found-in-space/journey-video
+  placeholder for deterministic render/export orchestration, capture metadata,
+  render settling, layout presets, editor/export tooling
+
 @found-in-space/journey-editor
-  standalone timeline editor, tiled previews, JSON import/export, retiming UI
+  possible later standalone timeline editor, tiled previews, JSON import/export,
+  retiming UI
 ```
 
 The editor should be available outside the website, but it is an optional extra
@@ -162,7 +167,7 @@ plain output quaternion + forward/up vectors
 The runtime surface should remain plain:
 
 ```js
-const evaluator = createJourneyEvaluator(journey);
+const evaluator = createTimedJourneyEvaluator(journey);
 
 const frame = evaluator.evaluate(12.5);
 
@@ -260,23 +265,39 @@ useful behavior into package-shaped APIs rather than importing website scripts.
 
 ---
 
-## 6. Initial Implementation Order
+## 6. Current Alpha Status
 
-Recommended first slice:
+Implemented first slice:
 
 ```txt
-1. Create @found-in-space/journey.
-2. Port/rewrite createJourneyGraph() and tests.
-3. Port/rewrite timed journey normalization/evaluation and tests.
-4. Port/rewrite retiming helpers as package exports.
-5. Add a small SkyKit journey plugin example using skykit:journey actions.
+@found-in-space/spatial
+  smooth paths, timed position/orientation tracks, pose transitions, and
+  provider-neutral preload hint materialization
+
+@found-in-space/journey
+  createJourneyGraph()
+  createJourneyController()
+  normalizeTimedJourney()
+  createTimedJourneyEvaluator()
+  evaluateTimedJourneyAtTime()
+  cue helpers
+  speed/ease retiming helpers
+
+@found-in-space/skykit
+  createSkykitJourneyPlugin()
+  skykit:journey.* action registration
+  skykit:navigation.transitionTo
+  spatial preload hint to star-octree strategy mapping
+
+@found-in-space/journey-video
+  placeholder README/TODO/package boundary only
 ```
 
-Defer:
+Still deferred:
 
 ```txt
 standalone editor package
-video capture/export package
+substantial video capture/export runtime
 Blender interchange tooling
 website migration
 no-code static-page journey helper
