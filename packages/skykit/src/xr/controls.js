@@ -1,4 +1,4 @@
-import { finiteNumber } from './xr-math.js';
+import { finiteNumber } from '@found-in-space/spatial';
 
 const BUTTON_ALIASES = Object.freeze({
   trigger: 0,
@@ -9,10 +9,10 @@ const BUTTON_ALIASES = Object.freeze({
 
 /**
  * @param {Iterable<unknown>} inputSources
- * @param {import('./index.d.ts').XrAxisBinding & { deadzone?: number }} binding
- * @returns {import('./index.d.ts').XrAxisState}
+ * @param {import('../xr.d.ts').SkykitXrAxisBinding & { deadzone?: number }} binding
+ * @returns {import('../xr.d.ts').SkykitXrAxisState}
  */
-export function readXrAxis(inputSources, binding = {}) {
+export function readSkykitXrAxis(inputSources, binding = {}) {
   const deadzone = normalizeDeadzone(binding.deadzone);
   let best = axisState(0, 0, null);
   let bestMagnitude = 0;
@@ -43,13 +43,13 @@ export function readXrAxis(inputSources, binding = {}) {
 
 /**
  * @param {Iterable<unknown>} inputSources
- * @param {import('./index.d.ts').XrButtonBinding} binding
- * @param {import('./index.d.ts').XrButtonState | null} [previous]
- * @returns {import('./index.d.ts').XrButtonState}
+ * @param {import('../xr.d.ts').SkykitXrButtonBinding} binding
+ * @param {import('../xr.d.ts').SkykitXrButtonState | null} [previous]
+ * @returns {import('../xr.d.ts').SkykitXrButtonState}
  */
-export function readXrButton(inputSources, binding = {}, previous = null) {
+export function readSkykitXrButton(inputSources, binding = {}, previous = null) {
   const buttonIndex = resolveButtonIndex(binding.button);
-  /** @type {import('./index.d.ts').XrButtonState} */
+  /** @type {import('../xr.d.ts').SkykitXrButtonState} */
   let best = {
     pressed: false,
     touched: false,
@@ -83,16 +83,17 @@ export function readXrButton(inputSources, binding = {}, previous = null) {
 }
 
 /**
- * @param {import('./index.d.ts').XrControlBindingsOptions} [options]
- * @returns {import('./index.d.ts').XrControlBindingsHandle}
+ * @param {import('../xr.d.ts').SkykitXrControlBindingsOptions} [options]
+ * @returns {import('../xr.d.ts').SkykitXrControlBindingsHandle}
  */
-export function createXrControlBindings(options = {}) {
+export function createSkykitXrControlBindings(options = {}) {
+  const id = options.id ?? 'skykit-xr-controls';
   let config = normalizeBindingOptions(options);
-  /** @type {Map<string, import('./index.d.ts').XrAxisState>} */
+  /** @type {Map<string, import('../xr.d.ts').SkykitXrAxisState>} */
   const axisStates = new Map();
-  /** @type {Map<string, import('./index.d.ts').XrButtonState>} */
+  /** @type {Map<string, import('../xr.d.ts').SkykitXrButtonState>} */
   const buttonStates = new Map();
-  /** @type {Map<string, Set<(state: import('./index.d.ts').XrAxisState | import('./index.d.ts').XrButtonState) => void>>} */
+  /** @type {Map<string, Set<(state: import('../xr.d.ts').SkykitXrAxisState | import('../xr.d.ts').SkykitXrButtonState) => void>>} */
   const listeners = new Map();
   let disposed = false;
 
@@ -100,10 +101,11 @@ export function createXrControlBindings(options = {}) {
     axisStates.set(name, axisState(0, 0, null));
   }
   for (const name of Object.keys(config.buttons)) {
-    buttonStates.set(name, readXrButton([], config.buttons[name], null));
+    buttonStates.set(name, readSkykitXrButton([], config.buttons[name], null));
   }
 
   return {
+    id,
     update,
     getAxis,
     getButton,
@@ -121,7 +123,7 @@ export function createXrControlBindings(options = {}) {
     assertActive();
     const inputSources = resolveInputSources(source);
     for (const [name, binding] of Object.entries(config.axes)) {
-      const next = readXrAxis(inputSources, { ...binding, deadzone: config.deadzone });
+      const next = readSkykitXrAxis(inputSources, { ...binding, deadzone: config.deadzone });
       const previous = axisStates.get(name);
       axisStates.set(name, next);
       if (!axisEqual(previous, next)) {
@@ -129,7 +131,7 @@ export function createXrControlBindings(options = {}) {
       }
     }
     for (const [name, binding] of Object.entries(config.buttons)) {
-      const next = readXrButton(inputSources, binding, buttonStates.get(name) ?? null);
+      const next = readSkykitXrButton(inputSources, binding, buttonStates.get(name) ?? null);
       const previous = buttonStates.get(name);
       buttonStates.set(name, next);
       if (!buttonEqual(previous, next)) {
@@ -149,7 +151,7 @@ export function createXrControlBindings(options = {}) {
    * @param {string} name
    */
   function getButton(name) {
-    return { ...(buttonStates.get(name) ?? readXrButton([], {}, null)) };
+    return { ...(buttonStates.get(name) ?? readSkykitXrButton([], {}, null)) };
   }
 
   /**
@@ -161,12 +163,12 @@ export function createXrControlBindings(options = {}) {
 
   /**
    * @param {string} name
-   * @param {(state: import('./index.d.ts').XrAxisState | import('./index.d.ts').XrButtonState) => void} listener
+   * @param {(state: import('../xr.d.ts').SkykitXrAxisState | import('../xr.d.ts').SkykitXrButtonState) => void} listener
    */
   function on(name, listener) {
     assertActive();
     if (typeof listener !== 'function') {
-      throw new TypeError('XrControlBindings.on() requires a listener.');
+      throw new TypeError('SkykitXrControlBindings.on() requires a listener.');
     }
     if (!listeners.has(name)) {
       listeners.set(name, new Set());
@@ -178,7 +180,7 @@ export function createXrControlBindings(options = {}) {
   }
 
   /**
-   * @param {import('./index.d.ts').XrControlBindingsOptions} next
+   * @param {import('../xr.d.ts').SkykitXrControlBindingsOptions} next
    */
   function setBindings(next) {
     assertActive();
@@ -192,12 +194,13 @@ export function createXrControlBindings(options = {}) {
       if (!axisStates.has(name)) axisStates.set(name, axisState(0, 0, null));
     }
     for (const name of Object.keys(config.buttons)) {
-      if (!buttonStates.has(name)) buttonStates.set(name, readXrButton([], config.buttons[name], null));
+      if (!buttonStates.has(name)) buttonStates.set(name, readSkykitXrButton([], config.buttons[name], null));
     }
   }
 
   function getSnapshot() {
     return {
+      id,
       disposed,
       deadzone: config.deadzone,
       axes: Object.fromEntries(Array.from(axisStates.entries()).map(([name, state]) => [name, { ...state }])),
@@ -216,7 +219,7 @@ export function createXrControlBindings(options = {}) {
 
   /**
    * @param {string} name
-   * @param {import('./index.d.ts').XrAxisState | import('./index.d.ts').XrButtonState} state
+   * @param {import('../xr.d.ts').SkykitXrAxisState | import('../xr.d.ts').SkykitXrButtonState} state
    */
   function notify(name, state) {
     for (const listener of listeners.get(name) ?? []) {
@@ -226,13 +229,13 @@ export function createXrControlBindings(options = {}) {
 
   function assertActive() {
     if (disposed) {
-      throw new Error('XrControlBindings has been disposed.');
+      throw new Error('SkykitXrControlBindings has been disposed.');
     }
   }
 }
 
 /**
- * @param {import('./index.d.ts').XrControlBindingsOptions} options
+ * @param {import('../xr.d.ts').SkykitXrControlBindingsOptions} options
  */
 function normalizeBindingOptions(options) {
   return {
@@ -252,7 +255,7 @@ function normalizeDeadzone(value) {
 
 /**
  * @param {number} axesLength
- * @param {import('./index.d.ts').XrAxisBinding} binding
+ * @param {import('../xr.d.ts').SkykitXrAxisBinding} binding
  * @returns {[number, number]}
  */
 function resolveAxisIndices(axesLength, binding) {
@@ -326,16 +329,16 @@ function axisState(x, y, activeHand) {
 }
 
 /**
- * @param {import('./index.d.ts').XrAxisState | undefined} a
- * @param {import('./index.d.ts').XrAxisState} b
+ * @param {import('../xr.d.ts').SkykitXrAxisState | undefined} a
+ * @param {import('../xr.d.ts').SkykitXrAxisState} b
  */
 function axisEqual(a, b) {
   return !!a && a.x === b.x && a.y === b.y && a.activeHand === b.activeHand;
 }
 
 /**
- * @param {import('./index.d.ts').XrButtonState | undefined} a
- * @param {import('./index.d.ts').XrButtonState} b
+ * @param {import('../xr.d.ts').SkykitXrButtonState | undefined} a
+ * @param {import('../xr.d.ts').SkykitXrButtonState} b
  */
 function buttonEqual(a, b) {
   return !!a

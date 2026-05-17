@@ -310,44 +310,6 @@ export function temperatureToRgb(teffLog8OrTemperatureK, options = {}) {
   ];
 }
 
-/**
- * @param {{ x: number; y: number; z: number } | [number, number, number]} position
- * @param {{ x: number; y: number; z: number } | [number, number, number]} [observerPc]
- */
-export function icrsToRaDec(position, observerPc = [0, 0, 0]) {
-  const pos = vectorFrom(position);
-  const obs = vectorFrom(observerPc);
-  if (!pos || !obs) return null;
-
-  const x = pos[0] - obs[0];
-  const y = pos[1] - obs[1];
-  const z = pos[2] - obs[2];
-  const length = Math.hypot(x, y, z);
-  if (!(length > 0)) return null;
-
-  const nx = x / length;
-  const ny = y / length;
-  const nz = z / length;
-  const raRawDeg = Math.atan2(ny, nx) * (180 / Math.PI);
-  const raDeg = (raRawDeg + 360) % 360;
-  const decDeg = Math.asin(clamp(nz, -1, 1)) * (180 / Math.PI);
-  return {
-    raDeg,
-    raHours: raDeg / 15,
-    decDeg,
-  };
-}
-
-/**
- * @param {{ raDeg: number; decDeg: number; width: number; height: number }} options
- */
-export function projectEquirectangular(options) {
-  return {
-    x: ((Number(options.raDeg) % 360 + 360) % 360) / 360 * options.width,
-    y: (90 - clamp(Number(options.decDeg), -90, 90)) / 180 * options.height,
-  };
-}
-
 export function supportsTransferableBuffers() {
   if (transferableSupport !== null) {
     return transferableSupport;
@@ -446,31 +408,6 @@ function writePositions(options) {
       output[outputIndex + 2] = zPc;
     }
   }
-}
-
-/**
- * @param {unknown} value
- * @returns {[number, number, number] | null}
- */
-function vectorFrom(value) {
-  if (Array.isArray(value)) {
-    const [x, y, z] = value.map(Number);
-    return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)
-      ? [x, y, z]
-      : null;
-  }
-
-  if (value && typeof value === 'object') {
-    const candidate = /** @type {{ x?: unknown; y?: unknown; z?: unknown }} */ (value);
-    const x = Number(candidate.x);
-    const y = Number(candidate.y);
-    const z = Number(candidate.z);
-    return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)
-      ? [x, y, z]
-      : null;
-  }
-
-  return null;
 }
 
 /**

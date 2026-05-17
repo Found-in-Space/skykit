@@ -17,6 +17,7 @@ import {
   createSkykitDefaultKeyboardNavigationBindings,
   createSkykitAnimationLoop,
   createSkykitDebugBridge,
+  createSkykitNavigationPlugin,
   createSkykitStatusPlugin,
   createSkykitViewer,
   createStreamingStarLayer,
@@ -677,6 +678,40 @@ test('keyboard navigation custom bindings can rotate pitch yaw and roll', async 
   await pitchViewer.dispose();
   await yawViewer.dispose();
   await rollViewer.dispose();
+});
+
+test('navigation plugin registers semantic actions and resolves RA/Dec and bookmarks', async () => {
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [
+      createSkykitNavigationPlugin({
+        speed: 12,
+        acceleration: 12,
+        deceleration: 12,
+        resolveBookmark(bookmarkId) {
+          return bookmarkId === 'polaris'
+            ? { raDeg: 0, decDeg: 90, distancePc: 10 }
+            : null;
+        },
+      }),
+    ],
+  });
+
+  assert.equal(viewer.actions.listActions().some((entry) => entry.id === SKYKIT_ACTIONS.navigation.flyTo), true);
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.flyTo, { raDeg: 0, decDeg: 0, distancePc: 10 });
+  viewer.update(0.5);
+  viewer.update(0);
+  assert.ok(viewer.getViewState().observerPc.x > 0);
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.lookAt, { bookmarkId: 'polaris', blend: 1 });
+  viewer.update(0.5);
+  viewer.update(0);
+  assert.notDeepEqual(viewer.getViewState().orientationIcrs, { x: 0, y: 0, z: 0, w: 1 });
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.cancel);
+  assert.equal(viewer.getSnapshot().parts.some((part) => part.id === 'navigation'), true);
+
+  await viewer.dispose();
 });
 
 test('sky grab plugin maps drag movement to viewer orientation and cleans listeners', async () => {

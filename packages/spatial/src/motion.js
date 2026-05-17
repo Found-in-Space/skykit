@@ -15,13 +15,13 @@ import {
   scaleVector,
   subtractVectors,
   vectorLength,
-} from './xr-math.js';
+} from './math.js';
 
 /**
- * @param {import('./index.d.ts').XrDirectMotionOptions} [options]
- * @returns {import('./index.d.ts').XrMotionModel}
+ * @param {import('./index.d.ts').SpatialDirectMotionOptions} [options]
+ * @returns {import('./index.d.ts').SpatialMotionModel}
  */
-export function createDirectXrMotionModel(options = {}) {
+export function createDirectSpatialMotionModel(options = {}) {
   const config = normalizeMotionConfig(options);
   let lastSnapshot = baseMotionSnapshot('direct');
   return {
@@ -49,10 +49,10 @@ export function createDirectXrMotionModel(options = {}) {
 }
 
 /**
- * @param {import('./index.d.ts').XrInertialMotionOptions} [options]
- * @returns {import('./index.d.ts').XrMotionModel}
+ * @param {import('./index.d.ts').SpatialInertialMotionOptions} [options]
+ * @returns {import('./index.d.ts').SpatialMotionModel}
  */
-export function createInertialXrMotionModel(options = {}) {
+export function createInertialSpatialMotionModel(options = {}) {
   const config = {
     ...normalizeMotionConfig(options),
     acceleration: positiveFinite(options.acceleration, 8),
@@ -89,10 +89,10 @@ export function createInertialXrMotionModel(options = {}) {
 }
 
 /**
- * @param {import('./index.d.ts').XrThrustMotionOptions} [options]
- * @returns {import('./index.d.ts').XrMotionModel}
+ * @param {import('./index.d.ts').SpatialThrustMotionOptions} [options]
+ * @returns {import('./index.d.ts').SpatialMotionModel}
  */
-export function createThrustXrMotionModel(options = {}) {
+export function createThrustSpatialMotionModel(options = {}) {
   const config = {
     ...normalizeMotionConfig(options),
     thrust: positiveFinite(options.thrust, 12),
@@ -130,10 +130,10 @@ export function createThrustXrMotionModel(options = {}) {
 }
 
 /**
- * @param {import('./index.d.ts').XrFlyToMotionOptions} [options]
- * @returns {import('./index.d.ts').XrFlyToMotionModel}
+ * @param {import('./index.d.ts').SpatialFlyToMotionOptions} [options]
+ * @returns {import('./index.d.ts').SpatialFlyToMotionModel}
  */
-export function createFlyToMotionModel(options = {}) {
+export function createFlyToSpatialMotionModel(options = {}) {
   const config = {
     maxSpeed: options.maxSpeed == null ? null : positiveFinite(options.maxSpeed, 1),
     acceleration: positiveFinite(options.acceleration, 4),
@@ -227,8 +227,8 @@ export function createFlyToMotionModel(options = {}) {
 }
 
 /**
- * @param {import('./index.d.ts').XrPose} pose
- * @param {import('./index.d.ts').XrControlReader | undefined} controls
+ * @param {import('./index.d.ts').SpatialPose} pose
+ * @param {import('./index.d.ts').SpatialControlReader | undefined} controls
  * @param {number} deltaSeconds
  * @param {ReturnType<typeof normalizeMotionConfig>} config
  */
@@ -250,7 +250,7 @@ function applyAttitude(pose, controls, deltaSeconds, config) {
 
 /**
  * @param {{ x: number; y: number; z: number; w: number }} orientation
- * @param {import('./index.d.ts').XrControlReader | undefined} controls
+ * @param {import('./index.d.ts').SpatialControlReader | undefined} controls
  * @param {ReturnType<typeof normalizeMotionConfig>} config
  */
 function resolveMoveVector(orientation, controls, config) {
@@ -261,7 +261,7 @@ function resolveMoveVector(orientation, controls, config) {
 }
 
 /**
- * @param {import('./index.d.ts').XrMotionOptions} options
+ * @param {import('./index.d.ts').SpatialMotionOptions} options
  */
 function normalizeMotionConfig(options) {
   return {
@@ -278,7 +278,7 @@ function normalizeMotionConfig(options) {
 }
 
 /**
- * @param {import('./index.d.ts').XrControlReader | undefined} controls
+ * @param {import('./index.d.ts').SpatialControlReader | undefined} controls
  * @param {ReturnType<typeof normalizeMotionConfig>} config
  */
 function boostMultiplier(controls, config) {
@@ -320,7 +320,7 @@ function clampVectorLength(vector, maxLength) {
  * @param {string} type
  */
 function baseMotionSnapshot(type) {
-  /** @type {import('./index.d.ts').XrMotionSnapshot} */
+  /** @type {import('./index.d.ts').SpatialMotionSnapshot} */
   const snapshot = {
     type,
     velocity: { x: 0, y: 0, z: 0 },
@@ -332,7 +332,7 @@ function baseMotionSnapshot(type) {
 }
 
 /**
- * @param {import('./index.d.ts').XrMotionSnapshot} snapshot
+ * @param {import('./index.d.ts').SpatialMotionSnapshot} snapshot
  */
 function cloneMotionSnapshot(snapshot) {
   return {

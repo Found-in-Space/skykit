@@ -3,8 +3,8 @@
  * @param {{ navigator?: unknown }} [options]
  * @returns {Promise<boolean>}
  */
-export async function isXrModeSupported(mode = 'immersive-vr', options = {}) {
-  const xr = resolveXr(options.navigator);
+export async function isSkykitXrModeSupported(mode = 'immersive-vr', options = {}) {
+  const xr = resolveSkykitXr(options.navigator);
   if (!xr || typeof xr.isSessionSupported !== 'function') {
     return false;
   }
@@ -16,13 +16,13 @@ export async function isXrModeSupported(mode = 'immersive-vr', options = {}) {
 }
 
 /**
- * @param {import('./index.d.ts').EnterXrSessionOptions} [options]
- * @returns {Promise<import('./index.d.ts').XrSessionHandle>}
+ * @param {import('../xr.d.ts').EnterSkykitXrSessionOptions} [options]
+ * @returns {Promise<import('../xr.d.ts').SkykitXrSessionHandle>}
  */
-export async function enterXrSession(options = {}) {
+export async function enterSkykitXrSession(options = {}) {
   const mode = options.mode ?? 'immersive-vr';
   const referenceSpaceType = options.referenceSpaceType ?? 'local-floor';
-  const xr = resolveXr(options.navigator);
+  const xr = resolveSkykitXr(options.navigator);
   if (!xr || typeof xr.requestSession !== 'function') {
     throw new Error('WebXR is not available.');
   }
@@ -46,7 +46,7 @@ export async function enterXrSession(options = {}) {
  * @param {unknown} sessionOrHandle
  * @returns {Promise<void>}
  */
-export async function exitXrSession(sessionOrHandle) {
+export async function exitSkykitXrSession(sessionOrHandle) {
   if (
     sessionOrHandle
     && typeof sessionOrHandle === 'object'
@@ -64,7 +64,7 @@ export async function exitXrSession(sessionOrHandle) {
 
 /**
  * @param {{ mode: string; referenceSpaceType: string; session: unknown; referenceSpace: unknown }} options
- * @returns {import('./index.d.ts').XrSessionHandle}
+ * @returns {import('../xr.d.ts').SkykitXrSessionHandle}
  */
 function createSessionHandle(options) {
   let ended = false;
@@ -78,7 +78,7 @@ function createSessionHandle(options) {
       return !ended;
     },
     async exit() {
-      await exitXrSession(session);
+      await exitSkykitXrSession(session);
       ended = true;
     },
     getSnapshot() {
@@ -102,7 +102,7 @@ function createSessionHandle(options) {
 /**
  * @param {unknown} navigatorLike
  */
-function resolveXr(navigatorLike) {
+function resolveSkykitXr(navigatorLike) {
   const nav = navigatorLike ?? globalThis.navigator;
   return /** @type {{ xr?: { isSessionSupported?: (mode: string) => Promise<boolean>; requestSession?: (mode: string, init?: unknown) => Promise<unknown> } }} */ (nav)?.xr ?? null;
 }

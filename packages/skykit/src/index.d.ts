@@ -1,4 +1,11 @@
 import type { ProductDelta } from '@found-in-space/product-stream';
+import type {
+  SpatialNavigationAutomation,
+  SpatialNavigationAutomationOptions,
+  SpatialScaleProfile,
+  SpatialTargetInput,
+  SpatialVector3,
+} from '@found-in-space/spatial';
 import type { StarObjectBatchProduct } from '@found-in-space/star-products';
 import type {
   StarOctreeCoordinateOutput,
@@ -486,6 +493,22 @@ export interface SkykitStatusPluginOptions {
   render?: (payload: SkykitStatusPayload) => void;
 }
 
+export interface SkykitNavigationPluginOptions extends SpatialNavigationAutomationOptions {
+  id?: string;
+  priority?: number;
+  navigation?: SpatialNavigationAutomation;
+  scaleProfile?: SpatialScaleProfile;
+  resolveTarget?: (
+    input: unknown,
+    context: SkykitThreePluginContext
+  ) => SpatialVector3 | Promise<SpatialVector3 | null> | null | undefined;
+  resolveBookmark?: (
+    bookmarkId: string,
+    input: SpatialTargetInput,
+    context: SkykitThreePluginContext
+  ) => SpatialTargetInput | Promise<SpatialTargetInput | null> | null;
+}
+
 export interface SkykitAnimationLoopOptions {
   autoStart?: boolean;
   render?: boolean;
@@ -567,6 +590,18 @@ export declare const SKYKIT_ACTIONS: {
   readonly viewer: {
     readonly reset: 'skykit:viewer.reset';
   };
+  readonly navigation: {
+    readonly flyTo: 'skykit:navigation.flyTo';
+    readonly flyPolyline: 'skykit:navigation.flyPolyline';
+    readonly orbit: 'skykit:navigation.orbit';
+    readonly orbitalInsert: 'skykit:navigation.orbitalInsert';
+    readonly lookAt: 'skykit:navigation.lookAt';
+    readonly lockAt: 'skykit:navigation.lockAt';
+    readonly unlockAt: 'skykit:navigation.unlockAt';
+    readonly cancelMovement: 'skykit:navigation.cancelMovement';
+    readonly cancelOrientation: 'skykit:navigation.cancelOrientation';
+    readonly cancel: 'skykit:navigation.cancel';
+  };
   readonly ship: {
     readonly moveForward: 'skykit:ship.move.forward';
     readonly moveBack: 'skykit:ship.move.back';
@@ -619,6 +654,9 @@ export declare function createSkykitDefaultKeyboardNavigationBindings(
   overrides?: Partial<Record<string, SkykitKeyboardNavigationBinding>>
 ): Record<string, SkykitKeyboardNavigationBinding>;
 export declare function createKeyboardNavigationPlugin(options?: SkykitKeyboardNavigationOptions): SkykitPlugin & {
+  getSnapshot(): unknown;
+};
+export declare function createSkykitNavigationPlugin(options?: SkykitNavigationPluginOptions): SkykitPlugin & {
   getSnapshot(): unknown;
 };
 export declare function createSkyGrabPlugin(options?: SkykitDragLookOptions): SkykitPlugin & {

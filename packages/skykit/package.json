@@ -10,6 +10,10 @@
     ".": {
       "types": "./src/index.d.ts",
       "default": "./src/index.js"
+    },
+    "./xr": {
+      "types": "./src/xr.d.ts",
+      "default": "./src/xr.js"
     }
   },
   "files": [
@@ -25,17 +29,12 @@
   "dependencies": {
     "@found-in-space/anchored-image": "0.0.0-alpha.0",
     "@found-in-space/product-stream": "0.0.0-alpha.0",
+    "@found-in-space/spatial": "0.0.0-alpha.0",
     "@found-in-space/star-octree-provider": "0.0.0-alpha.0",
     "@found-in-space/star-products": "0.0.0-alpha.0",
     "@found-in-space/three-star-field": "0.0.0-alpha.0"
   },
   "peerDependencies": {
-    "@found-in-space/xr": "0.0.0-alpha.0",
     "three": "^0.170.0"
-  },
-  "peerDependenciesMeta": {
-    "@found-in-space/xr": {
-      "optional": true
-    }
   }
 }

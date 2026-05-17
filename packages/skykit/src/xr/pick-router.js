@@ -1,16 +1,16 @@
-import { cloneRay, normalizeRay } from './xr-rays.js';
+import { cloneRay, normalizeRay } from './rays.js';
 
 /**
- * @param {import('./index.d.ts').XrPickRouterOptions} [options]
- * @returns {import('./index.d.ts').XrPickRouter}
+ * @param {import('../xr.d.ts').SkykitXrPickRouterOptions} [options]
+ * @returns {import('../xr.d.ts').SkykitXrPickRouter}
  */
-export function createXrPickRouter(options = {}) {
+export function createSkykitXrPickRouter(options = {}) {
   const id = options.id ?? 'found-in-space-xr-pick-router';
   let raySource = options.raySource ?? null;
   let blockers = Array.from(options.blockers ?? []);
   let targets = Array.from(options.targets ?? []);
   const onPick = typeof options.onPick === 'function' ? options.onPick : null;
-  /** @type {import('./index.d.ts').XrPickRouteResult | null} */
+  /** @type {import('../xr.d.ts').SkykitXrPickRouteResult | null} */
   let lastRoute = null;
   let disposed = false;
 
@@ -25,13 +25,13 @@ export function createXrPickRouter(options = {}) {
   };
 
   /**
-   * @param {import('./index.d.ts').XrRayContext} [context]
+   * @param {import('../xr.d.ts').SkykitXrRayContext} [context]
    */
   function route(context = {}) {
     assertActive();
     const ray = resolveRay(context);
     if (!ray) {
-      lastRoute = /** @type {import('./index.d.ts').XrPickRouteResult} */ ({ type: 'miss', ray: null, hit: null, blocker: null, target: null, maxDistance: null });
+      lastRoute = /** @type {import('../xr.d.ts').SkykitXrPickRouteResult} */ ({ type: 'miss', ray: null, hit: null, blocker: null, target: null, maxDistance: null });
       onPick?.(lastRoute);
       return cloneRoute(lastRoute);
     }
@@ -41,7 +41,7 @@ export function createXrPickRouter(options = {}) {
       const result = callBlocker(blocker, ray, { ...context, maxDistance });
       if (!result) continue;
       if (result.consumed === true || result.blocked === true) {
-        lastRoute = /** @type {import('./index.d.ts').XrPickRouteResult} */ ({
+        lastRoute = /** @type {import('../xr.d.ts').SkykitXrPickRouteResult} */ ({
           type: 'blocked',
           ray: cloneRay(ray),
           hit: result.hit ?? null,
@@ -71,7 +71,7 @@ export function createXrPickRouter(options = {}) {
     }
 
     lastRoute = best
-      ? /** @type {import('./index.d.ts').XrPickRouteResult} */ ({
+      ? /** @type {import('../xr.d.ts').SkykitXrPickRouteResult} */ ({
           type: 'hit',
           ray: cloneRay(ray),
           hit: best.hit,
@@ -79,7 +79,7 @@ export function createXrPickRouter(options = {}) {
           target: bestTarget,
           maxDistance,
         })
-      : /** @type {import('./index.d.ts').XrPickRouteResult} */ ({
+      : /** @type {import('../xr.d.ts').SkykitXrPickRouteResult} */ ({
           type: 'miss',
           ray: cloneRay(ray),
           hit: null,
@@ -92,7 +92,7 @@ export function createXrPickRouter(options = {}) {
   }
 
   /**
-   * @param {import('./index.d.ts').XrRaySource | ((context: import('./index.d.ts').XrRayContext) => import('./index.d.ts').XrRay | null) | null} next
+   * @param {import('../xr.d.ts').SkykitXrRaySource | ((context: import('../xr.d.ts').SkykitXrRayContext) => import('../xr.d.ts').SkykitXrRay | null) | null} next
    */
   function setRaySource(next) {
     assertActive();
@@ -100,7 +100,7 @@ export function createXrPickRouter(options = {}) {
   }
 
   /**
-   * @param {Iterable<import('./index.d.ts').XrPickBlocker>} next
+   * @param {Iterable<import('../xr.d.ts').SkykitXrPickBlocker>} next
    */
   function setBlockers(next) {
     assertActive();
@@ -108,7 +108,7 @@ export function createXrPickRouter(options = {}) {
   }
 
   /**
-   * @param {Iterable<import('./index.d.ts').XrPickTarget>} next
+   * @param {Iterable<import('../xr.d.ts').SkykitXrPickTarget>} next
    */
   function setTargets(next) {
     assertActive();
@@ -134,7 +134,7 @@ export function createXrPickRouter(options = {}) {
   }
 
   /**
-   * @param {import('./index.d.ts').XrRayContext} context
+   * @param {import('../xr.d.ts').SkykitXrRayContext} context
    */
   function resolveRay(context) {
     if (!raySource) return null;
@@ -151,15 +151,15 @@ export function createXrPickRouter(options = {}) {
 
   function assertActive() {
     if (disposed) {
-      throw new Error('XrPickRouter has been disposed.');
+      throw new Error('SkykitXrPickRouter has been disposed.');
     }
   }
 }
 
 /**
- * @param {import('./index.d.ts').XrPickBlocker} blocker
- * @param {import('./index.d.ts').XrRay} ray
- * @param {import('./index.d.ts').XrRayContext & { maxDistance?: number | null }} context
+ * @param {import('../xr.d.ts').SkykitXrPickBlocker} blocker
+ * @param {import('../xr.d.ts').SkykitXrRay} ray
+ * @param {import('../xr.d.ts').SkykitXrRayContext & { maxDistance?: number | null }} context
  */
 function callBlocker(blocker, ray, context) {
   if (typeof blocker === 'function') {
@@ -169,9 +169,9 @@ function callBlocker(blocker, ray, context) {
 }
 
 /**
- * @param {import('./index.d.ts').XrPickTarget} target
- * @param {import('./index.d.ts').XrRay} ray
- * @param {import('./index.d.ts').XrRayContext & { maxDistance?: number | null }} context
+ * @param {import('../xr.d.ts').SkykitXrPickTarget} target
+ * @param {import('../xr.d.ts').SkykitXrRay} ray
+ * @param {import('../xr.d.ts').SkykitXrRayContext & { maxDistance?: number | null }} context
  */
 function callTarget(target, ray, context) {
   if (typeof target === 'function') {
@@ -189,8 +189,8 @@ function normalizeDistance(value) {
 }
 
 /**
- * @param {import('./index.d.ts').XrPickRouteResult} route
- * @returns {import('./index.d.ts').XrPickRouteResult}
+ * @param {import('../xr.d.ts').SkykitXrPickRouteResult} route
+ * @returns {import('../xr.d.ts').SkykitXrPickRouteResult}
  */
 function cloneRoute(route) {
   return {

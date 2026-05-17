@@ -1,3 +1,4 @@
+import { SKYKIT_ACTIONS } from './actions.js';
 import { normalizeVector3, parsePointArgs } from './utils.js';
 
 /**
@@ -211,25 +212,26 @@ export function createSkykitDebugBridge() {
         return viewer.observerRig.getObserverPc();
       },
       flyToPc(point, options = {}) {
-        if (typeof /** @type {{ flyToPc?: unknown }} */ (viewer).flyToPc === 'function') {
-          return /** @type {{ flyToPc: (point: Vector3Like, options?: Record<string, unknown>) => Vector3Like }} */ (/** @type {unknown} */ (viewer))
-            .flyToPc(point, options);
+        const target = normalizeVector3(point, { x: 0, y: 0, z: 0 });
+        if (viewer.actions.listActions().some((entry) => entry.id === SKYKIT_ACTIONS.navigation.flyTo)) {
+          void viewer.actions.invoke(SKYKIT_ACTIONS.navigation.flyTo, { ...options, targetPc: target }, { source: 'debug' });
+          return target;
         }
-        return this.setObserverPc(point);
+        return this.setObserverPc(target);
       },
       lookAtPc(point, options = {}) {
-        if (typeof /** @type {{ lookAtPc?: unknown }} */ (viewer).lookAtPc === 'function') {
-          return /** @type {{ lookAtPc: (point: Vector3Like, options?: Record<string, unknown>) => Vector3Like }} */ (/** @type {unknown} */ (viewer))
-            .lookAtPc(point, options);
-        }
         const target = normalizeVector3(point, { x: 0, y: 0, z: 0 });
-        viewer.requestViewState({ targetPc: target }, 'debug.lookAtPc');
+        if (viewer.actions.listActions().some((entry) => entry.id === SKYKIT_ACTIONS.navigation.lookAt)) {
+          void viewer.actions.invoke(SKYKIT_ACTIONS.navigation.lookAt, { ...options, targetPc: target }, { source: 'debug' });
+        } else {
+          viewer.requestViewState({ targetPc: target }, 'debug.lookAtPc');
+        }
         viewer.update(0);
         return target;
       },
       cancelAutomation() {
-        if (typeof /** @type {{ cancelAutomation?: unknown }} */ (viewer).cancelAutomation === 'function') {
-          /** @type {{ cancelAutomation: () => void }} */ (/** @type {unknown} */ (viewer)).cancelAutomation();
+        if (viewer.actions.listActions().some((entry) => entry.id === SKYKIT_ACTIONS.navigation.cancel)) {
+          void viewer.actions.invoke(SKYKIT_ACTIONS.navigation.cancel, undefined, { source: 'debug' });
           return true;
         }
         return false;

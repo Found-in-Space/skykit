@@ -14,6 +14,7 @@ export {
   createKeyboardNavigationPlugin,
   createMouseLookPlugin,
   createObject3dPlugin,
+  createSkykitNavigationPlugin,
   createSkyGrabPlugin,
   createSkykitStatusPlugin,
   createStreamingStarsPlugin,

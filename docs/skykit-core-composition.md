@@ -42,10 +42,11 @@ It composes other packages through public objects and functions:
 
 ```txt
 star-octree-provider -> streams star products
+spatial              -> owns coordinates, targets, routes, and navigation math
 three-star-field     -> renders star products in Three.js
 star-map-canvas      -> renders 2D starmaps
 star-products        -> stores and interprets star batches
-xr                   -> owns immersive rig/input/motion/rays
+skykit/xr            -> owns WebXR rig/input/rays/session helpers
 touch-os             -> owns panels, HUDs, and visual surfaces
 ```
 
@@ -348,7 +349,9 @@ hr-diagram owns HR projection/rendering
 anchored-image owns image solving and image adapters
 ```
 
-XR behavior belongs in `@found-in-space/xr`. Visual surfaces, panels, HUDs, and
+Shared target and navigation behavior belongs in `@found-in-space/spatial`.
+WebXR-specific rig, input, ray, session, and depth behavior belongs in the
+optional `@found-in-space/skykit/xr` subpath. Visual surfaces, panels, HUDs, and
 embedded display input belong in touch-os.
 
 ---

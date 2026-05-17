@@ -14,10 +14,11 @@
 Alpha SkyKit is a package-first teaching toolkit, not a monolithic viewer. New
 work should identify the smallest reusable boundary that makes lessons clearer:
 data providers stream products, product packages interpret domain data, renderers
-consume products, XR owns embodied interaction, touch-os owns surfaces, and core
-`@found-in-space/skykit` composes those pieces through public plugin/action
-hooks. Avoid hidden wrapper layers, string-based factory registries, or "just one
-more helper" packages unless they remove real lesson code and have a durable
+consume products, `spatial` owns dependency-free navigation/coordinate language,
+SkyKit XR owns WebXR-specific embodiment/input/rays, touch-os owns surfaces, and
+core `@found-in-space/skykit` composes those pieces through public plugin/action
+hooks. Avoid hidden wrapper layers, string-based factory registries, or "just
+one more helper" packages unless they remove real lesson code and have a durable
 boundary.
 
 The goal is hackable clarity: a learner should be able to build from small,
@@ -36,7 +37,9 @@ rewriting it into the alpha package shape, never by importing old internals.
   - generic product lifecycle belongs in `product-stream` style packages.
   - star interpretation belongs in star-specific packages.
   - renderer adapters consume products/stores rather than owning data loading.
-  - XR owns embodiment/input/motion/rays, not star rendering or panels.
+  - spatial owns shared coordinates, targets, poses, routes, and navigation.
+  - SkyKit XR owns WebXR embodiment/input/rays/sessions, not star rendering or
+    panels.
   - touch-os owns visual surfaces, panels, HUDs, and forwarded surface input.
 - Do not fold sidecars, ephemerides, kinematics, H-alpha maps, galaxy models, or
   renderer-specific logic into the star octree provider. Those remain separate
@@ -55,6 +58,8 @@ rewriting it into the alpha package shape, never by importing old internals.
 ## Current Package Map
 
 - `@found-in-space/product-stream`: generic product lifecycle.
+- `@found-in-space/spatial`: dependency-free coordinates, poses, routes,
+  target resolution, smooth navigation, orbit, look-at, and motion helpers.
 - `@found-in-space/star-products`: star products, stores, iteration, and math.
 - `@found-in-space/star-octree-provider`: octree loading, strategies, streaming,
   payload decode, and star product emission.
@@ -65,8 +70,9 @@ rewriting it into the alpha package shape, never by importing old internals.
   and optional touch-os surface adapter.
 - `@found-in-space/anchored-image`: anchored image manifests, solving, and
   Canvas2D/Three.js adapters.
-- `@found-in-space/xr`: immersive rig/input/motion/ray/session/depth helpers.
 - `@found-in-space/skykit`: plugin-first composition and teaching helpers.
+  `@found-in-space/skykit/xr` is the optional WebXR subpath for rig/input/body,
+  rays, session, and depth helpers.
 - `@found-in-space/experimental-structure-layers`: experimental H-alpha/dust
   preservation package, not stable core.
 
@@ -104,12 +110,14 @@ rewriting it into the alpha package shape, never by importing old internals.
 - `docs/star-map-canvas.md`: Canvas2D starmap package contract.
 - `docs/anchored-image.md`: anchored image package contract.
 - `docs/skykit-core-composition.md`: core SkyKit composition contract.
-- `docs/xr-architecture.md`: XR package boundary and rules.
+- `docs/xr-architecture.md`: spatial navigation and SkyKit XR subpath
+  boundaries.
 - `docs/journey-architecture.md`: shared journey/runtime/editor boundary.
 
 ## WebXR And Scene Graph Constraints
 
-See `docs/xr-architecture.md` for the full XR boundary. Critical rules:
+See `docs/xr-architecture.md` for the full spatial/WebXR boundary. Critical
+rules:
 
 1. Never mutate the WebXR camera directly for headset orientation.
 2. XR scene graphs must keep scene content roots and the spaceship/navigation

@@ -1,5 +1,11 @@
 import * as THREE from 'three';
 
+import {
+  IDENTITY_QUATERNION as SPATIAL_IDENTITY_QUATERNION,
+  createSpatialNavigationAutomation,
+  resolveSpatialTarget,
+} from '@found-in-space/spatial';
+
 import { SKYKIT_ACTIONS, SKYKIT_CONTROLS } from './actions.js';
 import { createObject3dLayer } from './layers.js';
 import { createStreamingStarLayer } from './streaming-stars.js';
@@ -114,6 +120,170 @@ export function createStreamingStarsPlugin(options) {
       return layer?.getSnapshot?.() ?? { id, layer: null };
     },
   };
+}
+
+/**
+ * @param {import('./index.d.ts').SkykitNavigationPluginOptions} [options]
+ * @returns {SkykitPlugin & { getSnapshot(): unknown }}
+ */
+export function createSkykitNavigationPlugin(options = {}) {
+  const id = options.id ?? 'navigation';
+  const navigation = options.navigation ?? createSpatialNavigationAutomation(options);
+  const scaleProfile = options.scaleProfile ?? { navigationUnits: 'pc', metersPerNavigationUnit: 3.085677581e16 };
+  let disposed = false;
+
+  /** @type {SkykitThreePart} */
+  const part = {
+    id,
+    priority: options.priority,
+    update(frame) {
+      if (disposed) return;
+      const pose = navigation.update({
+        pose: {
+          position: frame.view.observerPc,
+          orientation: frame.view.orientationIcrs ?? SPATIAL_IDENTITY_QUATERNION,
+        },
+        deltaSeconds: frame.deltaSeconds,
+        scale: scaleProfile,
+        manualLookActive: Boolean(frame.viewer.actions.getControlValue('skykit:navigation.manualLookActive')),
+      });
+      const current = frame.view;
+      if (!sameVector(current.observerPc, pose.position) || !sameQuaternion(current.orientationIcrs, pose.orientation)) {
+        frame.viewer.requestViewState({
+          observerPc: pose.position,
+          orientationIcrs: pose.orientation,
+        }, id);
+      }
+    },
+    dispose() {
+      disposed = true;
+      navigation.dispose?.();
+    },
+    getSnapshot() {
+      return {
+        id,
+        disposed,
+        navigation: navigation.getSnapshot?.() ?? null,
+      };
+    },
+  };
+
+  return {
+    id,
+    setup(context) {
+      const threeContext = /** @type {import('./index.d.ts').SkykitThreePluginContext} */ (context);
+      threeContext.addPart(part);
+      threeContext.addDisposable(registerNavigationActions(threeContext));
+    },
+    getSnapshot: () => part.getSnapshot?.() ?? null,
+  };
+
+  /**
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   */
+  function registerNavigationActions(context) {
+    const unregisters = [
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.flyTo, async ({ payload }) => {
+        const target = await resolveTarget(payload, context);
+        if (target) navigation.flyTo(target, payloadOptions(payload));
+        return target;
+      }, { label: 'Fly to target' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.flyPolyline, async ({ payload }) => {
+        const points = await resolvePointList(payload, context);
+        if (points.length >= 2) navigation.flyPolyline(points, payloadOptions(payload));
+        return points;
+      }, { label: 'Fly polyline' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.orbit, async ({ payload }) => {
+        const target = await resolveCenter(payload, context);
+        if (target) navigation.orbit(target, payloadOptions(payload));
+        return target;
+      }, { label: 'Orbit target' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.orbitalInsert, async ({ payload }) => {
+        const target = await resolveCenter(payload, context);
+        if (target) navigation.orbitalInsert(target, payloadOptions(payload));
+        return target;
+      }, { label: 'Insert into orbit' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.lookAt, async ({ payload }) => {
+        const target = await resolveTarget(payload, context);
+        if (target) navigation.lookAt(target, payloadOptions(payload));
+        return target;
+      }, { label: 'Look at target' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.lockAt, async ({ payload }) => {
+        const target = await resolveTarget(payload, context);
+        if (target) navigation.lockAt(target, payloadOptions(payload));
+        return target;
+      }, { label: 'Lock at target' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.unlockAt, () => {
+        navigation.unlockAt();
+      }, { label: 'Unlock look target' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancelMovement, () => {
+        navigation.cancelMovement();
+      }, { label: 'Cancel movement' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancelOrientation, () => {
+        navigation.cancelOrientation();
+      }, { label: 'Cancel orientation' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancel, () => {
+        navigation.cancel();
+      }, { label: 'Cancel navigation' }),
+    ];
+    return () => {
+      for (const unregister of unregisters.reverse()) unregister();
+    };
+  }
+
+  /**
+   * @param {unknown} input
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   */
+  async function resolveTarget(input, context) {
+    const custom = options.resolveTarget?.(input, context);
+    if (custom !== undefined) {
+      return await custom;
+    }
+    return await resolveSpatialTarget(
+      /** @type {import('@found-in-space/spatial').SpatialTargetInput} */ (input),
+      {
+        observerPc: context.getViewState().observerPc,
+        resolveBookmark: typeof options.resolveBookmark === 'function'
+          ? (bookmarkId, original) => {
+            const resolved = options.resolveBookmark?.(
+              bookmarkId,
+              /** @type {import('@found-in-space/spatial').SpatialTargetInput} */ (original),
+              context,
+            );
+            return resolved === undefined ? null : resolved;
+          }
+          : undefined,
+      },
+    );
+  }
+
+  /**
+   * @param {unknown} payload
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   */
+  async function resolveCenter(payload, context) {
+    if (payload && typeof payload === 'object' && 'center' in payload) {
+      return resolveTarget(/** @type {{ center?: unknown }} */ (payload).center, context);
+    }
+    return resolveTarget(payload, context);
+  }
+
+  /**
+   * @param {unknown} payload
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   */
+  async function resolvePointList(payload, context) {
+    const rawPoints = payload && typeof payload === 'object' && 'points' in payload
+      ? /** @type {{ points?: Iterable<unknown> }} */ (payload).points
+      : payload;
+    const points = [];
+    for (const point of Array.from(/** @type {Iterable<unknown>} */ (rawPoints ?? []))) {
+      const resolved = await resolveTarget(point, context);
+      if (resolved) points.push(resolved);
+    }
+    return points;
+  }
 }
 
 /**
@@ -468,6 +638,7 @@ function createDragLookPlugin(options) {
     lastClientY = Number.isFinite(Number(pointerEvent.clientY)) ? Number(pointerEvent.clientY) : null;
     const captureTarget = /** @type {{ setPointerCapture?: (pointerId: number) => void }} */ (pointerEvent.currentTarget ?? activeTarget);
     if (pointerId != null) captureTarget.setPointerCapture?.(pointerId);
+    viewer?.actions.setControlValue('skykit:navigation.manualLookActive', true, { source: id });
     if (options.preventDefault !== false) pointerEvent.preventDefault?.();
   }
 
@@ -495,6 +666,7 @@ function createDragLookPlugin(options) {
       movementY * sensitivityRadiansPerPixel * dragSign,
     );
     syncAnglesFromOrientation(orientation);
+    viewer.actions.setControlValue('skykit:navigation.manualLookActive', true, { source: id });
     viewer.requestViewState({ orientationIcrs: orientation }, id);
     if (options.preventDefault !== false) pointerEvent.preventDefault?.();
   }
@@ -510,6 +682,7 @@ function createDragLookPlugin(options) {
     lastClientX = null;
     lastClientY = null;
     dragging = false;
+    viewer?.actions.setControlValue('skykit:navigation.manualLookActive', false, { source: id });
     if (options.preventDefault !== false) pointerEvent.preventDefault?.();
   }
 
@@ -619,6 +792,51 @@ export function createSkykitStatusPlugin(options = {}) {
 
 function getDefaultEventTarget() {
   return typeof globalThis.addEventListener === 'function' ? globalThis : null;
+}
+
+/**
+ * @param {unknown} payload
+ * @returns {Record<string, unknown>}
+ */
+function payloadOptions(payload) {
+  if (!payload || typeof payload !== 'object') return {};
+  const options = /** @type {Record<string, unknown>} */ ({ ...payload });
+  delete options.x;
+  delete options.y;
+  delete options.z;
+  delete options.raDeg;
+  delete options.raHours;
+  delete options.decDeg;
+  delete options.distancePc;
+  delete options.position;
+  delete options.targetPc;
+  delete options.center;
+  delete options.points;
+  delete options.bookmarkId;
+  return options;
+}
+
+/**
+ * @param {Vector3Like | null | undefined} left
+ * @param {Vector3Like | null | undefined} right
+ */
+function sameVector(left, right) {
+  if (!left || !right) return false;
+  return Math.abs(left.x - right.x) < 1e-12
+    && Math.abs(left.y - right.y) < 1e-12
+    && Math.abs(left.z - right.z) < 1e-12;
+}
+
+/**
+ * @param {import('./index.d.ts').QuaternionLike | null | undefined} left
+ * @param {import('./index.d.ts').QuaternionLike | null | undefined} right
+ */
+function sameQuaternion(left, right) {
+  if (!left || !right) return false;
+  return Math.abs(left.x - right.x) < 1e-12
+    && Math.abs(left.y - right.y) < 1e-12
+    && Math.abs(left.z - right.z) < 1e-12
+    && Math.abs(left.w - right.w) < 1e-12;
 }
 
 /** @param {Event} event */

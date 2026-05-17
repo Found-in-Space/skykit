@@ -1,7 +1,9 @@
 import {
-  apparentMagnitude,
   icrsToRaDec as starPositionToRaDec,
   projectEquirectangular,
+} from '@found-in-space/spatial';
+import {
+  apparentMagnitude,
   temperatureToRgb,
 } from '@found-in-space/star-products';
 

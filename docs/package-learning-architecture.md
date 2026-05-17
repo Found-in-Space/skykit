@@ -56,10 +56,11 @@ memory accounting
 Product meaning is domain-specific:
 
 ```txt
+spatial knows about coordinates, targets, poses, routes, and smooth navigation
 stars know about magnitude, temperature, object refs, and pick metadata
 HR diagrams know about temperature / absolute magnitude projection
 H-alpha and dust experiments know about volumes and structural fields
-XR knows about bodies, input, motion, rays, and sessions
+SkyKit XR knows about WebXR bodies, input, rays, sessions, and depth
 SkyKit knows how to compose these pieces into lessons
 ```
 
@@ -89,7 +90,11 @@ star-octree-provider
 star-products
   -> keep a coherent product store
   -> iterate stars
-  -> compute apparent magnitude, temperature, color, RA/Dec
+  -> compute apparent magnitude, temperature, color
+
+spatial
+  -> convert RA/Dec/distance targets
+  -> build routes, look-at targets, orbits, and smooth navigation
 
 star-map-canvas
   -> draw a store of stars into Canvas2D
@@ -102,8 +107,8 @@ hr-diagram
   -> project stars into temperature / magnitude space
   -> render with Canvas2D or WebGL
 
-xr
-  -> build rigs, bindings, motion, rays, and WebXR helpers
+skykit/xr
+  -> build WebXR rigs, bindings, rays, and session helpers
 ```
 
 SkyKit lessons teach composition:
@@ -184,7 +189,6 @@ src/demo/fly-orbit.js
 Replacement lesson:
 
 ```txt
-packages/xr/examples/navigation-automation/
 packages/skykit/examples/navigation-automation/
 ```
 
@@ -199,13 +203,13 @@ quaternion-safe navigation
 debuggable automation state
 ```
 
-The lower-level math belongs in `@found-in-space/xr`. The SkyKit lesson should
-compose that navigation with a visible starfield.
+The lower-level math belongs in `@found-in-space/spatial`. The SkyKit lesson
+should compose that navigation with a visible starfield through semantic
+`skykit:navigation.*` actions.
 
 Current alpha lessons:
 
 ```txt
-packages/xr/examples/navigation-automation/
 packages/skykit/examples/navigation-automation/
 ```
 
@@ -441,7 +445,6 @@ src/demo/xr-free-roam.js
 Replacement lessons:
 
 ```txt
-packages/xr/examples/free-roam/
 packages/skykit/examples/xr-starfield/
 ```
 
@@ -451,7 +454,7 @@ Teaches:
 multi-root XR rig
 navigation root and spaceship root
 controller bindings
-motion models
+spatial motion/navigation helpers
 ray sources
 generic pick routing
 WebXR depth/session helpers
@@ -459,8 +462,9 @@ star renderer composition
 touch-os surfaces where needed
 ```
 
-XR owns embodiment, input, motion, rays, and session helpers. SkyKit composes XR
-with star renderers and data providers.
+`@found-in-space/skykit/xr` owns WebXR embodiment, input, rays, and session
+helpers. Shared motion and navigation language lives in `@found-in-space/spatial`
+so desktop, Canvas, games, journeys, and VR can use the same targets.
 
 ### 3.11 Parallax Sensor Debug
 
@@ -598,9 +602,14 @@ fetch nearby lower-priority payloads early when range batching makes that faster
 @found-in-space/product-stream
   implemented: generic product delta/store lifecycle
 
+@found-in-space/spatial
+  implemented: dependency-free coordinate conversion, target resolution, poses,
+  routes, smooth fly-to/route-follow, orbit, orbital insertion, look-at,
+  lock-at, and motion models
+
 @found-in-space/star-products
   implemented: StarObjectBatchProduct types, star representation store,
-  star math, star iteration, projections, color helpers
+  star math, star iteration, and color helpers
 
 @found-in-space/star-octree-provider
   implemented: octree loading/session/streaming, provider-owned demand
@@ -623,15 +632,13 @@ fetch nearby lower-priority payloads early when range batching makes that faster
   implemented: reusable HR diagram data model, Canvas fallback, WebGL renderer,
   and optional display-only touch-os composite-surface adapter
 
-@found-in-space/xr
-  implemented: immersive embodiment, WebXR rig/input, body/ship model, motion
-  models, ray sources, generic ray routing, depth/session helpers, diagnostics
-
 @found-in-space/skykit
   implemented alpha composition slice: slim Three.js viewer, plugin/part
   lifecycle, streaming star plugin/layer, object3d plugin/layer, keyboard
   navigation helper, sky-grab and mouse-look helpers, status helper,
-  animation loop, desktop observer rig, debug bridge
+  navigation actions/plugin backed by spatial, animation loop, desktop observer
+  rig, debug bridge, and optional `skykit/xr` WebXR rig/input/ray/session/depth
+  helpers
 
 @found-in-space/experimental-structure-layers
   implemented: experimental preservation package for H-alpha tiled volumes,
@@ -652,9 +659,14 @@ star-products
   <- hr-diagram
   <- three-star-field
 
-xr
-  imports Three.js, consumes application scale profiles, and routes to
-  renderer/touch-os contracts without owning data or surfaces
+spatial
+  imports no renderer/runtime dependencies and supplies shared target,
+  coordinate, route, and navigation helpers
+
+skykit/xr
+  imports Three.js through SkyKit, consumes spatial poses/scale profiles, and
+  routes WebXR input/rays to renderer/touch-os contracts without owning data or
+  surfaces
 
 skykit
   imports and composes the smaller packages

@@ -28,16 +28,17 @@ demo shell; new architecture should be package-owned.
 Current package direction:
 
 - `@found-in-space/product-stream`: generic product delta/store lifecycle
-- `@found-in-space/star-products`: star product stores, iteration, math, projections, and display helpers
+- `@found-in-space/spatial`: dependency-free coordinates, poses, routes, targets, and smooth navigation helpers
+- `@found-in-space/star-products`: star product stores, iteration, star math, and display helpers
 - `@found-in-space/star-octree-provider`: star octree loading, provider-owned strategies, streaming sessions, and product emission
 - `@found-in-space/meta-sidecar-provider`: metadata sidecar facts keyed by star product refs
 - `@found-in-space/star-map-canvas`: lightweight 2D starmap rendering
 - `@found-in-space/three-star-field`: Three.js renderer for streamed star products
 - `@found-in-space/hr-diagram`: HR diagram data, Canvas fallback, and WebGL renderer
 - `@found-in-space/anchored-image`: renderer-neutral anchored image manifests, solving, and Canvas2D/Three.js image adapters
-- `@found-in-space/xr`: immersive rig/input/motion/ray/depth helpers
 - `@found-in-space/experimental-structure-layers`: preserved experimental H-alpha/dust helpers, not stable core
 - `@found-in-space/skykit`: friendly composition exports and teaching-oriented examples
+  - `@found-in-space/skykit/xr`: optional WebXR rig/input/ray/session/depth helpers
 
 This split is not limited to "universe data" packages. Shared interaction or
 surface systems should also stand alone when they are broadly reusable. For
@@ -72,4 +73,4 @@ Override with `?constellationManifestUrl=...`. Dataset URLs can be overridden wi
 - [`docs/star-map-canvas.md`](./docs/star-map-canvas.md): current alpha contract for `@found-in-space/star-map-canvas`
 - [`docs/anchored-image.md`](./docs/anchored-image.md): current alpha contract for `@found-in-space/anchored-image`
 - [`docs/skykit-core-composition.md`](./docs/skykit-core-composition.md): current alpha direction for core `@found-in-space/skykit`
-- [`docs/xr-architecture.md`](./docs/xr-architecture.md): current alpha boundary for `@found-in-space/xr`
+- [`docs/xr-architecture.md`](./docs/xr-architecture.md): current alpha boundary for `@found-in-space/spatial` and `@found-in-space/skykit/xr`

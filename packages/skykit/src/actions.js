@@ -4,6 +4,18 @@ export const SKYKIT_ACTIONS = Object.freeze({
   viewer: Object.freeze({
     reset: 'skykit:viewer.reset',
   }),
+  navigation: Object.freeze({
+    flyTo: 'skykit:navigation.flyTo',
+    flyPolyline: 'skykit:navigation.flyPolyline',
+    orbit: 'skykit:navigation.orbit',
+    orbitalInsert: 'skykit:navigation.orbitalInsert',
+    lookAt: 'skykit:navigation.lookAt',
+    lockAt: 'skykit:navigation.lockAt',
+    unlockAt: 'skykit:navigation.unlockAt',
+    cancelMovement: 'skykit:navigation.cancelMovement',
+    cancelOrientation: 'skykit:navigation.cancelOrientation',
+    cancel: 'skykit:navigation.cancel',
+  }),
   ship: Object.freeze({
     moveForward: 'skykit:ship.move.forward',
     moveBack: 'skykit:ship.move.back',

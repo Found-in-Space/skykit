@@ -4,7 +4,7 @@ export const LOCAL_FORWARD = Object.freeze({ x: 0, y: 0, z: -1 });
 export const IDENTITY_QUATERNION = Object.freeze({ x: 0, y: 0, z: 0, w: 1 });
 export const ZERO_VECTOR = Object.freeze({ x: 0, y: 0, z: 0 });
 
-export const DEFAULT_XR_SCALE_PROFILE = Object.freeze({
+export const DEFAULT_SPATIAL_SCALE_PROFILE = Object.freeze({
   navigationUnits: 'pc',
   metersPerNavigationUnit: 1,
   worldUnitsPerNavigationUnit: 1,
@@ -90,7 +90,7 @@ export function clonePose(pose) {
 /**
  * @param {unknown} value
  */
-export function normalizeScaleProfile(value = DEFAULT_XR_SCALE_PROFILE) {
+export function normalizeScaleProfile(value = DEFAULT_SPATIAL_SCALE_PROFILE) {
   const profile = value && typeof value === 'object'
     ? /** @type {{ navigationUnits?: unknown; metersPerNavigationUnit?: unknown; worldUnitsPerNavigationUnit?: unknown }} */ (value)
     : {};

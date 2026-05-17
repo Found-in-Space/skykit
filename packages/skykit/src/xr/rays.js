@@ -4,20 +4,20 @@ import {
   LOCAL_FORWARD,
   normalizeDirection,
   normalizePose,
-} from './xr-math.js';
-import { poseFromXrPose, poseFromViewer } from './xr-body.js';
+} from '@found-in-space/spatial';
+import { poseFromSkykitXrPose, poseFromViewer } from './body.js';
 
 /**
- * @param {import('./index.d.ts').XrRaySourceOptions} [options]
- * @returns {import('./index.d.ts').XrRaySource}
+ * @param {import('../xr.d.ts').SkykitXrRaySourceOptions} [options]
+ * @returns {import('../xr.d.ts').SkykitXrRaySource}
  */
-export function createXrRaySource(options = {}) {
+export function createSkykitXrRaySource(options = {}) {
   const id = options.id ?? `found-in-space-xr-ray:${options.kind ?? 'target-ray'}`;
   const kind = options.kind ?? 'target-ray';
   const handedness = options.handedness ?? null;
   const length = options.length ?? null;
   const customGetRay = options.getRay;
-  /** @type {import('./index.d.ts').XrRay | null} */
+  /** @type {import('../xr.d.ts').SkykitXrRay | null} */
   let lastRay = null;
   let disposed = false;
 
@@ -29,7 +29,7 @@ export function createXrRaySource(options = {}) {
   };
 
   /**
-   * @param {import('./index.d.ts').XrRayContext} context
+   * @param {import('../xr.d.ts').SkykitXrRayContext} context
    */
   function getRay(context = {}) {
     assertActive();
@@ -83,13 +83,13 @@ export function createXrRaySource(options = {}) {
 
   function assertActive() {
     if (disposed) {
-      throw new Error('XrRaySource has been disposed.');
+      throw new Error('SkykitXrRaySource has been disposed.');
     }
   }
 }
 
 /**
- * @param {import('./index.d.ts').XrRayContext} context
+ * @param {import('../xr.d.ts').SkykitXrRayContext} context
  * @param {{ id: string; kind: string; handedness: string | null; length: number | null; space: 'gripSpace' | 'targetRaySpace' }} options
  */
 function controllerRay(context, options) {
@@ -102,7 +102,7 @@ function controllerRay(context, options) {
     if (options.handedness && input.handedness !== options.handedness) continue;
     const space = input[options.space];
     if (!space || typeof frame.getPose !== 'function') continue;
-    const pose = poseFromXrPose(frame.getPose(space, referenceSpace));
+    const pose = poseFromSkykitXrPose(frame.getPose(space, referenceSpace));
     const ray = poseToRay(pose, {
       id: options.id,
       kind: options.kind,
@@ -117,7 +117,7 @@ function controllerRay(context, options) {
 }
 
 /**
- * @param {import('./index.d.ts').XrPose | null} pose
+ * @param {import('../xr.d.ts').SkykitXrPose | null} pose
  * @param {{ id: string; kind: string; handedness: string | null; length: number | null }} options
  */
 function poseToRay(pose, options) {
@@ -155,7 +155,7 @@ export function normalizeRay(ray, fallback) {
 }
 
 /**
- * @param {import('./index.d.ts').XrRay} ray
+ * @param {import('../xr.d.ts').SkykitXrRay} ray
  */
 export function cloneRay(ray) {
   return {

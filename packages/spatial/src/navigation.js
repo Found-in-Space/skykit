@@ -15,21 +15,21 @@ import {
   scaleVector,
   subtractVectors,
   vectorLength,
-} from './xr-math.js';
+} from './math.js';
 
-/** @typedef {import('./index.d.ts').XrVector3} XrVector3 */
-/** @typedef {import('./index.d.ts').XrQuaternion} XrQuaternion */
-/** @typedef {import('./index.d.ts').XrPose} XrPose */
-/** @typedef {import('./index.d.ts').XrMotionUpdateInput} XrMotionUpdateInput */
+/** @typedef {import('./index.d.ts').SpatialVector3} SpatialVector3 */
+/** @typedef {import('./index.d.ts').SpatialQuaternion} SpatialQuaternion */
+/** @typedef {import('./index.d.ts').SpatialPose} SpatialPose */
+/** @typedef {import('./index.d.ts').SpatialMotionUpdateInput} SpatialMotionUpdateInput */
 
 const EPSILON = 1e-9;
 
 /**
  * @param {Iterable<unknown>} [points]
- * @returns {import('./index.d.ts').XrPolylineRoute}
+ * @returns {import('./index.d.ts').SpatialPolylineRoute}
  */
-export function buildXrPolylineRoute(points = []) {
-  /** @type {XrVector3[]} */
+export function buildSpatialPolylineRoute(points = []) {
+  /** @type {SpatialVector3[]} */
   const normalizedPoints = [];
   for (const point of points) {
     const normalized = normalizeOptionalVector3(point);
@@ -41,7 +41,7 @@ export function buildXrPolylineRoute(points = []) {
     normalizedPoints.push(normalized);
   }
 
-  /** @type {import('./index.d.ts').XrPolylineSegment[]} */
+  /** @type {import('./index.d.ts').SpatialPolylineSegment[]} */
   const segments = [];
   let totalLength = 0;
   for (let index = 1; index < normalizedPoints.length; index += 1) {
@@ -67,11 +67,11 @@ export function buildXrPolylineRoute(points = []) {
 }
 
 /**
- * @param {import('./index.d.ts').XrPolylineRoute | null | undefined} route
+ * @param {import('./index.d.ts').SpatialPolylineRoute | null | undefined} route
  * @param {number} distance
- * @returns {XrVector3 | null}
+ * @returns {SpatialVector3 | null}
  */
-export function sampleXrPolylineRoutePosition(route, distance) {
+export function sampleSpatialPolylineRoutePosition(route, distance) {
   if (!route || !Array.isArray(route.points) || route.points.length === 0) {
     return null;
   }
@@ -95,10 +95,10 @@ export function sampleXrPolylineRoutePosition(route, distance) {
 }
 
 /**
- * @param {import('./index.d.ts').XrOrbitAngleInput} input
+ * @param {import('./index.d.ts').SpatialOrbitAngleInput} input
  * @returns {number}
  */
-export function deriveXrOrbitAngle(input) {
+export function deriveSpatialOrbitAngle(input) {
   const center = normalizeVector3(input?.center, nullVector());
   const position = normalizeVector3(input?.position, nullVector());
   if (!isFiniteVector(center) || !isFiniteVector(position)) return 0;
@@ -115,10 +115,10 @@ export function deriveXrOrbitAngle(input) {
 
 /**
  * @param {unknown} start
- * @param {import('./index.d.ts').XrOrbitalInsertOptions} [options]
- * @returns {import('./index.d.ts').XrOrbitalInsertRoute | null}
+ * @param {import('./index.d.ts').SpatialOrbitalInsertOptions} [options]
+ * @returns {import('./index.d.ts').SpatialOrbitalInsertRoute | null}
  */
-export function buildXrOrbitalInsertRoute(start, options = {}) {
+export function buildSpatialOrbitalInsertRoute(start, options = {}) {
   const startPosition = normalizeOptionalVector3(start);
   if (!startPosition) return null;
   const automation = createOrbitalInsertState(startPosition, options);
@@ -152,10 +152,10 @@ export function buildXrOrbitalInsertRoute(start, options = {}) {
 }
 
 /**
- * @param {import('./index.d.ts').XrLookAtInput} input
- * @returns {XrQuaternion | null}
+ * @param {import('./index.d.ts').SpatialLookAtInput} input
+ * @returns {SpatialQuaternion | null}
  */
-export function computeXrLookAtOrientation(input) {
+export function computeSpatialLookAtOrientation(input) {
   const position = normalizeVector3(input?.position, nullVector());
   const target = normalizeVector3(input?.target, nullVector());
   if (!isFiniteVector(position) || !isFiniteVector(target)) return null;
@@ -165,11 +165,11 @@ export function computeXrLookAtOrientation(input) {
 }
 
 /**
- * @param {import('./index.d.ts').XrRouteFollowMotionOptions} [options]
- * @returns {import('./index.d.ts').XrRouteFollowMotionModel}
+ * @param {import('./index.d.ts').SpatialRouteFollowMotionOptions} [options]
+ * @returns {import('./index.d.ts').SpatialRouteFollowMotionModel}
  */
-export function createRouteFollowXrMotionModel(options = {}) {
-  const automation = createXrNavigationAutomation();
+export function createRouteFollowSpatialMotionModel(options = {}) {
+  const automation = createSpatialNavigationAutomation();
   if (options.points) {
     automation.flyPolyline(options.points, options);
   }
@@ -190,11 +190,11 @@ export function createRouteFollowXrMotionModel(options = {}) {
 }
 
 /**
- * @param {import('./index.d.ts').XrOrbitMotionOptions} [options]
- * @returns {import('./index.d.ts').XrOrbitMotionModel}
+ * @param {import('./index.d.ts').SpatialOrbitMotionOptions} [options]
+ * @returns {import('./index.d.ts').SpatialOrbitMotionModel}
  */
-export function createOrbitXrMotionModel(options = {}) {
-  const automation = createXrNavigationAutomation();
+export function createOrbitSpatialMotionModel(options = {}) {
+  const automation = createSpatialNavigationAutomation();
   if (options.center) {
     automation.orbit(options.center, options);
   }
@@ -215,11 +215,11 @@ export function createOrbitXrMotionModel(options = {}) {
 }
 
 /**
- * @param {import('./index.d.ts').XrOrbitalInsertMotionOptions} [options]
- * @returns {import('./index.d.ts').XrOrbitalInsertMotionModel}
+ * @param {import('./index.d.ts').SpatialOrbitalInsertMotionOptions} [options]
+ * @returns {import('./index.d.ts').SpatialOrbitalInsertMotionModel}
  */
-export function createOrbitalInsertXrMotionModel(options = {}) {
-  const automation = createXrNavigationAutomation();
+export function createOrbitalInsertSpatialMotionModel(options = {}) {
+  const automation = createSpatialNavigationAutomation();
   if (options.center) {
     automation.orbitalInsert(options.center, options);
   }
@@ -240,11 +240,11 @@ export function createOrbitalInsertXrMotionModel(options = {}) {
 }
 
 /**
- * @param {import('./index.d.ts').XrLookAtMotionOptions} [options]
- * @returns {import('./index.d.ts').XrLookAtMotionModel}
+ * @param {import('./index.d.ts').SpatialLookAtMotionOptions} [options]
+ * @returns {import('./index.d.ts').SpatialLookAtMotionModel}
  */
-export function createLookAtXrMotionModel(options = {}) {
-  const automation = createXrNavigationAutomation();
+export function createLookAtSpatialMotionModel(options = {}) {
+  const automation = createSpatialNavigationAutomation();
   if (options.target) {
     if (options.locked) {
       automation.lockAt(options.target, options);
@@ -278,10 +278,10 @@ export function createLookAtXrMotionModel(options = {}) {
 }
 
 /**
- * @param {import('./index.d.ts').XrNavigationAutomationOptions} [options]
- * @returns {import('./index.d.ts').XrNavigationAutomation}
+ * @param {import('./index.d.ts').SpatialNavigationAutomationOptions} [options]
+ * @returns {import('./index.d.ts').SpatialNavigationAutomation}
  */
-export function createXrNavigationAutomation(options = {}) {
+export function createSpatialNavigationAutomation(options = {}) {
   /** @type {MovementAutomation | null} */
   let movementAutomation = null;
   /** @type {OrientationAutomation | null} */
@@ -292,6 +292,7 @@ export function createXrNavigationAutomation(options = {}) {
 
   const defaults = {
     speed: positiveFinite(options.speed, 4),
+    acceleration: positiveFinite(options.acceleration, 4),
     deceleration: positiveFinite(options.deceleration, 2),
     arrivalThreshold: positiveFinite(options.arrivalThreshold, 0.01),
     angularSpeed: finiteNumber(options.angularSpeed, 0.1),
@@ -394,7 +395,7 @@ export function createXrNavigationAutomation(options = {}) {
 
   /**
    * @param {unknown} target
-   * @param {import('./index.d.ts').XrFlyToNavigationOptions} nextOptions
+   * @param {import('./index.d.ts').SpatialFlyToNavigationOptions} nextOptions
    */
   function beginFlyTo(target, nextOptions) {
     const normalizedTarget = normalizeOptionalVector3(target);
@@ -405,8 +406,11 @@ export function createXrNavigationAutomation(options = {}) {
       speed: resolveDuration(nextOptions) == null
         ? positiveFinite(nextOptions.speed, defaults.speed)
         : null,
+      acceleration: positiveFinite(nextOptions.acceleration, defaults.acceleration),
       durationSecs: resolveDuration(nextOptions),
       elapsedSecs: 0,
+      currentSpeed: Math.max(0, finiteNumber(nextOptions.currentSpeed, lastSnapshot.speedNavigationUnitsPerSecond ?? 0)),
+      startPosition: null,
       deceleration: positiveFinite(nextOptions.deceleration, defaults.deceleration),
       arrivalThreshold: positiveFinite(nextOptions.arrivalThreshold, defaults.arrivalThreshold),
       onArrive: typeof nextOptions.onArrive === 'function' ? nextOptions.onArrive : null,
@@ -416,10 +420,10 @@ export function createXrNavigationAutomation(options = {}) {
 
   /**
    * @param {Iterable<unknown>} points
-   * @param {import('./index.d.ts').XrRouteFollowOptions} nextOptions
+   * @param {import('./index.d.ts').SpatialRouteFollowOptions} nextOptions
    */
   function beginFlyPolyline(points, nextOptions) {
-    const route = buildXrPolylineRoute(points);
+    const route = buildSpatialPolylineRoute(points);
     if (!Array.isArray(route.segments) || route.segments.length === 0 || !(route.totalLength > 0)) {
       return false;
     }
@@ -430,8 +434,10 @@ export function createXrNavigationAutomation(options = {}) {
       speed: resolveDuration(nextOptions) == null
         ? positiveFinite(nextOptions.speed, defaults.speed)
         : null,
+      acceleration: positiveFinite(nextOptions.acceleration, defaults.acceleration),
       durationSecs: resolveDuration(nextOptions),
       elapsedSecs: 0,
+      currentSpeed: Math.max(0, finiteNumber(nextOptions.currentSpeed, lastSnapshot.speedNavigationUnitsPerSecond ?? 0)),
       deceleration: positiveFinite(nextOptions.deceleration, defaults.deceleration),
       arrivalThreshold: positiveFinite(nextOptions.arrivalThreshold, defaults.arrivalThreshold),
       arrivalAction: nextOptions.arrivalAction ?? null,
@@ -442,8 +448,8 @@ export function createXrNavigationAutomation(options = {}) {
 
   /**
    * @param {unknown} center
-   * @param {import('./index.d.ts').XrOrbitOptions} nextOptions
-   * @param {XrPose | null} [pose]
+   * @param {import('./index.d.ts').SpatialOrbitOptions} nextOptions
+   * @param {SpatialPose | null} [pose]
    */
   function beginOrbit(center, nextOptions, pose = null) {
     const normalizedCenter = normalizeOptionalVector3(center);
@@ -463,7 +469,7 @@ export function createXrNavigationAutomation(options = {}) {
     const angle = Number.isFinite(nextOptions.initialAngle)
       ? Number(nextOptions.initialAngle)
       : currentPosition
-        ? deriveXrOrbitAngle({ center: normalizedCenter, position: currentPosition, orbitNormal })
+        ? deriveSpatialOrbitAngle({ center: normalizedCenter, position: currentPosition, orbitNormal })
         : 0;
     movementAutomation = {
       type: 'orbit',
@@ -478,8 +484,8 @@ export function createXrNavigationAutomation(options = {}) {
 
   /**
    * @param {unknown} center
-   * @param {import('./index.d.ts').XrOrbitalInsertOptions} nextOptions
-   * @param {XrPose | null} [pose]
+   * @param {import('./index.d.ts').SpatialOrbitalInsertOptions} nextOptions
+   * @param {SpatialPose | null} [pose]
    */
   function beginOrbitalInsert(center, nextOptions, pose = null) {
     const normalizedCenter = normalizeOptionalVector3(center);
@@ -499,7 +505,7 @@ export function createXrNavigationAutomation(options = {}) {
       beginOrbit(normalizedCenter, {
         ...nextOptions,
         radius,
-        initialAngle: deriveXrOrbitAngle({
+        initialAngle: deriveSpatialOrbitAngle({
           center: normalizedCenter,
           position: currentPose.position,
           orbitNormal: nextOptions.orbitNormal,
@@ -512,6 +518,7 @@ export function createXrNavigationAutomation(options = {}) {
       ...nextOptions,
       center: normalizedCenter,
       radius,
+      approachVelocity: nextOptions.approachVelocity ?? lastSnapshot.velocity,
     });
     if (!automation) return false;
     movementAutomation = {
@@ -523,7 +530,7 @@ export function createXrNavigationAutomation(options = {}) {
 
   /**
    * @param {unknown} target
-   * @param {import('./index.d.ts').XrLookAtOptions} nextOptions
+   * @param {import('./index.d.ts').SpatialLookAtOptions} nextOptions
    */
   function beginLookAt(target, nextOptions) {
     const normalizedTarget = normalizeOptionalVector3(target);
@@ -542,7 +549,7 @@ export function createXrNavigationAutomation(options = {}) {
 
   /**
    * @param {unknown} target
-   * @param {import('./index.d.ts').XrLockAtOptions} nextOptions
+   * @param {import('./index.d.ts').SpatialLockAtOptions} nextOptions
    */
   function beginLockAt(target, nextOptions) {
     const normalizedTarget = normalizeOptionalVector3(target);
@@ -559,9 +566,9 @@ export function createXrNavigationAutomation(options = {}) {
   }
 
   /**
-   * @param {XrPose} pose
+   * @param {SpatialPose} pose
    * @param {number} dt
-   * @returns {XrPose}
+   * @returns {SpatialPose}
    */
   function updateMovement(pose, dt) {
     if (!movementAutomation || dt <= 0) return clonePose(pose);
@@ -618,12 +625,25 @@ export function createXrNavigationAutomation(options = {}) {
   }
 
   /**
-   * @param {XrPose} pose
+   * @param {SpatialPose} pose
    * @param {number} dt
    * @param {Extract<MovementAutomation, { type: 'flyTo' }>} automation
-   * @returns {XrPose}
+   * @returns {SpatialPose}
    */
   function updateFlyTo(pose, dt, automation) {
+    if (automation.durationSecs != null) {
+      automation.startPosition ??= cloneVector3(pose.position);
+      automation.elapsedSecs = Math.min(automation.durationSecs, automation.elapsedSecs + dt);
+      const linear = clamp(automation.elapsedSecs / automation.durationSecs, 0, 1);
+      const position = lerpVector(automation.startPosition, automation.target, smoothstep(0, 1, linear));
+      if (linear >= 1) {
+        const callback = automation.onArrive;
+        movementAutomation = null;
+        callback?.();
+        return { position: cloneVector3(automation.target), orientation: cloneQuaternion(pose.orientation) };
+      }
+      return { position, orientation: cloneQuaternion(pose.orientation) };
+    }
     const offset = subtractVectors(automation.target, pose.position);
     const distance = vectorLength(offset);
     if (distance <= automation.arrivalThreshold) {
@@ -632,17 +652,16 @@ export function createXrNavigationAutomation(options = {}) {
       callback?.();
       return { position: cloneVector3(automation.target), orientation: cloneQuaternion(pose.orientation) };
     }
-    const speed = resolveAutomationSpeed(automation, distance, dt);
-    const step = Math.min(speed * dt, distance);
+    const { speed, step } = resolveAutomationStep(automation, distance, dt);
     const position = translateToward(pose.position, automation.target, step);
     return { position, orientation: cloneQuaternion(pose.orientation) };
   }
 
   /**
-   * @param {XrPose} pose
+   * @param {SpatialPose} pose
    * @param {number} dt
    * @param {Extract<MovementAutomation, { type: 'flyPolyline' }>} automation
-   * @returns {XrPose}
+   * @returns {SpatialPose}
    */
   function updateFlyPolyline(pose, dt, automation) {
     const remaining = Math.max(automation.route.totalLength - automation.distance, 0);
@@ -654,9 +673,15 @@ export function createXrNavigationAutomation(options = {}) {
         automation.onArrive,
       );
     }
-    const speed = resolveAutomationSpeed(automation, remaining, dt);
-    automation.distance = Math.min(automation.route.totalLength, automation.distance + speed * dt);
-    const position = sampleXrPolylineRoutePosition(automation.route, automation.distance) ?? pose.position;
+    if (automation.durationSecs != null) {
+      automation.elapsedSecs = Math.min(automation.durationSecs, automation.elapsedSecs + dt);
+      const linear = clamp(automation.elapsedSecs / automation.durationSecs, 0, 1);
+      automation.distance = automation.route.totalLength * smoothstep(0, 1, linear);
+    } else {
+      const { step } = resolveAutomationStep(automation, remaining, dt);
+      automation.distance = Math.min(automation.route.totalLength, automation.distance + step);
+    }
+    const position = sampleSpatialPolylineRoutePosition(automation.route, automation.distance) ?? pose.position;
     if ((automation.route.totalLength - automation.distance) <= automation.arrivalThreshold) {
       return finishMovementWithArrivalAction(
         finalPoint ? { position: finalPoint, orientation: cloneQuaternion(pose.orientation) } : { position, orientation: cloneQuaternion(pose.orientation) },
@@ -668,10 +693,10 @@ export function createXrNavigationAutomation(options = {}) {
   }
 
   /**
-   * @param {XrPose} pose
+   * @param {SpatialPose} pose
    * @param {unknown} action
    * @param {(() => void) | null} callback
-   * @returns {XrPose}
+   * @returns {SpatialPose}
    */
   function finishMovementWithArrivalAction(pose, action, callback) {
     if (!action || typeof action !== 'object') {
@@ -679,7 +704,7 @@ export function createXrNavigationAutomation(options = {}) {
       callback?.();
       return clonePose(pose);
     }
-    const arrival = /** @type {import('./index.d.ts').XrArrivalAction} */ (action);
+    const arrival = /** @type {import('./index.d.ts').SpatialArrivalAction} */ (action);
     if (arrival.type === 'orbit') {
       const started = beginOrbit(arrival.center, arrival, pose);
       if (!started) movementAutomation = null;
@@ -703,14 +728,14 @@ export function createXrNavigationAutomation(options = {}) {
   }
 
   /**
-   * @param {XrPose} pose
+   * @param {SpatialPose} pose
    * @param {number} dt
-   * @returns {XrPose}
+   * @returns {SpatialPose}
    */
   function updateOrientation(pose, dt) {
     if (!orientationAutomation || dt <= 0) return clonePose(pose);
     if (orientationAutomation.type === 'lookAt') {
-      const target = computeXrLookAtOrientation({
+      const target = computeSpatialLookAtOrientation({
         position: pose.position,
         target: orientationAutomation.target,
         up: orientationAutomation.up ?? undefined,
@@ -733,7 +758,7 @@ export function createXrNavigationAutomation(options = {}) {
       if (secondsSinceManualLookInput < orientationAutomation.dwellSecs) {
         return clonePose(pose);
       }
-      const target = computeXrLookAtOrientation({
+      const target = computeSpatialLookAtOrientation({
         position: pose.position,
         target: orientationAutomation.target,
         up: orientationAutomation.up ?? undefined,
@@ -753,63 +778,9 @@ export function createXrNavigationAutomation(options = {}) {
 
   function assertActive() {
     if (disposed) {
-      throw new Error('XrNavigationAutomation has been disposed.');
+      throw new Error('SpatialNavigationAutomation has been disposed.');
     }
   }
-}
-
-/**
- * @param {import('./index.d.ts').XrDepthRangeApplyTarget} target
- * @param {import('./index.d.ts').XrDepthRange | { near?: number; far?: number; depthNear?: number; depthFar?: number }} range
- * @param {import('./index.d.ts').XrDepthRangeApplyOptions} [options]
- * @returns {import('./index.d.ts').XrDepthRangeApplyResult}
- */
-export function applyXrDepthRange(target, range, options = {}) {
-  const session = resolveSessionTarget(target);
-  const depthNear = finiteNumber(range?.depthNear ?? range?.near, Number.NaN);
-  const depthFar = finiteNumber(range?.depthFar ?? range?.far, Number.NaN);
-  if (!Number.isFinite(depthNear) || !Number.isFinite(depthFar) || !(depthNear > 0) || !(depthFar > depthNear)) {
-    throw new TypeError('applyXrDepthRange() requires a valid depth range.');
-  }
-  if (!session || typeof session.updateRenderState !== 'function') {
-    if (options.throwOnUnavailable) {
-      throw new Error('XRSession.updateRenderState() is not available.');
-    }
-    return {
-      applied: false,
-      depthNear,
-      depthFar,
-      reason: 'missing-updateRenderState',
-    };
-  }
-  try {
-    session.updateRenderState({ depthNear, depthFar });
-    return { applied: true, depthNear, depthFar };
-  } catch (error) {
-    if (options.throwOnUnavailable) {
-      throw error;
-    }
-    return {
-      applied: false,
-      depthNear,
-      depthFar,
-      reason: 'updateRenderState-failed',
-      error,
-    };
-  }
-}
-
-/**
- * @param {unknown} target
- * @returns {{ updateRenderState?: (state: { depthNear: number; depthFar: number }) => void } | null}
- */
-function resolveSessionTarget(target) {
-  if (!target || typeof target !== 'object') return null;
-  const maybeHandle = /** @type {{ session?: unknown }} */ (target);
-  const session = maybeHandle.session ?? target;
-  return session && typeof session === 'object'
-    ? /** @type {{ updateRenderState?: (state: { depthNear: number; depthFar: number }) => void }} */ (session)
-    : null;
 }
 
 /**
@@ -817,20 +788,26 @@ function resolveSessionTarget(target) {
  * @param {number} remaining
  * @param {number} dt
  */
-function resolveAutomationSpeed(automation, remaining, dt) {
-  if (automation.durationSecs != null) {
-    automation.elapsedSecs += dt;
-    const remainingSecs = Math.max(automation.durationSecs - automation.elapsedSecs, 0.05);
-    return remaining / remainingSecs;
+function resolveAutomationStep(automation, remaining, dt) {
+  const maxSpeed = automation.speed ?? 1;
+  const brakingSpeed = Math.sqrt(Math.max(0, 2 * automation.deceleration * Math.max(0, remaining - automation.arrivalThreshold)));
+  const targetSpeed = Math.min(maxSpeed, brakingSpeed);
+  const previousSpeed = automation.currentSpeed;
+  if (automation.currentSpeed < targetSpeed) {
+    automation.currentSpeed = Math.min(targetSpeed, automation.currentSpeed + automation.acceleration * dt);
+  } else {
+    automation.currentSpeed = Math.max(targetSpeed, automation.currentSpeed - automation.deceleration * dt);
   }
-  return Math.min(automation.speed ?? 1, remaining * automation.deceleration);
+  const speed = automation.currentSpeed;
+  const step = Math.min(remaining, ((previousSpeed + speed) * 0.5) * dt);
+  return { speed, step };
 }
 
 /**
- * @param {XrVector3} from
- * @param {XrVector3} to
+ * @param {SpatialVector3} from
+ * @param {SpatialVector3} to
  * @param {number} step
- * @returns {XrVector3}
+ * @returns {SpatialVector3}
  */
 function translateToward(from, to, step) {
   const offset = subtractVectors(to, from);
@@ -845,8 +822,8 @@ function translateToward(from, to, step) {
 }
 
 /**
- * @param {XrVector3} start
- * @param {import('./index.d.ts').XrOrbitalInsertOptions} options
+ * @param {SpatialVector3} start
+ * @param {import('./index.d.ts').SpatialOrbitalInsertOptions} options
  * @returns {OrbitalInsertAutomation | null}
  */
 function createOrbitalInsertState(start, options) {
@@ -865,6 +842,7 @@ function createOrbitalInsertState(start, options) {
       ? Math.max(radius * 3, radius + Math.max(0, ((approachSpeed ?? 12) - orbitalSpeed) / deceleration) * 1.2)
       : Math.max(currentDistance * 1.02, radius * 3),
   );
+  const orbitNormal = resolveInsertionOrbitNormal(start, center, options);
   return {
     type: 'orbitalInsert',
     center,
@@ -875,16 +853,40 @@ function createOrbitalInsertState(start, options) {
     elapsedSecs: 0,
     deceleration,
     insertionRadius,
-    orbitNormal: normalizeDirectionOrFallback(options.orbitNormal, LOCAL_UP),
+    orbitNormal,
     onInserted: typeof options.onInserted === 'function' ? options.onInserted : null,
   };
 }
 
 /**
- * @param {XrVector3} currentPosition
+ * @param {SpatialVector3} start
+ * @param {SpatialVector3} center
+ * @param {import('./index.d.ts').SpatialOrbitalInsertOptions} options
+ */
+function resolveInsertionOrbitNormal(start, center, options) {
+  if (options.mode === 'specified-orbit') {
+    return normalizeDirectionOrFallback(options.orbitNormal, LOCAL_UP);
+  }
+  const radial = normalizeDirectionOrFallback(subtractVectors(start, center), LOCAL_RIGHT);
+  const velocity = normalizeOptionalVector3(options.approachVelocity);
+  if (velocity && vectorLength(velocity) > EPSILON) {
+    let normal = cross(radial, velocity);
+    if (vectorLength(normal) > EPSILON) {
+      if (options.orbitNormal && options.matchApproachDirection !== false) {
+        const requested = normalizeDirectionOrFallback(options.orbitNormal, normal);
+        if (dot(normal, requested) < 0) normal = scaleVector(normal, -1);
+      }
+      return normalizeDirectionOrFallback(normal, LOCAL_UP);
+    }
+  }
+  return normalizeDirectionOrFallback(options.orbitNormal, LOCAL_UP);
+}
+
+/**
+ * @param {SpatialVector3} currentPosition
  * @param {OrbitalInsertAutomation} automation
  * @param {number} dt
- * @returns {{ active: boolean; enteredOrbit: boolean; position: XrVector3; angle?: number }}
+ * @returns {{ active: boolean; enteredOrbit: boolean; position: SpatialVector3; angle?: number }}
  */
 function advanceOrbitalInsert(currentPosition, automation, dt) {
   if (!(dt > 0)) {
@@ -936,7 +938,7 @@ function advanceOrbitalInsert(currentPosition, automation, dt) {
   const nextOffset = subtractVectors(position, automation.center);
   const nextDistance = vectorLength(nextOffset);
   if (nextDistance <= automation.radius * 1.002 && nextDistance > EPSILON) {
-    const angle = deriveXrOrbitAngle({
+    const angle = deriveSpatialOrbitAngle({
       center: automation.center,
       position,
       orbitNormal: automation.orbitNormal,
@@ -979,11 +981,11 @@ function createOrbitBasis(options = {}) {
 }
 
 /**
- * @param {XrVector3} center
+ * @param {SpatialVector3} center
  * @param {number} radius
  * @param {number} angle
  * @param {unknown} orbitNormal
- * @returns {XrVector3}
+ * @returns {SpatialVector3}
  */
 function orbitPosition(center, radius, angle, orbitNormal) {
   const basis = createOrbitBasis({ orbitNormal });
@@ -997,9 +999,9 @@ function orbitPosition(center, radius, angle, orbitNormal) {
 }
 
 /**
- * @param {XrVector3} direction
+ * @param {SpatialVector3} direction
  * @param {unknown} upInput
- * @returns {XrQuaternion}
+ * @returns {SpatialQuaternion}
  */
 function orientationTowardDirection(direction, upInput) {
   const forward = normalizeDirectionOrFallback(direction, LOCAL_FORWARD);
@@ -1014,10 +1016,10 @@ function orientationTowardDirection(direction, upInput) {
 }
 
 /**
- * @param {XrVector3} xAxis
- * @param {XrVector3} yAxis
- * @param {XrVector3} zAxis
- * @returns {XrQuaternion}
+ * @param {SpatialVector3} xAxis
+ * @param {SpatialVector3} yAxis
+ * @param {SpatialVector3} zAxis
+ * @returns {SpatialQuaternion}
  */
 function quaternionFromBasis(xAxis, yAxis, zAxis) {
   const m11 = xAxis.x;
@@ -1063,10 +1065,10 @@ function quaternionFromBasis(xAxis, yAxis, zAxis) {
 }
 
 /**
- * @param {XrQuaternion} a
- * @param {XrQuaternion} b
+ * @param {SpatialQuaternion} a
+ * @param {SpatialQuaternion} b
  * @param {number} amount
- * @returns {XrQuaternion}
+ * @returns {SpatialQuaternion}
  */
 function slerpQuaternions(a, b, amount) {
   const t = clamp(amount, 0, 1);
@@ -1105,8 +1107,8 @@ function slerpQuaternions(a, b, amount) {
 }
 
 /**
- * @param {XrQuaternion} a
- * @param {XrQuaternion} b
+ * @param {SpatialQuaternion} a
+ * @param {SpatialQuaternion} b
  */
 function quaternionAngle(a, b) {
   const dotValue = Math.abs(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w);
@@ -1132,7 +1134,7 @@ function resolveDuration(options) {
 
 /**
  * @param {unknown} value
- * @returns {XrVector3 | null}
+ * @returns {SpatialVector3 | null}
  */
 function normalizeOptionalVector3(value) {
   const vector = normalizeVector3(value, nullVector());
@@ -1141,7 +1143,7 @@ function normalizeOptionalVector3(value) {
 
 /**
  * @param {unknown} value
- * @returns {XrVector3 | null}
+ * @returns {SpatialVector3 | null}
  */
 function normalizeDirectionOrNull(value) {
   const vector = normalizeOptionalVector3(value);
@@ -1152,15 +1154,15 @@ function normalizeDirectionOrNull(value) {
 
 /**
  * @param {unknown} value
- * @param {XrVector3} fallback
- * @returns {XrVector3}
+ * @param {SpatialVector3} fallback
+ * @returns {SpatialVector3}
  */
 function normalizeDirectionOrFallback(value, fallback) {
   return normalizeDirectionOrNull(value) ?? cloneVector3(fallback);
 }
 
 /**
- * @param {XrVector3} vector
+ * @param {SpatialVector3} vector
  */
 function isFiniteVector(vector) {
   return Number.isFinite(vector.x) && Number.isFinite(vector.y) && Number.isFinite(vector.z);
@@ -1193,25 +1195,25 @@ function smoothstep(edge0, edge1, x) {
 }
 
 /**
- * @param {XrVector3} a
- * @param {XrVector3} b
+ * @param {SpatialVector3} a
+ * @param {SpatialVector3} b
  */
 function pointDistance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
 /**
- * @param {XrVector3} a
- * @param {XrVector3} b
+ * @param {SpatialVector3} a
+ * @param {SpatialVector3} b
  */
 function dot(a, b) {
   return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
 /**
- * @param {XrVector3} a
- * @param {XrVector3} b
- * @returns {XrVector3}
+ * @param {SpatialVector3} a
+ * @param {SpatialVector3} b
+ * @returns {SpatialVector3}
  */
 function cross(a, b) {
   return {
@@ -1222,9 +1224,9 @@ function cross(a, b) {
 }
 
 /**
- * @param {XrVector3} vector
- * @param {XrVector3} normal
- * @returns {XrVector3}
+ * @param {SpatialVector3} vector
+ * @param {SpatialVector3} normal
+ * @returns {SpatialVector3}
  */
 function projectOnPlane(vector, normal) {
   const amount = dot(vector, normal);
@@ -1236,10 +1238,10 @@ function projectOnPlane(vector, normal) {
 }
 
 /**
- * @param {XrVector3} start
- * @param {XrVector3} end
+ * @param {SpatialVector3} start
+ * @param {SpatialVector3} end
  * @param {number} amount
- * @returns {XrVector3}
+ * @returns {SpatialVector3}
  */
 function lerpVector(start, end, amount) {
   return {
@@ -1258,7 +1260,7 @@ function positiveDelta(deltaSeconds) {
 
 /**
  * @param {string} type
- * @returns {import('./index.d.ts').XrNavigationAutomationSnapshot}
+ * @returns {import('./index.d.ts').SpatialNavigationAutomationSnapshot}
  */
 function createNavigationSnapshot(type) {
   return {
@@ -1275,7 +1277,7 @@ function createNavigationSnapshot(type) {
 }
 
 /**
- * @param {import('./index.d.ts').XrNavigationAutomationSnapshot} snapshot
+ * @param {import('./index.d.ts').SpatialNavigationAutomationSnapshot} snapshot
  */
 function cloneNavigationSnapshot(snapshot) {
   return {
@@ -1289,7 +1291,7 @@ function cloneNavigationSnapshot(snapshot) {
 
 /**
  * @param {MovementAutomation | null} automation
- * @returns {import('./index.d.ts').XrAutomationSummary | null}
+ * @returns {import('./index.d.ts').SpatialAutomationSummary | null}
  */
 function serializeMovement(automation) {
   if (!automation) return null;
@@ -1329,7 +1331,7 @@ function serializeMovement(automation) {
 
 /**
  * @param {OrientationAutomation | null} automation
- * @returns {import('./index.d.ts').XrAutomationSummary | null}
+ * @returns {import('./index.d.ts').SpatialAutomationSummary | null}
  */
 function serializeOrientation(automation) {
   if (!automation) return null;
@@ -1342,21 +1344,26 @@ function serializeOrientation(automation) {
 /**
  * @typedef {{
  *   type: 'flyTo';
- *   target: XrVector3;
+ *   target: SpatialVector3;
  *   speed: number | null;
+ *   acceleration: number;
  *   durationSecs: number | null;
  *   elapsedSecs: number;
+ *   currentSpeed: number;
+ *   startPosition: SpatialVector3 | null;
  *   deceleration: number;
  *   arrivalThreshold: number;
  *   onArrive: (() => void) | null;
  * }} FlyToAutomation
  * @typedef {{
  *   type: 'flyPolyline';
- *   route: import('./index.d.ts').XrPolylineRoute;
+ *   route: import('./index.d.ts').SpatialPolylineRoute;
  *   distance: number;
  *   speed: number | null;
+ *   acceleration: number;
  *   durationSecs: number | null;
  *   elapsedSecs: number;
+ *   currentSpeed: number;
  *   deceleration: number;
  *   arrivalThreshold: number;
  *   arrivalAction: unknown;
@@ -1364,20 +1371,20 @@ function serializeOrientation(automation) {
  * }} FlyPolylineAutomation
  * @typedef {{
  *   type: 'orbit';
- *   center: XrVector3;
+ *   center: SpatialVector3;
  *   radius: number;
  *   angularSpeed: number;
  *   angle: number;
- *   orbitNormal: XrVector3;
+ *   orbitNormal: SpatialVector3;
  * }} OrbitAutomation
  * @typedef {{
  *   type: 'pendingOrbit';
- *   center: XrVector3;
- *   options: import('./index.d.ts').XrOrbitOptions;
+ *   center: SpatialVector3;
+ *   options: import('./index.d.ts').SpatialOrbitOptions;
  * }} PendingOrbitAutomation
  * @typedef {{
  *   type: 'orbitalInsert';
- *   center: XrVector3;
+ *   center: SpatialVector3;
  *   radius: number;
  *   angularSpeed: number;
  *   approachSpeed: number | null;
@@ -1385,27 +1392,27 @@ function serializeOrientation(automation) {
  *   elapsedSecs: number;
  *   deceleration: number;
  *   insertionRadius: number;
- *   orbitNormal: XrVector3;
+ *   orbitNormal: SpatialVector3;
  *   onInserted: (() => void) | null;
  * }} OrbitalInsertAutomation
  * @typedef {{
  *   type: 'pendingOrbitalInsert';
- *   center: XrVector3;
- *   options: import('./index.d.ts').XrOrbitalInsertOptions;
+ *   center: SpatialVector3;
+ *   options: import('./index.d.ts').SpatialOrbitalInsertOptions;
  * }} PendingOrbitalInsertAutomation
  * @typedef {FlyToAutomation | FlyPolylineAutomation | OrbitAutomation | PendingOrbitAutomation | OrbitalInsertAutomation | PendingOrbitalInsertAutomation} MovementAutomation
  * @typedef {{
  *   type: 'lookAt';
- *   target: XrVector3;
- *   up: XrVector3 | null;
+ *   target: SpatialVector3;
+ *   up: SpatialVector3 | null;
  *   blend: number;
  *   arrivalThresholdRad: number;
  *   onArrive: (() => void) | null;
  * }} LookAtAutomation
  * @typedef {{
  *   type: 'lockAt';
- *   target: XrVector3;
- *   up: XrVector3 | null;
+ *   target: SpatialVector3;
+ *   up: SpatialVector3 | null;
  *   dwellSecs: number;
  *   recenterSpeed: number;
  * }} LockAtAutomation

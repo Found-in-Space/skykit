@@ -1,10 +1,10 @@
-import { normalizeScaleProfile, normalizeVector3, positiveFinite } from './xr-math.js';
+import { normalizeScaleProfile, normalizeVector3, positiveFinite } from '@found-in-space/spatial';
 
 /**
- * @param {import('./index.d.ts').XrDepthRangeOptions} [options]
- * @returns {import('./index.d.ts').XrDepthRange}
+ * @param {import('../xr.d.ts').SkykitXrDepthRangeOptions} [options]
+ * @returns {import('../xr.d.ts').SkykitXrDepthRange}
  */
-export function computeXrDepthRange(options = {}) {
+export function computeSkykitXrDepthRange(options = {}) {
   const policy = options.policy ?? {};
   const near = positiveFinite(policy.near, 0.25);
   const marginFactor = positiveFinite(policy.marginFactor, 1.2);

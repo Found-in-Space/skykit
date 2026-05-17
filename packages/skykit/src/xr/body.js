@@ -6,15 +6,15 @@ import {
   IDENTITY_QUATERNION,
   LOCAL_FORWARD,
   normalizePose,
-} from './xr-math.js';
+} from '@found-in-space/spatial';
 
 /**
- * @param {import('./index.d.ts').CreateXrBodyTrackerOptions} [options]
- * @returns {import('./index.d.ts').XrBodyTracker}
+ * @param {import('../xr.d.ts').CreateSkykitXrBodyTrackerOptions} [options]
+ * @returns {import('../xr.d.ts').SkykitXrBodyTracker}
  */
-export function createXrBodyTracker(options = {}) {
+export function createSkykitXrBodyTracker(options = {}) {
   const id = options.id ?? 'found-in-space-xr-body';
-  /** @type {import('./index.d.ts').XrBodyModel} */
+  /** @type {import('../xr.d.ts').SkykitXrBodyModel} */
   let body = {
     head: null,
     leftHand: null,
@@ -33,7 +33,7 @@ export function createXrBodyTracker(options = {}) {
   };
 
   /**
-   * @param {import('./index.d.ts').XrBodyUpdateContext} context
+   * @param {import('../xr.d.ts').SkykitXrBodyUpdateContext} context
    */
   function update(context = {}) {
     assertActive();
@@ -44,7 +44,7 @@ export function createXrBodyTracker(options = {}) {
     const head = frame && referenceSpace && typeof frame.getViewerPose === 'function'
       ? poseFromViewer(frame.getViewerPose(referenceSpace))
       : null;
-    /** @type {import('./index.d.ts').XrBodyModel} */
+    /** @type {import('../xr.d.ts').SkykitXrBodyModel} */
     const nextBody = {
       head,
       leftHand: null,
@@ -59,10 +59,10 @@ export function createXrBodyTracker(options = {}) {
       const hand = source?.handedness;
       if (hand !== 'left' && hand !== 'right') continue;
       const gripPose = frame && referenceSpace && source.gripSpace
-        ? poseFromXrPose(frame.getPose(source.gripSpace, referenceSpace))
+        ? poseFromSkykitXrPose(frame.getPose(source.gripSpace, referenceSpace))
         : null;
       const targetRayPose = frame && referenceSpace && source.targetRaySpace
-        ? poseFromXrPose(frame.getPose(source.targetRaySpace, referenceSpace))
+        ? poseFromSkykitXrPose(frame.getPose(source.targetRaySpace, referenceSpace))
         : null;
       const handPose = {
         handedness: hand,
@@ -113,7 +113,7 @@ export function createXrBodyTracker(options = {}) {
 
   function assertActive() {
     if (disposed) {
-      throw new Error('XrBodyTracker has been disposed.');
+      throw new Error('SkykitXrBodyTracker has been disposed.');
     }
   }
 }
@@ -132,7 +132,7 @@ export function poseFromViewer(xrViewerPose) {
 /**
  * @param {unknown} xrPose
  */
-export function poseFromXrPose(xrPose) {
+export function poseFromSkykitXrPose(xrPose) {
   const pose = xrPose && typeof xrPose === 'object'
     ? /** @type {{ transform?: unknown }} */ (xrPose)
     : null;
@@ -158,7 +158,7 @@ export function poseFromTransform(transform) {
 
 /**
  * @param {unknown} object
- * @param {import('./index.d.ts').XrPose | null} pose
+ * @param {import('../xr.d.ts').SkykitXrPose | null} pose
  */
 function writeObjectPose(object, pose) {
   if (!object || !pose) return;
@@ -173,14 +173,14 @@ function writeObjectPose(object, pose) {
 }
 
 /**
- * @param {import('./index.d.ts').XrPose} pose
+ * @param {import('../xr.d.ts').SkykitXrPose} pose
  */
 export function forwardFromPose(pose) {
   return applyQuaternion(LOCAL_FORWARD, pose.orientation);
 }
 
 /**
- * @param {import('./index.d.ts').XrBodyModel} body
+ * @param {import('../xr.d.ts').SkykitXrBodyModel} body
  */
 function cloneBody(body) {
   return {
@@ -193,7 +193,7 @@ function cloneBody(body) {
 }
 
 /**
- * @param {import('./index.d.ts').XrHandPose} hand
+ * @param {import('../xr.d.ts').SkykitXrHandPose} hand
  */
 function cloneHand(hand) {
   return {

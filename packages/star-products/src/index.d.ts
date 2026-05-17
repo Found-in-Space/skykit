@@ -201,18 +201,6 @@ export declare function temperatureToRgb(
   options?: { input?: 'teffLog8' | 'kelvin' }
 ): [number, number, number];
 
-export declare function icrsToRaDec(
-  position: { x: number; y: number; z: number } | [number, number, number],
-  observerPc?: { x: number; y: number; z: number } | [number, number, number]
-): { raDeg: number; raHours: number; decDeg: number } | null;
-
-export declare function projectEquirectangular(options: {
-  raDeg: number;
-  decDeg: number;
-  width: number;
-  height: number;
-}): { x: number; y: number };
-
 export declare function supportsTransferableBuffers(): boolean;
 
 export declare const consumeStarProductDeltas: typeof consumeProductDeltasFn;

@@ -7,8 +7,6 @@ import {
   createStarObjectBatchProduct,
   createStarRepresentationStore,
   decodeTemperatureK,
-  icrsToRaDec,
-  projectEquirectangular,
   supportsTransferableBuffers,
   temperatureToRgb,
 } from '../index.js';
@@ -200,7 +198,7 @@ test('createStarRepresentationStore applies deltas and exposes star helpers', as
   assert.equal(rows[1].magAbs, 2.5);
 });
 
-test('star math helpers compute apparent magnitude, temperatures, colors, and sky projection', () => {
+test('star math helpers compute apparent magnitude, temperatures, and colors', () => {
   assert.equal(apparentMagnitude({ magAbs: 5, distancePc: 10 }), 5);
   assert.equal(decodeTemperatureK(255), 5800);
 
@@ -212,26 +210,6 @@ test('star math helpers compute apparent magnitude, temperatures, colors, and sk
   assert.equal(rgb.length, 3);
   assert.ok(rgb.every((channel) => channel >= 0 && channel <= 255));
 
-  assert.deepEqual(icrsToRaDec([1, 0, 0]), {
-    raDeg: 0,
-    raHours: 0,
-    decDeg: 0,
-  });
-  assert.deepEqual(icrsToRaDec([0, 1, 0]), {
-    raDeg: 90,
-    raHours: 6,
-    decDeg: 0,
-  });
-
-  assert.deepEqual(projectEquirectangular({
-    raDeg: 180,
-    decDeg: 0,
-    width: 360,
-    height: 180,
-  }), {
-    x: 180,
-    y: 90,
-  });
 });
 
 function oneStar() {

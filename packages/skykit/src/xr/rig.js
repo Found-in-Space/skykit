@@ -5,15 +5,15 @@ import {
   normalizePose,
   normalizeScaleProfile,
   normalizeVector3,
-} from './xr-math.js';
+} from '@found-in-space/spatial';
 
 const DEFAULT_DECK_OFFSET = Object.freeze({ x: 0, y: -1.6, z: 0.5 });
 
 /**
- * @param {import('./index.d.ts').CreateXrRigOptions} [options]
- * @returns {import('./index.d.ts').XrRig}
+ * @param {import('../xr.d.ts').CreateSkykitXrRigOptions} [options]
+ * @returns {import('../xr.d.ts').SkykitXrRig}
  */
-export function createXrRig(options = {}) {
+export function createSkykitXrRig(options = {}) {
   const id = options.id ?? 'found-in-space-xr-rig';
   const scaleProfile = normalizeScaleProfile(options.scaleProfile);
   const deckOffset = normalizeVector3(options.deckOffset, DEFAULT_DECK_OFFSET);
@@ -29,7 +29,7 @@ export function createXrRig(options = {}) {
   const shipMountRoot = namedGroup(`${id}:ship-mount-root`);
   /** @type {Record<string, THREE.Group>} */
   const scaleBandedContentRoots = {};
-  /** @type {import('./index.d.ts').XrPose} */
+  /** @type {import('../xr.d.ts').SkykitXrPose} */
   let navigationPose = normalizePose(options.navigationPose ?? {});
   let disposed = false;
 
@@ -95,7 +95,7 @@ export function createXrRig(options = {}) {
   }
 
   /**
-   * @param {Partial<import('./index.d.ts').XrPose>} pose
+   * @param {Partial<import('../xr.d.ts').SkykitXrPose>} pose
    */
   function setNavigationPose(pose) {
     assertActive();
@@ -123,7 +123,7 @@ export function createXrRig(options = {}) {
   }
 
   /**
-   * @param {import('./index.d.ts').XrScaleProfile} nextProfile
+   * @param {import('../xr.d.ts').SkykitXrScaleProfile} nextProfile
    */
   function setScaleProfile(nextProfile) {
     assertActive();
@@ -196,14 +196,16 @@ export function createXrRig(options = {}) {
       ...Object.values(scaleBandedContentRoots),
     ]) {
       root.parent?.remove(root);
-      root.clear();
+      while (root.children.length > 0) {
+        root.remove(root.children[0]);
+      }
     }
     disposed = true;
   }
 
   function assertActive() {
     if (disposed) {
-      throw new Error('XrRig has been disposed.');
+      throw new Error('SkykitXrRig has been disposed.');
     }
   }
 }

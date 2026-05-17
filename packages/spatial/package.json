@@ -1,7 +1,7 @@
 {
-  "name": "@found-in-space/xr",
+  "name": "@found-in-space/spatial",
   "version": "0.0.0-alpha.0",
-  "description": "Immersive rig, input, motion, ray, and WebXR helpers for Found in Space experiences",
+  "description": "Dependency-free coordinates, pose, route, and navigation helpers for Found in Space experiences",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.js",
@@ -14,15 +14,11 @@
   },
   "files": [
     "src",
-    "examples",
     "README.md"
   ],
   "sideEffects": false,
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test"
-  },
-  "peerDependencies": {
-    "three": "^0.170.0"
   }
 }
