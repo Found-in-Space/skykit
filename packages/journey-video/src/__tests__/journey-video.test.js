@@ -10,6 +10,16 @@ import {
   normalizeJourneyVideoEditorState,
 } from '../index.js';
 import {
+  buildJourneyVideoFfmpegArgs,
+  buildJourneyVideoFfmpegFilter,
+  computeJourneyVideoOverlayOpacity,
+  createJourneyVideoOverlayBlocks,
+  createJourneyVideoRenderMetadata,
+  normalizeJourneyVideoLayout,
+  normalizeJourneyVideoRenderProfile,
+} from '../export.js';
+import { normalizeJourneyVideoCliOptions } from '../export-node.js';
+import {
   createJourneyEditorProjectionData,
   createJourneyProjectionTransform,
   hitJourneyEditorMarker,
@@ -130,4 +140,104 @@ test('headless editor handle updates snapshots, evaluates frames, and disposes c
   await editor.dispose();
   assert.equal(editor.getSnapshot().disposed, true);
   assert.throws(() => editor.setTime(1), /disposed/u);
+});
+
+test('video export helpers normalize layout and render profile defaults', () => {
+  const layout = normalizeJourneyVideoLayout('vertical-1080x1920');
+  assert.equal(layout.width, 1080);
+  assert.equal(layout.height, 1920);
+  assert.equal(layout.text.titleFontSize, 52);
+
+  const profile = normalizeJourneyVideoRenderProfile({
+    mode: 'final',
+    layout: 'square-1080',
+    fps: 6,
+    seconds: 2,
+    crf: 17,
+    retainFrames: true,
+  });
+  assert.equal(profile.mode, 'final');
+  assert.equal(profile.layout.id, 'square-1080');
+  assert.equal(profile.frameCount, 12);
+  assert.equal(profile.browser, 'webkit');
+  assert.equal(profile.retainFrames, true);
+});
+
+test('video export helpers extract cue overlay blocks and opacity fades', () => {
+  const blocks = createJourneyVideoOverlayBlocks({
+    ...SAMPLE_JOURNEY,
+    cues: [
+      {
+        id: 'cue-a',
+        startSecs: 1,
+        endSecs: 5,
+        fadeInSecs: 1,
+        fadeOutSecs: 2,
+        eyebrow: 'Scale',
+        title: 'Light has a speed.',
+        body: 'A transparent block is rendered once, then composited later.',
+      },
+    ],
+  });
+
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].id, 'cue-a');
+  assert.equal(blocks[0].eyebrow, 'Scale');
+  assert.equal(computeJourneyVideoOverlayOpacity(blocks[0], 0.5), 0);
+  assert.equal(computeJourneyVideoOverlayOpacity(blocks[0], 2), 1);
+  assert.equal(computeJourneyVideoOverlayOpacity(blocks[0], 4.5), 0.25);
+});
+
+test('video export helpers build ffmpeg overlay filters and args', () => {
+  const overlayBlocks = [
+    {
+      id: 'cue-a',
+      startSecs: 1,
+      endSecs: 4,
+      fadeInSecs: 0.5,
+      fadeOutSecs: 0.75,
+      eyebrow: '',
+      title: 'Cue',
+      body: '',
+      assetPath: '/tmp/cue-a.png',
+    },
+  ];
+  const filter = buildJourneyVideoFfmpegFilter(overlayBlocks);
+  assert.match(filter, /fade=t=in/u);
+  assert.match(filter, /overlay=0:0/u);
+  assert.match(filter, /\[v\]/u);
+
+  const args = buildJourneyVideoFfmpegArgs({
+    profile: { mode: 'preview', fps: 12, layout: 'landscape-1080p', crf: 20 },
+    skyFramePattern: '/tmp/frame-%06d.png',
+    overlayBlocks,
+    outputPath: '/tmp/out.mp4',
+  });
+  assert.deepEqual(args.slice(0, 5), ['-y', '-framerate', '12', '-i', '/tmp/frame-%06d.png']);
+  assert.equal(args.includes('-filter_complex'), true);
+  assert.equal(args.at(-1), '/tmp/out.mp4');
+});
+
+test('video export metadata and CLI options are deterministic', () => {
+  const metadata = createJourneyVideoRenderMetadata({
+    journey: { id: 'demo' },
+    frameCount: 2,
+  });
+  assert.equal(metadata.format, 'fis-journey-video-render-v1');
+  assert.equal(metadata.journey.id, 'demo');
+  assert.equal(metadata.frameCount, 2);
+
+  const options = normalizeJourneyVideoCliOptions([
+    '--mode=preview',
+    '--layout=landscape-1080p',
+    '--frames=2',
+    '--fps=1',
+    '--journey=examples/radio-bubble/radio-bubble-journey.json',
+    '--output-dir=video-output/test',
+    '--discard-frames',
+  ]);
+  assert.equal(options.profile.frameCount, 2);
+  assert.equal(options.profile.fps, 1);
+  assert.equal(options.profile.retainFrames, false);
+  assert.match(options.journeyPath, /examples\/radio-bubble\/radio-bubble-journey\.json$/u);
 });

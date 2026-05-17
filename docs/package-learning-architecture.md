@@ -614,8 +614,10 @@ fetch nearby lower-priority payloads early when range batching makes that faster
 
 @found-in-space/journey-video
   implemented: standalone alpha journey video editor, editor document/state
-  helpers, JSON import/export, projection/perspective/SkyKit preview tiles, and
-  guide/timeline retiming workflows; deterministic capture/export remains future
+  helpers, JSON import/export, projection/perspective/SkyKit preview tiles,
+  guide/timeline retiming workflows, deterministic browser export page,
+  JavaScript sky-frame capture, cached overlay block rendering, ffmpeg composite
+  helpers, and the journey-video-render CLI
 
 @found-in-space/star-products
   implemented: StarObjectBatchProduct types, star representation store,

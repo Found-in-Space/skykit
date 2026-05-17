@@ -76,6 +76,10 @@ export default defineConfig({
           __dirname,
           'packages/journey-video/examples/editor/index.html',
         ),
+        journeyVideoRender: path.resolve(
+          __dirname,
+          'packages/journey-video/examples/render/index.html',
+        ),
       },
     },
   },

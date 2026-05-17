@@ -298,16 +298,22 @@ Implemented first slice:
   editor document/state import/export helpers
   projection, perspective, and SkyKit streamed-stars preview tiles
   guide/timeline editing and retiming/ease tools
+  deterministic browser render page
+  JavaScript sky-frame capture
+  cached transparent overlay block rendering
+  ffmpeg compositing helpers and journey-video-render CLI
 ```
 
 Still deferred:
 
 ```txt
-substantial video capture/export runtime
-Blender interchange tooling
-website migration
+rich video export UI
+alternate codecs/containers
+editor-side overlay block authoring beyond cue text
+legacy website export route removal
 no-code static-page journey helper
 ```
 
-This keeps the first package useful immediately while capture/export remains a
-separate future slice.
+This keeps the package useful immediately while richer editorial tooling remains
+a later slice. Blender interchange and earlier benchmark/capture experiments are
+not live alpha paths.

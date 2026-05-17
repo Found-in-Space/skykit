@@ -1,0 +1,92 @@
+{
+  "format": "fis-journey-v1",
+  "id": "radio-bubble-default",
+  "title": "Radio Bubble Default Journey",
+  "durationSecs": 60,
+  "cues": [
+    {
+      "startSecs": 0,
+      "endSecs": 8,
+      "eyebrow": "From the Sun",
+      "title": "Orion gives us a familiar landmark.",
+      "body": "From here, our radio broadcasts expand outward at light speed, centred on the Sun."
+    },
+    {
+      "startSecs": 8,
+      "endSecs": 16,
+      "eyebrow": "Stepping sideways",
+      "title": "Orion starts to lose its familiar shape.",
+      "body": "A small sideways move is enough to reveal that the constellation is a nearby line of sight, not a flat pattern."
+    },
+    {
+      "startSecs": 16,
+      "endSecs": 24,
+      "eyebrow": "Turning back",
+      "title": "Now the bubble comes into view.",
+      "body": "The blue mesh is the wavefront: every early broadcast and radar pulse moving together through nearby space."
+    },
+    {
+      "startSecs": 24,
+      "endSecs": 32,
+      "eyebrow": "The shell",
+      "title": "After 131 years, it reaches about 40 parsecs.",
+      "body": "Stars inside this sphere have already been washed over by humanity's electromagnetic history."
+    },
+    {
+      "startSecs": 32,
+      "endSecs": 40,
+      "eyebrow": "The Hyades",
+      "title": "The nearest open cluster is just beyond reach.",
+      "body": "We follow the same outward path toward the Hyades, about 48 parsecs from the Sun."
+    },
+    {
+      "startSecs": 40,
+      "endSecs": 52,
+      "eyebrow": "Around the cluster",
+      "title": "A full orbit makes the scale feel real.",
+      "body": "Even this nearby cluster sits beyond the first radio shell. Our earliest signals are still roughly 8 parsecs short."
+    },
+    {
+      "startSecs": 52,
+      "endSecs": 60,
+      "eyebrow": "Back to alignment",
+      "title": "The journey ends with Orion behind the Sun.",
+      "body": "From this line of sight Orion keeps its shape again, while the radio bubble collapses back into a local footprint."
+    }
+  ],
+  "locationWaypoints": [
+    { "id": "loc-00", "timeSecs": 0, "positionPc": { "x": 0, "y": 0, "z": 0 } },
+    { "id": "loc-08", "timeSecs": 8, "positionPc": { "x": 0, "y": 0, "z": 0 } },
+    { "id": "loc-16", "timeSecs": 16, "positionPc": { "x": 12.065279, "y": 3.233935, "z": 15.905053 } },
+    { "id": "loc-24", "timeSecs": 24, "positionPc": { "x": 35.128637, "y": 10.665143, "z": 46.002539 } },
+    { "id": "loc-32", "timeSecs": 32, "positionPc": { "x": 42.706204, "y": 4.911578, "z": 57.896948 } },
+    { "id": "loc-40", "timeSecs": 40, "positionPc": { "x": 26.472731, "y": 26.890977, "z": 30.052787 } },
+    { "id": "loc-43", "timeSecs": 43, "positionPc": { "x": 28.800198, "y": 60.384497, "z": 25.076141 } },
+    { "id": "loc-46", "timeSecs": 46, "positionPc": { "x": 8.675269, "y": 57.741023, "z": -2.126787 } },
+    { "id": "loc-49", "timeSecs": 49, "positionPc": { "x": 6.347802, "y": 24.247503, "z": 2.849859 } },
+    { "id": "loc-52", "timeSecs": 52, "positionPc": { "x": 26.472731, "y": 26.890977, "z": 30.052787 } },
+    { "id": "loc-56", "timeSecs": 56, "positionPc": { "x": 2.572233, "y": 23.755023, "z": -2.254436 } },
+    { "id": "loc-60", "timeSecs": 60, "positionPc": { "x": -2.572233, "y": -23.755023, "z": 2.254436 } }
+  ],
+  "cameraLookWaypoints": [
+    { "id": "cam-00", "timeSecs": 0, "kind": "direction", "forward": { "x": 0.107176, "y": 0.989793, "z": -0.093935 }, "up": { "x": 0.010112, "y": 0.093389, "z": 0.995578 } },
+    { "id": "cam-08", "timeSecs": 8, "kind": "direction", "forward": { "x": 0.107176, "y": 0.989793, "z": -0.093935 }, "up": { "x": 0.010112, "y": 0.093389, "z": 0.995578 } },
+    { "id": "cam-16", "timeSecs": 16, "kind": "direction", "forward": { "x": 0.07851, "y": 0.98798, "z": -0.133161 }, "up": { "x": 0.996913, "y": -0.077806, "z": 0.010487 } },
+    { "id": "cam-24", "timeSecs": 24, "kind": "direction", "forward": { "x": -0.59686, "y": -0.181208, "z": -0.781615 }, "up": { "x": -0.109977, "y": 0.983445, "z": -0.144019 } },
+    { "id": "cam-32", "timeSecs": 32, "kind": "direction", "forward": { "x": -0.592228, "y": -0.068111, "z": -0.802886 }, "up": { "x": -0.040431, "y": 0.997678, "z": -0.054813 } },
+    { "id": "cam-40", "timeSecs": 40, "kind": "direction", "forward": { "x": -0.37078, "y": 0.642709, "z": -0.670408 }, "up": { "x": 0.928721, "y": 0.256594, "z": -0.267652 } },
+    { "id": "cam-43", "timeSecs": 43, "kind": "direction", "forward": { "x": -0.467758, "y": -0.752854, "z": -0.463048 }, "up": { "x": -0.244371, "y": -0.393314, "z": 0.886333 } },
+    { "id": "cam-46", "timeSecs": 46, "kind": "direction", "forward": { "x": 0.37078, "y": -0.642709, "z": 0.670408 }, "up": { "x": 0.928721, "y": 0.256594, "z": -0.267652 } },
+    { "id": "cam-49", "timeSecs": 49, "kind": "direction", "forward": { "x": 0.467758, "y": 0.752854, "z": 0.463048 }, "up": { "x": -0.244371, "y": -0.393314, "z": 0.886333 } },
+    { "id": "cam-52", "timeSecs": 52, "kind": "direction", "forward": { "x": -0.37078, "y": 0.642709, "z": -0.670408 }, "up": { "x": 0.928721, "y": 0.256594, "z": -0.267652 } },
+    { "id": "cam-56", "timeSecs": 56, "kind": "direction", "forward": { "x": -0.107176, "y": -0.989793, "z": 0.093935 }, "up": { "x": 0.010112, "y": 0.093389, "z": 0.995578 } },
+    { "id": "cam-60", "timeSecs": 60, "kind": "direction", "forward": { "x": 0.107176, "y": 0.989793, "z": -0.093935 }, "up": { "x": 0.010112, "y": 0.093389, "z": 0.995578 } }
+  ],
+  "guides": [
+    { "id": "radio-shell", "label": "Radio shell", "shape": "sphere", "positionPc": { "x": 0, "y": 0, "z": 0 }, "radiusPc": 40.164783, "color": "#45c8ff", "opacity": 0.16 },
+    { "id": "sun", "label": "Sun", "shape": "sphere", "positionPc": { "x": 0, "y": 0, "z": 0 }, "radiusPc": 1, "color": "#ffd56a", "opacity": 0.9 },
+    { "id": "hyades", "label": "Hyades center", "shape": "sphere", "positionPc": { "x": 17.574, "y": 42.316, "z": 13.963 }, "radiusPc": 2.2, "color": "#d98cff", "opacity": 0.8 },
+    { "id": "orion-direction", "label": "Orion direction", "shape": "sphere", "positionPc": { "x": 9.645873, "y": 89.081338, "z": -8.454134 }, "radiusPc": 1.3, "color": "#83a8ff", "opacity": 0.9 },
+    { "id": "orion-nebula", "label": "Orion Nebula", "shape": "sphere", "positionPc": { "x": 44.371, "y": 409.774, "z": -38.889 }, "radiusPc": 3, "color": "#aebfff", "opacity": 0.5 }
+  ]
+}

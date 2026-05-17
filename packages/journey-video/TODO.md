@@ -7,13 +7,22 @@ Implemented in the first alpha editor slice:
 - projection, perspective, and SkyKit streamed-stars preview tiles;
 - guide/timeline editing and retiming/ease controls.
 
-Future work for deterministic capture/export:
+Implemented in the first alpha export slice:
 
-- deterministic frame stepping and render-settling rules;
-- capture metadata, viewport, scale, codec, and timing profiles;
-- browser capture orchestration;
-- optional ffmpeg, Playwright, or Blender helpers;
-- an editor/export split if capture tooling becomes large enough.
+- deterministic browser render page;
+- JavaScript canvas sky-frame capture;
+- cached full-frame transparent overlay block PNGs;
+- ffmpeg compositing/MP4 encoding arguments;
+- Playwright-backed Node runner and `journey-video-render` bin;
+- render metadata with profile, layout, timings, artifacts, and readiness stats.
+
+Future work:
+
+- richer editorial overlay block types beyond cue text;
+- deterministic render settling policies for layers that need extra warm-up;
+- alternate codecs/containers beyond MP4/H.264;
+- timeline/editor controls that preview export-safe overlay blocks;
+- video capture/export UI around the existing Node runner.
 
 The website editor route is reference material only; this package should remain
 the home for reusable journey video editor and export tooling.
