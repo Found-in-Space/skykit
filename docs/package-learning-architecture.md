@@ -618,11 +618,12 @@ fetch nearby lower-priority payloads early when range batching makes that faster
 
 @found-in-space/star-products
   implemented: StarObjectBatchProduct types, star representation store,
-  star math, star iteration, and color helpers
+  canonical star object refs, star math, star iteration, and color helpers
 
 @found-in-space/star-octree-provider
   implemented: octree loading/session/streaming, provider-owned demand
-  strategies, volume/path helpers, demand inspection, emits star products
+  strategies, volume/path helpers, demand inspection, emits star products;
+  physical node/storage IDs stay inside provider loader/planner code
 
 @found-in-space/meta-sidecar-provider
   implemented: metadata sidecar provider keyed by star product object refs

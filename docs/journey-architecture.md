@@ -129,6 +129,12 @@ Scene payloads stay app-owned. A star lesson might store camera targets and
 volume preload hints; a game might store spawn rules or UI state. The journey
 package should not try to understand those fields.
 
+Journeys do not own star IDs. If a scene payload points at a streamed star, it
+should carry the star product's `CanonicalObjectRef` and resolve that reference
+to coordinates in the application/SkyKit layer before the journey runtime sees
+it. Do not store octree storage identifiers such as `nodeKey`, `shardOffset`,
+`nodeIndex`, `payloadOffset`, or `payloadLength` in journey schema.
+
 ---
 
 ## 3. Timed Lane

@@ -5,6 +5,7 @@ import {
 } from '../../src/index.js';
 import {
   apparentMagnitude as computeApparentMagnitude,
+  createStarCellKey,
   decodeTemperatureK,
 } from '@found-in-space/star-products';
 
@@ -63,7 +64,7 @@ const state = {
  * @typedef {{
  *   id: string;
  *   productId: string;
- *   nodeKey: string;
+ *   cellKey: string;
  *   ordinal: number;
  *   positionPc: { x: number; y: number; z: number };
  *   distancePc: number;
@@ -269,13 +270,13 @@ function rowsFromProduct(product, query) {
 
     const ref = product.refs?.[index];
     const node = ref ? null : nodeForProductIndex(product, index);
-    const nodeKey = ref?.nodeKey ?? node?.nodeKey ?? 'unknown';
+    const cellKey = ref ? createStarCellKey(ref) : node ? createStarCellKey(node) : 'unknown';
     const ordinal = ref?.ordinal ?? (node ? index - node.offset : index);
 
     rows.push({
       id: `${product.id}:${index}`,
       productId: product.id,
-      nodeKey,
+      cellKey,
       ordinal,
       positionPc,
       distancePc,
@@ -356,7 +357,7 @@ function renderRow(row, index) {
   return `
     <tr>
       <td>${index + 1}</td>
-      <td>${escapeHtml(row.nodeKey)}</td>
+      <td>${escapeHtml(row.cellKey)}</td>
       <td>${row.ordinal}</td>
       <td>${formatVector(row.positionPc)}</td>
       <td>${formatNumber(row.distancePc, 3)}</td>

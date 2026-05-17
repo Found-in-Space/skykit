@@ -1,3 +1,5 @@
+import { encodeMorton3D } from '@found-in-space/star-products';
+
 /**
  * @typedef {import('./index.d.ts').StarOctreeRuntimeNode} StarOctreeRuntimeNode
  * @typedef {import('./index.d.ts').StarOctreeBootstrapProduct['header']} StarOctreeBootstrapHeader
@@ -205,6 +207,7 @@ export function decodeLocalGrid(
  * @param {number} gridZ
  * @param {number} level
  * @returns {{
+ *   mortonCode: string;
  *   centerX: number;
  *   centerY: number;
  *   centerZ: number;
@@ -218,8 +221,10 @@ export function decodeLocalGrid(
 export function nodeCenterAndHalfSize(header, gridX, gridY, gridZ, level) {
   const cellsPerAxis = 2 ** level;
   const halfSize = header.worldHalfSize / cellsPerAxis;
+  const mortonCode = encodeMorton3D(gridX, gridY, gridZ, level).toString(10);
 
   return {
+    mortonCode,
     centerX: header.worldCenterX + (2 * (gridX + 0.5) - cellsPerAxis) * halfSize,
     centerY: header.worldCenterY + (2 * (gridY + 0.5) - cellsPerAxis) * halfSize,
     centerZ: header.worldCenterZ + (2 * (gridZ + 0.5) - cellsPerAxis) * halfSize,
@@ -384,7 +389,6 @@ export class ResolvedStarOctreeShard {
       localPath: record.localPath,
       shardOffset: this.shardOffset,
       nodeIndex,
-      nodeKey: makeNodeKey(this.shardOffset, nodeIndex),
     };
   }
 

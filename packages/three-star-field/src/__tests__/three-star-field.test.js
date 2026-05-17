@@ -215,7 +215,8 @@ test('CPU picking returns product object mapping and star metadata', () => {
   assert.equal(result?.objectIndex, 0);
   assert.equal(result?.product, product);
   assert.equal(result?.objectRef?.ordinal, 0);
-  assert.equal(result?.pickMeta?.nodeKey, 'node-a');
+  assert.equal(result?.pickMeta?.level, 1);
+  assert.equal(result?.pickMeta?.mortonCode, '0');
   assert.equal(result?.distancePc, 10);
   assert.equal(result?.apparentMagnitude, 5);
   assert.equal(result?.teffLog8, 120);
@@ -314,7 +315,8 @@ function createProduct(options = {}) {
   const magAbs = count === 1 ? [4] : [5, 12];
   const refs = Array.from({ length: count }, (_value, ordinal) => ({
     datasetId: 'dataset-a',
-    nodeKey: 'node-a',
+    level: 1,
+    mortonCode: '0',
     ordinal,
   }));
   const product = createStarObjectBatchProduct({
@@ -323,7 +325,7 @@ function createProduct(options = {}) {
     productIndex: options.productIndex ?? 1,
     entries: [{
       node: {
-        nodeKey: 'node-a',
+        mortonCode: '0',
         centerX: 0,
         centerY: 0,
         centerZ: 0,

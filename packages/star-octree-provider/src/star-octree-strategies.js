@@ -1,4 +1,5 @@
 import { planObserverShellDemand, normalizeObserverShellView } from './star-octree-observer-shell.js';
+import { createStarCellKey } from '@found-in-space/star-products';
 import {
   normalizeTargetFrustumView,
   planTargetFrustumDemand,
@@ -453,16 +454,16 @@ async function planMotionLookaheadDemand(indexSource, context, strategy) {
     indexSource,
     context: futureContext,
   });
-  const currentNodeKeys = new Set(
+  const currentCellKeys = new Set(
     currentPlan.entries
       .filter((entry) => (entry.role ?? 'current') === 'current')
-      .map((entry) => entry.node.nodeKey),
+      .map((entry) => createStarCellKey(entry.node)),
   );
   let prefetchOverlapCount = 0;
   const prefetchEntries = [];
 
   for (const entry of futurePlan.entries) {
-    if (currentNodeKeys.has(entry.node.nodeKey)) {
+    if (currentCellKeys.has(createStarCellKey(entry.node))) {
       prefetchOverlapCount += 1;
       continue;
     }
@@ -566,19 +567,20 @@ async function planCompositeDemand(indexSource, context, strategy) {
  */
 function mergeDemandEntries(entries) {
   /** @type {Map<string, StarOctreeDemandEntry>} */
-  const byNodeKey = new Map();
+  const byCellKey = new Map();
 
   for (const entry of entries) {
-    const existing = byNodeKey.get(entry.node.nodeKey);
+    const cellKey = createStarCellKey(entry.node);
+    const existing = byCellKey.get(cellKey);
     if (!existing) {
-      byNodeKey.set(entry.node.nodeKey, withContributor(entry));
+      byCellKey.set(cellKey, withContributor(entry));
       continue;
     }
 
-    byNodeKey.set(entry.node.nodeKey, mergeDemandEntry(existing, entry));
+    byCellKey.set(cellKey, mergeDemandEntry(existing, entry));
   }
 
-  return Array.from(byNodeKey.values());
+  return Array.from(byCellKey.values());
 }
 
 /**
@@ -647,7 +649,7 @@ function compareEntryPrecedence(left, right) {
   if (roleDelta !== 0) return roleDelta;
   const priorityDelta = (right.priority ?? 0) - (left.priority ?? 0);
   if (priorityDelta !== 0) return priorityDelta;
-  return left.node.nodeKey.localeCompare(right.node.nodeKey);
+  return createStarCellKey(left.node).localeCompare(createStarCellKey(right.node));
 }
 
 /**
@@ -675,7 +677,7 @@ function sortDemandEntries(entries, options) {
 
     const priorityDelta = (right.priority ?? 0) - (left.priority ?? 0);
     if (priorityDelta !== 0) return priorityDelta;
-    return left.node.nodeKey.localeCompare(right.node.nodeKey);
+    return createStarCellKey(left.node).localeCompare(createStarCellKey(right.node));
   });
 }
 
@@ -699,7 +701,7 @@ function dedupe(values) {
 function createCurrentNodeSetSignature(entries) {
   return entries
     .filter((entry) => (entry.role ?? 'current') === 'current')
-    .map((entry) => entry.node.nodeKey)
+    .map((entry) => createStarCellKey(entry.node))
     .sort()
     .join('|');
 }

@@ -1,3 +1,5 @@
+import { createStarCellKey } from '@found-in-space/star-products';
+
 /**
  * @typedef {import('@found-in-space/star-products').CanonicalObjectRef} CanonicalObjectRef
  * @typedef {import('./index.d.ts').MetaSidecarEntry} MetaSidecarEntry
@@ -71,7 +73,7 @@ export function createMetaSidecarProviderService(options) {
       const normalized = normalizeRef(ref);
       assertParentDataset(normalized);
 
-      const entries = cells.get(normalized.nodeKey);
+      const entries = cells.get(createStarCellKey(normalized));
       const entry = entries?.[normalized.ordinal];
       if (!entry) {
         missingFacts += 1;
@@ -145,15 +147,24 @@ function normalizeRef(ref) {
   }
 
   const candidate = /** @type {Partial<CanonicalObjectRef>} */ (ref);
-  const nodeKey = typeof candidate.nodeKey === 'string' ? candidate.nodeKey : '';
+  const level = Number(candidate.level);
   const ordinal = Number(candidate.ordinal);
-  if (!nodeKey || !Number.isSafeInteger(ordinal) || ordinal < 0) {
-    throw new TypeError('Meta sidecar object reference requires nodeKey and non-negative ordinal.');
+  if (
+    !Number.isSafeInteger(level) ||
+    level < 0 ||
+    candidate.mortonCode == null ||
+    !Number.isSafeInteger(ordinal) ||
+    ordinal < 0
+  ) {
+    throw new TypeError('Meta sidecar object reference requires level, mortonCode, and non-negative ordinal.');
   }
+  const cellKey = createStarCellKey(level, candidate.mortonCode);
+  const mortonCode = cellKey.slice(cellKey.indexOf(':') + 1);
 
   return {
     datasetId: candidate.datasetId ?? null,
-    nodeKey,
+    level,
+    mortonCode,
     ordinal,
   };
 }

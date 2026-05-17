@@ -3,7 +3,6 @@ import type { CanonicalObjectRef } from '@found-in-space/star-products';
 export type { CanonicalObjectRef } from '@found-in-space/star-products';
 
 export interface PickMetaRef extends CanonicalObjectRef {
-  level?: number;
   gridX?: number;
   gridY?: number;
   gridZ?: number;

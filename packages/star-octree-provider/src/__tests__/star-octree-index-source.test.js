@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { createStarCellKey } from '@found-in-space/star-products';
 import { parseStarHeader } from '../star-octree-format.js';
 import { createStarOctreeIndexSource } from '../star-octree-index-source.js';
 import {
@@ -134,7 +135,7 @@ test('ensureRootShardLoaded warms a contiguous root shard in one initial range',
     assert.equal(snapshot.bootstrapReady, true);
     assert.equal(snapshot.rootShardReady, true);
     assert.equal(snapshot.cache.shardHeaders, 1);
-    assert.equal(node.nodeKey, '64:1');
+    assert.equal(createStarCellKey(node), '0:0');
     assert.equal(node.level, 0);
     assert.equal(node.gridX, 0);
     assert.equal(node.gridY, 0);
@@ -174,7 +175,7 @@ test('ensureRootShardLoaded fetches a non-contiguous root shard separately', asy
 
     const loadedRoot = await source.ensureRootShardLoaded();
 
-    assert.equal(loadedRoot.nodes[0].nodeKey, '1024:1');
+    assert.equal(createStarCellKey(loadedRoot.nodes[0]), '0:0');
     assert.equal(requests.length, 2);
     assert.deepEqual(requests.map(({ start }) => start), [0, 1024]);
     assert.equal(source.getSnapshot().stats.rangeRequests, 2);

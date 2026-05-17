@@ -431,6 +431,11 @@ export type SpatialTargetInput =
 
 export interface ResolveSpatialTargetOptions {
   observerPc?: SpatialVector3;
+  /**
+   * Application-owned bookmark resolver. Spatial treats bookmark IDs as opaque
+   * strings; star references should be resolved to coordinates before they
+   * reach spatial math.
+   */
   resolveBookmark?: (bookmarkId: string, input: SpatialTargetInput) => SpatialTargetInput | Promise<SpatialTargetInput | null> | null;
 }
 

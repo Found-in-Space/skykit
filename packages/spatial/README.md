@@ -27,3 +27,8 @@ pose = navigation.update({ pose, deltaSeconds: 1 / 60 });
 
 `@found-in-space/spatial` does not know about stars, octrees, renderers, DOM,
 WebXR sessions, or journeys. Those packages compose these primitives.
+
+Bookmark targets are deliberately opaque to this package. If an application
+uses a bookmark to point at a star, it should serialize the star product's
+`CanonicalObjectRef` and resolve it outside `@found-in-space/spatial`; spatial
+helpers only consume the resolved coordinates.

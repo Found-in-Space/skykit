@@ -181,7 +181,7 @@ function createProduct(id = 'product-a') {
     productIndex: id === 'product-a' ? 1 : 2,
     entries: [{
       node: {
-        nodeKey: 'node-a',
+        mortonCode: '0',
         centerX: 0,
         centerY: 0,
         centerZ: 0,

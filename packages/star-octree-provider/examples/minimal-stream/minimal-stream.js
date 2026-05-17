@@ -3,7 +3,10 @@ import {
   createObserverShellStrategy,
   createStarOctreeProviderService,
 } from '../../src/index.js';
-import { decodeTemperatureK } from '@found-in-space/star-products';
+import {
+  createStarCellKey,
+  decodeTemperatureK,
+} from '@found-in-space/star-products';
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
@@ -336,7 +339,7 @@ function rowsFromProduct(product) {
     return {
       index,
       productId: product.id,
-      nodeKey: ref?.nodeKey ?? node?.nodeKey ?? '',
+      cellKey: ref ? createStarCellKey(ref) : node ? createStarCellKey(node) : '',
       ordinal: ref?.ordinal ?? (node ? index - node.offset : index),
       positionPc: {
         x: positions[index * 3],
@@ -364,7 +367,7 @@ function renderStarRow(row, rowIndex) {
     <tr>
       <td>${rowIndex + 1}</td>
       <td>${escapeHtml(row.productId)}</td>
-      <td>${escapeHtml(row.nodeKey)}</td>
+      <td>${escapeHtml(row.cellKey)}</td>
       <td>${row.ordinal}</td>
       <td>${formatVector(row.positionPc)}</td>
       <td>${formatNumber(row.magAbs, 2)}</td>

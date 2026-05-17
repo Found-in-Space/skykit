@@ -1,13 +1,10 @@
-import { STAR_HAS_PAYLOAD } from './star-octree-format.js';
+import { createStarCellKey } from '@found-in-space/star-products';
 import {
   ERR_STAR_OCTREE_INVALID_VIEW,
   createStarOctreeError,
 } from './star-octree-errors.js';
 import { loadRadiusForMagnitudeShell } from './star-octree-observer-shell.js';
-import {
-  distanceToNodeAabbPc,
-  traverseOctree,
-} from './star-octree-traversal.js';
+import { distanceToNodeAabbPc } from './star-octree-traversal.js';
 
 /**
  * @typedef {import('./index.d.ts').StarOctreeDemandEntry} StarOctreeDemandEntry
@@ -35,7 +32,6 @@ const TARGET_UP_FALLBACK = Object.freeze({ x: 0, y: 1, z: 0 });
  * @returns {Promise<StarOctreeDemandPlan>}
  */
 export async function planTargetFrustumDemand(options) {
-  const bootstrap = await options.indexSource.ensureBootstrapLoaded();
   const view = normalizeTargetFrustumView(
     options.context.view,
     options.context.strategy,
@@ -43,12 +39,9 @@ export async function planTargetFrustumDemand(options) {
   const targetDistancePc = 'targetDistancePc' in view
     ? view.targetDistancePc
     : undefined;
-  const indexMagnitude = bootstrap.header.magLimit;
   const currentResult = await collectTargetFrustumEntries({
-    indexSource: options.indexSource,
-    bootstrap,
+    context: options.context,
     view,
-    indexMagnitude,
     role: 'current',
   });
   const entries = [...currentResult.entries];
@@ -67,52 +60,48 @@ export async function planTargetFrustumDemand(options) {
       strategy: 'target-frustum',
       observerPc: view.observerPc,
       limitingMagnitude: view.limitingMagnitude,
-      indexMagnitude,
+      indexMagnitude: currentResult.indexMagnitude,
       frustumMode: view.frustumMode,
       ...(view.targetPc ? { targetPc: view.targetPc } : {}),
       ...(targetDistancePc !== undefined
         ? { targetDistancePc }
         : {}),
-      inspectedNodeCount: currentResult.traversal.stats.inspectedNodeCount,
-      selectedNodeCount: currentResult.traversal.stats.selectedNodeCount,
-      payloadNodeCount: currentResult.traversal.stats.payloadNodeCount,
-      prunedNodeCount: currentResult.traversal.stats.prunedNodeCount,
+      inspectedNodeCount: currentResult.stats.inspectedNodeCount,
+      selectedNodeCount: currentResult.stats.selectedNodeCount,
+      payloadNodeCount: currentResult.stats.payloadNodeCount,
+      prunedNodeCount: currentResult.stats.prunedNodeCount,
       shellPrunedNodeCount: currentResult.shellPrunedNodeCount,
       frustumPrunedNodeCount: currentResult.frustumPrunedNodeCount,
       prefetchNodeCount: 0,
       prefetchOverlapCount: 0,
-      frontierShardCount: currentResult.traversal.stats.frontierShardCount,
-      maxLevelInspected: currentResult.traversal.stats.maxLevelInspected,
+      frontierShardCount: currentResult.stats.frontierShardCount,
+      maxLevelInspected: currentResult.stats.maxLevelInspected,
     },
   };
 }
 
 /**
  * @param {{
- *   indexSource: StarOctreeIndexSource;
- *   bootstrap: import('./index.d.ts').StarOctreeBootstrapProduct;
+ *   context: StarOctreeSelectionContext;
  *   view: ReturnType<typeof normalizeTargetFrustumView>;
- *   indexMagnitude: number;
  *   role: 'current' | 'prefetch';
  * }} options
  */
 async function collectTargetFrustumEntries(options) {
   const frustum = createFrustumTester(options.view);
-  /** @type {StarOctreeDemandEntry[]} */
-  const entries = [];
+  let indexMagnitude = DEFAULT_LIMITING_MAGNITUDE;
   let shellPrunedNodeCount = 0;
   let frustumPrunedNodeCount = 0;
 
-  const traversal = await traverseOctree({
-    indexSource: options.indexSource,
-    bootstrap: options.bootstrap,
+  const result = await options.context.traversal.select({
     distanceToNode: (node) => distanceToNodeAabbPc(options.view.observerPc, node),
-    visitor(node) {
+    visit(node, { bootstrap }) {
+      indexMagnitude = bootstrap.header.magLimit;
       const distancePc = distanceToNodeAabbPc(options.view.observerPc, node);
       const loadRadiusPc = loadRadiusForMagnitudeShell(
         node.halfSize,
         options.view.limitingMagnitude,
-        options.indexMagnitude,
+        indexMagnitude,
       );
       const shellRelevant = distancePc <= loadRadiusPc;
 
@@ -135,52 +124,48 @@ async function collectTargetFrustumEntries(options) {
         };
       }
 
-      if ((node.flags & STAR_HAS_PAYLOAD) && node.payloadLength > 0) {
-        const relativeCenter = subtractVectors(
-          { x: node.centerX, y: node.centerY, z: node.centerZ },
-          options.view.observerPc,
-        );
-        const forwardDistancePc = dotVector(
-          frustum.basis.forward,
-          relativeCenter,
-        );
-        entries.push({
-          node,
-          priority: -distancePc,
-          role: options.role,
-          reasons: [
-            options.role === 'current'
-              ? 'target-frustum'
-              : 'motion-lookahead',
-          ],
-          metadata: {
-            distancePc,
-            forwardDistancePc,
-            loadRadiusPc,
-            limitingMagnitude: options.view.limitingMagnitude,
-            indexMagnitude: options.indexMagnitude,
-            frustumMode: options.view.frustumMode,
-            ...(options.role === 'prefetch'
-              ? {
-                  prefetchKind: 'motion-lookahead',
-                  futureObserverPc: options.view.observerPc,
-                }
-              : {}),
-          },
-        });
-      }
+      const relativeCenter = subtractVectors(
+        { x: node.centerX, y: node.centerY, z: node.centerZ },
+        options.view.observerPc,
+      );
+      const forwardDistancePc = dotVector(
+        frustum.basis.forward,
+        relativeCenter,
+      );
 
       return {
         include: true,
         descend: true,
         distancePc,
+        priority: -distancePc,
+        role: options.role,
+        reasons: [
+          options.role === 'current'
+            ? 'target-frustum'
+            : 'motion-lookahead',
+        ],
+        metadata: {
+          distancePc,
+          forwardDistancePc,
+          loadRadiusPc,
+          limitingMagnitude: options.view.limitingMagnitude,
+          indexMagnitude,
+          frustumMode: options.view.frustumMode,
+          ...(options.role === 'prefetch'
+            ? {
+                prefetchKind: 'motion-lookahead',
+                futureObserverPc: options.view.observerPc,
+              }
+            : {}),
+        },
       };
     },
   });
 
   return {
-    entries,
-    traversal,
+    entries: result.entries,
+    stats: result.stats,
+    indexMagnitude,
     shellPrunedNodeCount,
     frustumPrunedNodeCount,
   };
@@ -644,7 +629,7 @@ function compareTargetFrustumEntries(left, right, options) {
 
   const priorityDelta = (right.priority ?? 0) - (left.priority ?? 0);
   if (priorityDelta !== 0) return priorityDelta;
-  return left.node.nodeKey.localeCompare(right.node.nodeKey);
+  return createStarCellKey(left.node).localeCompare(createStarCellKey(right.node));
 }
 
 /**
@@ -653,7 +638,7 @@ function compareTargetFrustumEntries(left, right, options) {
 function createCurrentNodeSetSignature(entries) {
   return entries
     .filter((entry) => (entry.role ?? 'current') === 'current')
-    .map((entry) => entry.node.nodeKey)
+    .map((entry) => createStarCellKey(entry.node))
     .sort()
     .join('|');
 }

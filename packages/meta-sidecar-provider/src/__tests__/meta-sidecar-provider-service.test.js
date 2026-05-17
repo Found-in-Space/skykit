@@ -9,7 +9,7 @@ test('meta sidecar provider resolves facts from canonical object refs', async ()
     parentDatasetId: 'dataset-a',
     sidecarId: 'sidecar-a',
     entries: {
-      'node-a': [
+      '1:0': [
         {
           proper_name: 'Sirius',
           hd: 48915,
@@ -21,7 +21,8 @@ test('meta sidecar provider resolves facts from canonical object refs', async ()
 
   const facts = await provider.resolveFacts({
     datasetId: 'dataset-a',
-    nodeKey: 'node-a',
+    level: 1,
+    mortonCode: '0',
     ordinal: 0,
   });
 
@@ -31,7 +32,8 @@ test('meta sidecar provider resolves facts from canonical object refs', async ()
   assert.equal(facts.facts.hd, '48915');
   assert.equal(await provider.resolvePrimaryLabel({
     datasetId: 'dataset-a',
-    nodeKey: 'node-a',
+    level: 1,
+    mortonCode: '0',
     ordinal: 0,
   }), 'Sirius');
   assert.equal(provider.getSnapshot().stats.resolvedFacts, 2);
@@ -41,7 +43,7 @@ test('meta sidecar provider accepts pickMeta-shaped refs and formats fallback la
   const provider = createMetaSidecarProviderService({
     parentDatasetId: 'dataset-a',
     entries: {
-      'node-a': [
+      '1:0': [
         {
           bayer: 'alpha',
           constellation: 'CMa',
@@ -55,15 +57,16 @@ test('meta sidecar provider accepts pickMeta-shaped refs and formats fallback la
   });
 
   assert.equal(await provider.resolvePrimaryLabel({
-    nodeKey: 'node-a',
-    ordinal: 0,
     level: 1,
+    mortonCode: '0',
+    ordinal: 0,
     gridX: 0,
     gridY: 0,
     gridZ: 0,
   }), 'alpha CMa');
   assert.equal(await provider.resolvePrimaryLabel({
-    nodeKey: 'node-a',
+    level: 1,
+    mortonCode: '0',
     ordinal: 1,
   }), 'HIP 123');
 });
@@ -72,14 +75,15 @@ test('meta sidecar provider validates parent dataset identity', async () => {
   const provider = createMetaSidecarProviderService({
     parentDatasetId: 'dataset-a',
     entries: {
-      'node-a': [{}],
+      '1:0': [{}],
     },
   });
 
   await assert.rejects(
     () => provider.resolveFacts({
       datasetId: 'dataset-b',
-      nodeKey: 'node-a',
+      level: 1,
+      mortonCode: '0',
       ordinal: 0,
     }),
     (error) => error.code === 'ERR_META_SIDECAR_PARENT_MISMATCH',
@@ -93,6 +97,6 @@ test('meta sidecar provider reports missing facts without throwing', async () =>
     entries: {},
   });
 
-  assert.equal(await provider.resolveFacts({ nodeKey: 'missing', ordinal: 0 }), null);
+  assert.equal(await provider.resolveFacts({ level: 1, mortonCode: '7', ordinal: 0 }), null);
   assert.equal(provider.getSnapshot().stats.missingFacts, 1);
 });

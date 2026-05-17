@@ -166,7 +166,8 @@ export function decodeStarPayload(buffer, node, options = {}) {
     teffLog8[ordinal] = view.getUint8(offset + 14);
     refs.push({
       datasetId: options.datasetId ?? null,
-      nodeKey: node.nodeKey,
+      level: node.level,
+      mortonCode: node.mortonCode,
       ordinal,
     });
   }

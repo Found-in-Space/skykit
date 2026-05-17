@@ -85,6 +85,37 @@ const provider = createStarOctreeFileProviderService({
 Both factories return the same provider/session API. The source adapter differs;
 the product and session semantics do not.
 
+### Public Identity Boundary
+
+The public identity for a star is its dataset plus logical octree cell plus
+ordinal:
+
+```txt
+datasetId + level + mortonCode + ordinal
+```
+
+The public identity for a cell is only:
+
+```txt
+level + mortonCode
+```
+
+Use `CanonicalObjectRef` for per-star joins/bookmarks and
+`createStarCellKey()` for cell maps, product merge keys, sidecar cell lookups,
+and diagnostic display. The Morton code is the logical cell address derived
+from the dataset geometry; it is independent of how the current octree file
+packs shards, payload byte ranges, or node tables.
+
+Do not expose or persist storage identifiers such as `nodeKey`, `shardOffset`,
+`nodeIndex`, `payloadOffset`, or `payloadLength` as application IDs. Those
+fields may exist inside loader, planner, and cache code, but they are physical
+execution details. They must not appear in star products, public bookmarks,
+sidecar contracts, renderer selections, SkyKit examples, or game/app save data.
+
+`DatasetObjectId` is intentionally deferred until a second object family needs a
+shared identity envelope. For now, stars use `CanonicalObjectRef`; generic
+navigation bookmarks remain opaque strings owned by the application.
+
 The same package also exports the provider-owned strategy helpers:
 
 ```js
@@ -371,7 +402,7 @@ The provider must preserve role semantics even when the planner reorders work:
 ### Strategy Composition
 
 All built-in and external strategies should share the same demand-plan surface.
-The intended composition model is node-key based:
+The intended composition model is logical-cell based:
 
 ```txt
 strategy A + strategy B + ...
@@ -380,7 +411,7 @@ strategy A + strategy B + ...
 
 Default union composition rules should be:
 
-- merge entries by `node.nodeKey`
+- merge entries by `level:mortonCode`
 - `current` wins over `prefetch`
 - within the same role, higher semantic priority wins
 - reasons and metadata should preserve all contributing strategies
@@ -405,6 +436,12 @@ surprising product removals.
 External strategies may participate either as standalone `custom` strategies or
 as inputs to the combinator. Applications should not need root shard
 products or runtime-node construction to compose strategies.
+
+Strategies are allowed to reason about logical tree geometry: origin/half-size,
+level, Morton cell, grid coordinates, magnitude thresholds, observer/view
+state, and semantic priority. They should not key behavior on payload byte
+ranges, shard offsets, node-table indexes, or other storage facts. Tree-aware
+planners/loaders own those execution details.
 
 ### Observer Shell
 
@@ -707,6 +744,22 @@ pickMeta
 `objectRef` and `pickMeta` are join data for separate sidecar/metadata packages.
 They are not label lookups and they are not renderer state.
 
+`objectRef` is the public star identifier:
+
+```ts
+interface CanonicalObjectRef {
+  datasetId?: string | null;
+  level: number;
+  mortonCode: string;
+  ordinal: number;
+}
+```
+
+`pickMeta` repeats the same logical cell and ordinal and adds cell geometry for
+selection/proximity helpers. It is not a storage-node handle. The provider must
+not encode `nodeKey`, shard/table indexes, or payload byte positions into these
+fields.
+
 `teffLog8` is the encoded temperature attribute from the star payload. Decoding
 to Kelvin belongs in `@found-in-space/star-products`, not in the octree
 provider.
@@ -749,7 +802,7 @@ Runtime nodes are provider facts derived from parsed octree shards:
 
 ```ts
 interface StarOctreeRuntimeNode {
-  nodeKey: string;
+  mortonCode: string;
   centerX: number;
   centerY: number;
   centerZ: number;
@@ -766,9 +819,17 @@ interface StarOctreeRuntimeNode {
 }
 ```
 
-They are used by strategies, traversal, diagnostics, product metadata, and
-sidecar joins. Applications do not provide external runtime nodes to normal
-provider sessions.
+Runtime nodes intentionally contain both logical geometry and physical storage
+facts because the provider needs one execution object while traversing, loading,
+and batching. The boundary is stricter than the shape: public code may use
+`level`, `mortonCode`, `gridX/Y/Z`, `centerX/Y/Z`, and `halfSize` as logical
+cell geometry; planner/loader code may use `payloadOffset`, `payloadLength`,
+`shardOffset`, `nodeIndex`, `flags`, and child-table fields.
+
+Applications do not provide external runtime nodes to normal provider sessions,
+and they should never persist a runtime node as identity. Products, sidecars,
+bookmarks, examples, and renderer selections should reduce a node to either
+`level:mortonCode` for cells or `CanonicalObjectRef` for individual stars.
 
 There is no public `ensureRootShard()` API. Root shard loading is internal index
 state needed for traversal.

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { createStarCellKey } from '@found-in-space/star-products';
 import { STAR_HAS_PAYLOAD, STAR_IS_FRONTIER } from '../star-octree-format.js';
 import { createStarOctreeIndexSource } from '../star-octree-index-source.js';
 import { planObserverShellDemand } from '../star-octree-observer-shell.js';
@@ -67,8 +68,8 @@ test('traversal reads same-shard children deterministically', async () => {
     });
 
     assert.deepEqual(
-      traversal.nodes.map((node) => node.nodeKey),
-      [`${indexOffset}:2`, `${indexOffset}:3`],
+      traversal.nodes.map(createStarCellKey),
+      ['1:0', '1:1'],
     );
     assert.equal(traversal.stats.inspectedNodeCount, 3);
   } finally {
@@ -130,8 +131,8 @@ test('traversal follows frontier shard continuations', async () => {
     });
 
     assert.deepEqual(
-      traversal.nodes.map((node) => node.nodeKey),
-      [`${childShardOffset}:1`],
+      traversal.nodes.map(createStarCellKey),
+      ['1:0'],
     );
     assert.equal(traversal.stats.frontierShardCount, 1);
   } finally {
@@ -176,31 +177,31 @@ test('observer-shell demand uses header magLimit for pruning', async () => {
   try {
     const narrow = await planObserverShellDemand({
       indexSource,
-      context: {
+      context: withTraversalContext(indexSource, {
         ...baseContext,
         view: {
           revision: 1,
           observerPc: { x: 1000, y: 0, z: 0 },
           limitingMagnitude: 6.5,
         },
-      },
+      }),
     });
     const wide = await planObserverShellDemand({
       indexSource,
-      context: {
+      context: withTraversalContext(indexSource, {
         ...baseContext,
         view: {
           revision: 2,
           observerPc: { x: 1000, y: 0, z: 0 },
           limitingMagnitude: 16.5,
         },
-      },
+      }),
     });
 
     assert.equal(narrow.entries.length, 0);
     assert.equal(narrow.metadata.prunedNodeCount, 1);
     assert.equal(wide.entries.length, 1);
-    assert.equal(wide.entries[0].node.nodeKey, `${indexOffset}:1`);
+    assert.equal(createStarCellKey(wide.entries[0].node), '0:0');
   } finally {
     restoreFetch();
   }
@@ -256,18 +257,18 @@ test('observer-shell motion hints do not cap visible demand', async () => {
   try {
     const staticPlan = await planObserverShellDemand({
       indexSource,
-      context: {
+      context: withTraversalContext(indexSource, {
         ...baseContext,
         view: {
           revision: 1,
           observerPc: { x: -75, y: -75, z: -75 },
           limitingMagnitude: 6.5,
         },
-      },
+      }),
     });
     const motionPlan = await planObserverShellDemand({
       indexSource,
-      context: {
+      context: withTraversalContext(indexSource, {
         ...baseContext,
         view: {
           revision: 2,
@@ -278,16 +279,16 @@ test('observer-shell motion hints do not cap visible demand', async () => {
             lookaheadSecs: 2,
           },
         },
-      },
+      }),
     });
 
     assert.deepEqual(
-      staticPlan.entries.map((entry) => entry.node.nodeKey),
-      [`${indexOffset}:3`],
+      staticPlan.entries.map((entry) => createStarCellKey(entry.node)),
+      ['2:0'],
     );
     assert.deepEqual(
-      motionPlan.entries.map((entry) => entry.node.nodeKey),
-      [`${indexOffset}:3`],
+      motionPlan.entries.map((entry) => createStarCellKey(entry.node)),
+      ['2:0'],
     );
     assert.equal(motionPlan.signature, staticPlan.signature);
     assert.equal(motionPlan.metadata.motion.enabled, true);
@@ -347,18 +348,18 @@ test('observer-shell motion lookahead decorator adds future-only prefetch demand
   try {
     const staticPlan = await planObserverShellDemand({
       indexSource,
-      context: {
+      context: withTraversalContext(indexSource, {
         ...baseContext,
         view: {
           revision: 1,
           observerPc: { x: -75, y: -75, z: -75 },
           limitingMagnitude: 6.5,
         },
-      },
+      }),
     });
     const motionPlan = await planStarOctreeStrategyDemand({
       indexSource,
-      context: {
+      context: withTraversalContext(indexSource, {
         ...baseContext,
         strategy: withMotionLookahead({ kind: 'observer-shell' }),
         view: {
@@ -370,11 +371,11 @@ test('observer-shell motion lookahead decorator adds future-only prefetch demand
             lookaheadSecs: 1,
           },
         },
-      },
+      }),
     });
     const noVelocityPlan = await planStarOctreeStrategyDemand({
       indexSource,
-      context: {
+      context: withTraversalContext(indexSource, {
         ...baseContext,
         strategy: withMotionLookahead({ kind: 'observer-shell' }),
         view: {
@@ -386,24 +387,24 @@ test('observer-shell motion lookahead decorator adds future-only prefetch demand
             lookaheadSecs: 1,
           },
         },
-      },
+      }),
     });
 
     assert.deepEqual(
-      staticPlan.entries.map((entry) => entry.node.nodeKey),
-      [`${indexOffset}:1`],
+      staticPlan.entries.map((entry) => createStarCellKey(entry.node)),
+      ['1:0'],
     );
     assert.deepEqual(
       motionPlan.entries
         .filter((entry) => (entry.role ?? 'current') === 'current')
-        .map((entry) => entry.node.nodeKey),
-      [`${indexOffset}:1`],
+        .map((entry) => createStarCellKey(entry.node)),
+      ['1:0'],
     );
     assert.deepEqual(
       motionPlan.entries
         .filter((entry) => entry.role === 'prefetch')
-        .map((entry) => entry.node.nodeKey),
-      [`${indexOffset}:2`],
+        .map((entry) => createStarCellKey(entry.node)),
+      ['1:1'],
     );
     assert.equal(motionPlan.signature, staticPlan.signature);
     assert.equal(motionPlan.metadata.motionLookahead.enabled, true);
@@ -470,18 +471,18 @@ test('observer-shell motion hints prioritize same-level nodes without changing d
   try {
     const staticPlan = await planObserverShellDemand({
       indexSource,
-      context: {
+      context: withTraversalContext(indexSource, {
         ...baseContext,
         view: {
           revision: 1,
           observerPc: { x: 0, y: 0, z: 0 },
           limitingMagnitude: 6.5,
         },
-      },
+      }),
     });
     const motionPlan = await planObserverShellDemand({
       indexSource,
-      context: {
+      context: withTraversalContext(indexSource, {
         ...baseContext,
         view: {
           revision: 2,
@@ -492,20 +493,20 @@ test('observer-shell motion hints prioritize same-level nodes without changing d
             lookaheadSecs: 0.5,
           },
         },
-      },
+      }),
     });
 
     assert.deepEqual(
-      staticPlan.entries.map((entry) => entry.node.nodeKey),
-      [`${indexOffset}:1`, `${indexOffset}:2`],
+      staticPlan.entries.map((entry) => createStarCellKey(entry.node)),
+      ['1:0', '1:1'],
     );
     assert.deepEqual(
-      motionPlan.entries.map((entry) => entry.node.nodeKey),
-      [`${indexOffset}:2`, `${indexOffset}:1`],
+      motionPlan.entries.map((entry) => createStarCellKey(entry.node)),
+      ['1:1', '1:0'],
     );
     assert.deepEqual(
-      new Set(motionPlan.entries.map((entry) => entry.node.nodeKey)),
-      new Set(staticPlan.entries.map((entry) => entry.node.nodeKey)),
+      new Set(motionPlan.entries.map((entry) => createStarCellKey(entry.node))),
+      new Set(staticPlan.entries.map((entry) => createStarCellKey(entry.node))),
     );
     assert.equal(motionPlan.signature, staticPlan.signature);
     assert.equal(motionPlan.metadata.motion.enabled, true);
@@ -566,7 +567,7 @@ test('target-frustum motion lookahead decorator adds future-only prefetch demand
   try {
     const staticPlan = await planTargetFrustumDemand({
       indexSource,
-      context: {
+      context: withTraversalContext(indexSource, {
         ...baseContext,
         view: {
           revision: 1,
@@ -576,11 +577,11 @@ test('target-frustum motion lookahead decorator adds future-only prefetch demand
           verticalFovDeg: 120,
           aspectRatio: 1,
         },
-      },
+      }),
     });
     const motionPlan = await planStarOctreeStrategyDemand({
       indexSource,
-      context: {
+      context: withTraversalContext(indexSource, {
         ...baseContext,
         strategy: withMotionLookahead({ kind: 'target-frustum' }),
         view: {
@@ -595,20 +596,20 @@ test('target-frustum motion lookahead decorator adds future-only prefetch demand
             lookaheadSecs: 1,
           },
         },
-      },
+      }),
     });
 
     assert.deepEqual(
       motionPlan.entries
         .filter((entry) => (entry.role ?? 'current') === 'current')
-        .map((entry) => entry.node.nodeKey),
-      staticPlan.entries.map((entry) => entry.node.nodeKey),
+        .map((entry) => createStarCellKey(entry.node)),
+      staticPlan.entries.map((entry) => createStarCellKey(entry.node)),
     );
     assert.deepEqual(
       motionPlan.entries
         .filter((entry) => entry.role === 'prefetch')
-        .map((entry) => entry.node.nodeKey),
-      [`${indexOffset}:2`],
+        .map((entry) => createStarCellKey(entry.node)),
+      ['1:1'],
     );
     assert.equal(motionPlan.signature, staticPlan.signature);
     assert.equal(motionPlan.metadata.motionLookahead.enabled, true);
@@ -617,6 +618,58 @@ test('target-frustum motion lookahead decorator adds future-only prefetch demand
     restoreFetch();
   }
 });
+
+function withTraversalContext(indexSource, context) {
+  const wrapped = { ...context };
+  const traversalApi = {
+    async select(options) {
+      const bootstrap = await indexSource.ensureBootstrapLoaded();
+      const entries = [];
+      const traversal = await traverseOctree({
+        indexSource,
+        bootstrap,
+        distanceToNode: options.distanceToNode,
+        async visitor(node) {
+          const decision = await options.visit(node, {
+            context: wrapped,
+            bootstrap,
+          });
+          const include = decision.include === true;
+          const descend = decision.descend !== false;
+
+          if (
+            include &&
+            (node.flags & STAR_HAS_PAYLOAD) &&
+            node.payloadLength > 0
+          ) {
+            entries.push({
+              node,
+              priority: decision.priority,
+              relevance: decision.relevance,
+              role: decision.role ?? 'current',
+              reasons: decision.reasons,
+              metadata: decision.metadata,
+            });
+          }
+
+          return {
+            include,
+            descend: include && descend,
+            distancePc: decision.distancePc,
+          };
+        },
+      });
+
+      return {
+        entries,
+        stats: traversal.stats,
+      };
+    },
+  };
+
+  wrapped.traversal = traversalApi;
+  return wrapped;
+}
 
 function createIndexSourceForBytes(fileBytes) {
   const originalFetch = globalThis.fetch;

@@ -14,6 +14,7 @@ const DEFAULT_COORDINATE_OUTPUT = {
   frame: 'icrs',
   units: /** @type {[string, string, string]} */ (['pc', 'pc', 'pc']),
 };
+const MAX_MORTON_LEVEL = 21;
 
 /** @type {boolean | null} */
 let transferableSupport = null;
@@ -49,6 +50,7 @@ export function createStarObjectBatchProduct(options) {
 
   for (const entry of options.entries) {
     const { node, decoded } = entry;
+    const mortonCode = resolveNodeMortonCode(node);
 
     writePositions({
       output: positions,
@@ -66,13 +68,23 @@ export function createStarObjectBatchProduct(options) {
       magAbs.set(decoded.magAbs ?? new Float32Array(decoded.count), offset);
     }
 
-    if (includeRefs && decoded.refs) {
-      refs.push(...decoded.refs);
+    if (includeRefs) {
+      if (decoded.refs?.length === decoded.count) {
+        refs.push(...decoded.refs);
+      } else {
+        for (let ordinal = 0; ordinal < decoded.count; ordinal += 1) {
+          refs.push({
+            level: node.level,
+            mortonCode,
+            ordinal,
+          });
+        }
+      }
     }
 
     nodes.push({
-      nodeKey: node.nodeKey,
       level: node.level,
+      mortonCode,
       gridX: node.gridX,
       gridY: node.gridY,
       gridZ: node.gridZ,
@@ -87,9 +99,9 @@ export function createStarObjectBatchProduct(options) {
     if (pickMeta) {
       for (let ordinal = 0; ordinal < decoded.count; ordinal += 1) {
         pickMeta.push({
-          nodeKey: node.nodeKey,
-          ordinal,
           level: node.level,
+          mortonCode,
+          ordinal,
           gridX: node.gridX,
           gridY: node.gridY,
           gridZ: node.gridZ,
@@ -174,6 +186,65 @@ export function createStarObjectBatchProduct(options) {
  */
 export function createStarProductId(streamId, productIndex) {
   return `${streamId}:product:${productIndex}`;
+}
+
+/**
+ * @param {number} gridX
+ * @param {number} gridY
+ * @param {number} gridZ
+ * @param {number} level
+ * @returns {bigint}
+ */
+export function encodeMorton3D(gridX, gridY, gridZ, level) {
+  const normalizedLevel = assertIntegerInRange(level, 0, MAX_MORTON_LEVEL, 'level');
+  const axisLimit = 2 ** normalizedLevel;
+  const x = assertIntegerInRange(gridX, 0, axisLimit - 1, 'gridX');
+  const y = assertIntegerInRange(gridY, 0, axisLimit - 1, 'gridY');
+  const z = assertIntegerInRange(gridZ, 0, axisLimit - 1, 'gridZ');
+  let mortonCode = 0n;
+
+  for (let bit = 0; bit < normalizedLevel; bit += 1) {
+    const shift = BigInt(bit * 3);
+    mortonCode |= BigInt((x >> bit) & 1) << shift;
+    mortonCode |= BigInt((y >> bit) & 1) << (shift + 1n);
+    mortonCode |= BigInt((z >> bit) & 1) << (shift + 2n);
+  }
+
+  return mortonCode;
+}
+
+/**
+ * @param {bigint | number | string} mortonCode
+ * @param {number} level
+ */
+export function decodeMorton3D(mortonCode, level) {
+  const normalizedLevel = assertIntegerInRange(level, 0, MAX_MORTON_LEVEL, 'level');
+  const normalizedMorton = parseMortonCode(mortonCode);
+  assertMortonBounds(normalizedMorton, normalizedLevel);
+  let gridX = 0;
+  let gridY = 0;
+  let gridZ = 0;
+
+  for (let bit = 0; bit < normalizedLevel; bit += 1) {
+    const shift = BigInt(bit * 3);
+    gridX |= Number((normalizedMorton >> shift) & 1n) << bit;
+    gridY |= Number((normalizedMorton >> (shift + 1n)) & 1n) << bit;
+    gridZ |= Number((normalizedMorton >> (shift + 2n)) & 1n) << bit;
+  }
+
+  return { gridX, gridY, gridZ };
+}
+
+/**
+ * @param {number | { level: number; mortonCode?: string | number | bigint; gridX?: number; gridY?: number; gridZ?: number }} levelOrCell
+ * @param {string | number | bigint} [mortonCode]
+ */
+export function createStarCellKey(levelOrCell, mortonCode) {
+  if (typeof levelOrCell === 'object' && levelOrCell) {
+    return `${levelOrCell.level}:${resolveNodeMortonCode(levelOrCell)}`;
+  }
+
+  return `${levelOrCell}:${normalizeMortonCode(mortonCode)}`;
 }
 
 export function createStarRepresentationStore() {
@@ -407,6 +478,82 @@ function writePositions(options) {
       output[outputIndex + 1] = yPc;
       output[outputIndex + 2] = zPc;
     }
+  }
+}
+
+/**
+ * @param {{ mortonCode?: string | number | bigint; level: number; gridX?: number; gridY?: number; gridZ?: number }} node
+ */
+function resolveNodeMortonCode(node) {
+  if (node.mortonCode !== undefined) {
+    return normalizeMortonCode(node.mortonCode);
+  }
+
+  return encodeMorton3D(
+    Number(node.gridX),
+    Number(node.gridY),
+    Number(node.gridZ),
+    Number(node.level),
+  ).toString(10);
+}
+
+/**
+ * @param {unknown} value
+ * @returns {string}
+ */
+function normalizeMortonCode(value) {
+  return parseMortonCode(value).toString(10);
+}
+
+/**
+ * @param {unknown} value
+ * @returns {bigint}
+ */
+function parseMortonCode(value) {
+  if (typeof value === 'bigint') {
+    if (value < 0n) {
+      throw new RangeError('mortonCode must be >= 0');
+    }
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new RangeError('mortonCode must be a non-negative safe integer');
+    }
+    return BigInt(value);
+  }
+
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    return BigInt(value);
+  }
+
+  throw new TypeError('mortonCode must be a bigint, number, or numeric string');
+}
+
+/**
+ * @param {number} value
+ * @param {number} min
+ * @param {number} max
+ * @param {string} label
+ */
+function assertIntegerInRange(value, min, max, label) {
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new RangeError(`${label} must be an integer in [${min}, ${max}]`);
+  }
+
+  return value;
+}
+
+/**
+ * @param {bigint} mortonCode
+ * @param {number} level
+ */
+function assertMortonBounds(mortonCode, level) {
+  const bitCount = BigInt(level * 3);
+  const maxMortonCode = bitCount === 0n ? 0n : (1n << bitCount) - 1n;
+  if (mortonCode > maxMortonCode) {
+    throw new RangeError(`mortonCode exceeds the maximum value for level ${level}`);
   }
 }
 

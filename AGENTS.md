@@ -142,3 +142,7 @@ rules:
   renderer, controls, status/debug, and small custom plugins.
 - Root demos are transition sandboxes. Prefer package examples for new learning
   material unless the user explicitly asks to work on a root demo.
+- New package examples and public package code should use
+  `CanonicalObjectRef` for star identity and `createStarCellKey()` for cell
+  keys. Do not introduce public IDs based on octree storage details such as
+  `nodeKey`, `shardOffset`, `nodeIndex`, `payloadOffset`, or `payloadLength`.

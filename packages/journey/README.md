@@ -31,5 +31,11 @@ const evaluator = createTimedJourneyEvaluator({
 const frame = evaluator.evaluate(5);
 ```
 
+Journey waypoints, cues, scenes, and guides are independent authored IDs plus
+coordinates. They do not use star IDs directly. A lesson or game that wants a
+journey target to follow a star should keep the star's `CanonicalObjectRef` in
+app-owned scene payload and resolve it to coordinates before handing data to
+`@found-in-space/journey` or `@found-in-space/spatial`.
+
 Website scroll wiring, video capture/export, and editor UI live outside this
 runtime package.

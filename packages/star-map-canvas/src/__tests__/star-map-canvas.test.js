@@ -372,7 +372,8 @@ test('createCanvasStarMap resizes for DPR and preserves pick metadata', () => {
   assert.notEqual(picked, null);
   assert.equal(picked?.productId, 'stream-a:product:1');
   assert.equal(picked?.objectIndex, 0);
-  assert.equal(picked?.objectRef?.nodeKey, 'node-a');
+  assert.equal(picked?.objectRef?.level, 1);
+  assert.equal(picked?.objectRef?.mortonCode, '0');
   assert.equal(picked?.pickMeta?.ordinal, 0);
 });
 
@@ -433,7 +434,7 @@ function createStoreWithProduct() {
         positionsPc: new Float32Array([10, 0, 0]),
         magAbs: new Float32Array([5]),
         teffLog8: new Uint8Array([120]),
-        refs: [{ datasetId: 'dataset-a', nodeKey: 'node-a', ordinal: 0 }],
+        refs: [{ datasetId: 'dataset-a', level: 1, mortonCode: '0', ordinal: 0 }],
       },
     }],
     attributes: ['position', 'magAbs', 'teffLog8', 'objectRef', 'pickMeta'],
@@ -452,11 +453,11 @@ function createStar(overrides = {}) {
     position: { x, y, z },
     magAbs: overrides.magAbs ?? 5,
     teffLog8: overrides.teffLog8 ?? 120,
-    objectRef: overrides.objectRef ?? { datasetId: 'dataset-a', nodeKey: 'node-a', ordinal: objectIndex },
+    objectRef: overrides.objectRef ?? { datasetId: 'dataset-a', level: 1, mortonCode: '0', ordinal: objectIndex },
     pickMeta: overrides.pickMeta ?? {
-      nodeKey: 'node-a',
-      ordinal: objectIndex,
       level: 1,
+      mortonCode: '0',
+      ordinal: objectIndex,
       gridX: 0,
       gridY: 0,
       gridZ: 0,
@@ -469,7 +470,7 @@ function createStar(overrides = {}) {
 
 function createNode(nodeKey) {
   return {
-    nodeKey,
+    mortonCode: '0',
     centerX: 0,
     centerY: 0,
     centerZ: 0,

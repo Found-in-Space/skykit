@@ -54,7 +54,7 @@ function createFixtureProduct() {
 
 function createNode() {
   return {
-    nodeKey: 'fixture-node',
+    mortonCode: '0',
     level: 0,
     gridX: 0,
     gridY: 0,

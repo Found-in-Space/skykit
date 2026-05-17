@@ -2,6 +2,7 @@ import {
   STAR_HAS_PAYLOAD,
   STAR_IS_FRONTIER,
 } from './star-octree-format.js';
+import { createStarCellKey } from '@found-in-space/star-products';
 
 /**
  * @typedef {import('./index.d.ts').StarOctreeBootstrapProduct} StarOctreeBootstrapProduct
@@ -225,7 +226,7 @@ class TraversalPriorityQueue {
         (
           item.distancePc === existing.distancePc &&
           item.node.level === existing.node.level &&
-          item.node.nodeKey > existing.node.nodeKey
+          createStarCellKey(item.node) > createStarCellKey(existing.node)
         )
       ) {
         low = middle + 1;

@@ -1,8 +1,5 @@
-import { STAR_HAS_PAYLOAD } from './star-octree-format.js';
-import {
-  distanceToNodeAabbPc,
-  traverseOctree,
-} from './star-octree-traversal.js';
+import { createStarCellKey } from '@found-in-space/star-products';
+import { distanceToNodeAabbPc } from './star-octree-traversal.js';
 
 /**
  * @typedef {import('./index.d.ts').StarOctreeDemandEntry} StarOctreeDemandEntry
@@ -36,7 +33,6 @@ export function loadRadiusForMagnitudeShell(
  * @returns {Promise<StarOctreeDemandPlan>}
  */
 export async function planObserverShellDemand(options) {
-  const bootstrap = await options.indexSource.ensureBootstrapLoaded();
   const observerPc = normalizePoint(
     options.context.view.observerPc,
     DEFAULT_OBSERVER_PC,
@@ -45,14 +41,11 @@ export async function planObserverShellDemand(options) {
     options.context.view.limitingMagnitude,
     DEFAULT_LIMITING_MAGNITUDE,
   );
-  const indexMagnitude = bootstrap.header.magLimit;
   const motion = resolveMotionPriorityContext(options.context.view.motion);
   const currentResult = await collectObserverShellEntries({
-    indexSource: options.indexSource,
-    bootstrap,
+    context: options.context,
     observerPc,
     limitingMagnitude,
-    indexMagnitude,
     motion,
     role: 'current',
   });
@@ -72,94 +65,82 @@ export async function planObserverShellDemand(options) {
       strategy: 'observer-shell',
       observerPc,
       limitingMagnitude,
-      indexMagnitude,
-      inspectedNodeCount: currentResult.traversal.stats.inspectedNodeCount,
-      selectedNodeCount: currentResult.traversal.stats.selectedNodeCount,
-      payloadNodeCount: currentResult.traversal.stats.payloadNodeCount,
-      prunedNodeCount: currentResult.traversal.stats.prunedNodeCount,
+      indexMagnitude: currentResult.indexMagnitude,
+      inspectedNodeCount: currentResult.stats.inspectedNodeCount,
+      selectedNodeCount: currentResult.stats.selectedNodeCount,
+      payloadNodeCount: currentResult.stats.payloadNodeCount,
+      prunedNodeCount: currentResult.stats.prunedNodeCount,
       motion,
       prefetchNodeCount: 0,
       prefetchOverlapCount: 0,
-      frontierShardCount: currentResult.traversal.stats.frontierShardCount,
-      maxLevelInspected: currentResult.traversal.stats.maxLevelInspected,
+      frontierShardCount: currentResult.stats.frontierShardCount,
+      maxLevelInspected: currentResult.stats.maxLevelInspected,
     },
   };
 }
 
 /**
  * @param {{
- *   indexSource: StarOctreeIndexSource;
- *   bootstrap: import('./index.d.ts').StarOctreeBootstrapProduct;
+ *   context: StarOctreeSelectionContext;
  *   observerPc: { x: number; y: number; z: number };
  *   currentObserverPc?: { x: number; y: number; z: number };
  *   limitingMagnitude: number;
- *   indexMagnitude: number;
  *   motion: ReturnType<typeof resolveMotionPriorityContext>;
  *   role: 'current' | 'prefetch';
  * }} options
  */
 async function collectObserverShellEntries(options) {
-  /** @type {StarOctreeDemandEntry[]} */
-  const entries = [];
-  const traversal = await traverseOctree({
-    indexSource: options.indexSource,
-    bootstrap: options.bootstrap,
+  let indexMagnitude = DEFAULT_LIMITING_MAGNITUDE;
+  const result = await options.context.traversal.select({
     distanceToNode: (node) => distanceToNodeAabbPc(options.observerPc, node),
-    visitor(node) {
+    visit(node, { bootstrap }) {
+      indexMagnitude = bootstrap.header.magLimit;
       const distancePc = distanceToNodeAabbPc(options.observerPc, node);
       const loadRadiusPc = loadRadiusForMagnitudeShell(
         node.halfSize,
         options.limitingMagnitude,
-        options.indexMagnitude,
+        indexMagnitude,
       );
       const include = distancePc <= loadRadiusPc;
-
-      if (
-        include &&
-        (node.flags & STAR_HAS_PAYLOAD) &&
-        node.payloadLength > 0
-      ) {
-        const motionScore = scoreMotionPriority({
-          node,
-          observerPc: options.currentObserverPc ?? options.observerPc,
-          motion: options.role === 'current'
-            ? options.motion
-            : { ...options.motion, enabled: false },
-        });
-        entries.push({
-          node,
-          priority: -distancePc + (motionScore?.motionPriorityBias ?? 0),
-          role: options.role,
-          reasons: [
-            options.role === 'current'
-              ? 'observer-shell'
-              : 'motion-lookahead',
-          ],
-          metadata: {
-            distancePc,
-            loadRadiusPc,
-            limitingMagnitude: options.limitingMagnitude,
-            indexMagnitude: options.indexMagnitude,
-            ...(options.role === 'prefetch'
-              ? {
-                  prefetchKind: 'motion-lookahead',
-                  futureObserverPc: options.observerPc,
-                }
-              : {}),
-            ...(motionScore ?? {}),
-          },
-        });
-      }
+      const motionScore = include
+        ? scoreMotionPriority({
+            node,
+            observerPc: options.currentObserverPc ?? options.observerPc,
+            motion: options.role === 'current'
+              ? options.motion
+              : { ...options.motion, enabled: false },
+          })
+        : null;
 
       return {
         include,
         descend: include,
         distancePc,
+        priority: -distancePc + (motionScore?.motionPriorityBias ?? 0),
+        role: options.role,
+        reasons: [
+          options.role === 'current'
+            ? 'observer-shell'
+            : 'motion-lookahead',
+        ],
+        metadata: {
+          distancePc,
+          loadRadiusPc,
+          limitingMagnitude: options.limitingMagnitude,
+          indexMagnitude,
+          ...(options.role === 'prefetch'
+            ? {
+                prefetchKind: 'motion-lookahead',
+                futureObserverPc: options.observerPc,
+              }
+            : {}),
+          ...(motionScore ?? {}),
+        },
       };
     },
   });
 
-  return { entries, traversal };
+  return { entries: result.entries, stats: result.stats, indexMagnitude };
 }
 
 /**
@@ -360,7 +341,7 @@ function compareObserverShellEntries(left, right, options) {
 
   const priorityDelta = (right.priority ?? 0) - (left.priority ?? 0);
   if (priorityDelta !== 0) return priorityDelta;
-  return left.node.nodeKey.localeCompare(right.node.nodeKey);
+  return createStarCellKey(left.node).localeCompare(createStarCellKey(right.node));
 }
 
 /**
@@ -369,7 +350,7 @@ function compareObserverShellEntries(left, right, options) {
 function createCurrentNodeSetSignature(entries) {
   return entries
     .filter((entry) => (entry.role ?? 'current') === 'current')
-    .map((entry) => entry.node.nodeKey)
+    .map((entry) => createStarCellKey(entry.node))
     .sort()
     .join('|');
 }

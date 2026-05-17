@@ -1,5 +1,6 @@
 import { createDecodedPayloadCache } from './star-octree-decoded-cache.js';
 import {
+  createStarCellKey,
   createStarObjectBatchProduct,
 } from '@found-in-space/star-products';
 import {
@@ -133,8 +134,8 @@ export function createStarOctreePipeline(options) {
         maxLevel: levels.length ? Math.max(...levels) : null,
       },
       nodes: entries.map((entry) => ({
-        nodeKey: entry.node.nodeKey,
         level: entry.node.level,
+        mortonCode: entry.node.mortonCode,
         centerPc: {
           x: entry.node.centerX,
           y: entry.node.centerY,

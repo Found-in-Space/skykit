@@ -268,8 +268,16 @@ export interface StarOctreeViewReceipt {
   reasons: string[];
 }
 
+/**
+ * Runtime traversal node exposed to strategies as logical cell geometry.
+ *
+ * `level + mortonCode` is the public cell identity. The physical fields on this
+ * execution object are for provider planners/loaders only; public products,
+ * bookmarks, sidecars, renderers, and examples must reduce nodes to
+ * `CanonicalObjectRef` or `createStarCellKey()`.
+ */
 export interface StarOctreeRuntimeNode {
-  nodeKey: string;
+  mortonCode: string;
   centerX: number;
   centerY: number;
   centerZ: number;
@@ -560,8 +568,8 @@ export interface StarOctreeDemandInspection {
     maxLevel: number | null;
   };
   nodes: Array<{
-    nodeKey: string;
     level: number;
+    mortonCode: string;
     centerPc: StarOctreePointPc;
     halfSizePc: number;
     payloadBytes: number;

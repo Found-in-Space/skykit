@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { createStarCellKey } from '@found-in-space/star-products';
 import {
   buildTravelVolumeRequests,
   combineStarOctreeStrategies,
@@ -140,7 +141,7 @@ test('composite union dedupes entries and current role wins over prefetch', asyn
     plan.entries.map((entry) => [entry.node.nodeKey, entry.role ?? 'current']),
     [['node-b', 'current'], ['node-a', 'current']],
   );
-  assert.equal(plan.signature, 'node-a|node-b');
+  assert.equal(plan.signature, [nodeA, nodeB].map(createStarCellKey).sort().join('|'));
   assert.deepEqual(plan.entries.find((entry) => entry.node.nodeKey === 'node-a').reasons, [
     'current-a',
     'prefetch-a',
@@ -190,7 +191,7 @@ test('motion-lookahead decorator adds future-only prefetch demand', async () => 
     plan.entries.map((entry) => [entry.node.nodeKey, entry.role ?? 'current']),
     [['current-node', 'current'], ['future-node', 'prefetch']],
   );
-  assert.equal(plan.signature, 'current-node');
+  assert.equal(plan.signature, createStarCellKey(nodeA));
   assert.equal(plan.metadata.motionLookahead.enabled, true);
   assert.equal(plan.metadata.motionLookahead.prefetchNodeCount, 1);
 });
@@ -298,7 +299,7 @@ function createSelectionContext(strategy, nodes, visits = []) {
           maxLevelInspected = Math.max(maxLevelInspected ?? node.level, node.level);
           const decision = await options.visit(node, {
             context: {},
-            bootstrap: {},
+            bootstrap: { header: { magLimit: 6.5 } },
           });
           visits.push({
             nodeKey: node.nodeKey,
@@ -335,13 +336,22 @@ function createSelectionContext(strategy, nodes, visits = []) {
 }
 
 function createNode(overrides = {}) {
+  const nodeKey = overrides.nodeKey ?? 'node';
+  const level = overrides.level ?? 1;
+  const maxMortonCode = 2 ** (level * 3) - 1;
+  const mortonCode = String(Math.min(
+    Number(overrides.mortonCode ?? TEST_MORTON_CODES[nodeKey] ?? 0),
+    maxMortonCode,
+  ));
+
   return {
-    nodeKey: overrides.nodeKey ?? 'node',
+    nodeKey,
     centerX: overrides.centerX ?? 0,
     centerY: overrides.centerY ?? 0,
     centerZ: overrides.centerZ ?? 0,
     halfSize: overrides.halfSize ?? 1,
-    level: overrides.level ?? 1,
+    level,
+    mortonCode,
     gridX: 0,
     gridY: 0,
     gridZ: 0,
@@ -356,3 +366,15 @@ function createNode(overrides = {}) {
     nodeIndex: 0,
   };
 }
+
+const TEST_MORTON_CODES = {
+  inside: 1,
+  edge: 2,
+  outside: 3,
+  'path-near': 1,
+  'path-far': 2,
+  'node-a': 1,
+  'node-b': 2,
+  'current-node': 1,
+  'future-node': 2,
+};

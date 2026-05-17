@@ -1,4 +1,7 @@
-import { createStarObjectBatchProduct } from '@found-in-space/star-products';
+import {
+  createStarCellKey,
+  createStarObjectBatchProduct,
+} from '@found-in-space/star-products';
 import { createAsyncQueue } from './star-octree-queue.js';
 import {
   evaluateDemandGate,
@@ -83,12 +86,12 @@ export function createStarOctreeProviderSession(createOptions) {
   const listeners = new Set();
   /** @type {Set<ReturnType<typeof createAsyncQueue<StarOctreeProductDelta>>>} */
   const deltaQueues = new Set();
-  /** @type {Map<string, { product: StarObjectBatchProduct; nodeKeys: Set<string>; current: boolean }>} */
+  /** @type {Map<string, { product: StarObjectBatchProduct; cellKeys: Set<string>; current: boolean }>} */
   const productsById = new Map();
   /** @type {Map<string, string>} */
-  const productIdByNodeKey = new Map();
+  const productIdByCellKey = new Map();
   /** @type {Map<string, StarOctreeDemandEntry>} */
-  const entriesByNodeKey = new Map();
+  const entriesByCellKey = new Map();
   /** @type {Set<number>} */
   const activePlans = new Set();
   /** @type {Set<Promise<void>>} */
@@ -300,19 +303,19 @@ export function createStarOctreeProviderSession(createOptions) {
     demandNodeCount = currentEntries.length;
     status = 'streaming';
 
-    const nextEntriesByNodeKey = new Map(
-      currentEntries.map((entry) => [entry.node.nodeKey, entry]),
+    const nextEntriesByCellKey = new Map(
+      currentEntries.map((entry) => [createStarCellKey(entry.node), entry]),
     );
     const productsToRemove = new Map();
 
     for (const [productId, record] of productsById) {
-      const retainedNodeKeys = Array.from(record.nodeKeys)
-        .filter((nodeKey) => nextEntriesByNodeKey.has(nodeKey));
-      if (retainedNodeKeys.length === record.nodeKeys.size) {
-        for (const nodeKey of retainedNodeKeys) {
-          entriesByNodeKey.set(
-            nodeKey,
-            /** @type {StarOctreeDemandEntry} */ (nextEntriesByNodeKey.get(nodeKey)),
+      const retainedCellKeys = Array.from(record.cellKeys)
+        .filter((cellKey) => nextEntriesByCellKey.has(cellKey));
+      if (retainedCellKeys.length === record.cellKeys.size) {
+        for (const cellKey of retainedCellKeys) {
+          entriesByCellKey.set(
+            cellKey,
+            /** @type {StarOctreeDemandEntry} */ (nextEntriesByCellKey.get(cellKey)),
           );
         }
         continue;
@@ -324,9 +327,9 @@ export function createStarOctreeProviderSession(createOptions) {
     for (const [productId, record] of productsToRemove) {
       record.current = false;
       productsById.delete(productId);
-      for (const nodeKey of record.nodeKeys) {
-        productIdByNodeKey.delete(nodeKey);
-        entriesByNodeKey.delete(nodeKey);
+      for (const cellKey of record.cellKeys) {
+        productIdByCellKey.delete(cellKey);
+        entriesByCellKey.delete(cellKey);
       }
       emitDelta({
         type: 'data/product-stale',
@@ -345,7 +348,7 @@ export function createStarOctreeProviderSession(createOptions) {
     }
 
     const entriesToLoad = currentEntries.filter(
-      (entry) => !productIdByNodeKey.has(entry.node.nodeKey),
+      (entry) => !productIdByCellKey.has(createStarCellKey(entry.node)),
     );
 
     if (createOptions.source.streamObjectProducts) {
@@ -372,7 +375,7 @@ export function createStarOctreeProviderSession(createOptions) {
           return;
         }
 
-        storeProduct(product, nextEntriesByNodeKey);
+        storeProduct(product, nextEntriesByCellKey);
 
         emitDelta({
           type: 'data/product-upsert',
@@ -399,7 +402,7 @@ export function createStarOctreeProviderSession(createOptions) {
           memoryOwnership: options.memory.ownership,
         });
 
-        storeProduct(product, nextEntriesByNodeKey);
+        storeProduct(product, nextEntriesByCellKey);
         emitDelta({
           type: 'data/product-upsert',
           streamId,
@@ -478,21 +481,21 @@ export function createStarOctreeProviderSession(createOptions) {
 
   /**
    * @param {StarObjectBatchProduct} product
-   * @param {Map<string, StarOctreeDemandEntry>} nextEntriesByNodeKey
+   * @param {Map<string, StarOctreeDemandEntry>} nextEntriesByCellKey
    */
-  function storeProduct(product, nextEntriesByNodeKey) {
-    const nodeKeys = new Set(product.nodes.map((node) => node.nodeKey));
+  function storeProduct(product, nextEntriesByCellKey) {
+    const cellKeys = new Set(product.nodes.map((node) => createStarCellKey(node)));
     productsById.set(product.id, {
       product,
-      nodeKeys,
+      cellKeys,
       current: true,
     });
 
-    for (const nodeKey of nodeKeys) {
-      productIdByNodeKey.set(nodeKey, product.id);
-      const entry = nextEntriesByNodeKey.get(nodeKey);
+    for (const cellKey of cellKeys) {
+      productIdByCellKey.set(cellKey, product.id);
+      const entry = nextEntriesByCellKey.get(cellKey);
       if (entry) {
-        entriesByNodeKey.set(nodeKey, entry);
+        entriesByCellKey.set(cellKey, entry);
       }
     }
   }
@@ -753,7 +756,7 @@ function normalizeDemandEntries(entries, sortOptions) {
 
     const priorityDelta = (b.priority ?? 0) - (a.priority ?? 0);
     if (priorityDelta !== 0) return priorityDelta;
-    return a.node.nodeKey.localeCompare(b.node.nodeKey);
+    return createStarCellKey(a.node).localeCompare(createStarCellKey(b.node));
   });
 }
 
@@ -814,7 +817,7 @@ function optionalMetadataNumber(entry, key) {
 function createDemandSignature(entries) {
   return entries
     .filter((entry) => (entry.role ?? 'current') === 'current')
-    .map((entry) => `${entry.node.nodeKey}:${entry.role ?? 'current'}`)
+    .map((entry) => `${createStarCellKey(entry.node)}:${entry.role ?? 'current'}`)
     .join('|');
 }
 

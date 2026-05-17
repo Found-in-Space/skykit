@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { gzipSync } from 'node:zlib';
 
+import { createStarCellKey } from '@found-in-space/star-products';
 import {
   createStarOctreeFileProviderService,
   createStarOctreeProviderService,
@@ -141,7 +142,7 @@ test('inspectDemand returns public strategy diagnostics without fetching payload
     assert.equal(inspection.counts.payloadNodeCount, 2);
     assert.equal(typeof inspection.counts.maxLevel, 'number');
     assert.deepEqual(
-      inspection.nodes.map((node) => node.nodeKey),
+      inspection.nodes.map(createStarCellKey),
       fixture.payloadNodeKeys,
     );
     assert.equal(provider.getSnapshot().stats.payloadNodesFetched, 0);
@@ -347,7 +348,7 @@ test('streamObjectBatches supports exact target-frustum demand', async () => {
     const upserts = deltas.filter((delta) => delta.type === 'data/product-upsert');
     assert.equal(upserts.length, 1);
     assert.deepEqual(
-      upserts[0].product.nodes.map((node) => node.nodeKey),
+      upserts[0].product.nodes.map(createStarCellKey),
       fixture.payloadNodeKeys,
     );
     assert.equal(deltas.at(-1).type, 'data/representation-current');
@@ -383,7 +384,7 @@ test('streamObjectBatches supports target-derived target-frustum demand', async 
     const upserts = deltas.filter((delta) => delta.type === 'data/product-upsert');
     assert.equal(upserts.length, 1);
     assert.deepEqual(
-      upserts[0].product.nodes.map((node) => node.nodeKey),
+      upserts[0].product.nodes.map(createStarCellKey),
       fixture.payloadNodeKeys,
     );
     assert.equal(deltas.at(-1).type, 'data/representation-current');
@@ -422,7 +423,7 @@ test('custom strategies select real nodes through provider traversal context', a
           return {
             entries: selection.entries,
             signature: selection.entries
-              .map((entry) => entry.node.nodeKey)
+              .map((entry) => createStarCellKey(entry.node))
               .join('|'),
             reasons: ['custom-test'],
             metadata: {
@@ -441,7 +442,7 @@ test('custom strategies select real nodes through provider traversal context', a
     const upserts = deltas.filter((delta) => delta.type === 'data/product-upsert');
     assert.equal(upserts.length, 1);
     assert.deepEqual(
-      upserts[0].product.nodes.map((node) => node.nodeKey),
+      upserts[0].product.nodes.map(createStarCellKey),
       fixture.payloadNodeKeys,
     );
   } finally {
@@ -498,7 +499,7 @@ test('live sessions stream real observer-shell products through deltas', async (
     assert.equal(receipt.demand, 'queued');
     assert.equal(upserts.length, 1);
     assert.deepEqual(
-      upserts[0].product.nodes.map((node) => node.nodeKey),
+      upserts[0].product.nodes.map(createStarCellKey),
       fixture.payloadNodeKeys,
     );
     assert.equal(deltas.at(-1).type, 'data/representation-current');
@@ -537,7 +538,7 @@ test('live sessions prefetch role warms caches without emitting products', async
 
     assert.equal(upserts.length, 1);
     assert.deepEqual(
-      upserts[0].product.nodes.map((node) => node.nodeKey),
+      upserts[0].product.nodes.map(createStarCellKey),
       [fixture.payloadNodeKeys[0]],
     );
 
@@ -601,7 +602,7 @@ test('live sessions report current while prefetch work remains active', async ()
     assert.equal(prefetchStartedAfterCurrent, true);
     assert.equal(upserts.length, 1);
     assert.deepEqual(
-      upserts[0].product.nodes.map((node) => node.nodeKey),
+      upserts[0].product.nodes.map(createStarCellKey),
       [fixture.payloadNodeKeys[0]],
     );
     assert.equal(sessionSnapshot.demand.status, 'current');
@@ -728,7 +729,7 @@ test('stale live session demand does not start superseded prefetch', async () =>
     assert.deepEqual(
       deltas
         .filter((delta) => delta.type === 'data/product-upsert')
-        .flatMap((delta) => delta.product.nodes.map((node) => node.nodeKey)),
+        .flatMap((delta) => delta.product.nodes.map(createStarCellKey)),
       [fixture.payloadNodeKeys[0]],
     );
   } finally {
@@ -753,7 +754,7 @@ test('grouped live products are replaced when partially retained', async () => {
             role: 'current',
             priority: 10 - index,
           })),
-          signature: demandedNodes.map((node) => node.nodeKey).join('|'),
+          signature: demandedNodes.map(createStarCellKey).join('|'),
         }),
       },
     );
@@ -776,7 +777,7 @@ test('grouped live products are replaced when partially retained', async () => {
     assert.deepEqual(remove.map((delta) => delta.productId), [initialProduct.id]);
     assert.equal(upserts.length, 1);
     assert.deepEqual(
-      upserts[0].product.nodes.map((node) => node.nodeKey),
+      upserts[0].product.nodes.map(createStarCellKey),
       [fixture.payloadNodeKeys[1]],
     );
     assert.equal(provider.getSnapshot().stats.payloadCacheHits >= 1, true);
@@ -907,36 +908,40 @@ function createObjectStreamFixture() {
     gap,
     compressedB,
   ]);
+  const runtimeNodes = [
+    createRuntimeNode({
+      nodeKey: `${indexOffset}:2`,
+      centerX: -50,
+      centerY: -50,
+      centerZ: -50,
+      halfSize: 25,
+      level: 1,
+      gridX: 0,
+      mortonCode: '0',
+      payloadOffset: payloadOffsetA,
+      payloadLength: compressedA.length,
+    }),
+    createRuntimeNode({
+      nodeKey: `${indexOffset}:3`,
+      centerX: 50,
+      centerY: -50,
+      centerZ: -50,
+      halfSize: 25,
+      level: 1,
+      gridX: 1,
+      mortonCode: '1',
+      payloadOffset: payloadOffsetB,
+      payloadLength: compressedB.length,
+      nodeIndex: 3,
+    }),
+  ];
 
   return {
     fileBytes,
     payloadA,
     payloadB,
-    runtimeNodes: [
-      createRuntimeNode({
-        nodeKey: `${indexOffset}:2`,
-        centerX: -50,
-        centerY: -50,
-        centerZ: -50,
-        halfSize: 25,
-        payloadOffset: payloadOffsetA,
-        payloadLength: compressedA.length,
-      }),
-      createRuntimeNode({
-        nodeKey: `${indexOffset}:3`,
-        centerX: 50,
-        centerY: -50,
-        centerZ: -50,
-        halfSize: 25,
-        payloadOffset: payloadOffsetB,
-        payloadLength: compressedB.length,
-        nodeIndex: 3,
-      }),
-    ],
-    payloadNodeKeys: [
-      `${indexOffset}:2`,
-      `${indexOffset}:3`,
-    ],
+    runtimeNodes,
+    payloadNodeKeys: runtimeNodes.map(createStarCellKey),
   };
 }
 
@@ -948,6 +953,7 @@ function createRuntimeNode(overrides) {
     centerZ: 0,
     halfSize: 1,
     level: 2,
+    mortonCode: '0',
     gridX: 0,
     gridY: 0,
     gridZ: 0,

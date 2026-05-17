@@ -56,8 +56,8 @@ test('decodeStarPayload returns provider-native parsec attributes and refs', () 
   assertFloatArrayClose(decoded.magAbs, [4.25, -1.46]);
   assert.deepEqual(Array.from(decoded.teffLog8), [128, 222]);
   assert.deepEqual(decoded.refs, [
-    { datasetId: 'dataset-a', nodeKey: 'node-a', ordinal: 0 },
-    { datasetId: 'dataset-a', nodeKey: 'node-a', ordinal: 1 },
+    { datasetId: 'dataset-a', level: 0, mortonCode: '0', ordinal: 0 },
+    { datasetId: 'dataset-a', level: 0, mortonCode: '0', ordinal: 1 },
   ]);
 });
 
@@ -180,6 +180,7 @@ function createNode(nodeKey, overrides = {}) {
     centerZ: 0,
     halfSize: 1,
     level: 0,
+    mortonCode: '0',
     gridX: 0,
     gridY: 0,
     gridZ: 0,

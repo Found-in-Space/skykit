@@ -265,7 +265,8 @@ function decodePersistentSegment(buffer, node, datasetId) {
     ...(magAbs ? { magAbs } : {}),
     refs: Array.from({ length: count }, (_, ordinal) => ({
       datasetId,
-      nodeKey: node.nodeKey,
+      level: node.level,
+      mortonCode: node.mortonCode,
       ordinal,
     })),
   };

@@ -7,6 +7,12 @@ students a friendly place to hack. It does not load octree bytes, interpret star
 products, own star shaders, manage touch surfaces, or contain journey/chapter
 logic.
 
+SkyKit examples and plugins should preserve the star identity boundary from
+`@found-in-space/star-products`: use `CanonicalObjectRef` for stars and
+`createStarCellKey()` for cell-level maps or display. Do not introduce
+SkyKit-specific star IDs or expose octree storage details such as `nodeKey`,
+`shardOffset`, `nodeIndex`, `payloadOffset`, or `payloadLength`.
+
 Star loading strategies such as `observer-shell`, `target-frustum`,
 sphere/path volume, explicit motion-lookahead, custom strategies, composition,
 and prefetch semantics are defined by `@found-in-space/star-octree-provider`.

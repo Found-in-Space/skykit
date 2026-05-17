@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { createStarCellKey } from '@found-in-space/star-products';
 import {
   combineStarOctreeStrategies,
   createSphereVolumeStrategy,
@@ -67,8 +68,8 @@ test('session deltas and subscribers receive initial upserts and current status'
   assert.deepEqual(
     deltas
       .filter((delta) => delta.type === 'data/product-upsert')
-      .map((delta) => delta.product.nodes[0].nodeKey),
-    ['node-a', 'node-b'],
+      .map((delta) => createStarCellKey(delta.product.nodes[0])),
+    [createStarCellKey(nodeA), createStarCellKey(nodeB)],
   );
 
   const snapshot = session.getSnapshot();
@@ -536,8 +537,8 @@ test('session demand ordering defaults coarse-first and can be disabled', async 
   assert.deepEqual(
     coarseDeltas
       .filter((delta) => delta.type === 'data/product-upsert')
-      .map((delta) => delta.product.nodes[0].nodeKey),
-    ['coarse-node', 'near-deep-node'],
+      .map((delta) => createStarCellKey(delta.product.nodes[0])),
+    [createStarCellKey(coarseNode), createStarCellKey(nearDeepNode)],
   );
 
   const priorityProvider = createStarOctreeProviderServiceForTest(
@@ -573,8 +574,8 @@ test('session demand ordering defaults coarse-first and can be disabled', async 
   assert.deepEqual(
     priorityDeltas
       .filter((delta) => delta.type === 'data/product-upsert')
-      .map((delta) => delta.product.nodes[0].nodeKey),
-    ['near-deep-node', 'coarse-node'],
+      .map((delta) => createStarCellKey(delta.product.nodes[0])),
+    [createStarCellKey(nearDeepNode), createStarCellKey(coarseNode)],
   );
 });
 
@@ -621,8 +622,8 @@ test('session coarse-first ordering honors motion priority within the same level
   assert.deepEqual(
     deltas
       .filter((delta) => delta.type === 'data/product-upsert')
-      .map((delta) => delta.product.nodes[0].nodeKey),
-    ['leading-node', 'trailing-node'],
+      .map((delta) => createStarCellKey(delta.product.nodes[0])),
+    [createStarCellKey(leadingNode), createStarCellKey(trailingNode)],
   );
   const current = deltas.at(-1);
   assert.equal(current.type, 'data/representation-current');
@@ -646,12 +647,12 @@ test('changed demand retains shared nodes and stale-removes excluded products', 
   const productA = initial.find(
     (delta) =>
       delta.type === 'data/product-upsert' &&
-      delta.product.nodes[0].nodeKey === 'node-a',
+      createStarCellKey(delta.product.nodes[0]) === createStarCellKey(nodeA),
   ).product;
   const productB = initial.find(
     (delta) =>
       delta.type === 'data/product-upsert' &&
-      delta.product.nodes[0].nodeKey === 'node-b',
+      createStarCellKey(delta.product.nodes[0]) === createStarCellKey(nodeB),
   ).product;
 
   demandedNodes = [nodeB, nodeC];
@@ -662,8 +663,8 @@ test('changed demand retains shared nodes and stale-removes excluded products', 
   assert.deepEqual(
     changed
       .filter((delta) => delta.type === 'data/product-upsert')
-      .map((delta) => delta.product.nodes[0].nodeKey),
-    ['node-c'],
+      .map((delta) => createStarCellKey(delta.product.nodes[0])),
+    [createStarCellKey(nodeC)],
   );
   assert.deepEqual(
     changed
@@ -710,8 +711,8 @@ test('outdated async planning results do not overwrite newer demand', async () =
   assert.deepEqual(
     deltas
       .filter((delta) => delta.type === 'data/product-upsert')
-      .map((delta) => delta.product.nodes[0].nodeKey),
-    ['node-b'],
+      .map((delta) => createStarCellKey(delta.product.nodes[0])),
+    [createStarCellKey(nodeB)],
   );
 
   resolvers[0].resolve(createPlan([nodeA]));
@@ -731,21 +732,29 @@ function createPlan(nodes) {
       priority: 100 - index,
       role: 'current',
     })),
-    signature: nodes.map((node) => node.nodeKey).join('|'),
+    signature: nodes.map(createStarCellKey).join('|'),
   };
 }
 
 function createNode(nodeKey, overrides = {}) {
+  const level = overrides.level ?? 1;
+  const maxMortonCode = 2 ** (level * 3) - 1;
+  const mortonCode = String(Math.min(
+    Number(overrides.mortonCode ?? TEST_MORTON_CODES[nodeKey] ?? 0),
+    maxMortonCode,
+  ));
+
   return {
     nodeKey,
     centerX: 1,
     centerY: 2,
     centerZ: 3,
     halfSize: 0.5,
-    level: 1,
-    gridX: 1,
-    gridY: 2,
-    gridZ: 3,
+    level,
+    mortonCode,
+    gridX: 0,
+    gridY: 0,
+    gridZ: 0,
     flags: 0,
     childMask: 0,
     payloadOffset: 0,
@@ -758,6 +767,16 @@ function createNode(nodeKey, overrides = {}) {
     ...overrides,
   };
 }
+
+const TEST_MORTON_CODES = {
+  'node-a': 1,
+  'node-b': 2,
+  'node-c': 3,
+  'coarse-node': 1,
+  'near-deep-node': 2,
+  'trailing-node': 1,
+  'leading-node': 2,
+};
 
 function yawQuaternion(degrees) {
   const radians = degrees * Math.PI / 180;

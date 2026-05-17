@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   apparentMagnitude,
   consumeProductDeltas,
+  encodeMorton3D,
   createStarObjectBatchProduct,
   createStarRepresentationStore,
   decodeTemperatureK,
@@ -42,7 +43,7 @@ test('createStarObjectBatchProduct builds typed product arrays and metadata', ()
   ]);
   assert.deepEqual(Array.from(product.attributes.teffLog8.values), [100, 120]);
   assert.deepEqual(Array.from(product.attributes.magAbs.values), [1.5, 2.5]);
-  assert.equal(product.nodes[0].nodeKey, 'node-a');
+  assert.equal(product.nodes[0].mortonCode, node.mortonCode);
   assert.equal(product.nodes[0].offset, 0);
   assert.equal(product.nodes[0].count, 2);
   assert.equal(product.pickMeta?.[1].ordinal, 1);
@@ -172,8 +173,8 @@ test('createStarRepresentationStore applies deltas and exposes star helpers', as
         teffLog8: new Uint8Array([100, 120]),
         magAbs: new Float32Array([1.5, 2.5]),
         refs: [
-          { datasetId: 'dataset-a', nodeKey: 'node-a', ordinal: 0 },
-          { datasetId: 'dataset-a', nodeKey: 'node-a', ordinal: 1 },
+          { datasetId: 'dataset-a', level: 2, mortonCode: '53', ordinal: 0 },
+          { datasetId: 'dataset-a', level: 2, mortonCode: '53', ordinal: 1 },
         ],
       },
     }],
@@ -220,17 +221,27 @@ function oneStar() {
 }
 
 function createNode(nodeKey, overrides = {}) {
-  return {
-    nodeKey,
+  const node = {
     centerX: 1,
     centerY: 2,
     centerZ: 3,
     halfSize: 0.5,
-    level: 1,
+    level: 2,
     gridX: 1,
     gridY: 2,
     gridZ: 3,
     ...overrides,
+  };
+  return {
+    ...node,
+    mortonCode: String(
+      overrides.mortonCode ?? encodeMorton3D(
+        node.gridX,
+        node.gridY,
+        node.gridZ,
+        node.level,
+      ),
+    ),
   };
 }
 

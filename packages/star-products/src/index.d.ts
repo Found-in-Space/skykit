@@ -8,16 +8,31 @@ import type {
 export type { ProductDelta } from '@found-in-space/product-stream';
 export { consumeProductDeltas } from '@found-in-space/product-stream';
 
+/**
+ * Canonical public identity for a star within one dataset.
+ *
+ * `level + mortonCode` identifies the logical octree cell. `ordinal`
+ * identifies the star within that cell's emitted payload order. Do not replace
+ * this with provider storage details such as node table indexes or byte
+ * offsets.
+ */
 export interface CanonicalObjectRef {
   datasetId?: string | null;
-  nodeKey: string;
+  level: number;
+  mortonCode: string;
   ordinal: number;
 }
 
+/**
+ * Pick/join metadata for renderer selections.
+ *
+ * This repeats the public logical cell and ordinal, plus geometry useful for
+ * proximity and sidecar lookups. It is not a separate object ID scheme.
+ */
 export interface StarPickMeta {
-  nodeKey: string;
-  ordinal: number;
   level: number;
+  mortonCode: string;
+  ordinal: number;
   gridX: number;
   gridY: number;
   gridZ: number;
@@ -27,7 +42,7 @@ export interface StarPickMeta {
 }
 
 export interface StarProductSourceNode {
-  nodeKey: string;
+  mortonCode?: string;
   centerX: number;
   centerY: number;
   centerZ: number;
@@ -60,8 +75,8 @@ export interface DecodedStarSegment {
 }
 
 export interface StarObjectBatchNodeSummary {
-  nodeKey: string;
   level: number;
+  mortonCode: string;
   gridX: number;
   gridY: number;
   gridZ: number;
@@ -191,6 +206,23 @@ export declare function createStarProductId(
 ): string;
 
 export declare function createStarRepresentationStore(): StarRepresentationStore;
+
+export declare function encodeMorton3D(
+  gridX: number,
+  gridY: number,
+  gridZ: number,
+  level: number
+): bigint;
+
+export declare function decodeMorton3D(
+  mortonCode: bigint | number | string,
+  level: number
+): { gridX: number; gridY: number; gridZ: number };
+
+export declare function createStarCellKey(
+  levelOrCell: number | { level: number; mortonCode?: string | number | bigint; gridX?: number; gridY?: number; gridZ?: number },
+  mortonCode?: string | number | bigint
+): string;
 
 export declare function apparentMagnitude(input: ApparentMagnitudeInput): number;
 

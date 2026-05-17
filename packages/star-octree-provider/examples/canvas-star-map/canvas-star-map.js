@@ -5,6 +5,7 @@ import {
 } from '../../src/index.js';
 import {
   consumeProductDeltas,
+  createStarCellKey,
   createStarRepresentationStore,
 } from '@found-in-space/star-products';
 import { createCanvasStarMap } from '@found-in-space/star-map-canvas';
@@ -172,7 +173,7 @@ function renderSelection(picked) {
   }
 
   const ref = picked.objectRef
-    ? `${picked.objectRef.nodeKey} / ${picked.objectRef.ordinal}`
+    ? `${createStarCellKey(picked.objectRef)} / ${picked.objectRef.ordinal}`
     : `${picked.productId} / ${picked.objectIndex}`;
   elements.selected.textContent = [
     `Star ${ref}`,

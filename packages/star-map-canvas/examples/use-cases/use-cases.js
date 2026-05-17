@@ -5,6 +5,7 @@ import {
 } from '@found-in-space/star-octree-provider';
 import {
   consumeProductDeltas,
+  createStarCellKey,
   createStarRepresentationStore,
 } from '@found-in-space/star-products';
 import {
@@ -738,7 +739,7 @@ function renderSelection(picked) {
   }
 
   const ref = picked.objectRef
-    ? `${picked.objectRef.nodeKey} / ${picked.objectRef.ordinal}`
+    ? `${createStarCellKey(picked.objectRef)} / ${picked.objectRef.ordinal}`
     : `${picked.productId} / ${picked.objectIndex}`;
   elements.selected.textContent = [
     `Star ${ref}`,
@@ -752,8 +753,8 @@ function setStatus(value) {
 }
 
 function starPointKey(point) {
-  if (point.objectRef?.nodeKey != null && point.objectRef?.ordinal != null) {
-    return `${point.productId}:${point.objectRef.nodeKey}:${point.objectRef.ordinal}`;
+  if (point.objectRef?.mortonCode != null && point.objectRef?.ordinal != null) {
+    return `${point.productId}:${createStarCellKey(point.objectRef)}:${point.objectRef.ordinal}`;
   }
   return `${point.productId}:${point.objectIndex}`;
 }

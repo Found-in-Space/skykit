@@ -54,6 +54,13 @@ SkyKit should not inspect individual stars during normal streaming, rebuild
 cumulative render arrays, or hide hardcoded loader/renderer registries behind
 string names.
 
+When SkyKit code does need to pass star identity through selections, bookmarks,
+or app-owned payloads, it should use `CanonicalObjectRef` from
+`@found-in-space/star-products`. Cell-level keys should come from
+`createStarCellKey()`. SkyKit must not invent another star ID shape or expose
+octree storage details such as `nodeKey`, `shardOffset`, `nodeIndex`,
+`payloadOffset`, or `payloadLength`.
+
 ---
 
 ## 2. Extension Model

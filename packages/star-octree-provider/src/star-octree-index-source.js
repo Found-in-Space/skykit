@@ -8,6 +8,7 @@ import {
   STAR_HEADER_BLOCK_BYTES,
   STAR_HEADER_SIZE,
 } from './star-octree-format.js';
+import { createStarCellKey } from '@found-in-space/star-products';
 import {
   DEFAULT_MAX_INFLIGHT_PAYLOAD_BATCHES,
   DEFAULT_PAYLOAD_MAX_BATCH_BYTES,
@@ -440,7 +441,7 @@ export function createStarOctreeIndexSource(createOptions) {
           .then((decodedBuffers) => batch.nodes.map((node) => {
             const buffer = decodedBuffers.get(createPayloadCacheKey(node));
             if (!buffer) {
-              throw new Error(`Missing decoded payload buffer for ${node.nodeKey}`);
+              throw new Error(`Missing decoded payload buffer for ${createStarCellKey(node)}`);
             }
             return { node, buffer };
           }))
