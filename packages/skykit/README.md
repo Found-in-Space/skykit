@@ -193,6 +193,26 @@ Browser lessons:
 - `examples/navigation-automation/` uses spatial navigation helpers to drive a
   desktop SkyKit viewer.
 
+## Touch-OS Bridge
+
+The optional `@found-in-space/skykit/touch-os` subpath wires touch-os HUD
+outputs into SkyKit actions. It keeps richer panel rendering in touch-os while
+removing repeated app glue for pseudo-keys and status displays.
+
+```js
+import {
+  createSkykitShipControlsRoot,
+  createTouchOsHudPlugin,
+} from '@found-in-space/skykit/touch-os';
+
+createTouchOsHudPlugin({
+  target: mount,
+  root: createSkykitShipControlsRoot({
+    commands: [{ id: 'look-home', label: 'Home', actionId: 'app.lookHome' }],
+  }),
+});
+```
+
 ## Debug
 
 ```js

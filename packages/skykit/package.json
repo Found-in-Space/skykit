@@ -15,6 +15,10 @@
       "types": "./src/parallax.d.ts",
       "default": "./src/parallax.js"
     },
+    "./touch-os": {
+      "types": "./src/touch-os.d.ts",
+      "default": "./src/touch-os.js"
+    },
     "./xr": {
       "types": "./src/xr.d.ts",
       "default": "./src/xr.js"
@@ -39,7 +43,16 @@
     "@found-in-space/star-products": "0.0.0-alpha.0",
     "@found-in-space/three-star-field": "0.0.0-alpha.0"
   },
+  "devDependencies": {
+    "@found-in-space/touch-os": "0.2.0-dev.0"
+  },
   "peerDependencies": {
+    "@found-in-space/touch-os": ">=0.2.0-dev.0 <1",
     "three": "^0.170.0"
+  },
+  "peerDependenciesMeta": {
+    "@found-in-space/touch-os": {
+      "optional": true
+    }
   }
 }
