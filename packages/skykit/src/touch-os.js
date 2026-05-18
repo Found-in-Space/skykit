@@ -132,6 +132,9 @@ export function createTouchOsHudPlugin(options) {
 
         const pointerId = String(event.pointerId ?? 'default');
         const wasActive = activePointers.has(pointerId);
+        if (event.type === 'pointermove' && !wasActive && event.pointerType !== 'mouse') {
+          return;
+        }
         const rootContext = createRootContext(id, context, target, options, latestFrame);
         driver.update({
           ...createTouchOsHostFrame(latestFrame, target, {

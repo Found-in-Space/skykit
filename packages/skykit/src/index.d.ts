@@ -421,12 +421,11 @@ export interface AnchoredImageCatalogEntry {
   metadata: Record<string, unknown>;
 }
 
-export interface AnchoredImageActiveEntry {
+export interface AnchoredImageMatch {
   entry: AnchoredImageCatalogEntry;
   key: string;
-  weight: number;
   angleRad: number;
-  outsideRad: number;
+  viewDistanceRad: number;
 }
 
 export interface AnchoredImageCatalogOptions extends LoadAnchoredImageManifestOptions {}
@@ -452,10 +451,14 @@ export type AnchoredImageSelection =
   | string[]
   | ((entry: AnchoredImageCatalogEntry) => boolean);
 
-export interface AnchoredImageResolveActiveOptions {
+export interface AnchoredImageResolveNearestOptions {
   selection?: AnchoredImageSelection;
-  maxImages?: number;
-  fadeDeg?: number;
+  maxAngleDeg?: number;
+}
+
+export interface AnchoredImageResolveWithinAngleOptions {
+  selection?: AnchoredImageSelection;
+  maxAngleDeg: number;
 }
 
 export interface AnchoredImageCatalog {
@@ -464,43 +467,64 @@ export interface AnchoredImageCatalog {
   get(key: string): AnchoredImageCatalogEntry | null;
   resolveTargetPc(key: string, options?: AnchoredImageTargetOptions): Vector3Like | null;
   resolveLookAt(key: string, options?: AnchoredImageLookAtOptions): AnchoredImageLookAtResult | null;
-  resolveActive(
+  resolveNearest(
     directionIcrs: Vector3Like | [number, number, number],
-    options?: AnchoredImageResolveActiveOptions
-  ): AnchoredImageActiveEntry[];
+    options?: AnchoredImageResolveNearestOptions
+  ): AnchoredImageMatch | null;
+  resolveWithinAngle(
+    directionIcrs: Vector3Like | [number, number, number],
+    options: AnchoredImageResolveWithinAngleOptions
+  ): AnchoredImageMatch[];
 }
 
-export type AnchoredImageSkyMode = 'fixed' | 'view' | 'all';
 export type AnchoredImageSkyLoading = 'preload' | 'lazy';
+export type ViewAnchoredImageControllerStrategy = 'nearest' | 'within-angle';
 
-export interface AnchoredImageSkyActiveOptions {
-  enabled?: boolean;
-  maxImages?: number;
-  fadeDeg?: number;
+export interface AnchoredImageControllerInput {
+  catalog: AnchoredImageCatalog;
+  view: SkykitViewState;
+  viewDirectionIcrs: Vector3Like;
+  deltaSeconds: number;
+  elapsedSeconds: number;
+}
+
+export interface AnchoredImageController {
+  update(input: AnchoredImageControllerInput): AnchoredImageMatch[];
+  getSnapshot(): unknown;
+  setSelection?(selection?: AnchoredImageSelection): void;
+  getSelection?(): AnchoredImageSelection | undefined;
+}
+
+export interface ManualAnchoredImageControllerOptions {
+  selection?: AnchoredImageSelection;
+}
+
+export interface ViewAnchoredImageControllerOptions {
+  strategy?: ViewAnchoredImageControllerStrategy;
+  selection?: AnchoredImageSelection;
+  maxAngleDeg?: number;
+  hysteresisSeconds?: number;
 }
 
 export interface AnchoredImageStyleState {
   entry: AnchoredImageCatalogEntry | null;
-  mode: AnchoredImageSkyMode;
   active: boolean;
-  weight: number;
   visible: boolean;
   opacity: number;
+  targetOpacity: number;
 }
 
 export interface AnchoredImageSkyPluginOptions {
   id?: string;
   priority?: number;
   catalog: AnchoredImageCatalog;
-  mode?: AnchoredImageSkyMode;
+  controller: AnchoredImageController;
   loading?: AnchoredImageSkyLoading;
-  selection?: AnchoredImageSelection;
   fixedAtInfinity?: boolean;
-  active?: AnchoredImageSkyActiveOptions;
   radius?: number;
   opacity?: number;
-  activeOpacity?: number;
-  inactiveOpacity?: number;
+  fadeInSeconds?: number;
+  fadeOutSeconds?: number;
   cutoff?: number;
   subdivisions?: number;
   renderOrder?: number;
@@ -517,9 +541,7 @@ export interface AnchoredImageSkyPluginOptions {
 }
 
 export interface AnchoredImageSkyController {
-  setMode(mode: AnchoredImageSkyMode): void;
-  setSelection(selection?: AnchoredImageSelection): void;
-  getActive(): AnchoredImageActiveEntry[];
+  getActive(): AnchoredImageMatch[];
   getCatalog(): AnchoredImageCatalog;
   getSnapshot(): unknown;
 }
@@ -841,6 +863,12 @@ export declare function createSkykitActionRegistry(): SkykitActionRegistry;
 export declare function createAnchoredImageCatalog(
   options?: AnchoredImageCatalogOptions
 ): Promise<AnchoredImageCatalog>;
+export declare function createManualAnchoredImageController(
+  options?: ManualAnchoredImageControllerOptions
+): AnchoredImageController;
+export declare function createViewAnchoredImageController(
+  options?: ViewAnchoredImageControllerOptions
+): AnchoredImageController;
 export declare function createAnchoredImageSkyPlugin(
   options: AnchoredImageSkyPluginOptions
 ): AnchoredImageSkyPlugin;

@@ -23,7 +23,8 @@ import { createObject3dLayer } from './layers.js';
  * @typedef {import('./index.d.ts').SkykitPluginContext} SkykitPluginContext
  * @typedef {import('./index.d.ts').AnchoredImageCatalog} AnchoredImageCatalog
  * @typedef {import('./index.d.ts').AnchoredImageCatalogEntry} AnchoredImageCatalogEntry
- * @typedef {import('./index.d.ts').AnchoredImageActiveEntry} AnchoredImageActiveEntry
+ * @typedef {import('./index.d.ts').AnchoredImageMatch} AnchoredImageMatch
+ * @typedef {import('./index.d.ts').AnchoredImageController} AnchoredImageController
  * @typedef {import('./index.d.ts').AnchoredImageSelection} AnchoredImageSelection
  * @typedef {import('./index.d.ts').AnchoredImageStyleState} AnchoredImageStyleState
  * @typedef {import('@found-in-space/anchored-image').AnchoredImage} AnchoredImage
@@ -36,8 +37,9 @@ const DEFAULT_RADIUS = 8;
 const DEFAULT_OPACITY = 0.22;
 const DEFAULT_CUTOFF = 0.08;
 const DEFAULT_SUBDIVISIONS = 1;
-const DEFAULT_MAX_ACTIVE_IMAGES = 2;
-const DEFAULT_ACTIVE_FADE_DEG = 8;
+const DEFAULT_FADE_SECONDS = 0.4;
+const DEFAULT_HYSTERESIS_SECONDS = 0.2;
+const EPSILON = 1e-4;
 const ICRS_NORTH = Object.freeze({ x: 0, y: 0, z: 1 });
 const LOCAL_FORWARD = Object.freeze({ x: 0, y: 0, z: -1 });
 
@@ -105,30 +107,156 @@ export async function createAnchoredImageCatalog(options = {}) {
         }),
       };
     },
-    resolveActive(directionIcrs, activeOptions = {}) {
-      const direction = vector3FromArray(normalizeDirection(directionIcrs));
-      if (!direction) return [];
-      const selected = selectEntries(entries, activeOptions.selection, catalog);
-      const fadeRad = degreesToRadians(nonNegativeFinite(activeOptions.fadeDeg, DEFAULT_ACTIVE_FADE_DEG));
-      const maxImages = positiveInteger(activeOptions.maxImages, DEFAULT_MAX_ACTIVE_IMAGES);
-      return selected
-        .map((entry) => {
-          const angleRad = angularDistance(direction, entry.centroidIcrs);
-          const outsideRad = Math.max(0, angleRad - entry.boundsConeRadiusRad);
-          const weight = outsideRad <= 0
-            ? 1
-            : fadeRad > 0
-              ? Math.max(0, 1 - outsideRad / fadeRad)
-              : 0;
-          return { entry, key: entry.key, weight, angleRad, outsideRad };
-        })
-        .filter((entry) => entry.weight > 0)
-        .sort((left, right) => (right.weight - left.weight) || (left.angleRad - right.angleRad))
-        .slice(0, maxImages);
+    resolveNearest(directionIcrs, nearestOptions = {}) {
+      const matches = scoreEntries(directionIcrs, selectEntries(entries, nearestOptions.selection, catalog));
+      if (matches.length === 0) return null;
+      const maxAngleRad = optionalAngleRad(nearestOptions.maxAngleDeg);
+      return matches.find((match) => maxAngleRad == null || match.viewDistanceRad <= maxAngleRad) ?? null;
+    },
+    resolveWithinAngle(directionIcrs, withinOptions) {
+      const maxAngleRad = requiredAngleRad(withinOptions?.maxAngleDeg);
+      if (!Number.isFinite(maxAngleRad)) return [];
+      return scoreEntries(directionIcrs, selectEntries(entries, withinOptions?.selection, catalog))
+        .filter((match) => match.viewDistanceRad <= maxAngleRad);
     },
   };
 
   return catalog;
+}
+
+/**
+ * @param {import('./index.d.ts').ManualAnchoredImageControllerOptions} [options]
+ * @returns {import('./index.d.ts').AnchoredImageController}
+ */
+export function createManualAnchoredImageController(options = {}) {
+  /** @type {AnchoredImageSelection | undefined} */
+  let selection = options.selection;
+  /** @type {AnchoredImageMatch[]} */
+  let latestActive = [];
+
+  return {
+    update(input) {
+      latestActive = selectEntries(input.catalog.list(), selection, input.catalog)
+        .map((entry) => scoreEntry(input.viewDirectionIcrs, entry))
+        .filter(isMatch);
+      return latestActive;
+    },
+    setSelection(nextSelection) {
+      selection = nextSelection;
+      latestActive = [];
+    },
+    getSelection() {
+      return selection;
+    },
+    getSnapshot() {
+      return {
+        type: 'manual',
+        selection: snapshotSelection(selection),
+        active: latestActive.map(snapshotMatch),
+      };
+    },
+  };
+}
+
+/**
+ * @param {import('./index.d.ts').ViewAnchoredImageControllerOptions} [options]
+ * @returns {import('./index.d.ts').AnchoredImageController}
+ */
+export function createViewAnchoredImageController(options = {}) {
+  const strategy = options.strategy === 'within-angle' ? 'within-angle' : 'nearest';
+  /** @type {AnchoredImageSelection | undefined} */
+  let selection = options.selection;
+  const maxAngleDeg = options.maxAngleDeg;
+  const hysteresisSeconds = nonNegativeFinite(options.hysteresisSeconds, DEFAULT_HYSTERESIS_SECONDS);
+  /** @type {string | null} */
+  let committedKey = null;
+  /** @type {string | null} */
+  let candidateKey = null;
+  let candidateHeldSeconds = 0;
+  /** @type {AnchoredImageMatch | null} */
+  let latestCandidate = null;
+  /** @type {AnchoredImageMatch[]} */
+  let latestActive = [];
+
+  return {
+    update(input) {
+      if (strategy === 'within-angle') {
+        latestActive = input.catalog.resolveWithinAngle(input.viewDirectionIcrs, {
+          selection,
+          maxAngleDeg: Number(maxAngleDeg),
+        });
+        latestCandidate = latestActive[0] ?? null;
+        committedKey = null;
+        candidateKey = null;
+        candidateHeldSeconds = 0;
+        return latestActive;
+      }
+
+      const resolved = input.catalog.resolveNearest(input.viewDirectionIcrs, {
+        selection,
+        maxAngleDeg,
+      });
+      latestCandidate = resolved;
+      const resolvedKey = resolved?.key ?? null;
+
+      if (!committedKey) {
+        commit(resolvedKey);
+      } else if (resolvedKey === committedKey) {
+        candidateKey = null;
+        candidateHeldSeconds = 0;
+      } else if (hysteresisSeconds === 0) {
+        commit(resolvedKey);
+      } else {
+        const deltaSeconds = Math.max(0, finiteNumber(input.deltaSeconds, 0));
+        if (candidateKey !== resolvedKey) {
+          candidateKey = resolvedKey;
+          candidateHeldSeconds = deltaSeconds;
+        } else {
+          candidateHeldSeconds += deltaSeconds;
+        }
+        if (candidateHeldSeconds >= hysteresisSeconds) {
+          commit(resolvedKey);
+        }
+      }
+
+      latestActive = committedKey
+        ? [scoreEntry(input.viewDirectionIcrs, input.catalog.get(committedKey))].filter(isMatch)
+        : [];
+      return latestActive;
+    },
+    setSelection(nextSelection) {
+      selection = nextSelection;
+      committedKey = null;
+      candidateKey = null;
+      candidateHeldSeconds = 0;
+      latestCandidate = null;
+      latestActive = [];
+    },
+    getSelection() {
+      return selection;
+    },
+    getSnapshot() {
+      return {
+        type: 'view',
+        strategy,
+        selection: snapshotSelection(selection),
+        maxAngleDeg: maxAngleDeg ?? null,
+        hysteresisSeconds,
+        committedKey,
+        candidateKey,
+        candidateHeldSeconds,
+        candidate: latestCandidate ? snapshotMatch(latestCandidate) : null,
+        active: latestActive.map(snapshotMatch),
+      };
+    },
+  };
+
+  /** @param {string | null} nextKey */
+  function commit(nextKey) {
+    committedKey = nextKey;
+    candidateKey = null;
+    candidateHeldSeconds = 0;
+  }
 }
 
 /**
@@ -139,9 +267,13 @@ export function createAnchoredImageSkyPlugin(options) {
   if (!options?.catalog) {
     throw new TypeError('createAnchoredImageSkyPlugin() requires options.catalog.');
   }
+  if (!options.controller) {
+    throw new TypeError('createAnchoredImageSkyPlugin() requires options.controller.');
+  }
 
   const id = options.id ?? 'anchored-image-sky';
   const catalog = options.catalog;
+  const imageController = options.controller;
   const root = new THREE.Group();
   root.name = id;
   /** @type {TextureLoaderLike} */
@@ -150,21 +282,25 @@ export function createAnchoredImageSkyPlugin(options) {
   const fixedAtInfinity = options.fixedAtInfinity !== false;
   const skipTextureErrors = options.skipTextureErrors === true;
   const onTextureError = typeof options.onTextureError === 'function' ? options.onTextureError : null;
+  const baseOpacity = finiteNumber(options.opacity, DEFAULT_OPACITY);
+  const fadeInSeconds = nonNegativeFinite(options.fadeInSeconds, DEFAULT_FADE_SECONDS);
+  const fadeOutSeconds = nonNegativeFinite(options.fadeOutSeconds, DEFAULT_FADE_SECONDS);
   /** @type {Map<string, ObjectCacheRecord>} */
   const objectCache = new Map();
   /** @type {Map<string, AnchoredImageStyleState>} */
   const styleByKey = new Map();
-  let mode = normalizeMode(options.mode);
-  /** @type {AnchoredImageSelection | undefined} */
-  let selection = options.selection;
-  /** @type {AnchoredImageActiveEntry[]} */
+  /** @type {Map<string, number>} */
+  const opacityByKey = new Map();
+  /** @type {Set<string>} */
+  let targetKeys = new Set();
+  /** @type {AnchoredImageMatch[]} */
   let latestActive = [];
   /** @type {SkykitPluginContext | null} */
   let context = null;
   let disposed = false;
 
   /** @type {import('./index.d.ts').AnchoredImageSkyPlugin} */
-  const controller = {
+  const plugin = {
     id,
     setup(pluginContext) {
       context = pluginContext;
@@ -177,36 +313,22 @@ export function createAnchoredImageSkyPlugin(options) {
       pluginContext.addPart({
         ...layer,
         update(frame) {
-          void reconcile(frame.view, { awaitLoads: false });
+          void reconcileFrame(frame, { awaitLoads: false });
         },
         dispose() {
           layer.dispose?.();
           disposeObjects();
         },
         getSnapshot() {
-          return {
-            id,
-            mode,
-            loading,
-            fixedAtInfinity,
-            selectedCount: selectedEntries().length,
-            cachedCount: countCachedObjects(),
-            active: latestActive.map((entry) => ({ key: entry.key, weight: entry.weight })),
-          };
+          return createSnapshot();
         },
       });
 
-      return reconcile(pluginContext.getViewState(), {
-        awaitLoads: loading === 'preload' || mode === 'all',
+      return reconcileView(pluginContext.getViewState(), {
+        deltaSeconds: 0,
+        elapsedSeconds: 0,
+        awaitLoads: loading === 'preload',
       });
-    },
-    setMode(nextMode) {
-      mode = normalizeMode(nextMode);
-      void reconcileLatest();
-    },
-    setSelection(nextSelection) {
-      selection = nextSelection;
-      void reconcileLatest();
     },
     getActive() {
       return latestActive;
@@ -215,57 +337,44 @@ export function createAnchoredImageSkyPlugin(options) {
       return catalog;
     },
     getSnapshot() {
-      return {
-        id,
-        mode,
-        loading,
-        fixedAtInfinity,
-        selectedCount: selectedEntries().length,
-        cachedCount: countCachedObjects(),
-        active: latestActive.map((entry) => ({ key: entry.key, weight: entry.weight })),
-      };
+      return createSnapshot();
     },
   };
 
-  return controller;
+  return plugin;
 
-  /** @returns {AnchoredImageCatalogEntry[]} */
-  function selectedEntries() {
-    return selectEntries(catalog.list(), selection, catalog);
-  }
-
-  /** @returns {Promise<void>} */
-  async function reconcileLatest() {
-    if (!context || disposed) return;
-    await reconcile(context.getViewState(), {
-      awaitLoads: loading === 'preload' || mode === 'all',
+  /**
+   * @param {SkykitThreeFrame} frame
+   * @param {{ awaitLoads?: boolean }} [reconcileOptions]
+   * @returns {Promise<void>}
+   */
+  function reconcileFrame(frame, reconcileOptions = {}) {
+    return reconcileView(frame.view, {
+      deltaSeconds: frame.deltaSeconds,
+      elapsedSeconds: frame.elapsedSeconds,
+      awaitLoads: reconcileOptions.awaitLoads,
     });
   }
 
   /**
    * @param {SkykitViewState} view
-   * @param {{ awaitLoads?: boolean }} [reconcileOptions]
+   * @param {{ deltaSeconds?: number, elapsedSeconds?: number, awaitLoads?: boolean }} [reconcileOptions]
    * @returns {Promise<void>}
    */
-  async function reconcile(view, reconcileOptions = {}) {
+  async function reconcileView(view, reconcileOptions = {}) {
     if (disposed) return;
-    const selected = selectedEntries();
-    const viewDirection = resolveViewDirection(view);
-    const activeEnabled = options.active?.enabled ?? mode === 'view';
-    latestActive = activeEnabled || mode === 'view'
-      ? catalog.resolveActive(viewDirection, {
-          selection,
-          maxImages: options.active?.maxImages,
-          fadeDeg: options.active?.fadeDeg,
-        })
-      : [];
-    const activeByKey = new Map(latestActive.map((entry) => [entry.key, entry]));
-    const visible = resolveVisibleEntries(selected, activeByKey);
-    const visibleKeys = new Set(visible.map((entry) => entry.key));
-    const shouldPreload = loading === 'preload' || mode === 'all';
-    const entriesToLoad = shouldPreload ? selected : visible;
+    const viewDirectionIcrs = resolveViewDirection(view);
+    latestActive = normalizeControllerMatches(imageController.update({
+      catalog,
+      view,
+      viewDirectionIcrs,
+      deltaSeconds: Math.max(0, finiteNumber(reconcileOptions.deltaSeconds, 0)),
+      elapsedSeconds: Math.max(0, finiteNumber(reconcileOptions.elapsedSeconds, 0)),
+    }), viewDirectionIcrs);
+    targetKeys = new Set(latestActive.map((entry) => entry.key));
 
-    updateStyleStates(selected, visibleKeys, activeByKey, activeEnabled);
+    updateStyleStates(Math.max(0, finiteNumber(reconcileOptions.deltaSeconds, 0)));
+    const entriesToLoad = entriesForLoad();
     if (reconcileOptions.awaitLoads) {
       await Promise.all(entriesToLoad.map((entry) => ensureObject(entry)));
     } else {
@@ -276,72 +385,93 @@ export function createAnchoredImageSkyPlugin(options) {
     applyCachedStyles();
   }
 
-  /**
-   * @param {AnchoredImageCatalogEntry[]} selected
-   * @param {Map<string, AnchoredImageActiveEntry>} activeByKey
-   * @returns {AnchoredImageCatalogEntry[]}
-   */
-  function resolveVisibleEntries(selected, activeByKey) {
-    if (mode === 'view') {
-      return latestActive.map((entry) => entry.entry);
+  /** @param {AnchoredImageMatch[]} matches @param {Vector3Like} viewDirectionIcrs */
+  function normalizeControllerMatches(matches, viewDirectionIcrs) {
+    if (!Array.isArray(matches)) return [];
+    /** @type {AnchoredImageMatch[]} */
+    const normalized = [];
+    const seen = new Set();
+    for (const match of matches) {
+      const candidate = /** @type {Partial<AnchoredImageMatch> | null | undefined} */ (match);
+      const entry = candidate?.entry ?? (candidate?.key ? catalog.get(candidate.key) : null);
+      if (!entry || seen.has(entry.key)) continue;
+      const scored = scoreEntry(viewDirectionIcrs, entry);
+      if (!scored) continue;
+      normalized.push({
+        entry,
+        key: entry.key,
+        angleRad: finiteNumber(candidate?.angleRad, scored.angleRad),
+        viewDistanceRad: finiteNumber(candidate?.viewDistanceRad, scored.viewDistanceRad),
+      });
+      seen.add(entry.key);
     }
-    if (mode === 'fixed') {
-      return selected;
-    }
-    return selected;
+    return normalized;
   }
 
-  /**
-   * @param {AnchoredImageCatalogEntry[]} selected
-   * @param {Set<string>} visibleKeys
-   * @param {Map<string, AnchoredImageActiveEntry>} activeByKey
-   * @param {boolean} activeEnabled
-   */
-  function updateStyleStates(selected, visibleKeys, activeByKey, activeEnabled) {
-    styleByKey.clear();
-    const selectedKeys = new Set(selected.map((entry) => entry.key));
-    for (const entry of selected) {
-      const active = activeByKey.get(entry.key);
-      const weight = active?.weight ?? 0;
-      const visible = visibleKeys.has(entry.key);
-      const opacity = resolveOpacity({ visible, weight, activeEnabled });
-      styleByKey.set(entry.key, {
-        entry,
-        mode,
-        active: Boolean(active && weight > 0),
-        weight,
-        visible,
-        opacity,
-      });
-    }
-    for (const key of objectCache.keys()) {
-      if (!selectedKeys.has(key)) {
-        const object = objectCache.get(key)?.object;
-        styleByKey.set(key, {
-          entry: object?.userData?.anchoredImageEntry ?? null,
-          mode,
-          active: false,
-          weight: 0,
-          visible: false,
-          opacity: 0,
-        });
+  /** @returns {AnchoredImageCatalogEntry[]} */
+  function entriesForLoad() {
+    const entries = [];
+    const seen = new Set();
+    if (loading === 'preload') {
+      for (const entry of preloadEntries()) {
+        if (!seen.has(entry.key)) {
+          entries.push(entry);
+          seen.add(entry.key);
+        }
       }
     }
+    for (const match of latestActive) {
+      if (!seen.has(match.key)) {
+        entries.push(match.entry);
+        seen.add(match.key);
+      }
+    }
+    return entries;
   }
 
-  /** @param {{ visible: boolean, weight: number, activeEnabled: boolean }} input */
-  function resolveOpacity({ visible, weight, activeEnabled }) {
-    if (!visible) return 0;
-    const baseOpacity = finiteNumber(options.opacity, DEFAULT_OPACITY);
-    const activeOpacity = finiteNumber(options.activeOpacity, baseOpacity);
-    const inactiveOpacity = finiteNumber(options.inactiveOpacity, baseOpacity);
-    if (mode === 'view') {
-      return activeOpacity * Math.max(0, Math.min(1, weight));
+  /** @returns {AnchoredImageCatalogEntry[]} */
+  function preloadEntries() {
+    const selection = typeof imageController.getSelection === 'function'
+      ? imageController.getSelection()
+      : undefined;
+    return selectEntries(catalog.list(), selection, catalog);
+  }
+
+  /** @param {number} deltaSeconds */
+  function updateStyleStates(deltaSeconds) {
+    const keys = new Set([...targetKeys, ...opacityByKey.keys(), ...objectCache.keys()]);
+    styleByKey.clear();
+    for (const key of keys) {
+      const object = objectCache.get(key)?.object;
+      const entry = catalog.get(key) ?? object?.userData?.anchoredImageEntry ?? null;
+      const targetOpacity = targetKeys.has(key) ? baseOpacity : 0;
+      const currentOpacity = opacityByKey.get(key) ?? 0;
+      const opacity = approachOpacity(currentOpacity, targetOpacity, deltaSeconds);
+      if (opacity > EPSILON || targetOpacity > 0 || objectCache.has(key)) {
+        opacityByKey.set(key, opacity);
+      } else {
+        opacityByKey.delete(key);
+      }
+      const active = targetOpacity > 0;
+      const visible = active || opacity > EPSILON;
+      styleByKey.set(key, {
+        entry,
+        active,
+        visible,
+        opacity,
+        targetOpacity,
+      });
     }
-    if (mode === 'all' && activeEnabled) {
-      return inactiveOpacity + (activeOpacity - inactiveOpacity) * Math.max(0, Math.min(1, weight));
-    }
-    return baseOpacity;
+  }
+
+  /** @param {number} current @param {number} target @param {number} deltaSeconds */
+  function approachOpacity(current, target, deltaSeconds) {
+    if (current === target) return target;
+    const duration = target > current ? fadeInSeconds : fadeOutSeconds;
+    if (duration <= 0) return target;
+    const step = baseOpacity * Math.max(0, deltaSeconds) / duration;
+    if (Math.abs(target - current) <= step) return target;
+    return current + Math.sign(target - current) * step;
   }
 
   /**
@@ -390,7 +520,7 @@ export function createAnchoredImageSkyPlugin(options) {
       texture,
       index: Math.max(0, catalog.list().indexOf(entry)),
       radius: positiveFinite(options.radius, DEFAULT_RADIUS),
-      opacity: finiteNumber(options.opacity, DEFAULT_OPACITY),
+      opacity: baseOpacity,
       cutoff: finiteNumber(options.cutoff, DEFAULT_CUTOFF),
       renderOrder: finiteNumber(options.renderOrder, -1),
       namePrefix: options.namePrefix ?? 'anchored-image-sky',
@@ -410,15 +540,41 @@ export function createAnchoredImageSkyPlugin(options) {
   function applyObjectStyle(key, object) {
     const state = styleByKey.get(key) ?? {
       entry: object.userData.anchoredImageEntry ?? null,
-      mode,
       active: false,
-      weight: 0,
       visible: false,
       opacity: 0,
+      targetOpacity: 0,
     };
     object.visible = state.visible;
     setObjectOpacity(object, state.opacity);
     options.applyImageStyle?.(object, state);
+  }
+
+  function createSnapshot() {
+    return {
+      id,
+      loading,
+      fixedAtInfinity,
+      fadeInSeconds,
+      fadeOutSeconds,
+      cachedCount: countCachedObjects(),
+      controller: imageController.getSnapshot?.() ?? null,
+      active: latestActive.map(snapshotMatch),
+      visible: visibleKeys(),
+      fading: fadingKeys(),
+    };
+  }
+
+  function visibleKeys() {
+    return [...styleByKey.entries()]
+      .filter(([, state]) => state.visible)
+      .map(([key]) => key);
+  }
+
+  function fadingKeys() {
+    return [...styleByKey.entries()]
+      .filter(([, state]) => Math.abs(state.targetOpacity - state.opacity) > EPSILON)
+      .map(([key]) => key);
   }
 
   function countCachedObjects() {
@@ -439,6 +595,7 @@ export function createAnchoredImageSkyPlugin(options) {
     }
     objectCache.clear();
     styleByKey.clear();
+    opacityByKey.clear();
     root.clear();
   }
 }
@@ -518,6 +675,42 @@ function resolveViewDirection(view) {
 }
 
 /**
+ * @param {Vector3Like | [number, number, number]} directionIcrs
+ * @param {AnchoredImageCatalogEntry[]} entries
+ * @returns {AnchoredImageMatch[]}
+ */
+function scoreEntries(directionIcrs, entries) {
+  const direction = vector3FromArray(normalizeDirection(directionIcrs));
+  if (!direction) return [];
+  return entries
+    .map((entry) => scoreEntry(direction, entry))
+    .filter(isMatch)
+    .sort(compareMatches);
+}
+
+/**
+ * @param {Vector3Like | [number, number, number]} directionIcrs
+ * @param {AnchoredImageCatalogEntry | null | undefined} entry
+ * @returns {AnchoredImageMatch | null}
+ */
+function scoreEntry(directionIcrs, entry) {
+  if (!entry) return null;
+  const direction = vector3FromArray(normalizeDirection(directionIcrs));
+  if (!direction) return null;
+  const angleRad = angularDistance(direction, entry.centroidIcrs);
+  const viewDistanceRad = Math.max(0, angleRad - entry.boundsConeRadiusRad);
+  return { entry, key: entry.key, angleRad, viewDistanceRad };
+}
+
+/**
+ * @param {AnchoredImageMatch} left
+ * @param {AnchoredImageMatch} right
+ */
+function compareMatches(left, right) {
+  return (left.viewDistanceRad - right.viewDistanceRad) || (left.angleRad - right.angleRad);
+}
+
+/**
  * @param {AnchoredImageCatalogEntry[]} entries
  * @param {AnchoredImageSelection | undefined} selection
  * @param {AnchoredImageCatalog} catalog
@@ -539,11 +732,6 @@ function selectEntries(entries, selection, catalog) {
     }
   }
   return selected;
-}
-
-/** @param {unknown} value @returns {'fixed' | 'view' | 'all'} */
-function normalizeMode(value) {
-  return value === 'fixed' || value === 'view' || value === 'all' ? value : 'all';
 }
 
 /** @param {unknown} value @returns {'preload' | 'lazy'} */
@@ -692,6 +880,19 @@ function normalizeLookupKey(value) {
   return typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : null;
 }
 
+/** @param {unknown} value @returns {number | null} */
+function optionalAngleRad(value) {
+  if (value == null) return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? degreesToRadians(number) : null;
+}
+
+/** @param {unknown} value @returns {number} */
+function requiredAngleRad(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? degreesToRadians(number) : Number.NaN;
+}
+
 /** @param {number} degrees */
 function degreesToRadians(degrees) {
   return degrees * Math.PI / 180;
@@ -726,6 +927,21 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+/** @param {AnchoredImageSelection | undefined} selection */
+function snapshotSelection(selection) {
+  if (typeof selection === 'function') return '[function]';
+  return selection ?? null;
+}
+
+/** @param {AnchoredImageMatch} match */
+function snapshotMatch(match) {
+  return {
+    key: match.key,
+    angleRad: match.angleRad,
+    viewDistanceRad: match.viewDistanceRad,
+  };
+}
+
 /** @param {AnchoredImageCatalogEntry | null} entry @returns {entry is AnchoredImageCatalogEntry} */
 function isCatalogEntry(entry) {
   return entry != null;
@@ -734,4 +950,9 @@ function isCatalogEntry(entry) {
 /** @param {Vector3Like | null} value @returns {value is Vector3Like} */
 function isVector3(value) {
   return value != null;
+}
+
+/** @param {AnchoredImageMatch | null} match @returns {match is AnchoredImageMatch} */
+function isMatch(match) {
+  return match != null;
 }

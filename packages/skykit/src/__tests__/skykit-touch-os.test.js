@@ -212,6 +212,101 @@ test('createTouchOsHudPlugin attaches a HUD part, updates roots, and claims poin
   assert.deepEqual(invoked[1], { disposed: true });
 });
 
+test('createTouchOsHudPlugin skips unclaimed touch pointer moves before HUD work', () => {
+  const target = createTarget({ width: 800, height: 600 });
+  const actions = createSkykitActionRegistry();
+  const driverFrames = [];
+  let addedPart = null;
+
+  const runtime = {
+    setRoot() {},
+    render() {
+      return { commands: [], sharedSurfaceRevision: 0 };
+    },
+    dispatchInput() {
+      return { handled: false, componentId: undefined, targetId: undefined, outputs: [] };
+    },
+    resize() {},
+    tick() {},
+    takeOutputs() {
+      return [];
+    },
+    getServices() {
+      return {};
+    },
+    getInteraction() {
+      return {};
+    },
+    getBounds() {
+      return undefined;
+    },
+    isLayoutDirty() {
+      return false;
+    },
+    isRenderDirty() {
+      return false;
+    },
+    dispose() {},
+  };
+  const driver = {
+    attach() {},
+    update(frame) {
+      driverFrames.push(frame);
+    },
+    detach() {},
+    render() {
+      return { commands: [], sharedSurfaceRevision: 0 };
+    },
+    getHit() {
+      return null;
+    },
+    getCompositeSurfaces() {
+      return [];
+    },
+    getPointerState() {
+      return undefined;
+    },
+    clearPointer() {},
+  };
+
+  const plugin = createTouchOsHudPlugin({
+    id: 'test-touch-hud-scroll',
+    target,
+    runtime,
+    driver,
+    root: createSkykitShipControlsRoot({ id: 'test-root-scroll' }),
+  });
+  plugin.setup(createContext(actions, (part) => {
+    addedPart = part;
+  }));
+
+  assert.ok(addedPart);
+  addedPart.attach();
+  addedPart.update(createFrame(0.25));
+  const frameCount = driverFrames.length;
+
+  const touchMove = target.dispatchPointerEvent('pointermove', {
+    pointerId: 9,
+    pointerType: 'touch',
+    clientX: 400,
+    clientY: 300,
+  });
+  assert.equal(driverFrames.length, frameCount);
+  assert.equal(touchMove.defaultPrevented, false);
+  assert.equal(touchMove.immediatePropagationStopped, false);
+
+  const mouseMove = target.dispatchPointerEvent('pointermove', {
+    pointerId: 10,
+    pointerType: 'mouse',
+    clientX: 400,
+    clientY: 300,
+  });
+  assert.equal(driverFrames.length, frameCount + 1);
+  assert.equal(mouseMove.defaultPrevented, false);
+
+  addedPart.dispose();
+});
+
 function createContext(actions, addPart) {
   return {
     mode: 'three',

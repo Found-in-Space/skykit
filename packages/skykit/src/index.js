@@ -1,6 +1,8 @@
 export {
   createAnchoredImageCatalog,
+  createManualAnchoredImageController,
   createAnchoredImageSkyPlugin,
+  createViewAnchoredImageController,
 } from './anchored-images.js';
 export {
   SKYKIT_ACTION_NAMESPACE,
