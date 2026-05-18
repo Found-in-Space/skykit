@@ -1,4 +1,4 @@
-import type { SkykitActionId, SkykitPlugin, Vector3Like } from './index.d.ts';
+import type { SkykitActionId, SkykitPlugin, SkykitViewState, Vector3Like } from './index.d.ts';
 
 export interface ParallaxOffsetControlValue {
   x: number;
@@ -91,6 +91,11 @@ export interface ParallaxObserverPluginOptions {
   targetPc?: Vector3Like;
   targetDistancePc?: number;
   upIcrs?: Vector3Like;
+  resolveUpIcrs?: (context: {
+    view: SkykitViewState;
+    targetPc: Vector3Like | null;
+    anchorObserverPc: Vector3Like | null;
+  }) => Vector3Like | null | undefined;
   offsetPc?: number;
   smoothing?: number;
   lockTarget?: boolean;

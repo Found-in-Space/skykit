@@ -202,7 +202,6 @@ export function createParallaxObserverPlugin(options = {}) {
   const offsetPc = positiveFinite(options.offsetPc, 1);
   const smoothing = clampFinite(options.smoothing ?? 0.18, 0, 1);
   const lockTarget = options.lockTarget !== false;
-  const upReference = normalizeDirectionOrFallback(options.upIcrs, LOCAL_UP);
   let enabled = options.enabled !== false;
   let disposed = false;
   let attached = false;
@@ -218,6 +217,8 @@ export function createParallaxObserverPlugin(options = {}) {
   let lastObserverPc = null;
   /** @type {QuaternionLike | null} */
   let lastOrientationIcrs = null;
+  /** @type {Vector3Like | null} */
+  let lastResolvedUpIcrs = null;
   /** @type {SkykitThreePart} */
   const part = {
     id,
@@ -243,6 +244,8 @@ export function createParallaxObserverPlugin(options = {}) {
       if (Math.abs(currentOffset.x) < 1e-6) currentOffset.x = 0;
       if (Math.abs(currentOffset.y) < 1e-6) currentOffset.y = 0;
 
+      const upReference = resolveUpReference(view, currentTargetPc, anchorObserverPc);
+      lastResolvedUpIcrs = cloneVector3(upReference);
       const basis = createTargetPlaneBasis(anchorObserverPc, currentTargetPc, upReference);
       const observerPc = addVectors(
         anchorObserverPc,
@@ -323,7 +326,28 @@ export function createParallaxObserverPlugin(options = {}) {
       currentOffset: { ...currentOffset },
       anchorObserverPc: anchorObserverPc ? cloneVector3(anchorObserverPc) : null,
       targetPc: currentTargetPc ? cloneVector3(currentTargetPc) : null,
+      resolvedUpIcrs: lastResolvedUpIcrs ? cloneVector3(lastResolvedUpIcrs) : null,
     };
+  }
+
+  /**
+   * @param {import('./index.d.ts').SkykitViewState} view
+   * @param {Vector3Like | null} targetPc
+   * @param {Vector3Like | null} currentAnchorObserverPc
+   * @returns {Vector3Like}
+   */
+  function resolveUpReference(view, targetPc, currentAnchorObserverPc) {
+    const resolved = typeof options.resolveUpIcrs === 'function'
+      ? options.resolveUpIcrs({
+          view,
+          targetPc,
+          anchorObserverPc: currentAnchorObserverPc,
+        })
+      : null;
+    return normalizeDirectionOrFallback(
+      resolved ?? options.upIcrs,
+      LOCAL_UP,
+    );
   }
 }
 

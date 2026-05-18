@@ -248,3 +248,79 @@ test('parallax observer smoothing approaches the requested offset', async () => 
 
   await viewer.dispose();
 });
+
+test('parallax observer static upIcrs controls the target-relative up plane', async () => {
+  const viewer = await createSkykitViewer({
+    view: {
+      observerPc: { x: 0, y: 0, z: 0 },
+      targetPc: { x: 0, y: -10, z: 0 },
+    },
+    plugins: [
+      createParallaxObserverPlugin({
+        offsetPc: 1,
+        smoothing: 1,
+        upIcrs: { x: 0, y: 0, z: 1 },
+      }),
+    ],
+  });
+
+  viewer.actions.setControlValue(SKYKIT_CONTROLS.observer.parallaxOffset, {
+    x: 0,
+    y: 1,
+    source: 'test',
+    active: true,
+  });
+  viewer.frame(1 / 60);
+  viewer.frame(1 / 60);
+
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 0, y: 0, z: 1 });
+  const partSnapshot = viewer.getSnapshot().parts.find((part) => part.id === 'parallax-observer')?.snapshot;
+  assert.deepEqual(partSnapshot.resolvedUpIcrs, { x: 0, y: 0, z: 1 });
+
+  await viewer.dispose();
+});
+
+test('parallax observer resolveUpIcrs overrides static up and can change at runtime', async () => {
+  let resolvedUp = { x: 1, y: 0, z: 0 };
+  const viewer = await createSkykitViewer({
+    view: {
+      observerPc: { x: 0, y: 0, z: 0 },
+      targetPc: { x: 0, y: -10, z: 0 },
+    },
+    plugins: [
+      createParallaxObserverPlugin({
+        offsetPc: 1,
+        smoothing: 1,
+        upIcrs: { x: 0, y: 0, z: 1 },
+        resolveUpIcrs({ targetPc, anchorObserverPc }) {
+          assert.deepEqual(targetPc, { x: 0, y: -10, z: 0 });
+          assert.deepEqual(anchorObserverPc, { x: 0, y: 0, z: 0 });
+          return resolvedUp;
+        },
+      }),
+    ],
+  });
+
+  viewer.actions.setControlValue(SKYKIT_CONTROLS.observer.parallaxOffset, {
+    x: 0,
+    y: 1,
+    source: 'test',
+    active: true,
+  });
+  viewer.frame(1 / 60);
+  viewer.frame(1 / 60);
+
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 1, y: 0, z: 0 });
+  let partSnapshot = viewer.getSnapshot().parts.find((part) => part.id === 'parallax-observer')?.snapshot;
+  assert.deepEqual(partSnapshot.resolvedUpIcrs, { x: 1, y: 0, z: 0 });
+
+  resolvedUp = { x: 0, y: 0, z: 1 };
+  viewer.frame(1 / 60);
+  viewer.frame(1 / 60);
+
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 0, y: 0, z: 1 });
+  partSnapshot = viewer.getSnapshot().parts.find((part) => part.id === 'parallax-observer')?.snapshot;
+  assert.deepEqual(partSnapshot.resolvedUpIcrs, { x: 0, y: 0, z: 1 });
+
+  await viewer.dispose();
+});
