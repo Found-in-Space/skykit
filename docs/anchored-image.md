@@ -50,9 +50,18 @@ lightweight 2D applications.
 An anchored image has an image source plus pixel anchors:
 
 ```ts
+const ANCHORED_IMAGE_MANIFEST_FORMAT =
+  'found-in-space/anchored-image-manifest@1';
+
 type AnchoredImageAnchorTarget =
   | { kind: 'direction'; frame: 'icrs'; x: number; y: number; z: number }
   | { kind: 'position'; frame: 'icrs-pc'; x: number; y: number; z: number };
+```
+
+The canonical JSON schema is exported from:
+
+```txt
+@found-in-space/anchored-image/schemas/anchored-image-manifest.v1.schema.json
 ```
 
 Direction targets are suitable for constellation art and full-sky overlays.
@@ -60,10 +69,12 @@ Position targets allow future spatial plates, where moving through parsec space
 can change the apparent image shape instead of projecting everything onto a
 fixed distant sphere.
 
-Legacy Stellarium-style constellation manifests can be normalized, but the
-normalized model uses generic `image`, `groupId`, `label`, and `metadata`
-fields so the package itself does not encode Western or constellation-specific
-assumptions.
+Skyculture, survey, and astrophotography packages should export this canonical
+manifest shape directly, or expose an explicit adapter from their richer package
+format. Legacy Stellarium-style constellation manifests can still be normalized
+during alpha, but the canonical model uses generic `image`, `groupId`, `label`,
+and `metadata` fields so the package itself does not encode Western or
+constellation-specific assumptions.
 
 ## Canvas Composition
 

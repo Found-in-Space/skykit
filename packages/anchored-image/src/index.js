@@ -1,5 +1,7 @@
 const DEFAULT_IMAGE_SIZE = Object.freeze([512, 512]);
 const DEFAULT_OBSERVER_PC = Object.freeze({ x: 0, y: 0, z: 0 });
+export const ANCHORED_IMAGE_MANIFEST_FORMAT = 'found-in-space/anchored-image-manifest@1';
+export const ANCHORED_IMAGE_MANIFEST_SCHEMA_ID = 'https://schemas.found-in.space/anchored-image-manifest.v1.schema.json';
 
 /**
  * @typedef {{ x: number, y: number, z: number }} Vec3
@@ -8,7 +10,7 @@ const DEFAULT_OBSERVER_PC = Object.freeze({ x: 0, y: 0, z: 0 });
  * @typedef {{ pixel: Vec2, target: AnchoredImageAnchorTarget, metadata?: Record<string, unknown> }} AnchoredImageAnchor
  * @typedef {{ src: string, width: number, height: number, anchors: AnchoredImageAnchor[] }} AnchoredImageSource
  * @typedef {{ id: string, label?: string, groupId?: string, image: AnchoredImageSource, attribution?: unknown, metadata?: Record<string, unknown> }} AnchoredImage
- * @typedef {{ id?: string, label?: string, assetBaseUrl?: string | null, images: AnchoredImage[], attribution?: unknown, metadata?: Record<string, unknown> }} AnchoredImageManifest
+ * @typedef {{ format: typeof ANCHORED_IMAGE_MANIFEST_FORMAT, id?: string, label?: string, assetBaseUrl?: string | null, images: AnchoredImage[], attribution?: unknown, metadata?: Record<string, unknown> }} AnchoredImageManifest
  * @typedef {{ image: AnchoredImage, targetKind: AnchoredImageAnchorTarget['kind'], targetFrame: AnchoredImageAnchorTarget['frame'], targetAt: (pixel: Vec2) => AnchoredImageAnchorTarget | null }} SolvedAnchoredImage
  * @typedef {{ pixel: Vec2, uv: { u: number, v: number }, target: AnchoredImageAnchorTarget }} AnchoredImageMeshVertex
  * @typedef {{ image: AnchoredImage, vertices: AnchoredImageMeshVertex[], triangles: Array<[number, number, number]> }} AnchoredImageMesh
@@ -73,6 +75,7 @@ export function normalizeAnchoredImageManifest(input, options = {}) {
     .filter(Boolean);
 
   return {
+    format: ANCHORED_IMAGE_MANIFEST_FORMAT,
     ...(normalizeNonEmptyString(source.id) ? { id: normalizeNonEmptyString(source.id) } : {}),
     ...(normalizeLabel(source.label ?? source.name) ? { label: normalizeLabel(source.label ?? source.name) } : {}),
     assetBaseUrl: normalizeNonEmptyString(options.baseUrl)
@@ -82,6 +85,9 @@ export function normalizeAnchoredImageManifest(input, options = {}) {
     ...(source.attribution !== undefined ? { attribution: source.attribution } : {}),
     metadata: {
       ...(isRecord(source.metadata) ? source.metadata : {}),
+      ...(normalizeNonEmptyString(source.format) && source.format !== ANCHORED_IMAGE_MANIFEST_FORMAT
+        ? { sourceFormat: source.format }
+        : {}),
       ...(Array.isArray(source.constellations) ? { legacyKind: 'constellations' } : {}),
     },
   };

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import test from 'node:test';
 
 import {
+  ANCHORED_IMAGE_MANIFEST_FORMAT,
+  ANCHORED_IMAGE_MANIFEST_SCHEMA_ID,
   buildAnchoredImageDirectionResolver,
   icrsDirectionToTargetPc,
   loadAnchoredImageManifest,
@@ -43,6 +46,7 @@ test('loadAnchoredImageManifest normalizes legacy constellation manifests and re
   });
 
   assert.equal(manifest.id, 'western');
+  assert.equal(manifest.format, ANCHORED_IMAGE_MANIFEST_FORMAT);
   assert.equal(manifest.images.length, 2);
   assert.equal(manifest.images[0].id, 'CON western Ori');
   assert.equal(manifest.images[0].groupId, 'Ori');
@@ -54,6 +58,15 @@ test('loadAnchoredImageManifest normalizes legacy constellation manifests and re
   assert.equal(manifest.images[0].image.anchors[0].pixel.x, 0);
   assert.equal(manifest.images[0].image.anchors[0].target.kind, 'direction');
   assert.equal(manifest.images[1].image.anchors.length, 0);
+});
+
+test('exports a versioned canonical manifest schema', () => {
+  const schema = JSON.parse(fs.readFileSync(new URL('../../schemas/anchored-image-manifest.v1.schema.json', import.meta.url), 'utf8'));
+
+  assert.equal(schema.$id, ANCHORED_IMAGE_MANIFEST_SCHEMA_ID);
+  assert.equal(schema.properties.format.const, ANCHORED_IMAGE_MANIFEST_FORMAT);
+  assert.equal(schema.required.includes('format'), true);
+  assert.equal(schema.required.includes('images'), true);
 });
 
 test('solveAnchoredImageMesh creates default quads and subdivided generic meshes', () => {

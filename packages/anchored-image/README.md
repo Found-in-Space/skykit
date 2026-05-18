@@ -37,29 +37,43 @@ Images use generic anchors:
 
 ```js
 {
-  id: 'orion-art',
-  groupId: 'Ori',
-  image: {
-    src: 'orion.webp',
-    width: 1024,
-    height: 1024,
-    anchors: [
-      {
-        pixel: { x: 100, y: 200 },
-        target: { kind: 'direction', frame: 'icrs', x: 1, y: 0, z: 0 },
+  format: 'found-in-space/anchored-image-manifest@1',
+  images: [
+    {
+      id: 'orion-art',
+      groupId: 'Ori',
+      image: {
+        src: 'orion.webp',
+        width: 1024,
+        height: 1024,
+        anchors: [
+          {
+            pixel: { x: 100, y: 200 },
+            target: { kind: 'direction', frame: 'icrs', x: 1, y: 0, z: 0 },
+          },
+        ],
       },
-    ],
-  },
+    },
+  ],
 }
+```
+
+The canonical manifest schema is published at:
+
+```txt
+@found-in-space/anchored-image/schemas/anchored-image-manifest.v1.schema.json
 ```
 
 `kind: "direction"` targets project onto a sky direction. `kind: "position"`
 targets are parsec-space coordinates for future spatial image meshes such as
 nebula or survey plates with approximate depth anchors.
 
-Legacy constellation-art manifests with `constellations`, `image.file`,
-`image.size`, `image.anchors[].pos`, and `image.anchors[].direction` are
-accepted and normalized into the generic model.
+Skyculture, survey, and astrophotography packages should export this canonical
+format directly, or provide a tiny adapter that converts their richer package
+format into it. Legacy constellation-art manifests with `constellations`,
+`image.file`, `image.size`, `image.anchors[].pos`, and
+`image.anchors[].direction` are still accepted during alpha and normalized into
+the generic model.
 
 ## Canvas
 

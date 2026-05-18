@@ -9,6 +9,10 @@ export interface Vec3 {
   z: number;
 }
 
+export declare const ANCHORED_IMAGE_MANIFEST_FORMAT: 'found-in-space/anchored-image-manifest@1';
+export declare const ANCHORED_IMAGE_MANIFEST_SCHEMA_ID: 'https://schemas.found-in.space/anchored-image-manifest.v1.schema.json';
+export type AnchoredImageManifestFormat = typeof ANCHORED_IMAGE_MANIFEST_FORMAT;
+
 export type AnchoredImageAnchorTarget =
   | { kind: 'direction'; frame: 'icrs'; x: number; y: number; z: number }
   | { kind: 'position'; frame: 'icrs-pc'; x: number; y: number; z: number };
@@ -36,6 +40,7 @@ export interface AnchoredImage {
 }
 
 export interface AnchoredImageManifest {
+  format: AnchoredImageManifestFormat;
   id?: string;
   label?: string;
   assetBaseUrl?: string | null;

@@ -18,10 +18,12 @@
     "./three": {
       "types": "./src/three.d.ts",
       "default": "./src/three.js"
-    }
+    },
+    "./schemas/anchored-image-manifest.v1.schema.json": "./schemas/anchored-image-manifest.v1.schema.json"
   },
   "files": [
     "src",
+    "schemas",
     "README.md"
   ],
   "sideEffects": false,
