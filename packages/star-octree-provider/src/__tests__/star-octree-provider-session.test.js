@@ -661,6 +661,15 @@ test('changed demand retains shared nodes and stale-removes excluded products', 
 
   assert.equal(session.getSnapshot().demand.revision, 2);
   assert.deepEqual(
+    changed.map((delta) => delta.type),
+    [
+      'data/product-upsert',
+      'data/product-stale',
+      'data/product-remove',
+      'data/representation-current',
+    ],
+  );
+  assert.deepEqual(
     changed
       .filter((delta) => delta.type === 'data/product-upsert')
       .map((delta) => createStarCellKey(delta.product.nodes[0])),

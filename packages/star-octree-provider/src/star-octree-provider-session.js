@@ -306,13 +306,15 @@ export function createStarOctreeProviderSession(createOptions) {
     const nextEntriesByCellKey = new Map(
       currentEntries.map((entry) => [createStarCellKey(entry.node), entry]),
     );
+    const retainedCellKeys = new Set();
     const productsToRemove = new Map();
 
     for (const [productId, record] of productsById) {
-      const retainedCellKeys = Array.from(record.cellKeys)
+      const productRetainedCellKeys = Array.from(record.cellKeys)
         .filter((cellKey) => nextEntriesByCellKey.has(cellKey));
-      if (retainedCellKeys.length === record.cellKeys.size) {
-        for (const cellKey of retainedCellKeys) {
+      if (productRetainedCellKeys.length === record.cellKeys.size) {
+        for (const cellKey of productRetainedCellKeys) {
+          retainedCellKeys.add(cellKey);
           entriesByCellKey.set(
             cellKey,
             /** @type {StarOctreeDemandEntry} */ (nextEntriesByCellKey.get(cellKey)),
@@ -324,31 +326,8 @@ export function createStarOctreeProviderSession(createOptions) {
       productsToRemove.set(productId, record);
     }
 
-    for (const [productId, record] of productsToRemove) {
-      record.current = false;
-      productsById.delete(productId);
-      for (const cellKey of record.cellKeys) {
-        productIdByCellKey.delete(cellKey);
-        entriesByCellKey.delete(cellKey);
-      }
-      emitDelta({
-        type: 'data/product-stale',
-        providerId,
-        sessionId,
-        productId,
-        reason: 'demand-excluded',
-      });
-      emitDelta({
-        type: 'data/product-remove',
-        providerId,
-        sessionId,
-        productId,
-        reason: 'demand-excluded',
-      });
-    }
-
     const entriesToLoad = currentEntries.filter(
-      (entry) => !productIdByCellKey.has(createStarCellKey(entry.node)),
+      (entry) => !retainedCellKeys.has(createStarCellKey(entry.node)),
     );
 
     if (createOptions.source.streamObjectProducts) {
@@ -417,12 +396,48 @@ export function createStarOctreeProviderSession(createOptions) {
       return;
     }
 
+    removeProductsAfterReplacement(productsToRemove);
+
+    if (disposed || applyOptions.token !== latestPlanToken) {
+      return;
+    }
+
     status = 'current';
     emitRepresentationCurrent(applyOptions.viewRevision);
     if (disposed || applyOptions.token !== latestPlanToken) {
       return;
     }
     startPrefetch(prefetchEntries, applyOptions.token);
+  }
+
+  /**
+   * @param {Map<string, { product: StarObjectBatchProduct; cellKeys: Set<string>; current: boolean }>} productsToRemove
+   */
+  function removeProductsAfterReplacement(productsToRemove) {
+    for (const [productId, record] of productsToRemove) {
+      record.current = false;
+      productsById.delete(productId);
+      for (const cellKey of record.cellKeys) {
+        if (productIdByCellKey.get(cellKey) === productId) {
+          productIdByCellKey.delete(cellKey);
+          entriesByCellKey.delete(cellKey);
+        }
+      }
+      emitDelta({
+        type: 'data/product-stale',
+        providerId,
+        sessionId,
+        productId,
+        reason: 'demand-excluded',
+      });
+      emitDelta({
+        type: 'data/product-remove',
+        providerId,
+        sessionId,
+        productId,
+        reason: 'demand-excluded',
+      });
+    }
   }
 
   /**
