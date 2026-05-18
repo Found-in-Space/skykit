@@ -22,8 +22,9 @@ const requests = buildTravelVolumeRequests({
 const result = await warmVolumeRequests(provider, requests, {
   attributes: ['position', 'magAbs', 'teffLog8'],
   onProgress({ requestIndex, delta }) {
-    if (delta.type === 'data/product-upsert') {
-      console.log(`request ${requestIndex}: warmed ${delta.product.count} stars`);
+    if (delta.type === 'stars/cells-upsert') {
+      const count = delta.cells.reduce((sum, cell) => sum + cell.count, 0);
+      console.log(`request ${requestIndex}: warmed ${count} stars`);
     }
   },
 });

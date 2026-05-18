@@ -1,4 +1,3 @@
-import type { ProductDelta } from '@found-in-space/product-stream';
 import type {
   AnchoredImage,
   AnchoredImageManifest,
@@ -22,7 +21,7 @@ import type {
   TimedJourneyEvaluator,
   TimedJourneyFrame,
 } from '@found-in-space/journey';
-import type { StarObjectBatchProduct } from '@found-in-space/star-products';
+import type { StarCellDelta } from '@found-in-space/star-products';
 import type {
   StarOctreeCoordinateOutput,
   StarOctreeFetchStrategy,
@@ -576,7 +575,7 @@ export interface StreamingStarLayerSnapshot {
 
 export interface StreamingStarLayer extends SkykitThreePart {
   readonly object3d: THREE.Object3D;
-  apply(delta: ProductDelta<StarObjectBatchProduct>): void;
+  apply(delta: StarCellDelta): void;
   getSnapshot(): StreamingStarLayerSnapshot;
 }
 

@@ -32,7 +32,7 @@ main().catch((error) => {
 });
 
 async function main() {
-  const stream = provider.streamObjectBatches({
+  const stream = provider.streamCells({
     strategy: createObserverShellStrategy(),
     view: {
       observerPc: { x: 0, y: 0, z: 0 },
@@ -43,11 +43,11 @@ async function main() {
   });
 
   for await (const delta of stream) {
-    if (delta.type === 'data/product-upsert' || delta.type === 'data/product-remove') {
+    if (delta.type === 'stars/cells-upsert' || delta.type === 'stars/cells-remove') {
       hr.apply(delta);
       status.textContent = `${hr.getSnapshot().starCount.toLocaleString()} streamed stars`;
     }
-    if (delta.type === 'data/representation-current') {
+    if (delta.type === 'stars/current') {
       status.textContent = `${hr.getSnapshot().starCount.toLocaleString()} stars, current`;
       break;
     }

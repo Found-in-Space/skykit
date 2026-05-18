@@ -95,6 +95,30 @@ test('frustum tester intersects axis-aligned octree nodes exactly enough for pru
   assert.equal(frustum.intersectsNode(createNode({ centerZ: -150 })), false);
 });
 
+test('frustum tester measures the closest visible witness instead of raw box distance', () => {
+  const view = normalizeTargetFrustumView(
+    {
+      observerPc: { x: 0, y: 0, z: 0 },
+      directionIcrs: { x: 0, y: 1, z: 0 },
+      verticalFovDeg: 60,
+      aspectRatio: 1,
+      nearPc: 0,
+    },
+    { kind: 'target-frustum', overscanDeg: 0 },
+  );
+  const frustum = createFrustumTester(view);
+  const witness = frustum.nearestVisiblePointToNode(createNode({
+    centerX: 75,
+    centerY: 75,
+    centerZ: 0,
+    halfSize: 25,
+  }));
+
+  assert.ok(witness);
+  assert.deepEqual(roundVector(witness.point), { x: 50, y: 86.60254, z: 0 });
+  assert.equal(Math.round(witness.distancePc * 1e6) / 1e6, 100);
+});
+
 function createNode(overrides = {}) {
   return {
     nodeKey: 'node',

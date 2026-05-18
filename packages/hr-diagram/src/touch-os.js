@@ -71,9 +71,9 @@ export function createHrDiagramSurfaceSource(options = {}) {
       assertActive();
       renderer.apply(delta);
     },
-    setProducts(products) {
+    setCells(cells) {
       assertActive();
-      renderer.setProducts(products);
+      renderer.setCells(cells);
     },
     setView(view) {
       assertActive();

@@ -21,8 +21,24 @@ const DEFAULT_TARGET_VERTICAL_FOV_DEG = 40;
 const DEFAULT_TARGET_OVERSCAN_DEG = 8;
 const DEFAULT_TARGET_RADIUS_PC = 96;
 const DEFAULT_TARGET_ASPECT_RATIO = 1;
+const DEFAULT_TARGET_NEAR_PC = 0.01;
+const GEOMETRY_EPSILON = 1e-9;
 const TARGET_UP = Object.freeze({ x: 0, y: 0, z: 1 });
 const TARGET_UP_FALLBACK = Object.freeze({ x: 0, y: 1, z: 0 });
+const AABB_EDGE_INDICES = Object.freeze([
+  [0, 1],
+  [0, 2],
+  [0, 4],
+  [1, 3],
+  [1, 5],
+  [2, 3],
+  [2, 6],
+  [3, 7],
+  [4, 5],
+  [4, 6],
+  [5, 7],
+  [6, 7],
+]);
 
 /**
  * @param {{
@@ -97,7 +113,18 @@ async function collectTargetFrustumEntries(options) {
     distanceToNode: (node) => distanceToNodeAabbPc(options.view.observerPc, node),
     visit(node, { bootstrap }) {
       indexMagnitude = bootstrap.header.magLimit;
-      const distancePc = distanceToNodeAabbPc(options.view.observerPc, node);
+      const visiblePoint = frustum.nearestVisiblePointToNode(node);
+
+      if (!visiblePoint) {
+        frustumPrunedNodeCount += 1;
+        return {
+          include: false,
+          descend: false,
+          distancePc: distanceToNodeAabbPc(options.view.observerPc, node),
+        };
+      }
+
+      const distancePc = visiblePoint.distancePc;
       const loadRadiusPc = loadRadiusForMagnitudeShell(
         node.halfSize,
         options.view.limitingMagnitude,
@@ -114,25 +141,6 @@ async function collectTargetFrustumEntries(options) {
         };
       }
 
-      const frustumRelevant = frustum.intersectsNode(node);
-      if (!frustumRelevant) {
-        frustumPrunedNodeCount += 1;
-        return {
-          include: false,
-          descend: false,
-          distancePc,
-        };
-      }
-
-      const relativeCenter = subtractVectors(
-        { x: node.centerX, y: node.centerY, z: node.centerZ },
-        options.view.observerPc,
-      );
-      const forwardDistancePc = dotVector(
-        frustum.basis.forward,
-        relativeCenter,
-      );
-
       return {
         include: true,
         descend: true,
@@ -146,7 +154,8 @@ async function collectTargetFrustumEntries(options) {
         ],
         metadata: {
           distancePc,
-          forwardDistancePc,
+          forwardDistancePc: visiblePoint.forwardDistancePc,
+          nearestVisiblePc: visiblePoint.point,
           loadRadiusPc,
           limitingMagnitude: options.view.limitingMagnitude,
           indexMagnitude,
@@ -205,7 +214,7 @@ export function normalizeTargetFrustumView(view = {}, strategy = { kind: 'target
     );
     const aspectRatio = normalizePositiveNumber(view.aspectRatio, 'aspectRatio');
     const nearPc = normalizeNonNegativeNumber(
-      view.nearPc ?? strategy.nearPc ?? 0,
+      view.nearPc ?? strategy.nearPc ?? DEFAULT_TARGET_NEAR_PC,
       'nearPc',
     );
     const farPc = view.farPc ?? strategy.farPc;
@@ -248,7 +257,7 @@ export function normalizeTargetFrustumView(view = {}, strategy = { kind: 'target
     'aspectRatio',
   );
   const nearPc = normalizeNonNegativeNumber(
-    view.nearPc ?? strategy.nearPc ?? 0,
+    view.nearPc ?? strategy.nearPc ?? DEFAULT_TARGET_NEAR_PC,
     'nearPc',
   );
   const explicitFarPc = view.farPc ?? strategy.farPc;
@@ -319,6 +328,12 @@ export function createFrustumTester(view) {
   return {
     basis,
     /**
+     * @param {{ x: number; y: number; z: number }} point
+     */
+    containsPoint(point) {
+      return containsPointInFrustum(point);
+    },
+    /**
      * @param {StarOctreeRuntimeNode} node
      */
     intersectsNode(node) {
@@ -345,7 +360,292 @@ export function createFrustumTester(view) {
 
       return true;
     },
+    /**
+     * Finds the nearest point in the intersection of this node's AABB and the
+     * visible frustum. This is the visibility witness used by the magnitude
+     * shell: if the brightest possible star in the node would not be visible at
+     * this distance, no child can become visible either.
+     *
+     * @param {StarOctreeRuntimeNode} node
+     * @returns {{ point: { x: number; y: number; z: number }; distancePc: number; forwardDistancePc: number } | null}
+     */
+    nearestVisiblePointToNode(node) {
+      const bounds = createNodeBounds(node);
+      const corners = createAabbCorners(bounds);
+      /** @type {{ point: { x: number; y: number; z: number }; distancePc: number; forwardDistancePc: number } | null} */
+      let nearest = null;
+
+      /**
+       * @param {{ x: number; y: number; z: number } | null} point
+       */
+      const addCandidate = (point) => {
+        if (!point || !containsPointInAabb(point, bounds) || !containsPointInFrustum(point)) {
+          return;
+        }
+        const relative = subtractVectors(point, view.observerPc);
+        const distancePc = vectorLength(relative);
+        const forwardDistancePc = dotVector(basis.forward, relative);
+        if (!nearest || distancePc < nearest.distancePc) {
+          nearest = {
+            point,
+            distancePc,
+            forwardDistancePc,
+          };
+        }
+      };
+
+      addCandidate(closestPointOnAabb(view.observerPc, bounds));
+
+      for (const corner of corners) {
+        addCandidate(corner);
+      }
+
+      for (const [leftIndex, rightIndex] of AABB_EDGE_INDICES) {
+        const clipped = clipSegmentToFrustum(corners[leftIndex], corners[rightIndex]);
+        if (clipped) {
+          addCandidate(closestPointOnSegment(
+            view.observerPc,
+            clipped.start,
+            clipped.end,
+          ));
+        }
+      }
+
+      for (const ray of createFrustumBoundaryRays(view, basis, tanHorizontal, tanVertical)) {
+        const clipped = clipRayToAabb(
+          view.observerPc,
+          ray,
+          bounds,
+        );
+        if (clipped) {
+          addCandidate(clipped);
+        }
+      }
+
+      return nearest;
+    },
   };
+
+  /**
+   * @param {{ x: number; y: number; z: number }} point
+   */
+  function containsPointInFrustum(point) {
+    const relative = subtractVectors(point, view.observerPc);
+    for (const plane of planes) {
+      if (dotVector(plane.normal, relative) + plane.offset < -GEOMETRY_EPSILON) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * @param {{ x: number; y: number; z: number }} start
+   * @param {{ x: number; y: number; z: number }} end
+   */
+  function clipSegmentToFrustum(start, end) {
+    const relativeStart = subtractVectors(start, view.observerPc);
+    const direction = subtractVectors(end, start);
+    let lower = 0;
+    let upper = 1;
+
+    for (const plane of planes) {
+      const startDistance = dotVector(plane.normal, relativeStart) + plane.offset;
+      const delta = dotVector(plane.normal, direction);
+
+      if (Math.abs(delta) <= GEOMETRY_EPSILON) {
+        if (startDistance < -GEOMETRY_EPSILON) {
+          return null;
+        }
+        continue;
+      }
+
+      const crossing = -startDistance / delta;
+      if (delta > 0) {
+        lower = Math.max(lower, crossing);
+      } else {
+        upper = Math.min(upper, crossing);
+      }
+
+      if (lower - upper > GEOMETRY_EPSILON) {
+        return null;
+      }
+    }
+
+    return {
+      start: addVectors(start, scaleVector(direction, clamp01(lower))),
+      end: addVectors(start, scaleVector(direction, clamp01(upper))),
+    };
+  }
+}
+
+/**
+ * @param {StarOctreeRuntimeNode} node
+ */
+function createNodeBounds(node) {
+  return {
+    minX: node.centerX - node.halfSize,
+    minY: node.centerY - node.halfSize,
+    minZ: node.centerZ - node.halfSize,
+    maxX: node.centerX + node.halfSize,
+    maxY: node.centerY + node.halfSize,
+    maxZ: node.centerZ + node.halfSize,
+  };
+}
+
+/**
+ * @param {{ minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }} bounds
+ */
+function createAabbCorners(bounds) {
+  return [
+    { x: bounds.minX, y: bounds.minY, z: bounds.minZ },
+    { x: bounds.maxX, y: bounds.minY, z: bounds.minZ },
+    { x: bounds.minX, y: bounds.maxY, z: bounds.minZ },
+    { x: bounds.maxX, y: bounds.maxY, z: bounds.minZ },
+    { x: bounds.minX, y: bounds.minY, z: bounds.maxZ },
+    { x: bounds.maxX, y: bounds.minY, z: bounds.maxZ },
+    { x: bounds.minX, y: bounds.maxY, z: bounds.maxZ },
+    { x: bounds.maxX, y: bounds.maxY, z: bounds.maxZ },
+  ];
+}
+
+/**
+ * @param {{ x: number; y: number; z: number }} point
+ * @param {{ minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }} bounds
+ */
+function containsPointInAabb(point, bounds) {
+  return point.x >= bounds.minX - GEOMETRY_EPSILON &&
+    point.x <= bounds.maxX + GEOMETRY_EPSILON &&
+    point.y >= bounds.minY - GEOMETRY_EPSILON &&
+    point.y <= bounds.maxY + GEOMETRY_EPSILON &&
+    point.z >= bounds.minZ - GEOMETRY_EPSILON &&
+    point.z <= bounds.maxZ + GEOMETRY_EPSILON;
+}
+
+/**
+ * @param {{ x: number; y: number; z: number }} point
+ * @param {{ minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }} bounds
+ */
+function closestPointOnAabb(point, bounds) {
+  return {
+    x: Math.min(bounds.maxX, Math.max(bounds.minX, point.x)),
+    y: Math.min(bounds.maxY, Math.max(bounds.minY, point.y)),
+    z: Math.min(bounds.maxZ, Math.max(bounds.minZ, point.z)),
+  };
+}
+
+/**
+ * @param {{ x: number; y: number; z: number }} point
+ * @param {{ x: number; y: number; z: number }} start
+ * @param {{ x: number; y: number; z: number }} end
+ */
+function closestPointOnSegment(point, start, end) {
+  const direction = subtractVectors(end, start);
+  const lengthSquared = dotVector(direction, direction);
+  if (lengthSquared <= GEOMETRY_EPSILON) {
+    return start;
+  }
+  const offset = subtractVectors(point, start);
+  const t = clamp01(dotVector(offset, direction) / lengthSquared);
+  return addVectors(start, scaleVector(direction, t));
+}
+
+/**
+ * @param {ReturnType<typeof normalizeTargetFrustumView>} view
+ * @param {{ right: { x: number; y: number; z: number }; up: { x: number; y: number; z: number }; forward: { x: number; y: number; z: number } }} basis
+ * @param {number} tanHorizontal
+ * @param {number} tanVertical
+ */
+function createFrustumBoundaryRays(view, basis, tanHorizontal, tanVertical) {
+  const offsets = [
+    [0, 0],
+    [tanHorizontal, 0],
+    [-tanHorizontal, 0],
+    [0, tanVertical],
+    [0, -tanVertical],
+    [tanHorizontal, tanVertical],
+    [tanHorizontal, -tanVertical],
+    [-tanHorizontal, tanVertical],
+    [-tanHorizontal, -tanVertical],
+  ];
+
+  return offsets.map(([horizontal, vertical]) => {
+    const direction = normalizeVector(addVectors(
+      addVectors(
+        basis.forward,
+        scaleVector(basis.right, horizontal),
+      ),
+      scaleVector(basis.up, vertical),
+    ));
+    const forwardDot = dotVector(basis.forward, direction);
+    const minDistancePc = forwardDot > GEOMETRY_EPSILON
+      ? view.nearPc / forwardDot
+      : 0;
+    const maxDistancePc = view.farPc !== undefined && forwardDot > GEOMETRY_EPSILON
+      ? view.farPc / forwardDot
+      : undefined;
+    return {
+      direction,
+      minDistancePc,
+      maxDistancePc,
+    };
+  });
+}
+
+/**
+ * @param {{ x: number; y: number; z: number }} origin
+ * @param {{
+ *   direction: { x: number; y: number; z: number };
+ *   minDistancePc: number;
+ *   maxDistancePc?: number;
+ * }} ray
+ * @param {{ minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }} bounds
+ */
+function clipRayToAabb(origin, ray, bounds) {
+  let lower = ray.minDistancePc;
+  let upper = ray.maxDistancePc ?? Number.POSITIVE_INFINITY;
+
+  const axes = [
+    { axis: /** @type {'x'} */ ('x'), min: bounds.minX, max: bounds.maxX },
+    { axis: /** @type {'y'} */ ('y'), min: bounds.minY, max: bounds.maxY },
+    { axis: /** @type {'z'} */ ('z'), min: bounds.minZ, max: bounds.maxZ },
+  ];
+
+  for (const { axis, min, max } of axes) {
+    const direction = ray.direction[axis];
+    const start = origin[axis];
+
+    if (Math.abs(direction) <= GEOMETRY_EPSILON) {
+      if (start < min - GEOMETRY_EPSILON || start > max + GEOMETRY_EPSILON) {
+        return null;
+      }
+      continue;
+    }
+
+    const first = (min - start) / direction;
+    const second = (max - start) / direction;
+    lower = Math.max(lower, Math.min(first, second));
+    upper = Math.min(upper, Math.max(first, second));
+
+    if (lower - upper > GEOMETRY_EPSILON) {
+      return null;
+    }
+  }
+
+  if (!Number.isFinite(lower) || lower < -GEOMETRY_EPSILON) {
+    return null;
+  }
+
+  return addVectors(origin, scaleVector(ray.direction, Math.max(0, lower)));
+}
+
+/**
+ * @param {number} value
+ */
+function clamp01(value) {
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
+  return value;
 }
 
 /**

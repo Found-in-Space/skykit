@@ -1,6 +1,8 @@
 import type {
+  StarCellData,
+  StarCellDelta,
+  StarCellKey,
   StarCoordinateOutput,
-  StarObjectBatchProduct,
 } from '@found-in-space/star-products';
 
 export declare const OCTREE_c56103: string;
@@ -140,6 +142,7 @@ export interface StarOctreeDemandPlan {
 
 export interface StarOctreeTraversalDecision {
   include?: boolean;
+  emit?: boolean;
   descend?: boolean;
   priority?: number;
   relevance?: number;
@@ -182,7 +185,7 @@ export interface StarOctreeSelectionContext {
         node: StarOctreeRuntimeNode,
         helpers: {
           context: StarOctreeSelectionContext;
-          bootstrap: StarOctreeBootstrapProduct;
+          bootstrap: StarOctreeBootstrapIndex;
         }
       ) =>
         | Promise<StarOctreeTraversalDecision>
@@ -272,9 +275,9 @@ export interface StarOctreeViewReceipt {
  * Runtime traversal node exposed to strategies as logical cell geometry.
  *
  * `level + mortonCode` is the public cell identity. The physical fields on this
- * execution object are for provider planners/loaders only; public products,
+ * execution object are for provider planners/loaders only; public cells,
  * bookmarks, sidecars, renderers, and examples must reduce nodes to
- * `CanonicalObjectRef` or `createStarCellKey()`.
+ * `StarObjectRef` or `createStarCellKey()`.
  */
 export interface StarOctreeRuntimeNode {
   mortonCode: string;
@@ -303,7 +306,7 @@ export interface StarOctreeProviderDescriptor {
   datasetId?: string | null;
   datasetIdentitySource?: string | null;
   url?: string | null;
-  produces: Array<'index' | 'object-batch'>;
+  produces: Array<'index' | 'star-cells'>;
   objectTypes: ['star'];
   attributes: Array<
     'position' | 'teffLog8' | 'magAbs' | 'objectRef' | 'pickMeta'
@@ -326,9 +329,8 @@ export interface StarOctreeProviderDescriptor {
   };
 }
 
-export interface StarOctreeBootstrapProduct {
-  productType: 'index';
-  indexKind: 'star-octree-bootstrap';
+export interface StarOctreeBootstrapIndex {
+  kind: 'star-octree-bootstrap';
   providerId: string;
   datasetId?: string | null;
   datasetIdentitySource?: string | null;
@@ -391,47 +393,7 @@ export type StarOctreePayloadDelta =
       };
     };
 
-export type StarOctreeProductDelta =
-  | {
-      type: 'data/product-upsert';
-      streamId: string;
-      providerId: string;
-      sessionId?: string;
-      product: StarObjectBatchProduct;
-    }
-  | {
-      type: 'data/product-stale';
-      providerId: string;
-      sessionId?: string;
-      productId: string;
-      reason?: string;
-    }
-  | {
-      type: 'data/product-remove';
-      providerId: string;
-      sessionId?: string;
-      productId: string;
-      reason?: string;
-    }
-  | {
-      type: 'data/representation-current';
-      providerId: string;
-      sessionId?: string;
-      viewRevision?: number;
-      demandRevision?: number;
-      productIds?: string[];
-      completeness: StarObjectBatchProduct['completeness'];
-    }
-  | {
-      type: 'data/product-error';
-      streamId: string;
-      providerId: string;
-      sessionId?: string;
-      error: {
-        message: string;
-        code?: string;
-      };
-    };
+export type StarOctreeCellDelta = StarCellDelta;
 
 export interface StarOctreeSessionSnapshot {
   id: string;
@@ -448,14 +410,14 @@ export interface StarOctreeSessionSnapshot {
       | 'failed'
       | 'disposed';
     demandNodeCount: number;
-    currentProductCount: number;
+    currentCellCount: number;
     activeWorkItemCount: number;
   };
-  products: Array<{
-    productId: string;
-    nodeCount: number;
+  cells: Array<{
+    cellKey: StarCellKey;
+    level: number;
+    mortonCode: string;
     starCount: number;
-    phase: 'coarse' | 'partial' | 'complete' | 'stale';
     current: boolean;
     bytes: number;
   }>;
@@ -483,14 +445,14 @@ export interface StarOctreeProviderSnapshot {
     shardHeaders: number;
     payloads: number;
     decodedPayloads?: number;
-    products?: number;
+    cells?: number;
   };
   sessions: Array<{
     id: string;
     status: StarOctreeSessionSnapshot['demand']['status'];
     demandNodeCount: number;
     activeWorkItemCount: number;
-    productCount: number;
+    cellCount: number;
     liveBytes: number;
   }>;
   workItems: Array<{
@@ -507,7 +469,7 @@ export interface StarOctreeProviderSnapshot {
     usedBytes?: number;
     rawPayloadBytes?: number;
     decodedPayloadBytes?: number;
-    liveProductBytes?: number;
+    liveCellBytes?: number;
     borrowedBytes?: number;
     evictableBytes?: number;
   };
@@ -530,8 +492,9 @@ export interface StarOctreeProviderSnapshot {
   };
 }
 
-export interface StarOctreeObjectBatchStreamOptions {
+export interface StarOctreeCellStreamOptions {
   id?: string;
+  sessionId?: string;
   strategy?: StarOctreeFetchStrategy;
   view?: StarOctreeViewPatch;
   viewRevision?: number;
@@ -548,6 +511,7 @@ export interface StarOctreeObjectBatchStreamOptions {
   memory?: {
     ownership?: 'borrowed' | 'copy' | 'transfer';
   };
+  signal?: AbortSignal;
 }
 
 export interface StarOctreeDemandInspection {
@@ -590,6 +554,7 @@ export interface StarOctreePayloadStreamOptions {
     emitCachedFirst?: boolean;
     coarseFirst?: boolean;
   };
+  signal?: AbortSignal;
 }
 
 export interface StarOctreeProviderSession {
@@ -598,8 +563,8 @@ export interface StarOctreeProviderSession {
     patch: StarOctreeViewPatch,
     options?: ViewUpdateOptions
   ): StarOctreeViewReceipt;
-  subscribe(listener: (delta: StarOctreeProductDelta) => void): () => void;
-  deltas(): AsyncIterable<StarOctreeProductDelta>;
+  subscribe(listener: (delta: StarOctreeCellDelta) => void): () => void;
+  deltas(): AsyncIterable<StarOctreeCellDelta>;
   getSnapshot(): StarOctreeSessionSnapshot;
   dispose(): void | Promise<void>;
 }
@@ -608,32 +573,32 @@ export interface StarOctreeProviderService {
   readonly id: string;
   describe(): StarOctreeProviderDescriptor;
   getSnapshot(): StarOctreeProviderSnapshot;
-  ensureBootstrap(): Promise<StarOctreeBootstrapProduct>;
+  ensureBootstrap(): Promise<StarOctreeBootstrapIndex>;
   createSession(options?: StarOctreeSessionOptions): StarOctreeProviderSession;
   streamPayloads(
     options: StarOctreePayloadStreamOptions
   ): AsyncIterable<StarOctreePayloadDelta>;
-  streamObjectBatches(
-    options: StarOctreeObjectBatchStreamOptions
-  ): AsyncIterable<StarOctreeProductDelta>;
+  streamCells(
+    options: StarOctreeCellStreamOptions
+  ): AsyncIterable<StarOctreeCellDelta>;
   inspectDemand(
-    options: StarOctreeObjectBatchStreamOptions
+    options: StarOctreeCellStreamOptions
   ): Promise<StarOctreeDemandInspection>;
-  fetchObjectBatch(
-    options: StarOctreeObjectBatchStreamOptions
-  ): Promise<StarObjectBatchProduct>;
+  fetchCells(
+    options: StarOctreeCellStreamOptions
+  ): Promise<StarCellData[]>;
   dispose(): void | Promise<void>;
 }
 
 export interface WarmVolumeProgress {
   request: StarOctreeVolumeRequest;
   requestIndex: number;
-  delta: StarOctreeProductDelta;
+  delta: StarOctreeCellDelta;
 }
 
 export interface WarmVolumeResult {
   requestCount: number;
-  productCount: number;
+  cellCount: number;
   starCount: number;
   currentCount: number;
 }
@@ -673,16 +638,16 @@ export declare function buildTravelVolumeRequests(
   options: BuildTravelVolumeRequestsOptions
 ): StarOctreePathVolumeRequest[];
 
-export declare function streamVolumeProducts(
+export declare function streamVolumeCells(
   provider: StarOctreeProviderService,
   request: StarOctreeVolumeRequest,
-  options?: Omit<StarOctreeObjectBatchStreamOptions, 'strategy'>
-): AsyncIterable<StarOctreeProductDelta>;
+  options?: Omit<StarOctreeCellStreamOptions, 'strategy'>
+): AsyncIterable<StarOctreeCellDelta>;
 
 export declare function warmVolumeRequests(
   provider: StarOctreeProviderService,
   requests: StarOctreeVolumeRequest[],
-  options?: Omit<StarOctreeObjectBatchStreamOptions, 'strategy'> & {
+  options?: Omit<StarOctreeCellStreamOptions, 'strategy'> & {
     onProgress?: (progress: WarmVolumeProgress) => void;
   }
 ): Promise<WarmVolumeResult>;

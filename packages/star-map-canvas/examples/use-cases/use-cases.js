@@ -4,9 +4,9 @@ import {
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
 import {
-  consumeProductDeltas,
+  consumeStarCellDeltas,
   createStarCellKey,
-  createStarRepresentationStore,
+  createStarCellStore,
 } from '@found-in-space/star-products';
 import {
   createCanvasStarMap,
@@ -45,13 +45,13 @@ const elements = {
   canvas: document.querySelector('[data-star-map]'),
   storeCount: document.querySelector('[data-store-count]'),
   visibleCount: document.querySelector('[data-visible-count]'),
-  productCount: document.querySelector('[data-product-count]'),
+  cellCount: document.querySelector('[data-cell-count]'),
   demandState: document.querySelector('[data-demand-state]'),
   selected: document.querySelector('[data-selected]'),
   projectionPreview: document.querySelector('[data-projection-preview]'),
 };
 
-const store = createStarRepresentationStore();
+const store = createStarCellStore();
 const artItems = [];
 const gridLayer = createGridLayer();
 const artLayer = createArtLayer(artItems);
@@ -184,7 +184,7 @@ function resetProvider(url) {
   });
 
   const token = state.token;
-  void consumeProductDeltas(state.session.deltas(), store, {
+  void consumeStarCellDeltas(state.session.deltas(), store, {
     throwOnError: false,
   }).then((result) => {
     if (token !== state.token) return;
@@ -706,8 +706,8 @@ function renderMetrics() {
   const sessionSnapshot = state.session?.getSnapshot();
   elements.storeCount.textContent = formatInteger(snapshot.starCount);
   elements.visibleCount.textContent = formatInteger(state.lastRender?.visibleCount ?? 0);
-  elements.productCount.textContent = formatInteger(snapshot.productCount);
-  elements.demandState.textContent = sessionSnapshot?.demand.status ?? snapshot.status;
+  elements.cellCount.textContent = formatInteger(snapshot.cellCount);
+  elements.demandState.textContent = sessionSnapshot?.demand.status ?? 'idle';
   if (sessionSnapshot?.demand.status === 'current') {
     setStatus('current');
   }
@@ -726,7 +726,7 @@ function renderProjectionPreview() {
       radius: round(point.radius),
       alpha: round(point.alpha),
       appMag: round(point.apparentMagnitude),
-      productId: point.productId,
+      cellKey: point.cellKey,
       objectIndex: point.objectIndex,
     })),
   }, null, 2);
@@ -740,7 +740,7 @@ function renderSelection(picked) {
 
   const ref = picked.objectRef
     ? `${createStarCellKey(picked.objectRef)} / ${picked.objectRef.ordinal}`
-    : `${picked.productId} / ${picked.objectIndex}`;
+    : `${picked.cellKey} / ${picked.objectIndex}`;
   elements.selected.textContent = [
     `Star ${ref}`,
     `App mag ${formatNumber(picked.apparentMagnitude, 2)}`,
@@ -754,9 +754,9 @@ function setStatus(value) {
 
 function starPointKey(point) {
   if (point.objectRef?.mortonCode != null && point.objectRef?.ordinal != null) {
-    return `${point.productId}:${createStarCellKey(point.objectRef)}:${point.objectRef.ordinal}`;
+    return `${point.cellKey}:${createStarCellKey(point.objectRef)}:${point.objectRef.ordinal}`;
   }
-  return `${point.productId}:${point.objectIndex}`;
+  return `${point.cellKey}:${point.objectIndex}`;
 }
 
 function hashString(value) {

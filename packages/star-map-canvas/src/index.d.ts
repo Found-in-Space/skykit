@@ -1,5 +1,5 @@
 import type {
-  StarRepresentationStore,
+  StarCellStore,
   StarRow,
 } from '@found-in-space/star-products';
 
@@ -17,7 +17,7 @@ export interface StarMapPoint {
   color: string;
   distancePc: number;
   apparentMagnitude: number;
-  productId: string;
+  cellKey: string;
   objectIndex: number;
   objectRef: StarRow['objectRef'];
   pickMeta: StarRow['pickMeta'];
@@ -138,7 +138,7 @@ export interface CanvasStarMapLayer {
 }
 
 export interface CanvasStarMapOptions {
-  store?: StarRepresentationStore;
+  store?: StarCellStore;
   projection?: StarMapProjection;
   style?: StarMapStyle;
   autoResize?: boolean;
@@ -152,7 +152,7 @@ export interface CanvasStarMapOptions {
 }
 
 export interface ProjectStarMapOptions {
-  store?: StarRepresentationStore;
+  store?: StarCellStore;
   stars?: Iterable<StarRow>;
   observerPc?: { x: number; y: number; z: number };
   limitingMagnitude?: number;
@@ -181,7 +181,7 @@ export interface CanvasStarMapRenderOptions
     DrawProjectedStarMapOptions {}
 
 export interface DrawStarMapOptions extends CanvasStarMapRenderOptions {
-  store?: StarRepresentationStore;
+  store?: StarCellStore;
   stars?: Iterable<StarRow>;
 }
 

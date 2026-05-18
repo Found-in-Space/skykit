@@ -1,4 +1,4 @@
-import type { ProductDelta, StarObjectBatchProduct, StarRepresentationStore, StarRow } from '@found-in-space/star-products';
+import type { StarCellData, StarCellDelta, StarCellStore, StarRow } from '@found-in-space/star-products';
 import type * as THREE from 'three';
 
 export type HrDiagramMode = 'magnitude-limited' | 'volume-complete' | 'frustum';
@@ -43,15 +43,15 @@ export interface HrDiagramPoint {
   y: number;
   teffK: number;
   magAbs: number;
-  productId?: string;
+  cellKey?: string;
   objectIndex?: number;
   color: [number, number, number];
 }
 
 export interface ProjectHrDiagramOptions extends HrDiagramBounds {
   stars?: Iterable<StarRow>;
-  products?: Iterable<StarObjectBatchProduct>;
-  store?: StarRepresentationStore;
+  cells?: Iterable<StarCellData>;
+  store?: StarCellStore;
   observerPc?: { x: number; y: number; z: number };
   limitingMagnitude?: number;
   mode?: HrDiagramMode | 0 | 1 | 2;
@@ -77,7 +77,7 @@ export interface HrDiagramRendererOptions extends HrDiagramView {
 }
 
 export interface HrDiagramRendererSnapshot {
-  productCount: number;
+  cellCount: number;
   starCount: number;
   disposed: boolean;
   view: HrDiagramView;
@@ -87,8 +87,8 @@ export interface HrDiagramRenderer {
   readonly scene: THREE.Scene;
   readonly camera: THREE.Camera;
   readonly material: THREE.ShaderMaterial;
-  apply(delta: ProductDelta<StarObjectBatchProduct>): void;
-  setProducts(products: Iterable<StarObjectBatchProduct>): void;
+  apply(delta: StarCellDelta): void;
+  setCells(cells: Iterable<StarCellData>): void;
   clear(): void;
   setView(view: HrDiagramView): void;
   render(renderer: THREE.WebGLRenderer, target?: THREE.WebGLRenderTarget | null): void;
@@ -138,7 +138,6 @@ export declare function createHrDiagramRenderer(
   options?: HrDiagramRendererOptions
 ): HrDiagramRenderer;
 
-export declare function createHrDiagramGeometryFromProduct(
-  product: StarObjectBatchProduct
+export declare function createHrDiagramGeometryFromCells(
+  cells: Iterable<StarCellData>
 ): THREE.BufferGeometry;
-

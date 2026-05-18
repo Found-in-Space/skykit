@@ -28,8 +28,8 @@ const DEFAULT_OBSERVER_PC = Object.freeze({ x: 0, y: 0, z: 0 });
  * @typedef {import('./index.d.ts').HrDiagramView} HrDiagramView
  * @typedef {import('./index.d.ts').ProjectHrDiagramOptions} ProjectHrDiagramOptions
  * @typedef {import('./index.d.ts').ProjectHrDiagramResult} ProjectHrDiagramResult
- * @typedef {import('@found-in-space/star-products').ProductDelta} ProductDelta
- * @typedef {import('@found-in-space/star-products').StarObjectBatchProduct} StarObjectBatchProduct
+ * @typedef {import('@found-in-space/star-products').StarCellData} StarCellData
+ * @typedef {import('@found-in-space/star-products').StarCellDelta} StarCellDelta
  * @typedef {import('@found-in-space/star-products').StarRow} StarRow
  */
 
@@ -156,7 +156,7 @@ export function projectHrDiagramStars(rect, options = {}) {
 
     points.push({
       ...point,
-      productId: star.productId,
+      cellKey: star.cellKey,
       objectIndex: star.objectIndex,
     });
   }
@@ -208,7 +208,12 @@ export function createHrDiagramRenderer(options = {}) {
   const scene = options.scene ?? new THREE.Scene();
   const camera = options.camera ?? new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1);
   const material = createHrDiagramMaterial(options);
-  const products = new Map();
+  /** @type {Map<string, StarCellData>} */
+  const cellsByKey = new Map();
+  let geometry = createHrDiagramGeometryFromCells([]);
+  const points = new THREE.Points(geometry, material);
+  points.frustumCulled = false;
+  scene.add(points);
   let disposed = false;
   let view = normalizeView(options);
 
@@ -219,7 +224,7 @@ export function createHrDiagramRenderer(options = {}) {
     camera,
     material,
     apply,
-    setProducts,
+    setCells,
     clear,
     setView,
     render,
@@ -228,36 +233,34 @@ export function createHrDiagramRenderer(options = {}) {
   };
 
   /**
-   * @param {ProductDelta<StarObjectBatchProduct>} delta
+   * @param {StarCellDelta} delta
    */
   function apply(delta) {
     assertActive();
-    if (delta.type === 'data/product-upsert') {
-      upsertProduct(delta.product);
+    if (delta.type === 'stars/cells-upsert') {
+      upsertCells(delta.cells);
       return;
     }
-    if (delta.type === 'data/product-remove' || delta.type === 'data/product-stale') {
-      removeProduct(delta.productId);
+    if (delta.type === 'stars/cells-remove') {
+      removeCells(delta.cellKeys);
     }
   }
 
   /**
-   * @param {Iterable<StarObjectBatchProduct>} nextProducts
+   * @param {Iterable<StarCellData>} nextCells
    */
-  function setProducts(nextProducts) {
+  function setCells(nextCells) {
     assertActive();
-    clear();
-    for (const product of nextProducts) {
-      upsertProduct(product);
+    cellsByKey.clear();
+    for (const cell of nextCells) {
+      cellsByKey.set(cell.cellKey, cell);
     }
+    rebuildGeometry();
   }
 
   function clear() {
-    for (const product of products.values()) {
-      scene.remove(product.points);
-      product.geometry.dispose();
-    }
-    products.clear();
+    cellsByKey.clear();
+    rebuildGeometry();
   }
 
   /**
@@ -298,11 +301,11 @@ export function createHrDiagramRenderer(options = {}) {
 
   function getSnapshot() {
     let starCount = 0;
-    for (const entry of products.values()) {
-      starCount += entry.product.count;
+    for (const cell of cellsByKey.values()) {
+      starCount += cell.count;
     }
     return {
-      productCount: products.size,
+      cellCount: cellsByKey.size,
       starCount,
       disposed,
       view,
@@ -311,36 +314,42 @@ export function createHrDiagramRenderer(options = {}) {
 
   function dispose() {
     if (disposed) return;
-    clear();
+    scene.remove(points);
+    geometry.dispose();
+    cellsByKey.clear();
     material.dispose();
     disposed = true;
   }
 
   /**
-   * @param {StarObjectBatchProduct} product
+   * @param {StarCellData[]} cells
    */
-  function upsertProduct(product) {
-    removeProduct(product.id);
-    const geometry = createHrDiagramGeometryFromProduct(product);
-    const points = new THREE.Points(geometry, material);
-    points.frustumCulled = false;
-    scene.add(points);
-    products.set(product.id, {
-      product,
-      geometry,
-      points,
-    });
+  function upsertCells(cells) {
+    for (const cell of cells) {
+      cellsByKey.set(cell.cellKey, cell);
+    }
+    rebuildGeometry();
   }
 
   /**
-   * @param {string} productId
+   * @param {string[]} cellKeys
    */
-  function removeProduct(productId) {
-    const current = products.get(productId);
-    if (!current) return;
-    scene.remove(current.points);
-    current.geometry.dispose();
-    products.delete(productId);
+  function removeCells(cellKeys) {
+    let changed = false;
+    for (const cellKey of cellKeys) {
+      changed = cellsByKey.delete(cellKey) || changed;
+    }
+    if (changed) {
+      rebuildGeometry();
+    }
+  }
+
+  function rebuildGeometry() {
+    const nextGeometry = createHrDiagramGeometryFromCells(cellsByKey.values());
+    const previousGeometry = geometry;
+    geometry = nextGeometry;
+    points.geometry = nextGeometry;
+    previousGeometry.dispose();
   }
 
   function assertActive() {
@@ -351,31 +360,39 @@ export function createHrDiagramRenderer(options = {}) {
 }
 
 /**
- * @param {StarObjectBatchProduct} product
+ * @param {Iterable<StarCellData>} cells
  * @returns {THREE.BufferGeometry}
  */
-export function createHrDiagramGeometryFromProduct(product) {
+export function createHrDiagramGeometryFromCells(cells) {
+  const orderedCells = Array.from(cells)
+    .sort((left, right) => left.cellKey.localeCompare(right.cellKey));
+  const totalCount = orderedCells.reduce((sum, cell) => sum + cell.count, 0);
+  const positions = new Float32Array(totalCount * 3);
+  const teffLog8 = new Uint8Array(totalCount);
+  const magAbs = new Float32Array(totalCount);
+  let offset = 0;
+
+  for (const cell of orderedCells) {
+    positions.set(cell.coordinates.components, offset * 3);
+    teffLog8.set(cell.attributes.teffLog8 ?? new Uint8Array(cell.count).fill(255), offset);
+    magAbs.set(cell.attributes.magAbs ?? new Float32Array(cell.count), offset);
+    offset += cell.count;
+  }
+
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
     'position',
-    new THREE.BufferAttribute(product.coordinates.primary.components, 3),
+    new THREE.BufferAttribute(positions, 3),
   );
   geometry.setAttribute(
     'teff_log8',
-    new THREE.BufferAttribute(
-      product.attributes.teffLog8?.values ?? new Uint8Array(product.count).fill(255),
-      1,
-      true,
-    ),
+    new THREE.BufferAttribute(teffLog8, 1, true),
   );
   geometry.setAttribute(
     'magAbs',
-    new THREE.BufferAttribute(
-      product.attributes.magAbs?.values ?? new Float32Array(product.count),
-      1,
-    ),
+    new THREE.BufferAttribute(magAbs, 1),
   );
-  geometry.setDrawRange(0, product.count);
+  geometry.setDrawRange(0, totalCount);
   return geometry;
 }
 
@@ -664,25 +681,25 @@ function resolveStarRows(options) {
   if (options.store) {
     return options.store.stars();
   }
-  if (options.products) {
-    return iterateProductRows(options.products);
+  if (options.cells) {
+    return iterateCellRows(options.cells);
   }
   return [];
 }
 
 /**
- * @param {Iterable<StarObjectBatchProduct>} products
+ * @param {Iterable<StarCellData>} cells
  */
-function* iterateProductRows(products) {
-  for (const product of products) {
-    const positions = product.coordinates.primary.components;
-    const teff = product.attributes.teffLog8?.values;
-    const magAbs = product.attributes.magAbs?.values;
-    for (let objectIndex = 0; objectIndex < product.count; objectIndex += 1) {
+function* iterateCellRows(cells) {
+  for (const cell of cells) {
+    const positions = cell.coordinates.components;
+    const teff = cell.attributes.teffLog8;
+    const magAbs = cell.attributes.magAbs;
+    for (let objectIndex = 0; objectIndex < cell.count; objectIndex += 1) {
       const offset = objectIndex * 3;
       yield {
-        product,
-        productId: product.id,
+        cell,
+        cellKey: cell.cellKey,
         objectIndex,
         position: {
           x: positions[offset] ?? 0,
@@ -691,8 +708,8 @@ function* iterateProductRows(products) {
         },
         ...(teff ? { teffLog8: teff[objectIndex] } : {}),
         ...(magAbs ? { magAbs: magAbs[objectIndex] } : {}),
-        objectRef: product.refs?.[objectIndex] ?? null,
-        pickMeta: product.pickMeta?.[objectIndex] ?? null,
+        objectRef: cell.refs?.[objectIndex] ?? null,
+        pickMeta: cell.pickMeta?.[objectIndex] ?? null,
       };
     }
   }

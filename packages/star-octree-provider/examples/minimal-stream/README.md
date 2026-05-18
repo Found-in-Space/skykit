@@ -5,9 +5,9 @@ Small browser quickstart for `@found-in-space/star-octree-provider`.
 It demonstrates the shortest useful flow:
 
 - create a provider
-- edit observer coordinates and limiting magnitude inside `streamObjectBatches()`
-- stream object batches until the current representation is complete
-- inspect the returned `StarObjectBatchProduct` records
+- edit observer coordinates and limiting magnitude inside `streamCells()`
+- stream cell deltas until the current cell set is complete
+- inspect the returned `StarCellData` records
 
 Provider strategy semantics are documented in
 [`../../../../docs/star-octree-provider.md`](../../../../docs/star-octree-provider.md);

@@ -1,11 +1,9 @@
 import { createDecodedPayloadCache } from './star-octree-decoded-cache.js';
 import {
+  createStarCellData,
   createStarCellKey,
-  createStarObjectBatchProduct,
 } from '@found-in-space/star-products';
-import {
-  toDeltaError,
-} from './star-octree-errors.js';
+import { toDeltaError } from './star-octree-errors.js';
 import { decodeStarPayload } from './star-octree-payloads.js';
 import { createAsyncQueue } from './star-octree-queue.js';
 import { STAR_HAS_PAYLOAD } from './star-octree-format.js';
@@ -17,16 +15,16 @@ import { traverseOctree } from './star-octree-traversal.js';
 
 /**
  * @typedef {import('@found-in-space/star-products').DecodedStarSegment} DecodedStarSegment
- * @typedef {import('@found-in-space/star-products').StarObjectBatchProduct} StarObjectBatchProduct
+ * @typedef {import('@found-in-space/star-products').StarCellData} StarCellData
+ * @typedef {import('./index.js').StarOctreeCellDelta} StarOctreeCellDelta
+ * @typedef {import('./index.js').StarOctreeCellStreamOptions} StarOctreeCellStreamOptions
  * @typedef {import('./index.js').StarOctreeCoordinateOutput} StarOctreeCoordinateOutput
  * @typedef {import('./index.js').StarOctreeDemandEntry} StarOctreeDemandEntry
  * @typedef {import('./index.js').StarOctreeDemandInspection} StarOctreeDemandInspection
  * @typedef {import('./index.js').StarOctreeDemandPlan} StarOctreeDemandPlan
  * @typedef {import('./index.js').StarOctreeFetchStrategy} StarOctreeFetchStrategy
- * @typedef {import('./index.js').StarOctreeObjectBatchStreamOptions} StarOctreeObjectBatchStreamOptions
  * @typedef {import('./index.js').StarOctreePayloadDelta} StarOctreePayloadDelta
  * @typedef {import('./index.js').StarOctreePayloadStreamOptions} StarOctreePayloadStreamOptions
- * @typedef {import('./index.js').StarOctreeProductDelta} StarOctreeProductDelta
  * @typedef {import('./index.js').StarOctreeRuntimeNode} StarOctreeRuntimeNode
  * @typedef {import('./index.js').StarOctreeSelectionContext} StarOctreeSelectionContext
  * @typedef {import('./index.js').StarOctreeViewPatch} StarOctreeViewPatch
@@ -63,11 +61,11 @@ export function createStarOctreePipeline(options) {
     planDemandForContext,
     planDemandForStreamOptions,
     streamPayloads,
-    streamObjectBatches,
+    streamCells,
     inspectDemand,
-    streamProductsForEntries,
+    streamCellsForEntries,
     warmEntries,
-    fetchObjectBatch,
+    fetchCells,
   };
 
   function getDecodedCacheSnapshot() {
@@ -87,7 +85,7 @@ export function createStarOctreePipeline(options) {
   }
 
   /**
-   * @param {StarOctreePayloadStreamOptions | StarOctreeObjectBatchStreamOptions} streamOptions
+   * @param {StarOctreePayloadStreamOptions | StarOctreeCellStreamOptions} streamOptions
    * @param {{
    *   sessionId?: string;
    *   viewRevision?: number;
@@ -101,7 +99,7 @@ export function createStarOctreePipeline(options) {
   }
 
   /**
-   * @param {StarOctreeObjectBatchStreamOptions} streamOptions
+   * @param {StarOctreeCellStreamOptions} streamOptions
    * @returns {Promise<StarOctreeDemandInspection>}
    */
   async function inspectDemand(streamOptions = {}) {
@@ -175,6 +173,7 @@ export function createStarOctreePipeline(options) {
 
         await options.indexSource.fetchNodePayloadBatchProgressive(nodes, {
           emitCachedFirst: streamOptions.streaming?.emitCachedFirst,
+          signal: streamOptions.signal,
           onBatch(entries) {
             loadedNodes += entries.length;
             loadedBytes += entries.reduce(
@@ -212,13 +211,14 @@ export function createStarOctreePipeline(options) {
           providerId: options.providerId,
         });
       } catch (error) {
-        // The queue is the public error channel for bounded streams.
-        queue.push({
-          type: 'payload/error',
-          streamId,
-          providerId: options.providerId,
-          error: toDeltaError(error),
-        });
+        if (!isAbortError(error)) {
+          queue.push({
+            type: 'payload/error',
+            streamId,
+            providerId: options.providerId,
+            error: toDeltaError(error),
+          });
+        }
       } finally {
         queue.close();
       }
@@ -228,70 +228,62 @@ export function createStarOctreePipeline(options) {
   }
 
   /**
-   * @param {StarOctreeObjectBatchStreamOptions} streamOptions
-   * @returns {AsyncIterable<StarOctreeProductDelta>}
+   * @param {StarOctreeCellStreamOptions} streamOptions
+   * @returns {AsyncIterable<StarOctreeCellDelta>}
    */
-  function streamObjectBatches(streamOptions = {}) {
-    const streamId = streamOptions.id ?? createStreamId('objects');
+  function streamCells(streamOptions = {}) {
     const queue = createAsyncQueue();
-    const productIds = [];
-    let loadedObjects = 0;
-    let loadedNodes = 0;
-    let productIndex = 0;
+    /** @type {Set<import('@found-in-space/star-products').StarCellKey>} */
+    const cellKeys = new Set();
+    let starCount = 0;
 
     void (async () => {
       try {
         const { context, plan } = await planDemandForStreamOptions(streamOptions);
-        const currentEntryCount = plan.entries.filter(
-          (entry) => (entry.role ?? 'current') === 'current',
-        ).length;
 
-        for await (const product of streamProductsForEntries(plan.entries, {
-          streamId,
+        for await (const cells of streamCellsForEntries(plan.entries, {
+          sessionId: streamOptions.sessionId,
           attributes: streamOptions.attributes,
           coordinates: streamOptions.coordinates,
-          viewRevision: streamOptions.viewRevision,
-          demandRevision: streamOptions.demandRevision,
           memoryOwnership: streamOptions.memory?.ownership,
           batchMode: streamOptions.streaming?.batchMode ?? 'payload-range',
           emitCachedFirst: streamOptions.streaming?.emitCachedFirst,
-          nextProductIndex() {
-            productIndex += 1;
-            return productIndex;
-          },
+          signal: streamOptions.signal,
         })) {
-          productIds.push(product.id);
-          loadedObjects += product.count;
-          loadedNodes += product.nodes.length;
+          if (cells.length === 0) continue;
+          for (const cell of cells) {
+            cellKeys.add(cell.cellKey);
+            starCount += cell.count;
+          }
           queue.push({
-            type: 'data/product-upsert',
-            streamId,
+            type: 'stars/cells-upsert',
             providerId: options.providerId,
-            product,
+            sessionId: streamOptions.sessionId,
+            viewRevision: context.viewRevision,
+            demandRevision: streamOptions.demandRevision,
+            cells,
           });
         }
 
         queue.push({
-          type: 'data/representation-current',
+          type: 'stars/current',
           providerId: options.providerId,
+          sessionId: streamOptions.sessionId,
           viewRevision: context.viewRevision,
           demandRevision: streamOptions.demandRevision,
-          productIds,
-          completeness: {
-            phase: 'complete',
-            stable: true,
-            loadedObjects,
-            loadedNodes,
-            totalNodes: currentEntryCount,
-          },
+          cellKeys: Array.from(cellKeys).sort(),
+          starCount,
         });
       } catch (error) {
-        queue.push({
-          type: 'data/product-error',
-          streamId,
-          providerId: options.providerId,
-          error: toDeltaError(error),
-        });
+        if (!isAbortError(error)) {
+          queue.push({
+            type: 'stars/error',
+            providerId: options.providerId,
+            sessionId: streamOptions.sessionId,
+            demandRevision: streamOptions.demandRevision,
+            error: toDeltaError(error),
+          });
+        }
       } finally {
         queue.close();
       }
@@ -303,34 +295,34 @@ export function createStarOctreePipeline(options) {
   /**
    * @param {StarOctreeDemandEntry[]} entries
    * @param {{
-   *   streamId: string;
    *   sessionId?: string;
    *   attributes?: string[];
    *   coordinates?: StarOctreeCoordinateOutput;
-   *   viewRevision?: number;
-   *   demandRevision?: number;
    *   memoryOwnership?: 'borrowed' | 'copy' | 'transfer';
    *   batchMode?: 'payload-range' | 'node';
    *   emitCachedFirst?: boolean;
-   *   nextProductIndex: () => number;
-   * }} productOptions
-   * @returns {AsyncIterable<StarObjectBatchProduct>}
+   *   signal?: AbortSignal;
+   * }} cellOptions
+   * @returns {AsyncIterable<StarCellData[]>}
    */
-  function streamProductsForEntries(entries, productOptions) {
+  function streamCellsForEntries(entries, cellOptions) {
     const queue = createAsyncQueue();
     const currentEntries = entries.filter((entry) => (entry.role ?? 'current') === 'current');
     const nodes = currentEntries.map((entry) => entry.node);
     const work = options.workTracker?.start({
-      sessionId: productOptions.sessionId,
+      sessionId: cellOptions.sessionId,
       status: 'fetching',
       nodeCount: nodes.length,
     });
 
     void (async () => {
       try {
+        throwIfAborted(cellOptions.signal);
         await options.indexSource.fetchNodePayloadBatchProgressive(nodes, {
-          emitCachedFirst: productOptions.emitCachedFirst,
+          emitCachedFirst: cellOptions.emitCachedFirst,
+          signal: cellOptions.signal,
           async onBatch(payloadEntries) {
+            throwIfAborted(cellOptions.signal);
             work?.update({
               status: 'decoding',
               bytesLoaded: payloadEntries.reduce(
@@ -338,28 +330,36 @@ export function createStarOctreePipeline(options) {
                 0,
               ),
             });
-            const productEntries = await Promise.all(
+            const cellEntries = await Promise.all(
               payloadEntries.map(async (entry) => ({
                 node: entry.node,
-                decoded: await decodePayloadEntry(entry.node, entry.buffer),
+                decoded: await decodePayloadEntry(entry.node, entry.buffer, {
+                  signal: cellOptions.signal,
+                }),
               })),
             );
+            throwIfAborted(cellOptions.signal);
 
-            if (productOptions.batchMode === 'node') {
-              for (const productEntry of productEntries) {
-                queue.push(createProduct([productEntry], productOptions));
+            if (cellOptions.batchMode === 'node') {
+              for (const cellEntry of cellEntries) {
+                queue.push([createCell(cellEntry, cellOptions)]);
               }
               work?.update({ status: 'streaming' });
               return;
             }
 
-            if (productEntries.length > 0) {
-              queue.push(createProduct(productEntries, productOptions));
+            if (cellEntries.length > 0) {
+              queue.push(cellEntries.map((entry) => createCell(entry, cellOptions)));
               work?.update({ status: 'streaming' });
             }
           },
         });
       } catch (error) {
+        if (isAbortError(error)) {
+          work?.finish();
+          queue.close();
+          return;
+        }
         work?.fail();
         queue.fail(error);
         return;
@@ -373,10 +373,10 @@ export function createStarOctreePipeline(options) {
   }
 
   /**
-   * Warm payload and decoded caches for entries without emitting products.
+   * Warm payload and decoded caches for entries without emitting cells.
    *
    * @param {StarOctreeDemandEntry[]} entries
-   * @param {{ sessionId?: string; emitCachedFirst?: boolean }} [warmOptions]
+   * @param {{ sessionId?: string; emitCachedFirst?: boolean; signal?: AbortSignal }} [warmOptions]
    */
   async function warmEntries(entries, warmOptions = {}) {
     const nodes = entries
@@ -393,65 +393,72 @@ export function createStarOctreePipeline(options) {
     });
 
     try {
+      throwIfAborted(warmOptions.signal);
       await options.indexSource.fetchNodePayloadBatchProgressive(nodes, {
         emitCachedFirst: warmOptions.emitCachedFirst,
+        signal: warmOptions.signal,
         async onBatch(payloadEntries) {
+          throwIfAborted(warmOptions.signal);
           work?.update({ status: 'decoding' });
           await Promise.all(
             payloadEntries.map((entry) =>
-              decodePayloadEntry(entry.node, entry.buffer),
+              decodePayloadEntry(entry.node, entry.buffer, {
+                signal: warmOptions.signal,
+              }),
             ),
           );
         },
       });
       work?.finish();
     } catch (error) {
+      if (isAbortError(error)) {
+        work?.finish();
+        return;
+      }
       work?.fail();
       throw error;
     }
   }
 
   /**
-   * @param {StarOctreeObjectBatchStreamOptions} streamOptions
-   * @returns {Promise<StarObjectBatchProduct>}
+   * @param {StarOctreeCellStreamOptions} streamOptions
+   * @returns {Promise<StarCellData[]>}
    */
-  async function fetchObjectBatch(streamOptions = {}) {
-    const streamId = streamOptions.id ?? createStreamId('fetch');
+  async function fetchCells(streamOptions = {}) {
     const { plan } = await planDemandForStreamOptions(streamOptions);
     const payloadEntries = await options.indexSource.fetchNodePayloadBatchProgressive(
       plan.entries
         .filter((entry) => (entry.role ?? 'current') === 'current')
         .map((entry) => entry.node),
+      { signal: streamOptions.signal },
     );
-    const productEntries = await Promise.all(
+    const cellEntries = await Promise.all(
       payloadEntries.map(async (entry) => ({
         node: entry.node,
-        decoded: await decodePayloadEntry(entry.node, entry.buffer),
+        decoded: await decodePayloadEntry(entry.node, entry.buffer, {
+          signal: streamOptions.signal,
+        }),
       })),
     );
 
-    return createStarObjectBatchProduct({
-      providerId: options.providerId,
-      streamId,
-      productIndex: 1,
-      entries: productEntries,
+    return cellEntries.map((entry) => createCell(entry, {
       attributes: streamOptions.attributes,
       coordinates: streamOptions.coordinates,
-      viewRevision: streamOptions.viewRevision,
-      demandRevision: streamOptions.demandRevision,
       memoryOwnership: streamOptions.memory?.ownership,
-      completenessPhase: 'complete',
-    });
+    }));
   }
 
   /**
    * @param {StarOctreeRuntimeNode} node
    * @param {ArrayBuffer} buffer
+   * @param {{ signal?: AbortSignal }} [decodeOptions]
    */
-  async function decodePayloadEntry(node, buffer) {
+  async function decodePayloadEntry(node, buffer, decodeOptions = {}) {
+    throwIfAborted(decodeOptions.signal);
     const datasetId = options.indexSource.getSnapshot().datasetId;
     const cacheKey = decodedCache.createKey(node, datasetId);
     const cached = await decodedCache.get(cacheKey, node, datasetId);
+    throwIfAborted(decodeOptions.signal);
     if (cached) {
       return cached;
     }
@@ -462,30 +469,20 @@ export function createStarOctreePipeline(options) {
   }
 
   /**
-   * @param {Array<{ node: StarOctreeRuntimeNode; decoded: DecodedStarSegment }>} entries
+   * @param {{ node: StarOctreeRuntimeNode; decoded: DecodedStarSegment }} entry
    * @param {{
-   *   streamId: string;
-   *   sessionId?: string;
    *   attributes?: string[];
    *   coordinates?: StarOctreeCoordinateOutput;
-   *   viewRevision?: number;
-   *   demandRevision?: number;
    *   memoryOwnership?: 'borrowed' | 'copy' | 'transfer';
-   *   nextProductIndex: () => number;
-   * }} productOptions
+   * }} cellOptions
    */
-  function createProduct(entries, productOptions) {
-    return createStarObjectBatchProduct({
-      providerId: options.providerId,
-      sessionId: productOptions.sessionId,
-      streamId: productOptions.streamId,
-      productIndex: productOptions.nextProductIndex(),
-      entries,
-      attributes: productOptions.attributes,
-      coordinates: productOptions.coordinates,
-      viewRevision: productOptions.viewRevision,
-      demandRevision: productOptions.demandRevision,
-      memoryOwnership: productOptions.memoryOwnership,
+  function createCell(entry, cellOptions) {
+    return createStarCellData({
+      node: entry.node,
+      decoded: entry.decoded,
+      attributes: cellOptions.attributes,
+      coordinates: cellOptions.coordinates,
+      memoryOwnership: cellOptions.memoryOwnership,
     });
   }
 
@@ -512,7 +509,7 @@ export function createStarOctreePipeline(options) {
        *     node: StarOctreeRuntimeNode,
        *     helpers: {
        *       context: StarOctreeSelectionContext;
-       *       bootstrap: import('./index.js').StarOctreeBootstrapProduct;
+       *       bootstrap: import('./index.js').StarOctreeBootstrapIndex;
        *     }
        *   ) => Promise<import('./index.js').StarOctreeTraversalDecision> | import('./index.js').StarOctreeTraversalDecision;
        * }} selectionOptions
@@ -535,10 +532,12 @@ export function createStarOctreePipeline(options) {
               bootstrap,
             });
             const include = decision.include === true;
+            const emit = decision.emit !== false;
             const descend = decision.descend !== false;
 
             if (
               include &&
+              emit &&
               (node.flags & STAR_HAS_PAYLOAD) &&
               node.payloadLength > 0
             ) {
@@ -554,6 +553,7 @@ export function createStarOctreePipeline(options) {
 
             return {
               include,
+              emit,
               descend: include && descend,
               distancePc: decision.distancePc,
             };
@@ -582,7 +582,7 @@ export function createStarOctreePipeline(options) {
 
 /**
  * @param {string} providerId
- * @param {StarOctreePayloadStreamOptions | StarOctreeObjectBatchStreamOptions} options
+ * @param {StarOctreePayloadStreamOptions | StarOctreeCellStreamOptions} options
  * @param {{
  *   sessionId?: string;
  *   viewRevision?: number;
@@ -591,10 +591,10 @@ export function createStarOctreePipeline(options) {
  * @returns {StarOctreeSelectionContext}
  */
 function createSelectionContext(providerId, options, extras = {}) {
-  const objectOptions = /** @type {Partial<StarOctreeObjectBatchStreamOptions>} */ (options);
+  const cellOptions = /** @type {Partial<StarOctreeCellStreamOptions>} */ (options);
   const strategy = options.strategy ?? DEFAULT_STRATEGY;
   const view = normalizeContextView(strategy, options.view);
-  const viewRevision = extras.viewRevision ?? objectOptions.viewRevision ?? 0;
+  const viewRevision = extras.viewRevision ?? cellOptions.viewRevision ?? 0;
 
   return {
     providerId,
@@ -605,11 +605,11 @@ function createSelectionContext(providerId, options, extras = {}) {
       ...view,
     },
     viewRevision,
-    demandRevision: extras.demandRevision ?? objectOptions.demandRevision ?? 0,
-    attributes: objectOptions.attributes ?? DEFAULT_ATTRIBUTES,
+    demandRevision: extras.demandRevision ?? cellOptions.demandRevision ?? 0,
+    attributes: cellOptions.attributes ?? DEFAULT_ATTRIBUTES,
     coordinates: {
       ...DEFAULT_COORDINATES,
-      ...(objectOptions.coordinates ?? {}),
+      ...(cellOptions.coordinates ?? {}),
     },
     streaming: {
       progressive: options.streaming?.progressive ?? true,
@@ -636,4 +636,28 @@ function createUnavailableTraversal() {
  */
 function normalizeContextView(strategy, view) {
   return normalizeStrategyView(strategy, view);
+}
+
+/**
+ * @param {AbortSignal | undefined} signal
+ */
+function throwIfAborted(signal) {
+  if (!signal?.aborted) {
+    return;
+  }
+
+  if (signal.reason instanceof Error) {
+    throw signal.reason;
+  }
+
+  const error = new Error('Star cell stream was aborted.');
+  error.name = 'AbortError';
+  throw error;
+}
+
+/**
+ * @param {unknown} error
+ */
+function isAbortError(error) {
+  return error instanceof Error && error.name === 'AbortError';
 }

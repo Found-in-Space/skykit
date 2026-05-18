@@ -121,7 +121,7 @@ textarea {
   color: #ffb4a8;
 }
 
-.product-summary {
+.cell-summary {
   padding: 14px 16px;
   display: grid;
   grid-template-columns: repeat(4, minmax(120px, 1fr));
@@ -190,7 +190,7 @@ td:nth-child(5) {
     display: grid;
   }
 
-  .product-summary {
+  .cell-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

@@ -6,8 +6,8 @@ Package-owned browser/Node example for volume-based star streaming through
 The example demonstrates the provider-owned strategy surface:
 
 - create a provider from the public octree URL
-- request a sphere volume using `streamVolumeProducts()`
-- consume normal `StarObjectBatchProduct` deltas
+- request a sphere volume using `streamVolumeCells()`
+- consume normal `StarCellDelta` events
 - keep volume counting/rendering as application logic
 
 Volume strategies live in the provider because they select octree nodes. They do

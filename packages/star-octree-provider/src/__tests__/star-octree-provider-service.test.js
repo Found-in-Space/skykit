@@ -47,7 +47,7 @@ test('factory creates a provider descriptor and empty snapshot', () => {
   assert.equal(descriptor.capabilities.payloadBatching, true);
   assert.equal(descriptor.capabilities.persistentCache, false);
   assert.equal(descriptor.limits.maxInflightPayloadBatches, 4);
-  assert.deepEqual(descriptor.produces, ['index', 'object-batch']);
+  assert.deepEqual(descriptor.produces, ['index', 'star-cells']);
   assert.deepEqual(descriptor.objectTypes, ['star']);
 
   const snapshot = provider.getSnapshot();
@@ -88,12 +88,12 @@ test('target-frustum streams validate required view state clearly', async () => 
     url: '/data/stars.octree',
   });
 
-  const result = await provider.streamObjectBatches({
+  const result = await provider.streamCells({
     strategy: { kind: 'target-frustum' },
   })[Symbol.asyncIterator]().next();
 
   assert.equal(result.done, false);
-  assert.equal(result.value.type, 'data/product-error');
+  assert.equal(result.value.type, 'stars/error');
   assert.equal(
     result.value.error.code,
     'ERR_STAR_OCTREE_INVALID_VIEW',

@@ -5,7 +5,7 @@ import { isProviderSession, toStarOctreeViewPatch } from './utils.js';
  * @typedef {import('./index.d.ts').StreamingStarLayer} StreamingStarLayer
  * @typedef {import('./index.d.ts').SkykitViewState} SkykitViewState
  * @typedef {import('@found-in-space/star-octree-provider').StarOctreeProviderSession} StarOctreeProviderSession
- * @typedef {import('@found-in-space/star-octree-provider').StarOctreeProductDelta} StarOctreeProductDelta
+ * @typedef {import('@found-in-space/star-octree-provider').StarOctreeCellDelta} StarOctreeCellDelta
  */
 
 /**
@@ -47,17 +47,17 @@ export function createStreamingStarLayer(options) {
   return layer;
 
   /**
-   * @param {StarOctreeProductDelta} delta
+   * @param {StarOctreeCellDelta} delta
    */
   function apply(delta) {
     if (disposed) return;
     deltaCount += 1;
     options.renderer.apply(delta);
-    if (delta.type === 'data/representation-current') {
+    if (delta.type === 'stars/current') {
       status = 'current';
-    } else if (delta.type === 'data/product-error') {
+    } else if (delta.type === 'stars/error') {
       status = 'failed';
-      lastError = delta.error?.message ?? 'Product stream failed.';
+      lastError = delta.error?.message ?? 'Star cell stream failed.';
     } else {
       status = 'streaming';
     }

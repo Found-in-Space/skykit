@@ -5,7 +5,7 @@ Package-owned browser example for `@found-in-space/star-octree-provider`.
 The example keeps the boundary deliberately simple:
 
 - SkyKit creates the provider/session query.
-- SkyKit streams object-batch deltas.
+- SkyKit streams cell deltas.
 - The page owns nearest-star calculation, sorting, and table rendering.
 
 Provider strategy semantics are documented in

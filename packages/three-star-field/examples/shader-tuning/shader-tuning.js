@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-import { createStarObjectBatchProduct } from '@found-in-space/star-products';
+import { createStarCellData } from '@found-in-space/star-products';
 import { createThreeStarField } from '@found-in-space/three-star-field';
 
 const host = document.querySelector('[data-viewer]');
@@ -13,7 +13,7 @@ const field = createThreeStarField({ renderScale: 1, coordinateUnitsPerParsec: 1
 camera.position.z = 18;
 scene.add(field.object3d);
 host.appendChild(renderer.domElement);
-field.apply({ type: 'data/product-upsert', providerId: 'fixture', streamId: 'fixture', product: createFixtureProduct() });
+field.apply({ type: 'stars/cells-upsert', providerId: 'fixture', cells: [createFixtureCell()] });
 
 for (const input of document.querySelectorAll('input')) {
   input.addEventListener('input', updateView);
@@ -42,12 +42,10 @@ function resize() {
   renderer.setSize(width, height, true);
 }
 
-function createFixtureProduct() {
-  return createStarObjectBatchProduct({
-    providerId: 'shader-lesson',
-    streamId: 'fixture',
-    productIndex: 1,
-    entries: [{ node: createNode(), decoded: createStars() }],
+function createFixtureCell() {
+  return createStarCellData({
+    node: createNode(),
+    decoded: createStars(),
     attributes: ['position', 'magAbs', 'teffLog8', 'pickMeta'],
   });
 }

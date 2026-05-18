@@ -3,12 +3,12 @@
 Alpha composition package for Found in Space teaching experiences.
 
 SkyKit is intentionally slim: it wires focused packages together and gives
-students a friendly place to hack. It does not load octree bytes, interpret star
-products, own star shaders, manage touch surfaces, or contain journey/chapter
+students a friendly place to hack. It does not load octree bytes, interpret
+star cells, own star shaders, manage touch surfaces, or contain journey/chapter
 logic.
 
 SkyKit examples and plugins should preserve the star identity boundary from
-`@found-in-space/star-products`: use `CanonicalObjectRef` for stars and
+`@found-in-space/star-products`: use `StarObjectRef` for stars and
 `createStarCellKey()` for cell-level maps or display. Do not introduce
 SkyKit-specific star IDs or expose octree storage details such as `nodeKey`,
 `shardOffset`, `nodeIndex`, `payloadOffset`, or `payloadLength`.
@@ -231,10 +231,10 @@ skykitDebug.setObserverPc(10, 0, 0);
 
 SkyKit composes reusable modules:
 
-- `star-octree-provider` streams star products.
-- `star-products` interprets star product columns.
-- `three-star-field` renders streamed star products.
+- `star-octree-provider` streams star cells.
+- `star-products` interprets star cell columns.
+- `three-star-field` renders streamed star cells.
 - `touch-os` owns richer panels, HUDs, and surfaces.
 
 Core SkyKit should stay a teaching/composition layer, not a place for sidecars,
-journey logic, renderer internals, or experimental data products.
+journey logic, renderer internals, or experimental data lanes.

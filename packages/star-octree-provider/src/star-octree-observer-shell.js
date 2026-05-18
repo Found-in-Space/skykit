@@ -22,9 +22,7 @@ export function loadRadiusForMagnitudeShell(
   limitingMagnitude,
   indexMagnitude,
 ) {
-  // Node index magnitudes describe a complete octree cell, so the shell must
-  // cover the cell width rather than only the center-to-face half size.
-  return halfSize * 2 * 10 ** ((limitingMagnitude - indexMagnitude) / 5);
+  return halfSize * 10 ** ((limitingMagnitude - indexMagnitude) / 5);
 }
 
 /**

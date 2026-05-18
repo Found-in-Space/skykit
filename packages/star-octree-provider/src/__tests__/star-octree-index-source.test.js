@@ -48,7 +48,7 @@ test('parseStarHeader rejects bad magic and unsupported versions', () => {
   );
 });
 
-test('ensureBootstrapLoaded fetches and caches the bootstrap product', async () => {
+test('ensureBootstrapLoaded fetches and caches the bootstrap index', async () => {
   const datasetUuid = 'c56103e6-ad4c-41f9-be06-048b48ec632b';
   const fileBytes = concatBytes([
     createStarHeaderBytes(),
@@ -71,8 +71,7 @@ test('ensureBootstrapLoaded fetches and caches the bootstrap product', async () 
     const snapshot = source.getSnapshot();
 
     assert.equal(first, second);
-    assert.equal(first.productType, 'index');
-    assert.equal(first.indexKind, 'star-octree-bootstrap');
+    assert.equal(first.kind, 'star-octree-bootstrap');
     assert.equal(first.datasetId, datasetUuid);
     assert.equal(first.datasetIdentitySource, 'octree-descriptor');
     assert.equal(first.header.indexOffset, 192);

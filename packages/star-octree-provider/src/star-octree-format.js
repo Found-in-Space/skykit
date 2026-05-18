@@ -2,7 +2,7 @@ import { encodeMorton3D } from '@found-in-space/star-products';
 
 /**
  * @typedef {import('./index.d.ts').StarOctreeRuntimeNode} StarOctreeRuntimeNode
- * @typedef {import('./index.d.ts').StarOctreeBootstrapProduct['header']} StarOctreeBootstrapHeader
+ * @typedef {import('./index.d.ts').StarOctreeBootstrapIndex['header']} StarOctreeBootstrapHeader
  */
 
 export const STAR_HEADER_SIZE = 64;

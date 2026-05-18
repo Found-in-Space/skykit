@@ -1,7 +1,7 @@
 import type {
-  CanonicalObjectRef,
-  ProductDelta,
-  StarObjectBatchProduct,
+  StarCellData,
+  StarCellDelta,
+  StarObjectRef,
   StarPickMeta,
 } from '@found-in-space/star-products';
 import type * as THREE from 'three';
@@ -64,7 +64,7 @@ export interface ThreeStarFieldMaterialProfile {
 
 export interface ThreeStarFieldSnapshot {
   status: 'idle' | 'streaming' | 'current' | 'failed' | 'disposed';
-  productCount: number;
+  cellCount: number;
   starCount: number;
   renderObjectCount: number;
   bytes: number;
@@ -85,14 +85,14 @@ export interface ThreeStarFieldPickOptions extends Partial<ThreeStarFieldView> {
 }
 
 export interface ThreeStarFieldPickResult {
-  productId: string;
+  cellKey: string;
   objectIndex: number;
-  product: StarObjectBatchProduct;
+  cell: StarCellData;
   position: ThreeStarFieldVector;
   distancePc: number;
   apparentMagnitude: number;
   visualRadiusPx: number;
-  objectRef: CanonicalObjectRef | null;
+  objectRef: StarObjectRef | null;
   pickMeta: StarPickMeta | null;
   teffLog8?: number;
   magAbs?: number;
@@ -101,15 +101,15 @@ export interface ThreeStarFieldPickResult {
 }
 
 export interface ThreeStarFieldPickData {
-  products: Iterable<StarObjectBatchProduct>;
+  cells: Iterable<StarCellData>;
   object3d?: THREE.Object3D;
   view?: Partial<ThreeStarFieldView>;
 }
 
 export interface ThreeStarField {
   readonly object3d: THREE.Group;
-  apply(delta: ProductDelta<StarObjectBatchProduct>): void;
-  setProducts(products: Iterable<StarObjectBatchProduct>): void;
+  apply(delta: StarCellDelta): void;
+  setCells(cells: Iterable<StarCellData>): void;
   clear(): void;
   setView(view: Partial<ThreeStarFieldView>): void;
   pick(
@@ -132,8 +132,8 @@ export declare function createThreeStarField(
   options?: ThreeStarFieldOptions
 ): ThreeStarField;
 
-export declare function createThreeStarFieldGeometryFromProduct(
-  product: StarObjectBatchProduct
+export declare function createThreeStarFieldGeometryFromCells(
+  cells: Iterable<StarCellData>
 ): THREE.BufferGeometry;
 
 export declare function createDefaultThreeStarFieldMaterialProfile(

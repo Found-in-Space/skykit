@@ -274,7 +274,7 @@ function getStatus() {
       ? {
           status: starSnapshot.status,
           deltaCount: starSnapshot.deltaCount,
-          productCount: starSnapshot.renderer?.productCount ?? 0,
+          cellCount: starSnapshot.renderer?.cellCount ?? 0,
           starCount: starSnapshot.renderer?.starCount ?? 0,
           session: starSnapshot.session
             ? {

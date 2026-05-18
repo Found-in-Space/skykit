@@ -16,10 +16,10 @@ import { distanceToNodeAabbPc } from './star-octree-traversal.js';
  * @typedef {import('./index.d.ts').StarOctreeDemandEntry} StarOctreeDemandEntry
  * @typedef {import('./index.d.ts').StarOctreeDemandPlan} StarOctreeDemandPlan
  * @typedef {import('./index.d.ts').StarOctreeFetchStrategy} StarOctreeFetchStrategy
- * @typedef {import('./index.d.ts').StarOctreeObjectBatchStreamOptions} StarOctreeObjectBatchStreamOptions
+ * @typedef {import('./index.d.ts').StarOctreeCellStreamOptions} StarOctreeCellStreamOptions
  * @typedef {import('./index.d.ts').StarOctreePathVolumeRequest} StarOctreePathVolumeRequest
  * @typedef {import('./index.d.ts').StarOctreePointPc} StarOctreePointPc
- * @typedef {import('./index.d.ts').StarOctreeProductDelta} StarOctreeProductDelta
+ * @typedef {import('./index.d.ts').StarOctreeCellDelta} StarOctreeCellDelta
  * @typedef {import('./index.d.ts').StarOctreeProviderService} StarOctreeProviderService
  * @typedef {import('./index.d.ts').StarOctreeRuntimeNode} StarOctreeRuntimeNode
  * @typedef {import('./index.d.ts').StarOctreeSelectionContext} StarOctreeSelectionContext
@@ -232,11 +232,11 @@ export function buildTravelVolumeRequests(options) {
 /**
  * @param {StarOctreeProviderService} provider
  * @param {StarOctreeVolumeRequest} request
- * @param {Omit<StarOctreeObjectBatchStreamOptions, 'strategy'>} [options]
- * @returns {AsyncIterable<StarOctreeProductDelta>}
+ * @param {Omit<StarOctreeCellStreamOptions, 'strategy'>} [options]
+ * @returns {AsyncIterable<StarOctreeCellDelta>}
  */
-export function streamVolumeProducts(provider, request, options = {}) {
-  return provider.streamObjectBatches({
+export function streamVolumeCells(provider, request, options = {}) {
+  return provider.streamCells({
     ...options,
     strategy: createStrategyForVolumeRequest(request),
   });
@@ -245,19 +245,19 @@ export function streamVolumeProducts(provider, request, options = {}) {
 /**
  * @param {StarOctreeProviderService} provider
  * @param {StarOctreeVolumeRequest[]} requests
- * @param {Omit<StarOctreeObjectBatchStreamOptions, 'strategy'> & {
+ * @param {Omit<StarOctreeCellStreamOptions, 'strategy'> & {
  *   onProgress?: (progress: import('./index.d.ts').WarmVolumeProgress) => void;
  * }} [options]
  * @returns {Promise<WarmVolumeResult>}
  */
 export async function warmVolumeRequests(provider, requests, options = {}) {
-  let productCount = 0;
+  let cellCount = 0;
   let starCount = 0;
   let currentCount = 0;
 
   for (let requestIndex = 0; requestIndex < requests.length; requestIndex += 1) {
     const request = requests[requestIndex];
-    for await (const delta of streamVolumeProducts(provider, request, {
+    for await (const delta of streamVolumeCells(provider, request, {
       ...options,
       id: options.id
         ? `${options.id}:${requestIndex}`
@@ -269,12 +269,12 @@ export async function warmVolumeRequests(provider, requests, options = {}) {
     })) {
       options.onProgress?.({ request, requestIndex, delta });
 
-      if (delta.type === 'data/product-upsert') {
-        productCount += 1;
-        starCount += delta.product.count;
-      } else if (delta.type === 'data/representation-current') {
+      if (delta.type === 'stars/cells-upsert') {
+        cellCount += delta.cells.length;
+        starCount += delta.cells.reduce((sum, cell) => sum + cell.count, 0);
+      } else if (delta.type === 'stars/current') {
         currentCount += 1;
-      } else if (delta.type === 'data/product-error') {
+      } else if (delta.type === 'stars/error') {
         throw new Error(delta.error?.message ?? 'Volume warm failed.');
       }
     }
@@ -282,7 +282,7 @@ export async function warmVolumeRequests(provider, requests, options = {}) {
 
   return {
     requestCount: requests.length,
-    productCount,
+    cellCount,
     starCount,
     currentCount,
   };

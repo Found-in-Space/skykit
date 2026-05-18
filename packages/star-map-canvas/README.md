@@ -2,21 +2,21 @@
 
 Status: alpha package.
 
-Reusable Canvas2D star-map adapter for spatial star products.
+Reusable Canvas2D star-map adapter for spatial star cells.
 
-This package consumes `StarRepresentationStore` data from
+This package consumes `StarCellStore` data from
 `@found-in-space/star-products` and draws observer-relative 2D sky maps. It does
 not create octree sessions, load catalogs, own sidecars, import
 `anchored-image`, or render Three.js objects.
 
 Provider strategy semantics are outside this package. The examples use
-`observer-shell` only as a convenient source of streamed star products; strategy
+`observer-shell` only as a convenient source of streamed star cells; strategy
 composition and planning are defined by `@found-in-space/star-octree-provider`.
 
 The intended package path is:
 
 ```txt
-star-octree-provider -> star-products store -> star-map-canvas
+star-octree-provider -> star-products cell store -> star-map-canvas
 ```
 
 The built-in RA/Dec all-sky and FoV projections use sky-chart orientation:
@@ -30,13 +30,13 @@ import {
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
 import {
-  consumeProductDeltas,
-  createStarRepresentationStore,
+  consumeStarCellDeltas,
+  createStarCellStore,
 } from '@found-in-space/star-products';
 import { createCanvasStarMap } from '@found-in-space/star-map-canvas';
 
 const provider = createStarOctreeProviderService({ url });
-const store = createStarRepresentationStore();
+const store = createStarCellStore();
 const map = createCanvasStarMap(canvas, { store });
 
 const session = provider.createSession({
@@ -44,7 +44,7 @@ const session = provider.createSession({
   attributes: ['position', 'magAbs', 'teffLog8', 'objectRef', 'pickMeta'],
 });
 
-void consumeProductDeltas(session.deltas(), store, { throwOnError: false });
+void consumeStarCellDeltas(session.deltas(), store, { throwOnError: false });
 
 store.subscribe(() => {
   map.render({ observerPc, limitingMagnitude: 6.5 });
@@ -101,14 +101,13 @@ Use `createGnomonicProjection()` for horizontal FoV star charts.
 Use `layers` for Canvas components such as grids, labels, and externally
 projected images. Use `mapPoint` to transform final projected points, and
 `drawPoint` to replace the default star glyph.
+
 Layer phases are Canvas draw order: `background` renders before stars and
 `foreground` renders after stars.
+
 For warped image overlays, use the layer context's `projectRaDecUnclipped`
 helper so FoV charts can clip the final image draw instead of dropping boundary
 triangles before they reach Canvas.
-The browsable use-cases example also includes a demo-only falling-star pile
-helper to show game behavior built on projected points without becoming package
-API.
 
 ```js
 map.render({
@@ -123,6 +122,6 @@ map.render({
 });
 ```
 
-Guide-star catalogs and directional sky catalogs are a future source/product
-lane. This package's v1 input is spatial star rows with parsec positions, so
-applications can render the sky from arbitrary `observerPc` positions.
+Guide-star catalogs and directional sky catalogs are a future source lane. This
+package's v1 input is spatial star cells with parsec positions, so applications
+can render the sky from arbitrary `observerPc` positions.

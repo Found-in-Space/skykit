@@ -1,4 +1,4 @@
-import type { ProductDelta, StarObjectBatchProduct } from '@found-in-space/star-products';
+import type { StarCellData, StarCellDelta } from '@found-in-space/star-products';
 import type * as THREE from 'three';
 import type {
   HrDiagramRenderer,
@@ -47,8 +47,8 @@ export interface HrDiagramSurfaceSource {
   readonly handle: HrDiagramSurfaceHandle;
   readonly target: THREE.WebGLRenderTarget;
   readonly renderer: HrDiagramRenderer;
-  apply(delta: ProductDelta<StarObjectBatchProduct>): void;
-  setProducts(products: Iterable<StarObjectBatchProduct>): void;
+  apply(delta: StarCellDelta): void;
+  setCells(cells: Iterable<StarCellData>): void;
   setView(view: HrDiagramView): void;
   render(renderer: THREE.WebGLRenderer, timestamp?: number): void;
   publish(surfaces: {
@@ -75,4 +75,3 @@ export declare function createHrDiagramSurfaceSource(options?: {
   height?: number;
   rendererOptions?: HrDiagramRendererOptions;
 }): HrDiagramSurfaceSource;
-

@@ -15,7 +15,7 @@ export {
   createSphereVolumeStrategy,
   createTargetFrustumStrategy,
   distancePointToPathPc,
-  streamVolumeProducts,
+  streamVolumeCells,
   warmVolumeRequests,
   withMotionLookahead,
 } from './star-octree-strategies.js';

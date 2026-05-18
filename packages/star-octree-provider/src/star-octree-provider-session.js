@@ -1,6 +1,7 @@
 import {
+  createStarCellData,
   createStarCellKey,
-  createStarObjectBatchProduct,
+  estimateStarCellBytes,
 } from '@found-in-space/star-products';
 import { createAsyncQueue } from './star-octree-queue.js';
 import {
@@ -10,13 +11,14 @@ import {
 
 /**
  * @typedef {import('@found-in-space/star-products').DecodedStarSegment} DecodedStarSegment
- * @typedef {import('@found-in-space/star-products').StarObjectBatchProduct} StarObjectBatchProduct
+ * @typedef {import('@found-in-space/star-products').StarCellData} StarCellData
+ * @typedef {import('@found-in-space/star-products').StarCellKey} StarCellKey
+ * @typedef {import('./index.d.ts').StarOctreeCellDelta} StarOctreeCellDelta
  * @typedef {import('./index.d.ts').StarOctreeCoordinateOutput} StarOctreeCoordinateOutput
  * @typedef {import('./index.d.ts').StarOctreeDemandEntry} StarOctreeDemandEntry
  * @typedef {import('./index.d.ts').StarOctreeDemandPlan} StarOctreeDemandPlan
  * @typedef {import('./index.d.ts').StarOctreeDemandThresholds} StarOctreeDemandThresholds
  * @typedef {import('./index.d.ts').StarOctreeFetchStrategy} StarOctreeFetchStrategy
- * @typedef {import('./index.d.ts').StarOctreeProductDelta} StarOctreeProductDelta
  * @typedef {import('./index.d.ts').StarOctreeProviderSession} StarOctreeProviderSession
  * @typedef {import('./index.d.ts').StarOctreeRuntimeNode} StarOctreeRuntimeNode
  * @typedef {import('./index.d.ts').StarOctreeSelectionContext} StarOctreeSelectionContext
@@ -40,24 +42,21 @@ const DEFAULT_COORDINATES = {
  * @typedef {{
  *   planDemand(context: StarOctreeSelectionContext): Promise<StarOctreeDemandPlan> | StarOctreeDemandPlan;
  *   decodeNode(entry: StarOctreeDemandEntry, context: StarOctreeSelectionContext): DecodedStarSegment;
- *   streamObjectProducts?: (
+ *   streamCells?: (
  *     entries: StarOctreeDemandEntry[],
  *     options: {
- *       streamId: string;
  *       sessionId?: string;
  *       attributes?: string[];
  *       coordinates?: StarOctreeCoordinateOutput;
- *       viewRevision?: number;
- *       demandRevision?: number;
  *       memoryOwnership?: 'borrowed' | 'copy' | 'transfer';
  *       batchMode?: 'payload-range' | 'node';
  *       emitCachedFirst?: boolean;
- *       nextProductIndex: () => number;
+ *       signal?: AbortSignal;
  *     }
- *   ) => AsyncIterable<StarObjectBatchProduct>;
+ *   ) => AsyncIterable<StarCellData[]>;
  *   warmEntries?: (
  *     entries: StarOctreeDemandEntry[],
- *     options?: { sessionId?: string; emitCachedFirst?: boolean }
+ *     options?: { sessionId?: string; emitCachedFirst?: boolean; signal?: AbortSignal }
  *   ) => Promise<void>;
  * }} SessionSource
  */
@@ -81,16 +80,13 @@ export function createStarOctreeProviderSession(createOptions) {
   const providerId = createOptions.providerId;
   const sessionId = createOptions.sessionId;
   const options = normalizeSessionOptions(createOptions.options);
-  const streamId = `${sessionId}:live`;
-  /** @type {Set<(delta: StarOctreeProductDelta) => void>} */
+  /** @type {Set<(delta: StarOctreeCellDelta) => void>} */
   const listeners = new Set();
-  /** @type {Set<ReturnType<typeof createAsyncQueue<StarOctreeProductDelta>>>} */
+  /** @type {Set<ReturnType<typeof createAsyncQueue<StarOctreeCellDelta>>>} */
   const deltaQueues = new Set();
-  /** @type {Map<string, { product: StarObjectBatchProduct; cellKeys: Set<string>; current: boolean }>} */
-  const productsById = new Map();
-  /** @type {Map<string, string>} */
-  const productIdByCellKey = new Map();
-  /** @type {Map<string, StarOctreeDemandEntry>} */
+  /** @type {Map<StarCellKey, StarCellData>} */
+  const liveCellsByKey = new Map();
+  /** @type {Map<StarCellKey, StarOctreeDemandEntry>} */
   const entriesByCellKey = new Map();
   /** @type {Set<number>} */
   const activePlans = new Set();
@@ -101,11 +97,12 @@ export function createStarOctreeProviderSession(createOptions) {
   let currentView = {};
   /** @type {StarOctreeViewState | null} */
   let demandAnchorView = null;
+  /** @type {AbortController | null} */
+  let activeAbortController = null;
   let viewRevision = 0;
   let demandRevision = 0;
   let demandSignature = '';
   let demandNodeCount = 0;
-  let productIndex = 0;
   let latestPlanToken = 0;
   /** @type {StarOctreeSessionSnapshot['demand']['status']} */
   let status = 'idle';
@@ -205,6 +202,7 @@ export function createStarOctreeProviderSession(createOptions) {
       if (disposed) return;
       disposed = true;
       status = 'disposed';
+      abortActiveWork();
       activePlans.clear();
       listeners.clear();
 
@@ -228,6 +226,9 @@ export function createStarOctreeProviderSession(createOptions) {
    * }} planOptions
    */
   function scheduleDemandPlanning(planOptions) {
+    abortActiveWork();
+    const abortController = new AbortController();
+    activeAbortController = abortController;
     const token = latestPlanToken + 1;
     latestPlanToken = token;
     activePlans.add(token);
@@ -238,7 +239,7 @@ export function createStarOctreeProviderSession(createOptions) {
         const context = createSelectionContext(planOptions.view, planOptions.viewRevision);
         const plan = await createOptions.source.planDemand(context);
 
-        if (disposed || token !== latestPlanToken) {
+        if (disposed || token !== latestPlanToken || abortController.signal.aborted) {
           return;
         }
 
@@ -248,10 +249,16 @@ export function createStarOctreeProviderSession(createOptions) {
           reasons: planOptions.reasons,
           viewRevision: planOptions.viewRevision,
           token,
+          signal: abortController.signal,
         });
       })
       .catch((error) => {
-        if (disposed || token !== latestPlanToken) {
+        if (
+          disposed ||
+          token !== latestPlanToken ||
+          abortController.signal.aborted ||
+          isAbortError(error)
+        ) {
           return;
         }
 
@@ -270,6 +277,7 @@ export function createStarOctreeProviderSession(createOptions) {
    *   reasons: string[];
    *   viewRevision: number;
    *   token: number;
+   *   signal: AbortSignal;
    * }} applyOptions
    */
   async function applyDemandPlan(plan, applyOptions) {
@@ -287,154 +295,152 @@ export function createStarOctreeProviderSession(createOptions) {
     if (!demandChanged) {
       demandNodeCount = currentEntries.length;
       status = 'current';
-      if (disposed || applyOptions.token !== latestPlanToken) {
+      if (!isActivePlan(applyOptions)) {
         return;
       }
-      emitRepresentationCurrent(applyOptions.viewRevision);
-      if (disposed || applyOptions.token !== latestPlanToken) {
+      emitCurrent(applyOptions.viewRevision);
+      if (!isActivePlan(applyOptions)) {
         return;
       }
-      startPrefetch(prefetchEntries, applyOptions.token);
+      startPrefetch(prefetchEntries, applyOptions.token, applyOptions.signal);
       return;
     }
 
     demandRevision += 1;
     demandSignature = nextSignature;
     demandNodeCount = currentEntries.length;
-    status = 'streaming';
+    status = 'loading';
 
     const nextEntriesByCellKey = new Map(
       currentEntries.map((entry) => [createStarCellKey(entry.node), entry]),
     );
-    const retainedCellKeys = new Set();
-    const productsToRemove = new Map();
-
-    for (const [productId, record] of productsById) {
-      const productRetainedCellKeys = Array.from(record.cellKeys)
-        .filter((cellKey) => nextEntriesByCellKey.has(cellKey));
-      if (productRetainedCellKeys.length === record.cellKeys.size) {
-        for (const cellKey of productRetainedCellKeys) {
-          retainedCellKeys.add(cellKey);
-          entriesByCellKey.set(
-            cellKey,
-            /** @type {StarOctreeDemandEntry} */ (nextEntriesByCellKey.get(cellKey)),
-          );
-        }
-        continue;
-      }
-
-      productsToRemove.set(productId, record);
-    }
-
     const entriesToLoad = currentEntries.filter(
-      (entry) => !retainedCellKeys.has(createStarCellKey(entry.node)),
+      (entry) => !liveCellsByKey.has(createStarCellKey(entry.node)),
     );
+    const cellKeysToRemoveAfterReplacement = Array.from(liveCellsByKey.keys())
+      .filter((cellKey) => !nextEntriesByCellKey.has(cellKey));
 
-    if (createOptions.source.streamObjectProducts) {
-      status = entriesToLoad.length > 0 ? 'loading' : 'current';
-      for await (const product of createOptions.source.streamObjectProducts(
+    if (createOptions.source.streamCells) {
+      for await (const cells of createOptions.source.streamCells(
         entriesToLoad,
         {
-          streamId,
           sessionId,
           attributes: options.attributes,
           coordinates: options.coordinates,
-          viewRevision: applyOptions.viewRevision,
-          demandRevision,
           memoryOwnership: options.memory.ownership,
           batchMode: 'payload-range',
           emitCachedFirst: options.streaming.emitCachedFirst,
-          nextProductIndex() {
-            productIndex += 1;
-            return productIndex;
-          },
+          signal: applyOptions.signal,
         },
       )) {
-        if (disposed || applyOptions.token !== latestPlanToken) {
+        if (!isActivePlan(applyOptions)) {
           return;
         }
 
-        storeProduct(product, nextEntriesByCellKey);
-
-        emitDelta({
-          type: 'data/product-upsert',
-          streamId,
-          providerId,
-          sessionId,
-          product,
-        });
+        const acceptedCells = storeLoadedCells(cells, nextEntriesByCellKey);
+        if (acceptedCells.length > 0) {
+          status = 'streaming';
+          emitDelta({
+            type: 'stars/cells-upsert',
+            providerId,
+            sessionId,
+            viewRevision: applyOptions.viewRevision,
+            demandRevision,
+            cells: acceptedCells,
+          });
+        }
       }
     } else {
       for (const entry of entriesToLoad) {
+        if (!isActivePlan(applyOptions)) {
+          return;
+        }
         const decoded = createOptions.source.decodeNode(entry, applyOptions.context);
-        productIndex += 1;
-        const product = createStarObjectBatchProduct({
-          providerId,
-          sessionId,
-          streamId,
-          productIndex,
-          entries: [{ node: entry.node, decoded }],
+        const cell = createStarCellData({
+          node: entry.node,
+          decoded,
           attributes: options.attributes,
           coordinates: options.coordinates,
-          viewRevision: applyOptions.viewRevision,
-          demandRevision,
           memoryOwnership: options.memory.ownership,
         });
-
-        storeProduct(product, nextEntriesByCellKey);
-        emitDelta({
-          type: 'data/product-upsert',
-          streamId,
-          providerId,
-          sessionId,
-          product,
-        });
+        const acceptedCells = storeLoadedCells([cell], nextEntriesByCellKey);
+        if (acceptedCells.length > 0) {
+          status = 'streaming';
+          emitDelta({
+            type: 'stars/cells-upsert',
+            providerId,
+            sessionId,
+            viewRevision: applyOptions.viewRevision,
+            demandRevision,
+            cells: acceptedCells,
+          });
+        }
       }
     }
 
-    if (disposed || applyOptions.token !== latestPlanToken) {
+    if (!isActivePlan(applyOptions)) {
       return;
     }
 
-    removeProductsAfterReplacement(productsToRemove);
+    removeCellsAfterReplacement(cellKeysToRemoveAfterReplacement, applyOptions.viewRevision);
 
-    if (disposed || applyOptions.token !== latestPlanToken) {
+    if (!isActivePlan(applyOptions)) {
       return;
     }
 
     status = 'current';
-    emitRepresentationCurrent(applyOptions.viewRevision);
-    if (disposed || applyOptions.token !== latestPlanToken) {
+    emitCurrent(applyOptions.viewRevision);
+    if (!isActivePlan(applyOptions)) {
       return;
     }
-    startPrefetch(prefetchEntries, applyOptions.token);
+    startPrefetch(prefetchEntries, applyOptions.token, applyOptions.signal);
   }
 
   /**
-   * @param {Map<string, { product: StarObjectBatchProduct; cellKeys: Set<string>; current: boolean }>} productsToRemove
+   * @param {StarCellData[]} cells
+   * @param {Map<StarCellKey, StarOctreeDemandEntry>} nextEntriesByCellKey
+   * @returns {StarCellData[]}
    */
-  function removeProductsAfterReplacement(productsToRemove) {
-    for (const [productId, record] of productsToRemove) {
-      record.current = false;
-      productsById.delete(productId);
-      for (const cellKey of record.cellKeys) {
-        if (productIdByCellKey.get(cellKey) === productId) {
-          productIdByCellKey.delete(cellKey);
-          entriesByCellKey.delete(cellKey);
-        }
+  function storeLoadedCells(cells, nextEntriesByCellKey) {
+    /** @type {StarCellData[]} */
+    const acceptedCells = [];
+    for (const cell of cells) {
+      const entry = nextEntriesByCellKey.get(cell.cellKey);
+      if (!entry) {
+        continue;
       }
+
+      liveCellsByKey.set(cell.cellKey, cell);
+      entriesByCellKey.set(cell.cellKey, entry);
+      acceptedCells.push(cell);
+    }
+    return acceptedCells;
+  }
+
+  /**
+   * @param {StarCellKey[]} cellKeys
+   * @param {number} currentViewRevision
+   */
+  function removeCellsAfterReplacement(cellKeys, currentViewRevision) {
+    /** @type {StarCellKey[]} */
+    const removedCellKeys = [];
+    for (const cellKey of cellKeys) {
+      if (!liveCellsByKey.has(cellKey)) {
+        continue;
+      }
+      liveCellsByKey.delete(cellKey);
+      entriesByCellKey.delete(cellKey);
+      removedCellKeys.push(cellKey);
+    }
+
+    if (removedCellKeys.length > 0) {
       emitDelta({
-        type: 'data/product-stale',
+        type: 'stars/cells-remove',
         providerId,
         sessionId,
-        productId,
-        reason: 'demand-excluded',
-      });
-      emitDelta({
-        type: 'data/product-remove',
-        providerId,
-        sessionId,
-        productId,
+        viewRevision: currentViewRevision,
+        demandRevision,
+        cellKeys: removedCellKeys.sort(),
         reason: 'demand-excluded',
       });
     }
@@ -443,13 +449,15 @@ export function createStarOctreeProviderSession(createOptions) {
   /**
    * @param {StarOctreeDemandEntry[]} prefetchEntries
    * @param {number} token
+   * @param {AbortSignal} signal
    */
-  function startPrefetch(prefetchEntries, token) {
+  function startPrefetch(prefetchEntries, token, signal) {
     if (
       prefetchEntries.length === 0 ||
       !createOptions.source.warmEntries ||
       disposed ||
-      token !== latestPlanToken
+      token !== latestPlanToken ||
+      signal.aborted
     ) {
       return;
     }
@@ -457,6 +465,7 @@ export function createStarOctreeProviderSession(createOptions) {
     const prefetch = createOptions.source.warmEntries(prefetchEntries, {
       sessionId,
       emitCachedFirst: options.streaming.emitCachedFirst,
+      signal,
     });
     activePrefetches.add(prefetch);
     prefetch.then(
@@ -464,8 +473,6 @@ export function createStarOctreeProviderSession(createOptions) {
         activePrefetches.delete(prefetch);
       },
       () => {
-        // Prefetch is cache-warming work; failures are reported via work
-        // snapshots but do not make the visible representation stale.
         activePrefetches.delete(prefetch);
       },
     );
@@ -495,27 +502,6 @@ export function createStarOctreeProviderSession(createOptions) {
   }
 
   /**
-   * @param {StarObjectBatchProduct} product
-   * @param {Map<string, StarOctreeDemandEntry>} nextEntriesByCellKey
-   */
-  function storeProduct(product, nextEntriesByCellKey) {
-    const cellKeys = new Set(product.nodes.map((node) => createStarCellKey(node)));
-    productsById.set(product.id, {
-      product,
-      cellKeys,
-      current: true,
-    });
-
-    for (const cellKey of cellKeys) {
-      productIdByCellKey.set(cellKey, product.id);
-      const entry = nextEntriesByCellKey.get(cellKey);
-      if (entry) {
-        entriesByCellKey.set(cellKey, entry);
-      }
-    }
-  }
-
-  /**
    * @param {'queued' | 'forced' | 'suppressed' | 'unchanged'} demand
    * @param {string[]} reasons
    * @returns {StarOctreeViewReceipt}
@@ -531,7 +517,7 @@ export function createStarOctreeProviderSession(createOptions) {
   }
 
   /**
-   * @param {StarOctreeProductDelta} delta
+   * @param {StarOctreeCellDelta} delta
    */
   function emitDelta(delta) {
     if (disposed) return;
@@ -548,29 +534,21 @@ export function createStarOctreeProviderSession(createOptions) {
   /**
    * @param {number} currentViewRevision
    */
-  function emitRepresentationCurrent(currentViewRevision) {
-    const productIds = Array.from(productsById.values()).map(
-      (record) => record.product.id,
-    );
-    const loadedObjects = Array.from(productsById.values()).reduce(
-      (sum, record) => sum + record.product.count,
+  function emitCurrent(currentViewRevision) {
+    const cellKeys = Array.from(liveCellsByKey.keys()).sort();
+    const starCount = cellKeys.reduce(
+      (sum, cellKey) => sum + (liveCellsByKey.get(cellKey)?.count ?? 0),
       0,
     );
 
     emitDelta({
-      type: 'data/representation-current',
+      type: 'stars/current',
       providerId,
       sessionId,
       viewRevision: currentViewRevision,
       demandRevision,
-      productIds,
-      completeness: {
-        phase: 'complete',
-        stable: true,
-        loadedObjects,
-        loadedNodes: demandNodeCount,
-        totalNodes: demandNodeCount,
-      },
+      cellKeys,
+      starCount,
     });
   }
 
@@ -582,10 +560,10 @@ export function createStarOctreeProviderSession(createOptions) {
     status = 'failed';
     lastError = message;
     emitDelta({
-      type: 'data/product-error',
-      streamId,
+      type: 'stars/error',
       providerId,
       sessionId,
+      demandRevision,
       error: {
         message,
       },
@@ -593,18 +571,18 @@ export function createStarOctreeProviderSession(createOptions) {
   }
 
   function createSnapshot() {
-    const productSummaries = Array.from(productsById.values()).map(
-      (record) => ({
-        productId: record.product.id,
-        nodeCount: record.product.nodes.length,
-        starCount: record.product.count,
-        phase: record.product.completeness.phase,
-        current: record.current,
-        bytes: record.product.memory.bytes,
-      }),
-    );
-    const liveBytes = productSummaries.reduce(
-      (sum, product) => sum + product.bytes,
+    const cellSummaries = Array.from(liveCellsByKey.values())
+      .sort((left, right) => left.cellKey.localeCompare(right.cellKey))
+      .map((cell) => ({
+        cellKey: cell.cellKey,
+        level: cell.cell.level,
+        mortonCode: cell.cell.mortonCode,
+        starCount: cell.count,
+        current: true,
+        bytes: estimateStarCellBytes(cell),
+      }));
+    const liveBytes = cellSummaries.reduce(
+      (sum, cell) => sum + cell.bytes,
       0,
     );
 
@@ -619,10 +597,10 @@ export function createStarOctreeProviderSession(createOptions) {
         revision: demandRevision,
         status,
         demandNodeCount,
-        currentProductCount: productsById.size,
+        currentCellCount: liveCellsByKey.size,
         activeWorkItemCount: getActiveWorkItemCount(),
       },
-      products: productSummaries,
+      cells: cellSummaries,
       memory: {
         liveBytes,
         borrowedBytes: options.memory.ownership === 'borrowed' ? liveBytes : 0,
@@ -631,6 +609,13 @@ export function createStarOctreeProviderSession(createOptions) {
       lastReasons,
       lastError,
     };
+  }
+
+  function abortActiveWork() {
+    if (!activeAbortController || activeAbortController.signal.aborted) {
+      return;
+    }
+    activeAbortController.abort(createAbortError());
   }
 
   function assertActive() {
@@ -642,6 +627,15 @@ export function createStarOctreeProviderSession(createOptions) {
   function getActiveWorkItemCount() {
     const sourceWorkCount = createOptions.getActiveWorkItemCount?.(sessionId);
     return activePlans.size + (sourceWorkCount ?? activePrefetches.size);
+  }
+
+  /**
+   * @param {{ token: number; signal: AbortSignal }} applyOptions
+   */
+  function isActivePlan(applyOptions) {
+    return !disposed &&
+      applyOptions.token === latestPlanToken &&
+      !applyOptions.signal.aborted;
   }
 }
 
@@ -837,9 +831,9 @@ function createDemandSignature(entries) {
 }
 
 /**
- * @param {ReturnType<typeof createAsyncQueue<StarOctreeProductDelta>>} queue
+ * @param {ReturnType<typeof createAsyncQueue<StarOctreeCellDelta>>} queue
  * @param {() => void} onReturn
- * @returns {AsyncIterable<StarOctreeProductDelta>}
+ * @returns {AsyncIterable<StarOctreeCellDelta>}
  */
 function createDeltaIterable(queue, onReturn) {
   return {
@@ -859,4 +853,17 @@ function createUnavailableTraversal() {
       throw new Error('Star octree traversal context is only available through the provider pipeline.');
     },
   };
+}
+
+function createAbortError() {
+  const error = new Error('Superseded star demand revision aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
+/**
+ * @param {unknown} error
+ */
+function isAbortError(error) {
+  return error instanceof Error && error.name === 'AbortError';
 }

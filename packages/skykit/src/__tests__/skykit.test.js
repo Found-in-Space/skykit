@@ -361,8 +361,8 @@ test('streaming stars plugin owns a streaming layer and exposes its snapshot', a
   assert.equal(plugin.getLayer()?.id, 'stars-plugin');
   assert.equal(plugin.getSnapshot().status, 'idle');
 
-  session.emit({ type: 'data/product-upsert', product: { id: 'product' } });
-  assert.ok(rendererCalls.includes('data/product-upsert'));
+  session.emit({ type: 'stars/cells-upsert', providerId: 'provider', cells: [] });
+  assert.ok(rendererCalls.includes('stars/cells-upsert'));
 
   await viewer.dispose();
   assert.equal(session.disposed, true);
@@ -1038,7 +1038,7 @@ test('streaming star layer creates a session, maps view updates, applies deltas,
     object3d,
     apply(delta) { rendererCalls.push(delta.type); },
     setView(view) { rendererCalls.push(`view:${view.limitingMagnitude}:${view.observerPosition.x}`); },
-    getSnapshot() { return { status: 'current', productCount: 0 }; },
+    getSnapshot() { return { status: 'current', cellCount: 0 }; },
     dispose() { rendererCalls.push('renderer.dispose'); },
   };
   const session = createFakeSession();
@@ -1078,9 +1078,9 @@ test('streaming star layer creates a session, maps view updates, applies deltas,
   assert.equal(session.updateCalls[0].patch.limitingMagnitude, 7);
   assert.ok(rendererCalls.includes('view:7:0.001'));
 
-  session.emit({ type: 'data/product-upsert', product: { id: 'p1' } });
-  session.emit({ type: 'data/representation-current', completeness: { phase: 'complete' } });
-  assert.deepEqual(rendererCalls.slice(-2), ['data/product-upsert', 'data/representation-current']);
+  session.emit({ type: 'stars/cells-upsert', providerId: 'provider', cells: [] });
+  session.emit({ type: 'stars/current', providerId: 'provider', cellKeys: [], starCount: 0 });
+  assert.deepEqual(rendererCalls.slice(-2), ['stars/cells-upsert', 'stars/current']);
   assert.equal(layer.getSnapshot().status, 'current');
 
   viewer.requestViewState({ observerPc: { x: 2, y: 0, z: 0 }, limitingMagnitude: 6.5 });
@@ -1091,7 +1091,7 @@ test('streaming star layer creates a session, maps view updates, applies deltas,
   await viewer.dispose();
   assert.equal(session.disposed, true);
   assert.ok(rendererCalls.includes('renderer.dispose'));
-  session.emit({ type: 'data/product-upsert', product: { id: 'late' } });
+  session.emit({ type: 'stars/cells-upsert', providerId: 'provider', cells: [] });
   assert.equal(rendererCalls.includes('late'), false);
 });
 

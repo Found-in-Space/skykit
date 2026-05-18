@@ -27,9 +27,11 @@ export function createUrlRangeSource(options) {
     /**
      * @param {number} start
      * @param {number} end
+     * @param {{ signal?: AbortSignal }} [fetchOptions]
      */
-    async fetchRange(start, end) {
+    async fetchRange(start, end, fetchOptions = {}) {
       assertValidRange(start, end);
+      throwIfAborted(fetchOptions.signal);
 
       const cache = await openPersistentCache();
       if (cache) {
@@ -53,10 +55,12 @@ export function createUrlRangeSource(options) {
         headers: {
           Range: `bytes=${start}-${end}`,
         },
+        signal: fetchOptions.signal,
       });
       options.stats.fetchTimeMs += nowMs() - startedAt;
 
       assertRangeResponse(response, options.url, start, end);
+      throwIfAborted(fetchOptions.signal);
       const buffer = await response.arrayBuffer();
 
       if (cache) {
@@ -81,6 +85,23 @@ export function createUrlRangeSource(options) {
 
     return persistentCachePromise;
   }
+}
+
+/**
+ * @param {AbortSignal | undefined} signal
+ */
+function throwIfAborted(signal) {
+  if (!signal?.aborted) {
+    return;
+  }
+
+  if (signal.reason instanceof Error) {
+    throw signal.reason;
+  }
+
+  const error = new Error('Range fetch aborted.');
+  error.name = 'AbortError';
+  throw error;
 }
 
 /**

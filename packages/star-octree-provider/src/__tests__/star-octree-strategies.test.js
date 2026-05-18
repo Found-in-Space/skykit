@@ -11,7 +11,7 @@ import {
   createTargetFrustumStrategy,
   distancePointToPathPc,
   planStarOctreeStrategyDemand,
-  streamVolumeProducts,
+  streamVolumeCells,
   warmVolumeRequests,
   withMotionLookahead,
 } from '../star-octree-strategies.js';
@@ -196,17 +196,17 @@ test('motion-lookahead decorator adds future-only prefetch demand', async () => 
   assert.equal(plan.metadata.motionLookahead.prefetchNodeCount, 1);
 });
 
-test('streamVolumeProducts passes a built-in volume strategy to the provider', async () => {
+test('streamVolumeCells passes a built-in volume strategy to the provider', async () => {
   let receivedStrategy = null;
   const provider = {
-    streamObjectBatches(options) {
+    streamCells(options) {
       receivedStrategy = options.strategy;
       return [createCurrentDelta()];
     },
   };
 
   const deltas = [];
-  for await (const delta of streamVolumeProducts(provider, {
+  for await (const delta of streamVolumeCells(provider, {
     type: 'sphere',
     centerPc: { x: 0, y: 0, z: 0 },
     radiusPc: 1,
@@ -215,17 +215,18 @@ test('streamVolumeProducts passes a built-in volume strategy to the provider', a
   }
 
   assert.equal(receivedStrategy.kind, 'sphere-volume');
-  assert.equal(deltas[0].type, 'data/representation-current');
+  assert.equal(deltas[0].type, 'stars/current');
 });
 
-test('warmVolumeRequests consumes streams and reports progress without exposing products', async () => {
+test('warmVolumeRequests consumes streams and reports progress with cells', async () => {
   const progress = [];
   const provider = {
-    streamObjectBatches() {
+    streamCells() {
       return [
         {
-          type: 'data/product-upsert',
-          product: { count: 2 },
+          type: 'stars/cells-upsert',
+          providerId: 'provider-a',
+          cells: [{ count: 2, cellKey: '0:0' }],
         },
         createCurrentDelta(),
       ];
@@ -246,11 +247,11 @@ test('warmVolumeRequests consumes streams and reports progress without exposing 
 
   assert.deepEqual(result, {
     requestCount: 1,
-    productCount: 1,
+    cellCount: 1,
     starCount: 2,
     currentCount: 1,
   });
-  assert.deepEqual(progress, ['data/product-upsert', 'data/representation-current']);
+  assert.deepEqual(progress, ['stars/cells-upsert', 'stars/current']);
 });
 
 function createCustomPlanStrategy(reason, entries) {
@@ -267,13 +268,10 @@ function createCustomPlanStrategy(reason, entries) {
 
 function createCurrentDelta() {
   return {
-    type: 'data/representation-current',
-    completeness: {
-      phase: 'complete',
-      stable: true,
-      loadedObjects: 0,
-      loadedNodes: 0,
-    },
+    type: 'stars/current',
+    providerId: 'provider-a',
+    cellKeys: [],
+    starCount: 0,
   };
 }
 
@@ -308,13 +306,15 @@ function createSelectionContext(strategy, nodes, visits = []) {
           });
           if (decision.include) {
             selectedNodeCount += 1;
-            entries.push({
-              node,
-              priority: decision.priority,
-              role: decision.role,
-              reasons: decision.reasons,
-              metadata: decision.metadata,
-            });
+            if (decision.emit !== false) {
+              entries.push({
+                node,
+                priority: decision.priority,
+                role: decision.role,
+                reasons: decision.reasons,
+                metadata: decision.metadata,
+              });
+            }
           } else {
             prunedNodeCount += 1;
           }

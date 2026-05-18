@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {
   OCTREE_DEFAULT,
   createStarOctreeProviderService,
-  streamVolumeProducts,
+  streamVolumeCells,
 } from '@found-in-space/star-octree-provider';
 import { createHrDiagramRenderer } from '@found-in-space/hr-diagram';
 
@@ -31,7 +31,7 @@ main().catch((error) => {
 });
 
 async function main() {
-  for await (const delta of streamVolumeProducts(provider, {
+  for await (const delta of streamVolumeCells(provider, {
     type: 'sphere',
     centerPc: { x: 0, y: 0, z: 0 },
     radiusPc,
@@ -39,11 +39,11 @@ async function main() {
     attributes: ['position', 'magAbs', 'teffLog8'],
     streaming: { batchMode: 'payload-range' },
   })) {
-    if (delta.type === 'data/product-upsert' || delta.type === 'data/product-remove') {
+    if (delta.type === 'stars/cells-upsert' || delta.type === 'stars/cells-remove') {
       hr.apply(delta);
       status.textContent = `${hr.getSnapshot().starCount.toLocaleString()} decoded stars`;
     }
-    if (delta.type === 'data/representation-current') {
+    if (delta.type === 'stars/current') {
       status.textContent = `${hr.getSnapshot().starCount.toLocaleString()} stars in ${radiusPc} pc volume`;
       break;
     }

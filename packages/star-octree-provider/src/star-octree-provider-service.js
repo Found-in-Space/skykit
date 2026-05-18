@@ -8,9 +8,9 @@ import { createStarOctreeWorkTracker } from './star-octree-work-tracker.js';
 /**
  * @typedef {import('./index.d.ts').StarOctreeDemandEntry} StarOctreeDemandEntry
  * @typedef {import('./index.d.ts').StarOctreeDemandPlan} StarOctreeDemandPlan
- * @typedef {import('./index.d.ts').StarOctreeObjectBatchStreamOptions} StarOctreeObjectBatchStreamOptions
+ * @typedef {import('./index.d.ts').StarOctreeCellStreamOptions} StarOctreeCellStreamOptions
  * @typedef {import('./index.d.ts').StarOctreePayloadStreamOptions} StarOctreePayloadStreamOptions
- * @typedef {import('./index.d.ts').StarOctreeProductDelta} StarOctreeProductDelta
+ * @typedef {import('./index.d.ts').StarOctreeCellDelta} StarOctreeCellDelta
  * @typedef {import('./index.d.ts').StarOctreeProviderDescriptor} StarOctreeProviderDescriptor
  * @typedef {import('./index.d.ts').StarOctreeProviderService} StarOctreeProviderService
  * @typedef {import('./index.d.ts').StarOctreeProviderServiceOptions} StarOctreeProviderServiceOptions
@@ -42,7 +42,7 @@ let nextSessionId = 1;
  *     fetchTimeMs: number;
  *   }) => {
  *     persistentCacheAvailable: boolean;
- *     fetchRange(start: number, end: number): Promise<ArrayBuffer>;
+ *     fetchRange(start: number, end: number, options?: { signal?: AbortSignal }): Promise<ArrayBuffer>;
  *   };
  * }} StarOctreeSourceConfig
  */
@@ -141,10 +141,10 @@ function createProviderService(options, internals, sourceConfig = {}) {
       : {
           /**
            * @param {StarOctreeDemandEntry[]} entries
-           * @param {Parameters<ReturnType<typeof createStarOctreePipeline>['streamProductsForEntries']>[1]} streamOptions
+           * @param {Parameters<ReturnType<typeof createStarOctreePipeline>['streamCellsForEntries']>[1]} streamOptions
            */
-          streamObjectProducts(entries, streamOptions) {
-            return pipeline.streamProductsForEntries(entries, streamOptions);
+          streamCells(entries, streamOptions) {
+            return pipeline.streamCellsForEntries(entries, streamOptions);
           },
           /**
            * @param {StarOctreeDemandEntry[]} entries
@@ -211,9 +211,9 @@ function createProviderService(options, internals, sourceConfig = {}) {
       return pipeline.streamPayloads(_options);
     },
 
-    streamObjectBatches(_options) {
+    streamCells(_options) {
       assertActive();
-      return pipeline.streamObjectBatches(_options);
+      return pipeline.streamCells(_options);
     },
 
     async inspectDemand(_options) {
@@ -221,9 +221,9 @@ function createProviderService(options, internals, sourceConfig = {}) {
       return pipeline.inspectDemand(_options);
     },
 
-    async fetchObjectBatch(_options) {
+    async fetchCells(_options) {
       assertActive();
-      return pipeline.fetchObjectBatch(_options);
+      return pipeline.fetchCells(_options);
     },
 
     dispose() {
@@ -290,7 +290,7 @@ function createDescriptor(providerId, options, indexSource, sourceConfig = {}) {
     datasetId: indexSnapshot.datasetId,
     datasetIdentitySource: indexSnapshot.datasetIdentitySource,
     url: sourceConfig.url === null ? null : options.url,
-    produces: ['index', 'object-batch'],
+    produces: ['index', 'star-cells'],
     objectTypes: ['star'],
     attributes: ['position', 'teffLog8', 'magAbs', 'objectRef', 'pickMeta'],
     capabilities: {
@@ -344,7 +344,7 @@ function createProviderSnapshot(
   );
   const indexSnapshot = indexSource.getSnapshot();
   const decodedSnapshot = pipeline.getDecodedCacheSnapshot();
-  const liveProductBytes = sessionSnapshots.reduce(
+  const liveCellBytes = sessionSnapshots.reduce(
     (sum, session) => sum + session.memory.liveBytes,
     0,
   );
@@ -372,16 +372,16 @@ function createProviderSnapshot(
       status: session.demand.status,
       demandNodeCount: session.demand.demandNodeCount,
       activeWorkItemCount: session.demand.activeWorkItemCount,
-      productCount: session.demand.currentProductCount,
+      cellCount: session.demand.currentCellCount,
       liveBytes: session.memory.liveBytes,
     })),
     workItems: workTracker.snapshot(),
     memory: {
       budgetBytes: decodedSnapshot.decodedCacheBudgetBytes,
-      usedBytes: liveProductBytes + decodedSnapshot.decodedPayloadBytes,
+      usedBytes: liveCellBytes + decodedSnapshot.decodedPayloadBytes,
       rawPayloadBytes: 0,
       decodedPayloadBytes: decodedSnapshot.decodedPayloadBytes,
-      liveProductBytes,
+      liveCellBytes,
       borrowedBytes,
       evictableBytes: decodedSnapshot.decodedPayloadBytes,
     },

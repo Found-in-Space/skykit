@@ -1,11 +1,12 @@
 # @found-in-space/hr-diagram
 
-Reusable alpha HR diagram helpers for Found in Space star products.
+Reusable alpha HR diagram helpers for Found in Space star cells.
 
-This package consumes star products and product deltas. It does not load octrees
-or own demand strategies. Observer, frustum, sphere-volume, path-volume, and
-motion-lookahead demand should be requested through
-`@found-in-space/star-octree-provider`, then applied to the HR renderer/store.
+This package consumes `StarCellData` values and `StarCellDelta` lifecycle
+events. It does not load octrees or own demand strategies. Observer, frustum,
+sphere-volume, path-volume, and motion-lookahead demand should be requested
+through `@found-in-space/star-octree-provider`, then applied to the HR
+renderer/store.
 
 The package has two rendering paths:
 

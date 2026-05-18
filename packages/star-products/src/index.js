@@ -1,13 +1,5 @@
-import {
-  consumeProductDeltas,
-  createRepresentationStore,
-} from '@found-in-space/product-stream';
-
-export { consumeProductDeltas } from '@found-in-space/product-stream';
-
-export const consumeStarProductDeltas = consumeProductDeltas;
-export const ERR_STAR_PRODUCTS_TRANSFER_UNAVAILABLE =
-  'ERR_STAR_PRODUCTS_TRANSFER_UNAVAILABLE';
+export const ERR_STAR_CELLS_TRANSFER_UNAVAILABLE =
+  'ERR_STAR_CELLS_TRANSFER_UNAVAILABLE';
 
 const DEFAULT_COORDINATE_OUTPUT = {
   name: 'position',
@@ -20,151 +12,114 @@ const MAX_MORTON_LEVEL = 21;
 let transferableSupport = null;
 
 /**
+ * Build one decoded, render-ready star cell.
+ *
  * @template Node
- * @param {import('./index.d.ts').CreateStarObjectBatchProductOptions<Node>} options
- * @returns {import('./index.d.ts').StarObjectBatchProduct}
+ * @param {import('./index.d.ts').CreateStarCellDataOptions<Node>} options
+ * @returns {import('./index.d.ts').StarCellData}
  */
-export function createStarObjectBatchProduct(options) {
+export function createStarCellData(options) {
   const attributes = options.attributes ?? ['position', 'teffLog8', 'magAbs'];
   const coordinates = normalizeCoordinates(options.coordinates);
   const includeTeffLog8 = attributes.includes('teffLog8');
   const includeMagAbs = attributes.includes('magAbs');
   const includePickMeta = attributes.includes('pickMeta');
   const includeRefs = attributes.includes('objectRef');
-  const totalCount = options.entries.reduce(
-    (sum, entry) => sum + entry.decoded.count,
-    0,
-  );
-
-  const positions = new Float32Array(totalCount * 3);
-  const teffLog8 = includeTeffLog8 ? new Uint8Array(totalCount) : null;
-  const magAbs = includeMagAbs ? new Float32Array(totalCount) : null;
-  /** @type {import('./index.d.ts').CanonicalObjectRef[]} */
-  const refs = [];
+  const { node, decoded } = options;
+  const mortonCode = resolveNodeMortonCode(node);
+  const cellKey = createStarCellKey(node.level, mortonCode);
+  const positions = new Float32Array(decoded.count * 3);
+  const teffLog8 = includeTeffLog8 ? new Uint8Array(decoded.count) : null;
+  const magAbs = includeMagAbs ? new Float32Array(decoded.count) : null;
+  /** @type {import('./index.d.ts').StarObjectRef[] | undefined} */
+  let refs;
   /** @type {import('./index.d.ts').StarPickMeta[] | undefined} */
   const pickMeta = includePickMeta ? [] : undefined;
-  /** @type {import('./index.d.ts').StarObjectBatchNodeSummary[]} */
-  const nodes = [];
 
-  let offset = 0;
+  writePositions({
+    output: positions,
+    node,
+    decoded,
+    coordinates,
+  });
 
-  for (const entry of options.entries) {
-    const { node, decoded } = entry;
-    const mortonCode = resolveNodeMortonCode(node);
+  if (teffLog8) {
+    teffLog8.set(decoded.teffLog8 ?? new Uint8Array(decoded.count));
+  }
 
-    writePositions({
-      output: positions,
-      outputOffset: offset,
-      node,
-      decoded,
-      coordinates,
-    });
+  if (magAbs) {
+    magAbs.set(decoded.magAbs ?? new Float32Array(decoded.count));
+  }
 
-    if (teffLog8) {
-      teffLog8.set(decoded.teffLog8 ?? new Uint8Array(decoded.count), offset);
-    }
-
-    if (magAbs) {
-      magAbs.set(decoded.magAbs ?? new Float32Array(decoded.count), offset);
-    }
-
-    if (includeRefs) {
-      if (decoded.refs?.length === decoded.count) {
-        refs.push(...decoded.refs);
-      } else {
-        for (let ordinal = 0; ordinal < decoded.count; ordinal += 1) {
-          refs.push({
-            level: node.level,
-            mortonCode,
-            ordinal,
-          });
-        }
-      }
-    }
-
-    nodes.push({
-      level: node.level,
-      mortonCode,
-      gridX: node.gridX,
-      gridY: node.gridY,
-      gridZ: node.gridZ,
-      centerX: node.centerX,
-      centerY: node.centerY,
-      centerZ: node.centerZ,
-      halfSize: node.halfSize,
-      count: decoded.count,
-      offset,
-    });
-
-    if (pickMeta) {
+  if (includeRefs) {
+    refs = [];
+    if (decoded.refs?.length === decoded.count) {
+      refs.push(...decoded.refs.map((ref, ordinal) => normalizeStarObjectRef(ref, {
+        datasetId: options.datasetId,
+        level: node.level,
+        mortonCode,
+        ordinal,
+      })));
+    } else {
       for (let ordinal = 0; ordinal < decoded.count; ordinal += 1) {
-        pickMeta.push({
+        refs.push({
+          datasetId: options.datasetId ?? null,
           level: node.level,
           mortonCode,
           ordinal,
-          gridX: node.gridX,
-          gridY: node.gridY,
-          gridZ: node.gridZ,
-          centerX: node.centerX,
-          centerY: node.centerY,
-          centerZ: node.centerZ,
         });
       }
     }
-
-    offset += decoded.count;
   }
 
-  const attributeBytes =
-    (teffLog8?.byteLength ?? 0) + (magAbs?.byteLength ?? 0);
+  if (pickMeta) {
+    for (let ordinal = 0; ordinal < decoded.count; ordinal += 1) {
+      pickMeta.push({
+        cellKey,
+        level: node.level,
+        mortonCode,
+        ordinal,
+        gridX: node.gridX,
+        gridY: node.gridY,
+        gridZ: node.gridZ,
+        centerX: node.centerX,
+        centerY: node.centerY,
+        centerZ: node.centerZ,
+      });
+    }
+  }
 
-  /** @type {import('./index.d.ts').StarObjectBatchProduct} */
-  const product = {
-    productType: 'object-batch',
-    id: createStarProductId(options.streamId, options.productIndex),
-    providerId: options.providerId,
-    ...(options.sessionId ? { sessionId: options.sessionId } : {}),
-    layerId: 'stars',
-    objectType: 'star',
-    streamId: options.streamId,
-    ...(options.viewRevision !== undefined
-      ? { viewRevision: options.viewRevision }
-      : {}),
-    ...(options.demandRevision !== undefined
-      ? { demandRevision: options.demandRevision }
-      : {}),
-    count: totalCount,
-    nodes,
-    coordinates: {
-      primary: {
-        name: coordinates.name,
-        frame: coordinates.frame,
-        representation: 'cartesian3',
-        units: coordinates.units,
-        stride: 3,
-        components: positions,
+  /** @type {import('./index.d.ts').StarCellData} */
+  const cell = {
+    cellKey,
+    cell: {
+      level: node.level,
+      mortonCode,
+    },
+    bounds: {
+      centerPc: {
+        x: node.centerX,
+        y: node.centerY,
+        z: node.centerZ,
       },
+      halfSizePc: node.halfSize,
+      gridX: node.gridX,
+      gridY: node.gridY,
+      gridZ: node.gridZ,
+    },
+    count: decoded.count,
+    coordinates: {
+      name: coordinates.name,
+      frame: coordinates.frame,
+      units: coordinates.units,
+      components: positions,
     },
     attributes: {
-      ...(teffLog8
-        ? { teffLog8: { name: 'teffLog8', kind: 'number', values: teffLog8 } }
-        : {}),
-      ...(magAbs
-        ? { magAbs: { name: 'magAbs', kind: 'number', unit: 'mag', values: magAbs } }
-        : {}),
+      ...(teffLog8 ? { teffLog8 } : {}),
+      ...(magAbs ? { magAbs } : {}),
     },
-    ...(includeRefs ? { refs } : {}),
+    ...(refs ? { refs } : {}),
     ...(pickMeta ? { pickMeta } : {}),
-    completeness: {
-      phase: options.completenessPhase ?? 'partial',
-      stable: true,
-      loadedObjects: totalCount,
-      loadedNodes: options.entries.length,
-    },
-    memory: {
-      ownership: options.memoryOwnership ?? 'borrowed',
-      bytes: positions.byteLength + attributeBytes,
-    },
   };
 
   if (options.memoryOwnership === 'transfer') {
@@ -173,19 +128,22 @@ export function createStarObjectBatchProduct(options) {
       ...(teffLog8 ? [teffLog8.buffer] : []),
       ...(magAbs ? [magAbs.buffer] : []),
     ];
-    return cloneWithTransferredBuffers(product, transferBuffers);
+    return cloneWithTransferredBuffers(cell, transferBuffers);
   }
 
-  return product;
+  return cell;
 }
 
 /**
- * @param {string} streamId
- * @param {number} productIndex
- * @returns {string}
+ * @param {import('./index.d.ts').StarCellData} cell
+ * @returns {number}
  */
-export function createStarProductId(streamId, productIndex) {
-  return `${streamId}:product:${productIndex}`;
+export function estimateStarCellBytes(cell) {
+  return (
+    (cell.coordinates.components.byteLength ?? 0) +
+    (cell.attributes.teffLog8?.byteLength ?? 0) +
+    (cell.attributes.magAbs?.byteLength ?? 0)
+  );
 }
 
 /**
@@ -238,51 +196,142 @@ export function decodeMorton3D(mortonCode, level) {
 /**
  * @param {number | { level: number; mortonCode?: string | number | bigint; gridX?: number; gridY?: number; gridZ?: number }} levelOrCell
  * @param {string | number | bigint} [mortonCode]
+ * @returns {import('./index.d.ts').StarCellKey}
  */
 export function createStarCellKey(levelOrCell, mortonCode) {
   if (typeof levelOrCell === 'object' && levelOrCell) {
-    return `${levelOrCell.level}:${resolveNodeMortonCode(levelOrCell)}`;
+    return /** @type {import('./index.d.ts').StarCellKey} */ (
+      `${levelOrCell.level}:${resolveNodeMortonCode(levelOrCell)}`
+    );
   }
 
-  return `${levelOrCell}:${normalizeMortonCode(mortonCode)}`;
+  return /** @type {import('./index.d.ts').StarCellKey} */ (
+    `${levelOrCell}:${normalizeMortonCode(mortonCode)}`
+  );
 }
 
-export function createStarRepresentationStore() {
-  const baseStore = createRepresentationStore({
-    getProductId: (product) => product.id,
-    getProductBytes: (product) => product.memory?.bytes ?? 0,
-  });
+/**
+ * @param {string} cellKey
+ * @returns {import('./index.d.ts').StarCellRef}
+ */
+export function parseStarCellKey(cellKey) {
+  const match = /^(\d+):(\d+)$/.exec(cellKey);
+  if (!match) {
+    throw new TypeError('Star cell key must be formatted as "level:mortonCode".');
+  }
 
   return {
-    apply: baseStore.apply,
-    subscribe: baseStore.subscribe,
-    getProducts: baseStore.getProducts,
+    level: Number(match[1]),
+    mortonCode: normalizeMortonCode(match[2]),
+  };
+}
+
+export function createStarCellStore() {
+  /** @type {Map<import('./index.d.ts').StarCellKey, import('./index.d.ts').StarCellData>} */
+  const cellsByKey = new Map();
+  /** @type {Set<() => void>} */
+  const listeners = new Set();
+  /** @type {import('./index.d.ts').StarCellDelta | null} */
+  let lastDelta = null;
+  /** @type {import('./index.d.ts').StarCellDelta | null} */
+  let lastError = null;
+
+  return {
+    apply,
+    subscribe,
+    getCells,
+    getCell,
     getStarCount,
     stars,
     getObjectRef,
     getPickMeta,
     getSnapshot,
-    clear: baseStore.clear,
+    clear,
   };
 
+  /**
+   * @param {import('./index.d.ts').StarCellDelta} delta
+   */
+  function apply(delta) {
+    if (!delta || typeof delta.type !== 'string') {
+      throw new TypeError('Star cell store requires a StarCellDelta.');
+    }
+
+    if (delta.type === 'stars/cells-upsert') {
+      for (const cell of delta.cells) {
+        cellsByKey.set(cell.cellKey, cell);
+      }
+      lastDelta = delta;
+      notify();
+      return;
+    }
+
+    if (delta.type === 'stars/cells-remove') {
+      for (const cellKey of delta.cellKeys) {
+        cellsByKey.delete(cellKey);
+      }
+      lastDelta = delta;
+      notify();
+      return;
+    }
+
+    if (delta.type === 'stars/current') {
+      lastDelta = delta;
+      notify();
+      return;
+    }
+
+    if (delta.type === 'stars/error') {
+      lastDelta = delta;
+      lastError = delta;
+      notify();
+      return;
+    }
+
+    throw new TypeError(`Unsupported star cell delta type: ${delta.type}`);
+  }
+
+  /**
+   * @param {() => void} listener
+   */
+  function subscribe(listener) {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  }
+
+  function getCells() {
+    return Array.from(cellsByKey.values())
+      .sort((left, right) => left.cellKey.localeCompare(right.cellKey));
+  }
+
+  /**
+   * @param {import('./index.d.ts').StarCellKey} cellKey
+   */
+  function getCell(cellKey) {
+    return cellsByKey.get(cellKey) ?? null;
+  }
+
   function getStarCount() {
-    return baseStore.getProducts().reduce(
-      (sum, product) => sum + product.count,
-      0,
-    );
+    let starCount = 0;
+    for (const cell of cellsByKey.values()) {
+      starCount += cell.count;
+    }
+    return starCount;
   }
 
   function* stars() {
-    for (const product of baseStore.getProducts()) {
-      const positions = product.coordinates.primary.components;
-      const teff = product.attributes.teffLog8?.values;
-      const magAbs = product.attributes.magAbs?.values;
+    for (const cell of getCells()) {
+      const positions = cell.coordinates.components;
+      const teff = cell.attributes.teffLog8;
+      const magAbs = cell.attributes.magAbs;
 
-      for (let objectIndex = 0; objectIndex < product.count; objectIndex += 1) {
+      for (let objectIndex = 0; objectIndex < cell.count; objectIndex += 1) {
         const positionIndex = objectIndex * 3;
         yield {
-          product,
-          productId: product.id,
+          cell,
+          cellKey: cell.cellKey,
           objectIndex,
           position: {
             x: positions[positionIndex] ?? 0,
@@ -291,45 +340,86 @@ export function createStarRepresentationStore() {
           },
           ...(teff ? { teffLog8: teff[objectIndex] } : {}),
           ...(magAbs ? { magAbs: magAbs[objectIndex] } : {}),
-          objectRef: product.refs?.[objectIndex] ?? null,
-          pickMeta: product.pickMeta?.[objectIndex] ?? null,
+          objectRef: cell.refs?.[objectIndex] ?? null,
+          pickMeta: cell.pickMeta?.[objectIndex] ?? null,
         };
       }
     }
   }
 
   /**
-   * @param {string} productId
+   * @param {import('./index.d.ts').StarCellKey} cellKey
    * @param {number} objectIndex
    */
-  function getObjectRef(productId, objectIndex) {
-    const product = findProduct(productId);
-    return product?.refs?.[objectIndex] ?? null;
+  function getObjectRef(cellKey, objectIndex) {
+    const cell = cellsByKey.get(cellKey);
+    return cell?.refs?.[objectIndex] ?? null;
   }
 
   /**
-   * @param {string} productId
+   * @param {import('./index.d.ts').StarCellKey} cellKey
    * @param {number} objectIndex
    */
-  function getPickMeta(productId, objectIndex) {
-    const product = findProduct(productId);
-    return product?.pickMeta?.[objectIndex] ?? null;
+  function getPickMeta(cellKey, objectIndex) {
+    const cell = cellsByKey.get(cellKey);
+    return cell?.pickMeta?.[objectIndex] ?? null;
   }
 
   function getSnapshot() {
+    let bytes = 0;
+    for (const cell of cellsByKey.values()) {
+      bytes += estimateStarCellBytes(cell);
+    }
+
     return {
-      ...baseStore.getSnapshot(),
+      cellCount: cellsByKey.size,
       starCount: getStarCount(),
+      bytes,
+      lastDelta,
+      lastError,
     };
   }
 
-  /**
-   * @param {string} productId
-   */
-  function findProduct(productId) {
-    return baseStore.getProducts()
-      .find((product) => product.id === productId) ?? null;
+  function clear() {
+    cellsByKey.clear();
+    lastDelta = null;
+    lastError = null;
+    notify();
   }
+
+  function notify() {
+    for (const listener of listeners) {
+      listener();
+    }
+  }
+}
+
+/**
+ * @param {AsyncIterable<import('./index.d.ts').StarCellDelta> | Iterable<import('./index.d.ts').StarCellDelta>} deltas
+ * @param {import('./index.d.ts').StarCellStore} store
+ * @param {{ stopOnCurrent?: boolean; throwOnError?: boolean }} [options]
+ */
+export async function consumeStarCellDeltas(deltas, store, options = {}) {
+  const throwOnError = options.throwOnError !== false;
+  let processed = 0;
+
+  for await (const delta of deltas) {
+    store.apply(delta);
+    processed += 1;
+
+    if (delta.type === 'stars/error' && throwOnError) {
+      const error = new Error(delta.error.message);
+      // @ts-expect-error conventional error code for callers that branch.
+      error.code = delta.error.code;
+      throw error;
+    }
+
+    if (delta.type === 'stars/current' && options.stopOnCurrent) {
+      return { processed, stoppedOn: 'current' };
+    }
+  }
+
+  return { processed, stoppedOn: null };
 }
 
 /**
@@ -403,23 +493,6 @@ export function supportsTransferableBuffers() {
 }
 
 /**
- * @template T
- * @param {T} value
- * @param {ArrayBuffer[]} buffers
- * @returns {T}
- */
-function cloneWithTransferredBuffers(value, buffers) {
-  if (!supportsTransferableBuffers()) {
-    const error = new Error('Transferable star object buffers are not available in this runtime.');
-    // @ts-expect-error attaching a conventional error code is intentional.
-    error.code = ERR_STAR_PRODUCTS_TRANSFER_UNAVAILABLE;
-    throw error;
-  }
-
-  return structuredClone(value, { transfer: buffers });
-}
-
-/**
  * @param {import('./index.d.ts').StarCoordinateOutput | undefined} coordinates
  * @returns {{
  *   name: string;
@@ -442,14 +515,13 @@ function normalizeCoordinates(coordinates) {
 /**
  * @param {{
  *   output: Float32Array;
- *   outputOffset: number;
- *   node: import('./index.d.ts').StarProductSourceNode;
+ *   node: import('./index.d.ts').StarCellSourceNode;
  *   decoded: import('./index.d.ts').DecodedStarSegment;
  *   coordinates: ReturnType<typeof normalizeCoordinates>;
  * }} options
  */
 function writePositions(options) {
-  const { output, outputOffset, node, decoded, coordinates } = options;
+  const { output, node, decoded, coordinates } = options;
 
   for (let ordinal = 0; ordinal < decoded.count; ordinal += 1) {
     const sourceIndex = ordinal * 3;
@@ -464,7 +536,7 @@ function writePositions(options) {
       ordinal,
     });
 
-    const outputIndex = (outputOffset + ordinal) * 3;
+    const outputIndex = ordinal * 3;
     if (Array.isArray(transformed)) {
       output[outputIndex] = transformed[0] ?? 0;
       output[outputIndex + 1] = transformed[1] ?? 0;
@@ -479,6 +551,20 @@ function writePositions(options) {
       output[outputIndex + 2] = zPc;
     }
   }
+}
+
+/**
+ * @param {import('./index.d.ts').StarObjectRef | undefined} ref
+ * @param {{ datasetId?: string | null; level: number; mortonCode: string; ordinal: number }} fallback
+ * @returns {import('./index.d.ts').StarObjectRef}
+ */
+function normalizeStarObjectRef(ref, fallback) {
+  return {
+    datasetId: ref?.datasetId ?? fallback.datasetId ?? null,
+    level: ref?.level ?? fallback.level,
+    mortonCode: normalizeMortonCode(ref?.mortonCode ?? fallback.mortonCode),
+    ordinal: ref?.ordinal ?? fallback.ordinal,
+  };
 }
 
 /**
@@ -555,6 +641,23 @@ function assertMortonBounds(mortonCode, level) {
   if (mortonCode > maxMortonCode) {
     throw new RangeError(`mortonCode exceeds the maximum value for level ${level}`);
   }
+}
+
+/**
+ * @template T
+ * @param {T} value
+ * @param {ArrayBuffer[]} buffers
+ * @returns {T}
+ */
+function cloneWithTransferredBuffers(value, buffers) {
+  if (!supportsTransferableBuffers()) {
+    const error = new Error('Transferable star cell buffers are not available in this runtime.');
+    // @ts-expect-error attaching a conventional error code is intentional.
+    error.code = ERR_STAR_CELLS_TRANSFER_UNAVAILABLE;
+    throw error;
+  }
+
+  return structuredClone(value, { transfer: buffers });
 }
 
 /**

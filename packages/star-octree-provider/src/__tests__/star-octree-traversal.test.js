@@ -80,6 +80,67 @@ test('traversal reads same-shard children deterministically', async () => {
   }
 });
 
+test('traversal can descend through a node without emitting its payload', async () => {
+  const indexOffset = HEADER_SIZE + DESCRIPTOR_SIZE;
+  const rootShard = createShardBytes({
+    entryNodes: [1, 0, 0, 0, 0, 0, 0, 0],
+    nodes: [
+      createShardNodeRecord({
+        flags: STAR_HAS_PAYLOAD,
+        firstChild: 2,
+        childMask: 0b00000011,
+        localDepth: 1,
+        localPath: 0,
+        payloadOffset: 1000,
+        payloadLength: 10,
+      }),
+      createShardNodeRecord({
+        flags: STAR_HAS_PAYLOAD,
+        localDepth: 2,
+        localPath: 0,
+        payloadOffset: 1010,
+        payloadLength: 10,
+      }),
+      createShardNodeRecord({
+        flags: STAR_HAS_PAYLOAD,
+        localDepth: 2,
+        localPath: 1,
+        payloadOffset: 1020,
+        payloadLength: 10,
+      }),
+    ],
+  });
+  const { indexSource, restoreFetch } = createIndexSourceForBytes(concatBytes([
+    createStarHeaderBytes({ indexOffset, indexLength: rootShard.length }),
+    createOdscDescriptorBytes(),
+    rootShard,
+  ]));
+
+  try {
+    const bootstrap = await indexSource.ensureBootstrapLoaded();
+    const traversal = await traverseOctree({
+      indexSource,
+      bootstrap,
+      visitor(node) {
+        return {
+          include: true,
+          descend: true,
+          emit: node.nodeIndex !== 1,
+        };
+      },
+    });
+
+    assert.deepEqual(
+      traversal.nodes.map(createStarCellKey),
+      ['1:0', '1:1'],
+    );
+    assert.equal(traversal.stats.selectedNodeCount, 3);
+    assert.equal(traversal.stats.payloadNodeCount, 2);
+  } finally {
+    restoreFetch();
+  }
+});
+
 test('traversal follows frontier shard continuations', async () => {
   const indexOffset = HEADER_SIZE + DESCRIPTOR_SIZE;
   const rootShardLength = SHARD_HEADER_SIZE + SHARD_NODE_SIZE + 8;
@@ -210,7 +271,7 @@ test('observer-shell demand uses header magLimit for pruning', async () => {
   }
 });
 
-test('observer-shell demand sizes magnitude shell by full cell width', async () => {
+test('observer-shell demand matches the legacy half-size magnitude shell', async () => {
   const indexOffset = HEADER_SIZE + DESCRIPTOR_SIZE;
   const rootShard = createShardBytes({
     parentGlobalDepth: 0,
@@ -246,7 +307,7 @@ test('observer-shell demand sizes magnitude shell by full cell width', async () 
   };
 
   try {
-    assert.equal(loadRadiusForMagnitudeShell(50, 6.5, 6.5), 100);
+    assert.equal(loadRadiusForMagnitudeShell(50, 6.5, 6.5), 50);
 
     const included = await planObserverShellDemand({
       indexSource,
@@ -254,7 +315,7 @@ test('observer-shell demand sizes magnitude shell by full cell width', async () 
         ...baseContext,
         view: {
           revision: 1,
-          observerPc: { x: 75, y: -50, z: -50 },
+          observerPc: { x: 50, y: -50, z: -50 },
           limitingMagnitude: 6.5,
         },
       }),
@@ -265,13 +326,13 @@ test('observer-shell demand sizes magnitude shell by full cell width', async () 
         ...baseContext,
         view: {
           revision: 2,
-          observerPc: { x: 125, y: -50, z: -50 },
+          observerPc: { x: 51, y: -50, z: -50 },
           limitingMagnitude: 6.5,
         },
       }),
     });
     assert.equal(included.entries.length, 1);
-    assert.equal(included.entries[0].metadata.loadRadiusPc, 100);
+    assert.equal(included.entries[0].metadata.loadRadiusPc, 50);
     assert.equal(pruned.entries.length, 0);
     assert.equal(pruned.metadata.prunedNodeCount, 1);
   } finally {
@@ -707,10 +768,12 @@ function withTraversalContext(indexSource, context) {
             bootstrap,
           });
           const include = decision.include === true;
+          const emit = decision.emit !== false;
           const descend = decision.descend !== false;
 
           if (
             include &&
+            emit &&
             (node.flags & STAR_HAS_PAYLOAD) &&
             node.payloadLength > 0
           ) {
@@ -726,6 +789,7 @@ function withTraversalContext(indexSource, context) {
 
           return {
             include,
+            emit,
             descend: include && descend,
             distancePc: decision.distancePc,
           };

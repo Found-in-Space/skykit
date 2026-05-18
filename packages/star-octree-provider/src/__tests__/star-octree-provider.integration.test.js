@@ -8,7 +8,7 @@ import {
 
 const integrationEnabled = process.env.STAR_OCTREE_PROVIDER_INTEGRATION === '1';
 
-test('streamObjectBatches supports nearest visible stars against the public octree', {
+test('streamCells supports nearest visible stars against the public octree', {
   skip: integrationEnabled
     ? false
     : 'set STAR_OCTREE_PROVIDER_INTEGRATION=1 to run the public octree integration test',
@@ -25,26 +25,28 @@ test('streamObjectBatches supports nearest visible stars against the public octr
   let upsertCount = 0;
   let sawCurrent = false;
 
-  for await (const delta of provider.streamObjectBatches({
+  for await (const delta of provider.streamCells({
     strategy: { kind: 'observer-shell' },
     view: {
       observerPc: pointPc,
       limitingMagnitude,
     },
   })) {
-    if (delta.type === 'data/product-upsert') {
+    if (delta.type === 'stars/cells-upsert') {
       upsertCount += 1;
-      incorporateProduct(nearest, delta.product, pointPc, limitingMagnitude, 100);
+      for (const cell of delta.cells) {
+        incorporateCell(nearest, cell, pointPc, limitingMagnitude, 100);
+      }
     }
 
-    if (delta.type === 'data/representation-current') {
+    if (delta.type === 'stars/current') {
       sawCurrent = true;
     }
   }
 
   assert.equal(sawCurrent, true);
   assert.equal(nearest.length, 100);
-  assert.ok(upsertCount > 1, 'expected progressive product-upsert events');
+  assert.ok(upsertCount > 1, 'expected progressive cell upsert events');
 
   for (let index = 1; index < nearest.length; index += 1) {
     assert.ok(nearest[index - 1].distancePc <= nearest[index].distancePc);
@@ -55,12 +57,12 @@ test('streamObjectBatches supports nearest visible stars against the public octr
   }
 });
 
-function incorporateProduct(nearest, product, pointPc, limitingMagnitude, count) {
-  const positions = product.coordinates.primary.components;
-  const magAbs = product.attributes.magAbs?.values;
+function incorporateCell(nearest, cell, pointPc, limitingMagnitude, count) {
+  const positions = cell.coordinates.components;
+  const magAbs = cell.attributes.magAbs;
   if (!magAbs) return;
 
-  for (let index = 0; index < product.count; index += 1) {
+  for (let index = 0; index < cell.count; index += 1) {
     const positionPc = {
       x: positions[index * 3],
       y: positions[index * 3 + 1],

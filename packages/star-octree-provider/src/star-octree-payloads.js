@@ -1,5 +1,5 @@
 /**
- * @typedef {import('@found-in-space/star-products').CanonicalObjectRef} CanonicalObjectRef
+ * @typedef {import('@found-in-space/star-products').StarObjectRef} StarObjectRef
  * @typedef {import('@found-in-space/star-products').DecodedStarSegment} DecodedStarSegment
  * @typedef {import('./index.d.ts').StarOctreeRuntimeNode} StarOctreeRuntimeNode
  */
@@ -149,7 +149,7 @@ export function decodeStarPayload(buffer, node, options = {}) {
   const positionsPc = new Float32Array(count * 3);
   const teffLog8 = new Uint8Array(count);
   const magAbs = new Float32Array(count);
-  /** @type {CanonicalObjectRef[]} */
+  /** @type {StarObjectRef[]} */
   const refs = [];
 
   for (let ordinal = 0; ordinal < count; ordinal += 1) {

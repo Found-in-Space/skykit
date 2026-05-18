@@ -5,7 +5,7 @@ import {
 import { createStarCellKey } from '@found-in-space/star-products';
 
 /**
- * @typedef {import('./index.d.ts').StarOctreeBootstrapProduct} StarOctreeBootstrapProduct
+ * @typedef {import('./index.d.ts').StarOctreeBootstrapIndex} StarOctreeBootstrapIndex
  * @typedef {import('./index.d.ts').StarOctreeRuntimeNode} StarOctreeRuntimeNode
  * @typedef {ReturnType<typeof import('./star-octree-index-source.js').createStarOctreeIndexSource>} StarOctreeIndexSource
  */
@@ -71,14 +71,16 @@ export function createTraversalStats() {
 /**
  * @param {{
  *   indexSource: StarOctreeIndexSource;
- *   bootstrap: StarOctreeBootstrapProduct;
+ *   bootstrap: StarOctreeBootstrapIndex;
  *   distanceToNode?: (node: StarOctreeRuntimeNode) => number;
  *   visitor: (node: StarOctreeRuntimeNode) => Promise<{
  *     include: boolean;
+ *     emit?: boolean;
  *     descend: boolean;
  *     distancePc?: number;
  *   }> | {
  *     include: boolean;
+ *     emit?: boolean;
  *     descend: boolean;
  *     distancePc?: number;
  *   };
@@ -118,7 +120,11 @@ export async function traverseOctree(options) {
     }
 
     stats.selectedNodeCount += 1;
-    if ((item.node.flags & STAR_HAS_PAYLOAD) && item.node.payloadLength > 0) {
+    if (
+      decision.emit !== false &&
+      (item.node.flags & STAR_HAS_PAYLOAD) &&
+      item.node.payloadLength > 0
+    ) {
       stats.payloadNodeCount += 1;
       selected.push(item.node);
     }
@@ -149,7 +155,7 @@ export async function traverseOctree(options) {
 
 /**
  * @param {StarOctreeIndexSource} indexSource
- * @param {StarOctreeBootstrapProduct} bootstrap
+ * @param {StarOctreeBootstrapIndex} bootstrap
  * @param {StarOctreeRuntimeNode} node
  * @param {TraversalStats} stats
  * @returns {Promise<StarOctreeRuntimeNode[]>}

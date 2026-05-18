@@ -24,14 +24,14 @@ return provider.describe();`,
   },
   {
     id: 'stream',
-    title: '2. Stream Object Batches',
+    title: '2. Stream Cells',
     lead: 'Change the observer position or magnitude where the provider uses them.',
     source: `if (!provider) throw new Error('Run cell 1 first.');
 
-products = [];
-showProgress(products);
+cells = [];
+showProgress(cells);
 
-const stream = provider.streamObjectBatches({
+const stream = provider.streamCells({
   strategy: createObserverShellStrategy(),
   view: {
     observerPc: { x: 0, y: 0, z: 0 },
@@ -43,30 +43,30 @@ const stream = provider.streamObjectBatches({
 for await (const delta of stream) {
   console.log(delta);
 
-  if (delta.type === 'data/product-upsert') {
-    products.push(delta.product);
-    showProgress(products);
+  if (delta.type === 'stars/cells-upsert') {
+    cells.push(...delta.cells);
+    showProgress(cells);
     continue;
   }
 
-  if (delta.type === 'data/product-error') {
-    throw new Error(delta.error?.message ?? 'Product stream failed.');
+  if (delta.type === 'stars/error') {
+    throw new Error(delta.error?.message ?? 'Cell stream failed.');
   }
 
-  if (delta.type === 'data/representation-current') {
+  if (delta.type === 'stars/current') {
     break;
   }
 }
 
-return summarizeProducts(products);`,
+return summarizeCells(cells);`,
   },
   {
     id: 'inspect',
     title: '3. Inspect Application Rows',
-    lead: 'This is application logic: turn provider products into the rows you want to show.',
-    source: `if (!products.length) throw new Error('Run cell 2 first.');
+    lead: 'This is application logic: turn provider cells into the rows you want to show.',
+    source: `if (!cells.length) throw new Error('Run cell 2 first.');
 
-rows = rowsFromProducts(products).slice(0, 40);
+rows = rowsFromCells(cells).slice(0, 40);
 renderTable(rows);
 
 return \`Rendered \${rows.length} rows.\`;`,
@@ -78,7 +78,7 @@ const elements = {
   reset: document.querySelector('[data-reset]'),
   status: document.querySelector('[data-status]'),
   notebook: document.querySelector('[data-notebook]'),
-  productSummary: document.querySelector('[data-product-summary]'),
+  cellSummary: document.querySelector('[data-cell-summary]'),
   stars: document.querySelector('[data-stars]'),
 };
 
@@ -89,17 +89,17 @@ const context = {
   createObserverShellStrategy,
   createStarOctreeProviderService,
   provider: null,
-  products: [],
+  cells: [],
   rows: [],
   disposeProvider,
   renderTable,
-  rowsFromProducts,
+  rowsFromCells,
   showProgress,
-  summarizeProducts,
+  summarizeCells,
 };
 
 renderNotebook();
-renderSummary(summarizeProducts([]));
+renderSummary(summarizeCells([]));
 renderTable([]);
 
 elements.runAll.addEventListener('click', () => {
@@ -242,10 +242,10 @@ function resetCells() {
     cell.output.textContent = 'Not run yet.';
     cell.root.dataset.state = '';
   }
-  context.products = [];
+  context.cells = [];
   context.rows = [];
   disposeProvider();
-  renderSummary(summarizeProducts([]));
+  renderSummary(summarizeCells([]));
   renderTable([]);
   setStatus('ready');
 }
@@ -277,36 +277,34 @@ function disposeProvider() {
 }
 
 /**
- * @param {Array<import('@found-in-space/star-products').StarObjectBatchProduct>} products
+ * @param {Array<import('@found-in-space/star-products').StarCellData>} cells
  */
-function showProgress(products) {
-  renderSummary(summarizeProducts(products));
-  setStatus(`streaming products (${products.length})`);
+function showProgress(cells) {
+  renderSummary(summarizeCells(cells));
+  setStatus(`streaming cells (${cells.length})`);
 }
 
 /**
- * @param {Array<import('@found-in-space/star-products').StarObjectBatchProduct>} products
+ * @param {Array<import('@found-in-space/star-products').StarCellData>} cells
  */
-function summarizeProducts(products) {
+function summarizeCells(cells) {
   return {
-    products: products.length,
-    stars: products.reduce((sum, product) => sum + product.count, 0),
-    nodes: products.reduce((sum, product) => sum + product.nodes.length, 0),
-    firstProduct: products[0]?.id ?? '',
+    cells: cells.length,
+    stars: cells.reduce((sum, cell) => sum + cell.count, 0),
+    firstCell: cells[0]?.cellKey ?? '',
   };
 }
 
 function renderSummary(summary) {
-  elements.productSummary.innerHTML = [
-    summaryItem('Products', formatInteger(summary.products)),
+  elements.cellSummary.innerHTML = [
+    summaryItem('Cells', formatInteger(summary.cells)),
     summaryItem('Stars', formatInteger(summary.stars)),
-    summaryItem('Nodes', formatInteger(summary.nodes)),
-    summaryItem('First product', summary.firstProduct),
+    summaryItem('First cell', summary.firstCell),
   ].join('');
 }
 
 /**
- * @param {Array<ReturnType<typeof rowsFromProduct>[number]>} rows
+ * @param {Array<ReturnType<typeof rowsFromCell>[number]>} rows
  */
 function renderTable(rows) {
   context.rows = rows;
@@ -316,31 +314,29 @@ function renderTable(rows) {
 }
 
 /**
- * @param {Array<import('@found-in-space/star-products').StarObjectBatchProduct>} products
+ * @param {Array<import('@found-in-space/star-products').StarCellData>} cells
  */
-function rowsFromProducts(products) {
-  return products.flatMap(rowsFromProduct);
+function rowsFromCells(cells) {
+  return cells.flatMap(rowsFromCell);
 }
 
 /**
- * @param {import('@found-in-space/star-products').StarObjectBatchProduct} product
+ * @param {import('@found-in-space/star-products').StarCellData} cell
  */
-function rowsFromProduct(product) {
-  const positions = product.coordinates.primary.components;
-  const magAbs = product.attributes.magAbs?.values;
-  const teffLog8 = product.attributes.teffLog8?.values;
+function rowsFromCell(cell) {
+  const positions = cell.coordinates.components;
+  const magAbs = cell.attributes.magAbs;
+  const teffLog8 = cell.attributes.teffLog8;
   if (!magAbs) {
     return [];
   }
 
-  return Array.from({ length: product.count }, (_, index) => {
-    const ref = product.refs?.[index];
-    const node = ref ? null : nodeForProductIndex(product, index);
+  return Array.from({ length: cell.count }, (_, index) => {
+    const ref = cell.refs?.[index];
     return {
       index,
-      productId: product.id,
-      cellKey: ref ? createStarCellKey(ref) : node ? createStarCellKey(node) : '',
-      ordinal: ref?.ordinal ?? (node ? index - node.offset : index),
+      cellKey: ref ? createStarCellKey(ref) : cell.cellKey,
+      ordinal: ref?.ordinal ?? index,
       positionPc: {
         x: positions[index * 3],
         y: positions[index * 3 + 1],
@@ -352,21 +348,10 @@ function rowsFromProduct(product) {
   });
 }
 
-/**
- * @param {import('@found-in-space/star-products').StarObjectBatchProduct} product
- * @param {number} index
- */
-function nodeForProductIndex(product, index) {
-  return product.nodes.find(
-    (node) => index >= node.offset && index < node.offset + node.count,
-  );
-}
-
 function renderStarRow(row, rowIndex) {
   return `
     <tr>
       <td>${rowIndex + 1}</td>
-      <td>${escapeHtml(row.productId)}</td>
       <td>${escapeHtml(row.cellKey)}</td>
       <td>${row.ordinal}</td>
       <td>${formatVector(row.positionPc)}</td>

@@ -20,7 +20,7 @@ import {
 import { createUrlRangeSource } from './star-octree-url-source.js';
 
 /**
- * @typedef {import('./index.d.ts').StarOctreeBootstrapProduct} StarOctreeBootstrapProduct
+ * @typedef {import('./index.d.ts').StarOctreeBootstrapIndex} StarOctreeBootstrapIndex
  * @typedef {import('./index.d.ts').StarOctreeProviderServiceOptions} StarOctreeProviderServiceOptions
  * @typedef {import('./index.d.ts').StarOctreeRuntimeNode} StarOctreeRuntimeNode
  * @typedef {import('./star-octree-format.js').ParsedStarHeader} ParsedStarHeader
@@ -68,11 +68,11 @@ const DEFAULT_SHARD_PREFETCH_BYTES = 65_536;
  *   options: StarOctreeProviderServiceOptions;
  *   rangeSource?: {
  *     persistentCacheAvailable: boolean;
- *     fetchRange(start: number, end: number): Promise<ArrayBuffer>;
+ *     fetchRange(start: number, end: number, options?: { signal?: AbortSignal }): Promise<ArrayBuffer>;
  *   };
  *   createRangeSource?: (stats: StarOctreeIndexStats) => {
  *     persistentCacheAvailable: boolean;
- *     fetchRange(start: number, end: number): Promise<ArrayBuffer>;
+ *     fetchRange(start: number, end: number, options?: { signal?: AbortSignal }): Promise<ArrayBuffer>;
  *   };
  *   sourceIdentity?: string;
  * }} createOptions
@@ -86,10 +86,10 @@ export function createStarOctreeIndexSource(createOptions) {
       persistentCache: createOptions.options.persistentCache,
       stats,
     });
-  /** @type {Promise<StarOctreeBootstrapProduct> | null} */
+  /** @type {Promise<StarOctreeBootstrapIndex> | null} */
   let bootstrapPromise = null;
-  /** @type {StarOctreeBootstrapProduct | null} */
-  let bootstrapProduct = null;
+  /** @type {StarOctreeBootstrapIndex | null} */
+  let bootstrapIndex = null;
   /** @type {ParsedStarHeader | null} */
   let parsedHeader = null;
   /** @type {Promise<LoadedRootShard> | null} */
@@ -150,18 +150,18 @@ export function createStarOctreeIndexSource(createOptions) {
 
     getSnapshot() {
       return {
-        datasetId: bootstrapProduct?.datasetId ?? createOptions.options.datasetId ?? null,
+        datasetId: bootstrapIndex?.datasetId ?? createOptions.options.datasetId ?? null,
         datasetIdentitySource:
-          bootstrapProduct?.datasetIdentitySource ??
+          bootstrapIndex?.datasetIdentitySource ??
           (createOptions.options.datasetId ? 'options' : null),
-        bootstrapReady: Boolean(bootstrapProduct),
+        bootstrapReady: Boolean(bootstrapIndex),
         rootShardReady: Boolean(rootShard),
         cache: {
           bootstrapHeaders: bootstrapPromise ? 1 : 0,
           shardHeaders: shardCache.size,
           payloads: payloadCache.size,
           decodedPayloads: 0,
-          products: 0,
+          cells: 0,
         },
         stats: {
           ...stats,
@@ -182,7 +182,7 @@ export function createStarOctreeIndexSource(createOptions) {
 
   /**
    * @param {{ prefetchRoot: boolean }} options
-   * @returns {Promise<StarOctreeBootstrapProduct>}
+   * @returns {Promise<StarOctreeBootstrapIndex>}
    */
   async function loadBootstrap(options) {
     stats.headerFetches += 1;
@@ -191,7 +191,7 @@ export function createStarOctreeIndexSource(createOptions) {
       : STAR_HEADER_BLOCK_BYTES;
     const buffer = await rangeSource.fetchRange(0, fetchBytes - 1);
     parsedHeader = parseStarHeader(buffer);
-    bootstrapProduct = createBootstrapProduct({
+    bootstrapIndex = createBootstrapIndex({
       providerId: createOptions.providerId,
       options: createOptions.options,
       header: parsedHeader,
@@ -201,7 +201,7 @@ export function createStarOctreeIndexSource(createOptions) {
       warmContiguousShards(buffer, parsedHeader);
     }
 
-    return bootstrapProduct;
+    return bootstrapIndex;
   }
 
   /**
@@ -330,10 +330,12 @@ export function createStarOctreeIndexSource(createOptions) {
    * @param {{
    *   onBatch?: (entries: StarOctreePayloadEntry[]) => void | Promise<void>;
    *   emitCachedFirst?: boolean;
+   *   signal?: AbortSignal;
    * }} options
    * @returns {Promise<StarOctreePayloadEntry[]>}
    */
   async function fetchNodePayloadBatchProgressive(nodes, options = {}) {
+    throwIfAborted(options.signal);
     const requestedNodes = nodes.filter((node) => node && node.payloadLength > 0);
     if (requestedNodes.length === 0) {
       return [];
@@ -363,7 +365,10 @@ export function createStarOctreeIndexSource(createOptions) {
           buffer: await /** @type {Promise<ArrayBuffer>} */ (
             payloadCache.get(createPayloadCacheKey(node))
           ),
-        }))).then((entries) => options.onBatch?.(entries)),
+        }))).then((entries) => {
+          throwIfAborted(options.signal);
+          return options.onBatch?.(entries);
+        }),
       );
     }
 
@@ -378,7 +383,11 @@ export function createStarOctreeIndexSource(createOptions) {
       stats.payloadCompressedBytesRequested += batch.payloadBytes;
       stats.payloadSpanBytesRequested += batch.spanBytes;
       stats.payloadGapBytesRequested += batch.gapBytes;
-      const batchBuffer = await rangeSource.fetchRange(batch.start, batch.end);
+      throwIfAborted(options.signal);
+      const batchBuffer = await rangeSource.fetchRange(batch.start, batch.end, {
+        signal: options.signal,
+      });
+      throwIfAborted(options.signal);
       /** @type {Map<string, ArrayBuffer>} */
       const decodedBuffers = new Map();
 
@@ -391,6 +400,7 @@ export function createStarOctreeIndexSource(createOptions) {
         );
       }));
 
+      throwIfAborted(options.signal);
       return decodedBuffers;
     });
 
@@ -406,12 +416,15 @@ export function createStarOctreeIndexSource(createOptions) {
     ) {
       notifyPromises.push(
         Promise.all(batchPromises)
-          .then(() => Promise.all(cachedNodes.map(async (node) => ({
+          .then(() => {
+            throwIfAborted(options.signal);
+            return Promise.all(cachedNodes.map(async (node) => ({
             node,
             buffer: await /** @type {Promise<ArrayBuffer>} */ (
               payloadCache.get(createPayloadCacheKey(node))
             ),
-          }))))
+          })));
+          })
           .then((entries) => options.onBatch?.(entries)),
       );
     }
@@ -439,6 +452,7 @@ export function createStarOctreeIndexSource(createOptions) {
       if (options.onBatch) {
         notifyPromises.push(batchPromise
           .then((decodedBuffers) => batch.nodes.map((node) => {
+            throwIfAborted(options.signal);
             const buffer = decodedBuffers.get(createPayloadCacheKey(node));
             if (!buffer) {
               throw new Error(`Missing decoded payload buffer for ${createStarCellKey(node)}`);
@@ -456,6 +470,7 @@ export function createStarOctreeIndexSource(createOptions) {
           payloadCache.get(createPayloadCacheKey(node))
         ),
       })));
+      throwIfAborted(options.signal);
       await Promise.all(notifyPromises);
       return entries;
     } catch (error) {
@@ -463,6 +478,23 @@ export function createStarOctreeIndexSource(createOptions) {
       throw error;
     }
   }
+}
+
+/**
+ * @param {AbortSignal | undefined} signal
+ */
+function throwIfAborted(signal) {
+  if (!signal?.aborted) {
+    return;
+  }
+
+  if (signal.reason instanceof Error) {
+    throw signal.reason;
+  }
+
+  const error = new Error('Star octree payload fetch aborted.');
+  error.name = 'AbortError';
+  throw error;
 }
 
 /**
@@ -499,35 +531,34 @@ function createPayloadCacheKey(node) {
  *   providerId: string;
  *   options: StarOctreeProviderServiceOptions;
  *   header: ParsedStarHeader;
- * }} productOptions
- * @returns {StarOctreeBootstrapProduct}
+ * }} indexOptions
+ * @returns {StarOctreeBootstrapIndex}
  */
-function createBootstrapProduct(productOptions) {
+function createBootstrapIndex(indexOptions) {
   const datasetId =
-    productOptions.options.datasetId ?? productOptions.header.datasetUuid ?? null;
-  const datasetIdentitySource = productOptions.options.datasetId
+    indexOptions.options.datasetId ?? indexOptions.header.datasetUuid ?? null;
+  const datasetIdentitySource = indexOptions.options.datasetId
     ? 'options'
-    : productOptions.header.datasetUuid
+    : indexOptions.header.datasetUuid
       ? 'octree-descriptor'
       : null;
 
   return {
-    productType: 'index',
-    indexKind: 'star-octree-bootstrap',
-    providerId: productOptions.providerId,
+    kind: 'star-octree-bootstrap',
+    providerId: indexOptions.providerId,
     datasetId,
     datasetIdentitySource,
     header: {
-      version: productOptions.header.version,
-      indexOffset: productOptions.header.indexOffset,
-      indexLength: productOptions.header.indexLength,
-      worldCenterX: productOptions.header.worldCenterX,
-      worldCenterY: productOptions.header.worldCenterY,
-      worldCenterZ: productOptions.header.worldCenterZ,
-      worldHalfSize: productOptions.header.worldHalfSize,
-      payloadRecordSize: productOptions.header.payloadRecordSize,
-      maxLevel: productOptions.header.maxLevel,
-      magLimit: productOptions.header.magLimit,
+      version: indexOptions.header.version,
+      indexOffset: indexOptions.header.indexOffset,
+      indexLength: indexOptions.header.indexLength,
+      worldCenterX: indexOptions.header.worldCenterX,
+      worldCenterY: indexOptions.header.worldCenterY,
+      worldCenterZ: indexOptions.header.worldCenterZ,
+      worldHalfSize: indexOptions.header.worldHalfSize,
+      payloadRecordSize: indexOptions.header.payloadRecordSize,
+      maxLevel: indexOptions.header.maxLevel,
+      magLimit: indexOptions.header.magLimit,
     },
     completeness: {
       phase: 'complete',

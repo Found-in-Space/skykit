@@ -38,19 +38,19 @@ async function run() {
 }
 
 async function collect(session, view) {
-  const summary = { sessionId: session.id, products: 0, stars: 0, current: false };
+  const summary = { sessionId: session.id, cells: 0, stars: 0, current: false };
   const iterator = session.deltas();
   session.updateView(view, { reason: 'shared-session-lesson' });
 
   for await (const delta of iterator) {
-    if (delta.type === 'data/product-upsert') {
-      summary.products += 1;
-      summary.stars += delta.product.count;
+    if (delta.type === 'stars/cells-upsert') {
+      summary.cells += delta.cells.length;
+      summary.stars += delta.cells.reduce((sum, cell) => sum + cell.count, 0);
     }
-    if (delta.type === 'data/product-error') {
+    if (delta.type === 'stars/error') {
       throw new Error(delta.error?.message ?? 'Session failed.');
     }
-    if (delta.type === 'data/representation-current') {
+    if (delta.type === 'stars/current') {
       summary.current = true;
       break;
     }

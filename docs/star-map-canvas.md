@@ -3,20 +3,17 @@
 Status: alpha package documentation for `@found-in-space/star-map-canvas`.
 
 `@found-in-space/star-map-canvas` is a reusable Canvas2D adapter for spatial
-star products. It consumes `StarRepresentationStore` data from
+star cells. It consumes `StarCellStore` data from
 `@found-in-space/star-products` and renders an observer-relative 2D sky map.
 
 It sits in the package hierarchy as a renderer/representation adapter:
 
 ```txt
-product-stream
-  <- star-products
-      <- star-octree-provider
-
-star-products
-  <- star-map-canvas
-  <- three-star-field
-  <- hr-diagram
+star-octree-provider
+  -> star-products cell store
+      -> star-map-canvas
+      -> three-star-field
+      -> hr-diagram
 
 skykit
   composes these packages as a slim teaching and convenience layer
@@ -27,7 +24,7 @@ skykit
 The package owns:
 
 ```txt
-StarRepresentationStore / StarRow iteration
+StarCellStore / StarRow iteration
   -> observer-relative apparent magnitude filtering
   -> RA/Dec or custom 2D projection
   -> Canvas2D drawing
@@ -39,29 +36,29 @@ It does not own:
 ```txt
 octree provider sessions
 source bytes or catalog loading
-product delta consumption
-guide-star catalog product design
+cell delta consumption
+guide-star catalog source design
 Three.js/WebGL/XR rendering
 sidecar metadata lookup
 galaxy-map backgrounds or galactocentric cartography
 ```
 
-Guide-star or bright-star catalogs are a future source/product lane. This
-package's v1 path is spatial stars with parsec positions, so applications can
-render the sky from arbitrary `observerPc` positions.
+Guide-star or bright-star catalogs are a future source lane. This package's v1
+path is spatial stars with parsec positions, so applications can render the sky
+from arbitrary `observerPc` positions.
 
 ## Normative Use-Cases
 
-These are implemented as "50-line" implementation goals. The package keeps the
-friendly `createCanvasStarMap()` surface, but also exposes the lower-level
-projection and drawing steps so applications can intervene between them.
+The package keeps the friendly `createCanvasStarMap()` surface, but also exposes
+lower-level projection and drawing steps so applications can intervene between
+them.
 
 ### 1. All-Sky From Anywhere
 
 Render an RA/Dec equirectangular all-sky map from any parsec-space observer
-position by providing `observerPc` and `limitingMagnitude`. The default
-all-sky projection uses sky-chart orientation: increasing RA/east runs toward
-the left side of the map.
+position by providing `observerPc` and `limitingMagnitude`. The default all-sky
+projection uses sky-chart orientation: increasing RA/east runs toward the left
+side of the map.
 
 ```js
 const map = createCanvasStarMap(canvas, { store });
@@ -195,9 +192,7 @@ const picked = map.pick({ x, y });
 
 The package deliberately does not own physics, animation systems, or game
 logic. It exposes enough projected data and draw hooks for applications to add
-those behaviors in their own code. The use-cases demo includes a deliberately
-demo-local falling-star pile helper to show that game-style behavior can live
-outside the package and still use the final projected point cache.
+those behaviors in their own code.
 
 ## Minimal Example
 
@@ -207,13 +202,13 @@ import {
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
 import {
-  consumeProductDeltas,
-  createStarRepresentationStore,
+  consumeStarCellDeltas,
+  createStarCellStore,
 } from '@found-in-space/star-products';
 import { createCanvasStarMap } from '@found-in-space/star-map-canvas';
 
 const provider = createStarOctreeProviderService({ url });
-const store = createStarRepresentationStore();
+const store = createStarCellStore();
 const map = createCanvasStarMap(canvas, { store });
 
 const session = provider.createSession({
@@ -221,7 +216,7 @@ const session = provider.createSession({
   attributes: ['position', 'magAbs', 'teffLog8', 'objectRef', 'pickMeta'],
 });
 
-void consumeProductDeltas(session.deltas(), store);
+void consumeStarCellDeltas(session.deltas(), store);
 
 store.subscribe(() => {
   map.render({ observerPc, limitingMagnitude: 6.5 });

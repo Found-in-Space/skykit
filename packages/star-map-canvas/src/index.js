@@ -41,7 +41,7 @@ const DEFAULT_STYLE = Object.freeze({
  * @typedef {import('./index.d.ts').StarMapProjectionContext} StarMapProjectionContext
  * @typedef {import('./index.d.ts').StarMapProjectionResult} StarMapProjectionResult
  * @typedef {import('./index.d.ts').StarMapStyle} StarMapStyle
- * @typedef {import('@found-in-space/star-products').StarRepresentationStore} StarRepresentationStore
+ * @typedef {import('@found-in-space/star-products').StarCellStore} StarCellStore
  * @typedef {import('@found-in-space/star-products').StarRow} StarRow
  */
 
@@ -265,7 +265,7 @@ export function projectStarMap(rect, options = {}) {
       color: colorForStar(star, style),
       distancePc,
       apparentMagnitude: mApp,
-      productId: star.productId,
+      cellKey: star.cellKey,
       objectIndex: star.objectIndex,
       objectRef: star.objectRef ?? null,
       pickMeta: star.pickMeta ?? null,

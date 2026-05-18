@@ -1,5 +1,8 @@
 import * as THREE from 'three';
-import { apparentMagnitude } from '@found-in-space/star-products';
+import {
+  apparentMagnitude,
+  estimateStarCellBytes,
+} from '@found-in-space/star-products';
 
 export const DEFAULT_THREE_STAR_FIELD_VIEW = Object.freeze({
   observerPosition: Object.freeze({ x: 0, y: 0, z: 0 }),
@@ -51,8 +54,8 @@ const RAD_TO_DEG = 180 / Math.PI;
  * @typedef {import('./index.d.ts').ThreeStarFieldPickResult} ThreeStarFieldPickResult
  * @typedef {import('./index.d.ts').ThreeStarFieldView} ThreeStarFieldView
  * @typedef {import('./index.d.ts').ThreeStarFieldVisualRadiusInput} ThreeStarFieldVisualRadiusInput
- * @typedef {import('@found-in-space/star-products').ProductDelta<import('@found-in-space/star-products').StarObjectBatchProduct>} StarProductDelta
- * @typedef {import('@found-in-space/star-products').StarObjectBatchProduct} StarObjectBatchProduct
+ * @typedef {import('@found-in-space/star-products').StarCellData} StarCellData
+ * @typedef {import('@found-in-space/star-products').StarCellDelta} StarCellDelta
  */
 
 /**
@@ -73,9 +76,27 @@ export function createThreeStarField(options = {}) {
       createDefaultThreeStarFieldMaterialProfile(view),
   );
   const disposeMaterialProfile = options.disposeMaterialProfile !== false;
-  /** @type {Map<string, { product: StarObjectBatchProduct; geometry: THREE.BufferGeometry; points: THREE.Points; haloPoints: THREE.Points | null }>} */
-  const products = new Map();
+  /** @type {Map<string, StarCellData>} */
+  const cellsByKey = new Map();
   const frustumCulled = options.frustumCulled === true;
+  let geometry = createThreeStarFieldGeometryFromCells([]);
+  const points = new THREE.Points(geometry, materialProfile.material);
+  points.name = `${fieldId}:points`;
+  points.frustumCulled = frustumCulled;
+  points.userData.cellStore = true;
+  object3d.add(points);
+
+  const haloPoints = materialProfile.haloMaterial
+    ? new THREE.Points(geometry, materialProfile.haloMaterial)
+    : null;
+  if (haloPoints) {
+    haloPoints.name = `${fieldId}:halo`;
+    haloPoints.frustumCulled = frustumCulled;
+    haloPoints.visible = view.halo;
+    haloPoints.userData.cellStore = true;
+    object3d.add(haloPoints);
+  }
+
   /** @type {ThreeStarFieldSnapshotStatus} */
   let status = 'idle';
   /** @type {string | null} */
@@ -89,7 +110,7 @@ export function createThreeStarField(options = {}) {
   return {
     object3d,
     apply,
-    setProducts,
+    setCells,
     clear,
     setView,
     pick,
@@ -98,28 +119,28 @@ export function createThreeStarField(options = {}) {
   };
 
   /**
-   * @param {StarProductDelta} delta
+   * @param {StarCellDelta} delta
    */
   function apply(delta) {
     assertActive();
     if (!delta || typeof delta.type !== 'string') {
-      throw new TypeError('ThreeStarField.apply() requires a product delta.');
+      throw new TypeError('ThreeStarField.apply() requires a star cell delta.');
     }
 
-    if (delta.type === 'data/product-upsert') {
-      upsertProduct(delta.product);
+    if (delta.type === 'stars/cells-upsert') {
+      upsertCells(delta.cells);
       status = 'streaming';
       lastError = null;
       return;
     }
 
-    if (delta.type === 'data/product-stale' || delta.type === 'data/product-remove') {
-      removeProduct(delta.productId);
+    if (delta.type === 'stars/cells-remove') {
+      removeCells(delta.cellKeys);
       status = 'streaming';
       return;
     }
 
-    if (delta.type === 'data/representation-current') {
+    if (delta.type === 'stars/current') {
       status = 'current';
       lastCurrentRevision = {
         ...(delta.viewRevision !== undefined ? { viewRevision: delta.viewRevision } : {}),
@@ -128,30 +149,33 @@ export function createThreeStarField(options = {}) {
       return;
     }
 
-    if (delta.type === 'data/product-error') {
+    if (delta.type === 'stars/error') {
       status = 'failed';
-      lastError = delta.error?.message ?? 'Product stream failed.';
+      lastError = delta.error?.message ?? 'Star cell stream failed.';
       return;
     }
 
-    throw new TypeError(`Unsupported star product delta type: ${delta.type}`);
+    throw new TypeError(`Unsupported star cell delta type: ${delta.type}`);
   }
 
   /**
-   * @param {Iterable<StarObjectBatchProduct>} nextProducts
+   * @param {Iterable<StarCellData>} nextCells
    */
-  function setProducts(nextProducts) {
+  function setCells(nextCells) {
     assertActive();
-    clearProducts();
-    for (const product of nextProducts) {
-      upsertProduct(product);
+    cellsByKey.clear();
+    for (const cell of nextCells) {
+      assertStarCellData(cell);
+      cellsByKey.set(cell.cellKey, cell);
     }
-    status = products.size > 0 ? 'streaming' : 'idle';
+    rebuildGeometry();
+    status = cellsByKey.size > 0 ? 'streaming' : 'idle';
   }
 
   function clear() {
     assertActive();
-    clearProducts();
+    cellsByKey.clear();
+    rebuildGeometry();
     status = 'idle';
     lastError = null;
     lastCurrentRevision = null;
@@ -180,26 +204,24 @@ export function createThreeStarField(options = {}) {
   function pick(ray, pickOptions = {}) {
     assertActive();
     return pickThreeStarFieldData(ray, {
-      products: Array.from(products.values()).map((record) => record.product),
+      cells: Array.from(cellsByKey.values()),
       object3d,
       view,
     }, pickOptions);
   }
 
   function getSnapshot() {
-    let starCount = 0;
     let bytes = 0;
-    let renderObjectCount = 0;
-    for (const record of products.values()) {
-      starCount += record.product.count;
-      bytes += record.product.memory?.bytes ?? 0;
-      renderObjectCount += 1 + (record.haloPoints ? 1 : 0);
+    let starCount = 0;
+    for (const cell of cellsByKey.values()) {
+      starCount += cell.count;
+      bytes += estimateStarCellBytes(cell);
     }
     return {
       status: disposed ? 'disposed' : status,
-      productCount: products.size,
+      cellCount: cellsByKey.size,
       starCount,
-      renderObjectCount,
+      renderObjectCount: 1 + (haloPoints ? 1 : 0),
       bytes,
       disposed,
       view: cloneView(view),
@@ -210,7 +232,12 @@ export function createThreeStarField(options = {}) {
 
   function dispose() {
     if (disposed) return;
-    clearProducts();
+    cellsByKey.clear();
+    object3d.remove(points);
+    if (haloPoints) {
+      object3d.remove(haloPoints);
+    }
+    geometry.dispose();
     if (disposeMaterialProfile) {
       materialProfile.dispose();
     }
@@ -219,66 +246,44 @@ export function createThreeStarField(options = {}) {
   }
 
   /**
-   * @param {StarObjectBatchProduct} product
+   * @param {StarCellData[]} cells
    */
-  function upsertProduct(product) {
-    if (!product || typeof product.id !== 'string') {
-      throw new TypeError('ThreeStarField product upsert requires a StarObjectBatchProduct.');
+  function upsertCells(cells) {
+    for (const cell of cells) {
+      assertStarCellData(cell);
+      cellsByKey.set(cell.cellKey, cell);
     }
-
-    removeProduct(product.id);
-    const geometry = createThreeStarFieldGeometryFromProduct(product);
-    const points = new THREE.Points(geometry, materialProfile.material);
-    points.name = `${fieldId}:${product.id}:points`;
-    points.frustumCulled = frustumCulled;
-    points.userData.productId = product.id;
-    object3d.add(points);
-
-    const haloPoints = materialProfile.haloMaterial
-      ? new THREE.Points(geometry, materialProfile.haloMaterial)
-      : null;
-    if (haloPoints) {
-      haloPoints.name = `${fieldId}:${product.id}:halo`;
-      haloPoints.frustumCulled = frustumCulled;
-      haloPoints.visible = view.halo;
-      haloPoints.userData.productId = product.id;
-      object3d.add(haloPoints);
-    }
-
-    products.set(product.id, {
-      product,
-      geometry,
-      points,
-      haloPoints,
-    });
+    rebuildGeometry();
   }
 
   /**
-   * @param {string} productId
+   * @param {string[]} cellKeys
    */
-  function removeProduct(productId) {
-    const record = products.get(productId);
-    if (!record) return;
-    object3d.remove(record.points);
-    if (record.haloPoints) {
-      object3d.remove(record.haloPoints);
+  function removeCells(cellKeys) {
+    let changed = false;
+    for (const cellKey of cellKeys) {
+      changed = cellsByKey.delete(cellKey) || changed;
     }
-    record.geometry.dispose();
-    products.delete(productId);
-  }
-
-  function clearProducts() {
-    for (const productId of Array.from(products.keys())) {
-      removeProduct(productId);
+    if (changed) {
+      rebuildGeometry();
     }
   }
 
   function syncHaloVisibility() {
-    for (const record of products.values()) {
-      if (record.haloPoints) {
-        record.haloPoints.visible = view.halo;
-      }
+    if (haloPoints) {
+      haloPoints.visible = view.halo;
     }
+  }
+
+  function rebuildGeometry() {
+    const nextGeometry = createThreeStarFieldGeometryFromCells(cellsByKey.values());
+    const previousGeometry = geometry;
+    geometry = nextGeometry;
+    points.geometry = nextGeometry;
+    if (haloPoints) {
+      haloPoints.geometry = nextGeometry;
+    }
+    previousGeometry.dispose();
   }
 
   function assertActive() {
@@ -289,19 +294,30 @@ export function createThreeStarField(options = {}) {
 }
 
 /**
- * @param {StarObjectBatchProduct} product
+ * @param {Iterable<StarCellData>} cells
  * @returns {THREE.BufferGeometry}
  */
-export function createThreeStarFieldGeometryFromProduct(product) {
+export function createThreeStarFieldGeometryFromCells(cells) {
   const geometry = new THREE.BufferGeometry();
-  const positions = product.coordinates.primary.components;
-  const teffLog8 = product.attributes.teffLog8?.values ?? createFallbackTeff(product.count);
-  const magAbs = product.attributes.magAbs?.values ?? createFallbackMagAbs(product.count);
+  const orderedCells = Array.from(cells)
+    .sort((left, right) => left.cellKey.localeCompare(right.cellKey));
+  const totalCount = orderedCells.reduce((sum, cell) => sum + cell.count, 0);
+  const positions = new Float32Array(totalCount * 3);
+  const teffLog8 = new Uint8Array(totalCount);
+  const magAbs = new Float32Array(totalCount);
+  let offset = 0;
+
+  for (const cell of orderedCells) {
+    positions.set(cell.coordinates.components, offset * 3);
+    teffLog8.set(cell.attributes.teffLog8 ?? createFallbackTeff(cell.count), offset);
+    magAbs.set(cell.attributes.magAbs ?? createFallbackMagAbs(cell.count), offset);
+    offset += cell.count;
+  }
 
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('teff_log8', new THREE.BufferAttribute(teffLog8, 1, true));
   geometry.setAttribute('magAbs', new THREE.BufferAttribute(magAbs, 1));
-  geometry.setDrawRange(0, product.count);
+  geometry.setDrawRange(0, totalCount);
   geometry.computeBoundingSphere();
   return geometry;
 }
@@ -468,8 +484,8 @@ export function computeThreeStarFieldVisualRadiusPx(input) {
  * @returns {ThreeStarFieldPickResult | null}
  */
 export function pickThreeStarFieldData(ray, data, options = {}) {
-  if (!data || !data.products) {
-    throw new TypeError('pickThreeStarFieldData() requires products.');
+  if (!data || !data.cells) {
+    throw new TypeError('pickThreeStarFieldData() requires cells.');
   }
 
   const view = normalizeView({
@@ -499,12 +515,12 @@ export function pickThreeStarFieldData(ray, data, options = {}) {
   /** @type {ThreeStarFieldPickResult | null} */
   let best = null;
 
-  for (const product of data.products) {
-    const positions = product.coordinates.primary.components;
-    const magAbs = product.attributes.magAbs?.values;
-    const teffLog8 = product.attributes.teffLog8?.values;
+  for (const cell of data.cells) {
+    const positions = cell.coordinates.components;
+    const magAbs = cell.attributes.magAbs;
+    const teffLog8 = cell.attributes.teffLog8;
 
-    for (let objectIndex = 0; objectIndex < product.count; objectIndex += 1) {
+    for (let objectIndex = 0; objectIndex < cell.count; objectIndex += 1) {
       const positionIndex = objectIndex * 3;
       const px = positions[positionIndex] ?? 0;
       const py = positions[positionIndex + 1] ?? 0;
@@ -546,15 +562,15 @@ export function pickThreeStarFieldData(ray, data, options = {}) {
 
       if (!best || score < best.score) {
         best = {
-          productId: product.id,
+          cellKey: cell.cellKey,
           objectIndex,
-          product,
+          cell,
           position: { x: px, y: py, z: pz },
           distancePc,
           apparentMagnitude: apparentMag,
           visualRadiusPx,
-          objectRef: product.refs?.[objectIndex] ?? null,
-          pickMeta: product.pickMeta?.[objectIndex] ?? null,
+          objectRef: cell.refs?.[objectIndex] ?? null,
+          pickMeta: cell.pickMeta?.[objectIndex] ?? null,
           ...(teffLog8 ? { teffLog8: teffLog8[objectIndex] } : {}),
           magAbs: Number(absoluteMag),
           score,
@@ -565,6 +581,21 @@ export function pickThreeStarFieldData(ray, data, options = {}) {
   }
 
   return best;
+}
+
+/**
+ * @param {unknown} cell
+ * @returns {asserts cell is StarCellData}
+ */
+function assertStarCellData(cell) {
+  if (
+    !cell ||
+    typeof cell !== 'object' ||
+    typeof /** @type {StarCellData} */ (cell).cellKey !== 'string' ||
+    !(/** @type {StarCellData} */ (cell).coordinates?.components instanceof Float32Array)
+  ) {
+    throw new TypeError('ThreeStarField cell upsert requires a StarCellData record.');
+  }
 }
 
 /**

@@ -34,11 +34,11 @@ const elements = {
  *   url: string;
  *   token: number;
  *   query: { observerPc: { x: number; y: number; z: number }; limitingMagnitude: number };
- *   products: Map<string, import('@found-in-space/star-products').StarObjectBatchProduct>;
- *   rowsByProductId: Map<string, Array<NearestStarRow>>;
+ *   cells: Map<string, import('@found-in-space/star-products').StarCellData>;
+ *   rowsByCellKey: Map<string, Array<NearestStarRow>>;
  *   nearest: Array<NearestStarRow>;
  *   deltas: { upsert: number; stale: number; remove: number; current: number; error: number };
- *   lastCurrent: import('../../src/index.d.ts').StarOctreeProductDelta | null;
+ *   lastCurrent: import('../../src/index.d.ts').StarOctreeCellDelta | null;
  *   lastError: string | null;
  *   startedAtMs: number;
  * }} */
@@ -51,8 +51,8 @@ const state = {
     observerPc: { x: 0, y: 0, z: 0 },
     limitingMagnitude: 6.5,
   },
-  products: new Map(),
-  rowsByProductId: new Map(),
+  cells: new Map(),
+  rowsByCellKey: new Map(),
   nearest: [],
   deltas: { upsert: 0, stale: 0, remove: 0, current: 0, error: 0 },
   lastCurrent: null,
@@ -63,7 +63,6 @@ const state = {
 /**
  * @typedef {{
  *   id: string;
- *   productId: string;
  *   cellKey: string;
  *   ordinal: number;
  *   positionPc: { x: number; y: number; z: number };
@@ -139,8 +138,8 @@ function resetProvider(url) {
       coarseFirst: true,
     },
   });
-  state.products.clear();
-  state.rowsByProductId.clear();
+  state.cells.clear();
+  state.rowsByCellKey.clear();
   state.nearest = [];
   state.deltas = { upsert: 0, stale: 0, remove: 0, current: 0, error: 0 };
   state.lastCurrent = null;
@@ -172,63 +171,56 @@ async function consumeDeltas(session, token) {
 }
 
 /**
- * @param {import('../../src/index.d.ts').StarOctreeProductDelta} delta
+ * @param {import('../../src/index.d.ts').StarOctreeCellDelta} delta
  */
 function handleDelta(delta) {
-  if (delta.type === 'data/product-upsert') {
+  if (delta.type === 'stars/cells-upsert') {
     state.deltas.upsert += 1;
-    state.products.set(delta.product.id, delta.product);
-    state.rowsByProductId.set(
-      delta.product.id,
-      rowsFromProduct(delta.product, state.query),
-    );
+    for (const cell of delta.cells) {
+      state.cells.set(cell.cellKey, cell);
+      state.rowsByCellKey.set(cell.cellKey, rowsFromCell(cell, state.query));
+    }
     recomputeNearest();
     setStatus('streaming');
     return;
   }
 
-  if (delta.type === 'data/product-stale') {
-    state.deltas.stale += 1;
-    state.products.delete(delta.productId);
-    state.rowsByProductId.delete(delta.productId);
-    recomputeNearest();
-    return;
-  }
-
-  if (delta.type === 'data/product-remove') {
+  if (delta.type === 'stars/cells-remove') {
     state.deltas.remove += 1;
-    state.products.delete(delta.productId);
-    state.rowsByProductId.delete(delta.productId);
+    for (const cellKey of delta.cellKeys) {
+      state.cells.delete(cellKey);
+      state.rowsByCellKey.delete(cellKey);
+    }
     recomputeNearest();
     return;
   }
 
-  if (delta.type === 'data/representation-current') {
+  if (delta.type === 'stars/current') {
     state.deltas.current += 1;
     state.lastCurrent = delta;
     setStatus('current');
     return;
   }
 
-  if (delta.type === 'data/product-error') {
+  if (delta.type === 'stars/error') {
     state.deltas.error += 1;
-    state.lastError = delta.error?.message ?? 'Product stream failed.';
+    state.lastError = delta.error?.message ?? 'Cell stream failed.';
     setStatus('failed');
   }
 }
 
 function recomputeRowsForCurrentQuery() {
-  state.rowsByProductId.clear();
-  for (const product of state.products.values()) {
-    state.rowsByProductId.set(product.id, rowsFromProduct(product, state.query));
+  state.rowsByCellKey.clear();
+  for (const cell of state.cells.values()) {
+    state.rowsByCellKey.set(cell.cellKey, rowsFromCell(cell, state.query));
   }
   recomputeNearest();
 }
 
 function recomputeNearest() {
   const rows = [];
-  for (const productRows of state.rowsByProductId.values()) {
-    rows.push(...productRows);
+  for (const cellRows of state.rowsByCellKey.values()) {
+    rows.push(...cellRows);
   }
   rows.sort((left, right) =>
     left.distancePc - right.distancePc ||
@@ -239,21 +231,21 @@ function recomputeNearest() {
 }
 
 /**
- * @param {import('@found-in-space/star-products').StarObjectBatchProduct} product
+ * @param {import('@found-in-space/star-products').StarCellData} cell
  * @param {{ observerPc: { x: number; y: number; z: number }; limitingMagnitude: number }} query
  * @returns {Array<NearestStarRow>}
  */
-function rowsFromProduct(product, query) {
-  const positions = product.coordinates.primary.components;
-  const magAbs = product.attributes.magAbs?.values;
-  const teffLog8 = product.attributes.teffLog8?.values;
+function rowsFromCell(cell, query) {
+  const positions = cell.coordinates.components;
+  const magAbs = cell.attributes.magAbs;
+  const teffLog8 = cell.attributes.teffLog8;
   if (!magAbs) {
     return [];
   }
 
   /** @type {Array<NearestStarRow>} */
   const rows = [];
-  for (let index = 0; index < product.count; index += 1) {
+  for (let index = 0; index < cell.count; index += 1) {
     const positionPc = {
       x: positions[index * 3],
       y: positions[index * 3 + 1],
@@ -268,14 +260,12 @@ function rowsFromProduct(product, query) {
       continue;
     }
 
-    const ref = product.refs?.[index];
-    const node = ref ? null : nodeForProductIndex(product, index);
-    const cellKey = ref ? createStarCellKey(ref) : node ? createStarCellKey(node) : 'unknown';
-    const ordinal = ref?.ordinal ?? (node ? index - node.offset : index);
+    const ref = cell.refs?.[index];
+    const cellKey = ref ? createStarCellKey(ref) : cell.cellKey;
+    const ordinal = ref?.ordinal ?? index;
 
     rows.push({
-      id: `${product.id}:${index}`,
-      productId: product.id,
+      id: `${cell.cellKey}:${index}`,
       cellKey,
       ordinal,
       positionPc,
@@ -289,24 +279,14 @@ function rowsFromProduct(product, query) {
   return rows;
 }
 
-/**
- * @param {import('@found-in-space/star-products').StarObjectBatchProduct} product
- * @param {number} index
- */
-function nodeForProductIndex(product, index) {
-  return product.nodes.find(
-    (node) => index >= node.offset && index < node.offset + node.count,
-  );
-}
-
 function render() {
   const providerSnapshot = state.provider?.getSnapshot();
   const sessionSnapshot = state.session?.getSnapshot();
-  const loadedObjects = Array.from(state.products.values()).reduce(
-    (sum, product) => sum + product.count,
+  const loadedObjects = Array.from(state.cells.values()).reduce(
+    (sum, cell) => sum + cell.count,
     0,
   );
-  const visibleObjects = Array.from(state.rowsByProductId.values()).reduce(
+  const visibleObjects = Array.from(state.rowsByCellKey.values()).reduce(
     (sum, rows) => sum + rows.length,
     0,
   );
@@ -315,7 +295,7 @@ function render() {
     metric('Nearest', formatInteger(state.nearest.length)),
     metric('Visible', formatInteger(visibleObjects)),
     metric('Objects', formatInteger(loadedObjects)),
-    metric('Products', formatInteger(state.products.size)),
+    metric('Cells', formatInteger(state.cells.size)),
   ].join('');
 
   elements.streamStats.innerHTML = [
@@ -346,7 +326,7 @@ function render() {
   elements.resultCount.textContent = `${state.nearest.length} stars`;
   elements.results.innerHTML = state.nearest.length
     ? state.nearest.map(renderRow).join('')
-    : '<tr><td colspan="8" class="empty-row">Waiting for visible star products.</td></tr>';
+    : '<tr><td colspan="8" class="empty-row">Waiting for visible star cells.</td></tr>';
 }
 
 /**
