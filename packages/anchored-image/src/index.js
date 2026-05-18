@@ -58,17 +58,12 @@ export function resolveAnchorDirection(anchor) {
   if (target?.kind === 'direction') {
     return [target.x, target.y, target.z];
   }
-  const legacyDirection = Array.isArray(anchor.direction) ? anchor.direction : null;
-  return legacyDirection && legacyDirection.length === 3 ? legacyDirection : null;
+  return null;
 }
 
 export function normalizeAnchoredImageManifest(input, options = {}) {
   const source = isRecord(input) ? input : {};
-  const rawImages = Array.isArray(source.images)
-    ? source.images
-    : Array.isArray(source.constellations)
-      ? source.constellations
-      : [];
+  const rawImages = Array.isArray(source.images) ? source.images : [];
 
   const images = rawImages
     .map((image, index) => normalizeAnchoredImage(image, index))
@@ -77,7 +72,7 @@ export function normalizeAnchoredImageManifest(input, options = {}) {
   return {
     format: ANCHORED_IMAGE_MANIFEST_FORMAT,
     ...(normalizeNonEmptyString(source.id) ? { id: normalizeNonEmptyString(source.id) } : {}),
-    ...(normalizeLabel(source.label ?? source.name) ? { label: normalizeLabel(source.label ?? source.name) } : {}),
+    ...(normalizeLabel(source.label) ? { label: normalizeLabel(source.label) } : {}),
     assetBaseUrl: normalizeNonEmptyString(options.baseUrl)
       ?? normalizeNonEmptyString(source.assetBaseUrl)
       ?? null,
@@ -85,10 +80,6 @@ export function normalizeAnchoredImageManifest(input, options = {}) {
     ...(source.attribution !== undefined ? { attribution: source.attribution } : {}),
     metadata: {
       ...(isRecord(source.metadata) ? source.metadata : {}),
-      ...(normalizeNonEmptyString(source.format) && source.format !== ANCHORED_IMAGE_MANIFEST_FORMAT
-        ? { sourceFormat: source.format }
-        : {}),
-      ...(Array.isArray(source.constellations) ? { legacyKind: 'constellations' } : {}),
     },
   };
 }
@@ -143,7 +134,7 @@ export function solveAffineMap(anchors, transformTarget = identityTransform) {
   }
 
   const matrix = firstThree.map((anchor) => {
-    const pixel = normalizePixel(anchor?.pixel ?? anchor?.pos);
+    const pixel = normalizePixel(anchor?.pixel);
     return pixel ? [1, pixel.x, pixel.y] : null;
   });
   if (matrix.some((row) => row == null)) {
@@ -151,7 +142,7 @@ export function solveAffineMap(anchors, transformTarget = identityTransform) {
   }
 
   const targets = firstThree.map((anchor) => {
-    const target = normalizeAnchorTarget(anchor?.target ?? anchor);
+    const target = normalizeAnchorTarget(anchor?.target);
     if (!target) {
       return null;
     }
@@ -295,9 +286,6 @@ export function buildAnchoredImageDirectionResolver(manifestInput) {
       image.id,
       image.groupId,
       image.label,
-      image.metadata?.iau,
-      image.metadata?.common_name?.english,
-      image.metadata?.common_name?.native,
     ].map(normalizeLookupKey).filter(Boolean);
     for (const key of keys) {
       if (!lookup.has(key)) {
@@ -318,7 +306,7 @@ export function buildAnchoredImageDirectionResolver(manifestInput) {
 
     if (inside.length > 0) {
       if (currentGroupId) {
-        const sticky = inside.find((entry) => entry.image.groupId === currentGroupId || entry.image.metadata?.iau === currentGroupId);
+        const sticky = inside.find((entry) => entry.image.groupId === currentGroupId || entry.image.id === currentGroupId);
         if (sticky) {
           return createResolveResult(sticky, sticky.score);
         }
@@ -344,8 +332,8 @@ export function buildAnchoredImageDirectionResolver(manifestInput) {
     listImages() {
       return manifest.images.map((image) => createImageSummary(image, entryByImageId.get(image.id)));
     },
-    getImage(nameOrId) {
-      const key = normalizeLookupKey(nameOrId);
+    getImage(keyOrLabel) {
+      const key = normalizeLookupKey(keyOrLabel);
       return key ? lookup.get(key) ?? null : null;
     },
     getStats() {
@@ -418,24 +406,16 @@ function normalizeAnchoredImage(input, index) {
   const anchors = (Array.isArray(imageRecord.anchors) ? imageRecord.anchors : [])
     .map(normalizeAnchor)
     .filter(Boolean);
-  const id = normalizeNonEmptyString(input.id)
-    ?? normalizeNonEmptyString(input.iau)
-    ?? `anchored-image-${index}`;
-  const label = normalizeLabel(input.label ?? input.name ?? input.common_name);
-  const groupId = normalizeNonEmptyString(input.groupId)
-    ?? normalizeNonEmptyString(input.iau)
-    ?? normalizeNonEmptyString(input.group)
-    ?? undefined;
+  const id = normalizeNonEmptyString(input.id) ?? `anchored-image-${index}`;
+  const label = normalizeLabel(input.label);
+  const groupId = normalizeNonEmptyString(input.groupId) ?? undefined;
 
   return {
     id,
     ...(label ? { label } : {}),
     ...(groupId ? { groupId } : {}),
     image: {
-      src: normalizeNonEmptyString(imageRecord.src)
-        ?? normalizeNonEmptyString(imageRecord.url)
-        ?? normalizeNonEmptyString(imageRecord.file)
-        ?? '',
+      src: normalizeNonEmptyString(imageRecord.src) ?? '',
       width: size[0],
       height: size[1],
       anchors,
@@ -443,9 +423,6 @@ function normalizeAnchoredImage(input, index) {
     ...(input.attribution !== undefined ? { attribution: input.attribution } : {}),
     metadata: {
       ...(isRecord(input.metadata) ? input.metadata : {}),
-      ...(input.iau !== undefined ? { iau: input.iau } : {}),
-      ...(input.common_name !== undefined ? { common_name: input.common_name } : {}),
-      source: input,
     },
   };
 }
@@ -464,7 +441,6 @@ function normalizeAnchor(input) {
     target,
     metadata: {
       ...(isRecord(input.metadata) ? input.metadata : {}),
-      ...(input.hip !== undefined ? { hip: input.hip } : {}),
     },
   };
 }
@@ -488,16 +464,6 @@ function normalizeAnchorTarget(input) {
       return null;
     }
     return { kind: 'position', frame: 'icrs-pc', x: vector.x, y: vector.y, z: vector.z };
-  }
-
-  const direction = arrayOrVec3(input.direction);
-  if (direction) {
-    return { kind: 'direction', frame: 'icrs', x: direction[0], y: direction[1], z: direction[2] };
-  }
-
-  const position = arrayOrVec3(input.position ?? input.positionPc);
-  if (position) {
-    return { kind: 'position', frame: 'icrs-pc', x: position[0], y: position[1], z: position[2] };
   }
 
   return null;
@@ -526,13 +492,6 @@ function normalizePixel(value) {
 }
 
 function normalizeImageSize(imageRecord) {
-  if (Array.isArray(imageRecord.size) && imageRecord.size.length >= 2) {
-    const width = Number(imageRecord.size[0]);
-    const height = Number(imageRecord.size[1]);
-    if (width > 0 && height > 0) {
-      return [width, height];
-    }
-  }
   const width = Number(imageRecord.width);
   const height = Number(imageRecord.height);
   return width > 0 && height > 0 ? [width, height] : [...DEFAULT_IMAGE_SIZE];
@@ -645,37 +604,26 @@ function createDirectionEntry(image) {
 }
 
 function createImageSummary(image, entry) {
-  const iau = image.metadata?.iau ?? image.groupId ?? null;
-  const name = image.metadata?.common_name ?? image.label ?? null;
   return {
     imageId: image.id,
     groupId: image.groupId ?? null,
     label: image.label ?? null,
-    iau,
     id: image.id,
-    name,
     hasArt: Boolean(entry),
     centroidIcrs: entry?.centroid ?? null,
-    centroidRaDec: entry ? toRaDec(entry.centroid) : null,
     imageUpIcrs: entry?.imageUp ?? null,
-    imageUpRaDec: entry?.imageUp ? toRaDec(entry.imageUp) : null,
     cornersIcrs: entry?.corners ?? null,
-    cornersRaDec: entry ? entry.corners.map((direction) => toRaDec(direction)) : null,
     attribution: image.attribution,
     metadata: image.metadata ?? {},
   };
 }
 
 function createResolveResult(entry, score) {
-  const iau = entry.image.metadata?.iau ?? entry.image.groupId ?? null;
-  const name = entry.image.metadata?.common_name ?? entry.image.label ?? null;
   return {
     imageId: entry.image.id,
     groupId: entry.image.groupId ?? null,
     label: entry.image.label ?? null,
-    iau,
     id: entry.image.id,
-    name,
     score,
   };
 }

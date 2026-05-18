@@ -47,7 +47,6 @@ export interface CreateAnchoredImageGroupOptions
   subdivisions?: number;
   filter?: (image: AnchoredImage) => boolean;
   groupFilter?: string[];
-  iauFilter?: string[];
   skipTextureErrors?: boolean;
   onTextureError?: (event: {
     image: AnchoredImage;

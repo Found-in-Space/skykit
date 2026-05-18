@@ -37,7 +37,7 @@ test('createAnchoredImageMeshObject builds a textured THREE mesh from generic an
 
   assert.equal(object.name, 'anchored-image-group-a');
   assert.equal(object.userData.anchoredImage.id, 'image-a');
-  assert.equal(object.userData.iau, 'group-a');
+  assert.equal(object.userData.anchoredImage.groupId, 'group-a');
   assert.equal(object.geometry.getAttribute('position').count, 4);
   assert.equal(object.geometry.getAttribute('uv').count, 4);
   assert.deepEqual([...object.geometry.index.array], [0, 1, 2, 0, 2, 3]);
@@ -64,5 +64,36 @@ test('createAnchoredImageGroup loads textures and resolves relative manifest ass
   assert.equal(group.children.length, 1);
   assert.deepEqual(requests, ['https://cdn.example.com/pkg/plate.png']);
   assert.equal(group.userData.anchoredImage.meshCount, 1);
+  group.userData.anchoredImage.dispose();
+});
+
+test('createAnchoredImageGroup filters by groupId and generic filter only', async () => {
+  const requests = [];
+  const group = await createAnchoredImageGroup({
+    manifest: {
+      id: 'plates',
+      images: [
+        IMAGE,
+        {
+          ...IMAGE,
+          id: 'image-b',
+          groupId: 'group-b',
+          image: { ...IMAGE.image, src: 'plate-b.png' },
+        },
+      ],
+    },
+    textureLoader: {
+      load(url, onLoad) {
+        requests.push(url);
+        onLoad(new THREE.Texture());
+      },
+    },
+    groupFilter: ['group-b'],
+    filter: undefined,
+  });
+
+  assert.equal(group.children.length, 1);
+  assert.deepEqual(requests, ['plate-b.png']);
+  assert.equal(group.children[0].userData.anchoredImage.groupId, 'group-b');
   group.userData.anchoredImage.dispose();
 });

@@ -1,5 +1,10 @@
 import type { ProductDelta } from '@found-in-space/product-stream';
 import type {
+  AnchoredImage,
+  AnchoredImageManifest,
+  LoadAnchoredImageManifestOptions,
+} from '@found-in-space/anchored-image';
+import type {
   SpatialPreloadHint,
   SpatialNavigationAutomation,
   SpatialNavigationAutomationOptions,
@@ -403,6 +408,124 @@ export interface Object3dLayerOptions {
   disposeObject?: boolean;
 }
 
+export interface AnchoredImageCatalogEntry {
+  id: string;
+  key: string;
+  groupId: string | null;
+  label: string;
+  image: AnchoredImage;
+  centroidIcrs: Vector3Like;
+  imageUpIcrs: Vector3Like;
+  cornersIcrs: Vector3Like[];
+  boundsConeRadiusRad: number;
+  metadata: Record<string, unknown>;
+}
+
+export interface AnchoredImageActiveEntry {
+  entry: AnchoredImageCatalogEntry;
+  key: string;
+  weight: number;
+  angleRad: number;
+  outsideRad: number;
+}
+
+export interface AnchoredImageCatalogOptions extends LoadAnchoredImageManifestOptions {}
+
+export interface AnchoredImageTargetOptions {
+  observerPc?: Vector3Like;
+  distancePc?: number;
+}
+
+export interface AnchoredImageLookAtOptions extends AnchoredImageTargetOptions {
+  upIcrs?: Vector3Like;
+}
+
+export interface AnchoredImageLookAtResult {
+  entry: AnchoredImageCatalogEntry;
+  targetPc: Vector3Like;
+  upIcrs: Vector3Like;
+  orientationIcrs: QuaternionLike | null;
+}
+
+export type AnchoredImageSelection =
+  | string
+  | string[]
+  | ((entry: AnchoredImageCatalogEntry) => boolean);
+
+export interface AnchoredImageResolveActiveOptions {
+  selection?: AnchoredImageSelection;
+  maxImages?: number;
+  fadeDeg?: number;
+}
+
+export interface AnchoredImageCatalog {
+  manifest: AnchoredImageManifest;
+  list(): AnchoredImageCatalogEntry[];
+  get(key: string): AnchoredImageCatalogEntry | null;
+  resolveTargetPc(key: string, options?: AnchoredImageTargetOptions): Vector3Like | null;
+  resolveLookAt(key: string, options?: AnchoredImageLookAtOptions): AnchoredImageLookAtResult | null;
+  resolveActive(
+    directionIcrs: Vector3Like | [number, number, number],
+    options?: AnchoredImageResolveActiveOptions
+  ): AnchoredImageActiveEntry[];
+}
+
+export type AnchoredImageSkyMode = 'fixed' | 'view' | 'all';
+export type AnchoredImageSkyLoading = 'preload' | 'lazy';
+
+export interface AnchoredImageSkyActiveOptions {
+  enabled?: boolean;
+  maxImages?: number;
+  fadeDeg?: number;
+}
+
+export interface AnchoredImageStyleState {
+  entry: AnchoredImageCatalogEntry | null;
+  mode: AnchoredImageSkyMode;
+  active: boolean;
+  weight: number;
+  visible: boolean;
+  opacity: number;
+}
+
+export interface AnchoredImageSkyPluginOptions {
+  id?: string;
+  priority?: number;
+  catalog: AnchoredImageCatalog;
+  mode?: AnchoredImageSkyMode;
+  loading?: AnchoredImageSkyLoading;
+  selection?: AnchoredImageSelection;
+  fixedAtInfinity?: boolean;
+  active?: AnchoredImageSkyActiveOptions;
+  radius?: number;
+  opacity?: number;
+  activeOpacity?: number;
+  inactiveOpacity?: number;
+  cutoff?: number;
+  subdivisions?: number;
+  renderOrder?: number;
+  namePrefix?: string;
+  textureLoader?: THREE.TextureLoader;
+  skipTextureErrors?: boolean;
+  onTextureError?: (event: {
+    entry: AnchoredImageCatalogEntry;
+    image: AnchoredImage;
+    imageUrl: string;
+    error: unknown;
+  }) => void;
+  applyImageStyle?: (object: THREE.Object3D, state: AnchoredImageStyleState) => void;
+}
+
+export interface AnchoredImageSkyController {
+  setMode(mode: AnchoredImageSkyMode): void;
+  setSelection(selection?: AnchoredImageSelection): void;
+  getActive(): AnchoredImageActiveEntry[];
+  getCatalog(): AnchoredImageCatalog;
+  getSnapshot(): unknown;
+}
+
+export type AnchoredImageSkyPlugin = SkykitPlugin & AnchoredImageSkyController;
+
 export interface SkykitObject3dPlugin extends SkykitPlugin {
   getLayer(): SkykitThreePart | null;
   getSnapshot(): unknown;
@@ -715,6 +838,12 @@ export declare const SKYKIT_CONTROLS: {
   };
 };
 export declare function createSkykitActionRegistry(): SkykitActionRegistry;
+export declare function createAnchoredImageCatalog(
+  options?: AnchoredImageCatalogOptions
+): Promise<AnchoredImageCatalog>;
+export declare function createAnchoredImageSkyPlugin(
+  options: AnchoredImageSkyPluginOptions
+): AnchoredImageSkyPlugin;
 export declare function createSkykitViewer(options?: SkykitViewerOptions): Promise<SkykitViewer>;
 export declare function createDesktopSkykitObserverRig(options?: DesktopSkykitObserverRigOptions): SkykitObserverRig;
 export declare function createObject3dLayer(options: Object3dLayerOptions): SkykitThreePart;

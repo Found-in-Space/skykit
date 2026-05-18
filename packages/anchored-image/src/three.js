@@ -90,7 +90,6 @@ export function createAnchoredImageMeshObject(mesh, options = {}) {
     attribution: mesh.image.attribution,
     metadata: mesh.image.metadata ?? {},
   };
-  object.userData.iau = mesh.image.metadata?.iau ?? mesh.image.groupId ?? mesh.image.id ?? null;
   return object;
 }
 
@@ -239,10 +238,6 @@ function matchesFilter(image, options) {
 
   if (Array.isArray(options.groupFilter) && options.groupFilter.length > 0) {
     return options.groupFilter.includes(image.groupId);
-  }
-
-  if (Array.isArray(options.iauFilter) && options.iauFilter.length > 0) {
-    return options.iauFilter.includes(image.metadata?.iau ?? image.groupId);
   }
 
   return true;

@@ -1,13 +1,17 @@
 declare module 'three' {
   export class Object3D {
+    readonly isObject3D: boolean;
     name: string;
     parent: Object3D | null;
     children: Object3D[];
+    userData: Record<string, any>;
+    visible: boolean;
     position: { x: number; y: number; z: number; set(x: number, y: number, z: number): void };
     quaternion: { x: number; y: number; z: number; w: number; set(x: number, y: number, z: number, w: number): void; identity(): void };
     scale: { x: number; y: number; z: number; setScalar(value: number): void };
     add(...objects: Object3D[]): this;
     remove(...objects: Object3D[]): this;
+    clear(): this;
     traverse(callback: (object: Object3D) => void): void;
   }
 
@@ -34,6 +38,38 @@ declare module 'three' {
     z: number;
     w: number;
     constructor(x?: number, y?: number, z?: number, w?: number);
+  }
+
+  export class Texture {
+    dispose(): void;
+  }
+
+  export class TextureLoader {
+    load(
+      url: string,
+      onLoad?: (texture: Texture) => void,
+      onProgress?: (event: ProgressEvent) => void,
+      onError?: (error: unknown) => void
+    ): Texture;
+  }
+
+  export class Material {
+    opacity: number;
+    transparent: boolean;
+    uniforms?: Record<string, { value: unknown }>;
+    dispose(): void;
+  }
+
+  export class ShaderMaterial extends Material {}
+
+  export class BufferGeometry {
+    dispose(): void;
+  }
+
+  export class Mesh extends Object3D {
+    readonly isMesh: boolean;
+    geometry: BufferGeometry;
+    material: Material | Material[];
   }
 
   export interface WebGLRenderer {

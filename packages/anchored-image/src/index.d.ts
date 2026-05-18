@@ -96,9 +96,7 @@ export interface AnchoredImageResolveResult {
   imageId: string;
   groupId: string | null;
   label: string | null;
-  iau: unknown;
   id: string;
-  name: unknown;
   score: number;
 }
 
@@ -106,16 +104,11 @@ export interface AnchoredImageSummary {
   imageId: string;
   groupId: string | null;
   label: string | null;
-  iau: unknown;
   id: string;
-  name: unknown;
   hasArt: boolean;
   centroidIcrs: [number, number, number] | null;
-  centroidRaDec: RaDec | null;
   imageUpIcrs: [number, number, number] | null;
-  imageUpRaDec: RaDec | null;
   cornersIcrs: Array<[number, number, number]> | null;
-  cornersRaDec: Array<RaDec | null> | null;
   attribution?: unknown;
   metadata: Record<string, unknown>;
 }
@@ -127,7 +120,7 @@ export interface AnchoredImageDirectionResolver {
   ): AnchoredImageResolveResult | null;
   toRaDec(icrsDirection: [number, number, number] | Vec3): RaDec | null;
   listImages(): AnchoredImageSummary[];
-  getImage(nameOrId: string): AnchoredImageSummary | null;
+  getImage(keyOrLabel: string): AnchoredImageSummary | null;
   getStats(): {
     imageCount: number;
     listedImageCount: number;

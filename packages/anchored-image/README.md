@@ -70,10 +70,7 @@ nebula or survey plates with approximate depth anchors.
 
 Skyculture, survey, and astrophotography packages should export this canonical
 format directly, or provide a tiny adapter that converts their richer package
-format into it. Legacy constellation-art manifests with `constellations`,
-`image.file`, `image.size`, `image.anchors[].pos`, and
-`image.anchors[].direction` are still accepted during alpha and normalized into
-the generic model.
+format into it before calling this package.
 
 ## Canvas
 

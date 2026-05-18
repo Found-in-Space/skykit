@@ -14,43 +14,53 @@ import {
   toRaDec,
 } from '../index.js';
 
-const LEGACY_MANIFEST = {
+const MANIFEST = {
+  format: ANCHORED_IMAGE_MANIFEST_FORMAT,
   id: 'western',
-  constellations: [
+  label: 'Western plates',
+  images: [
     {
-      id: 'CON western Ori',
-      iau: 'Ori',
-      common_name: { english: 'Hunter', native: 'Orion' },
+      id: 'orion-art',
+      groupId: 'Ori',
+      label: 'Orion',
       image: {
-        file: 'illustrations/orion.webp',
-        size: [100, 100],
+        src: 'illustrations/orion.webp',
+        width: 100,
+        height: 100,
         anchors: [
-          { pos: [0, 0], hip: 1, direction: [1, 0, 0] },
-          { pos: [100, 0], hip: 2, direction: [1, 1, 0] },
-          { pos: [0, 100], hip: 3, direction: [1, 0, 1] },
+          { pixel: { x: 0, y: 0 }, target: { kind: 'direction', frame: 'icrs', x: 1, y: 0, z: 0 } },
+          { pixel: { x: 100, y: 0 }, target: { kind: 'direction', frame: 'icrs', x: 1, y: 1, z: 0 } },
+          { pixel: { x: 0, y: 100 }, target: { kind: 'direction', frame: 'icrs', x: 1, y: 0, z: 1 } },
         ],
       },
     },
     {
       id: 'vel-id',
-      iau: 'Vel',
-      common_name: { english: 'Sails', native: 'Vela' },
+      groupId: 'Vel',
+      label: 'Vela',
+      image: {
+        src: '',
+        width: 100,
+        height: 100,
+        anchors: [],
+      },
     },
   ],
 };
 
-test('loadAnchoredImageManifest normalizes legacy constellation manifests and resolves image URLs', async () => {
+test('loadAnchoredImageManifest normalizes canonical manifests and resolves image URLs', async () => {
   const manifest = await loadAnchoredImageManifest({
-    manifest: LEGACY_MANIFEST,
+    manifest: MANIFEST,
     manifestUrl: 'https://cdn.example.com/skyculture/dist/manifest.json',
   });
 
   assert.equal(manifest.id, 'western');
   assert.equal(manifest.format, ANCHORED_IMAGE_MANIFEST_FORMAT);
+  assert.equal(manifest.label, 'Western plates');
   assert.equal(manifest.images.length, 2);
-  assert.equal(manifest.images[0].id, 'CON western Ori');
+  assert.equal(manifest.images[0].id, 'orion-art');
   assert.equal(manifest.images[0].groupId, 'Ori');
-  assert.equal(manifest.images[0].label, 'Hunter');
+  assert.equal(manifest.images[0].label, 'Orion');
   assert.equal(
     manifest.images[0].image.src,
     'https://cdn.example.com/skyculture/dist/illustrations/orion.webp',
@@ -70,7 +80,7 @@ test('exports a versioned canonical manifest schema', () => {
 });
 
 test('solveAnchoredImageMesh creates default quads and subdivided generic meshes', () => {
-  const manifest = normalizeAnchoredImageManifest(LEGACY_MANIFEST);
+  const manifest = normalizeAnchoredImageManifest(MANIFEST);
   const image = manifest.images[0];
   const solved = solveAnchoredImage(image);
   const center = solved?.targetAt({ x: 50, y: 50 });
@@ -111,19 +121,31 @@ test('position anchors solve to spatial targets without forcing a sphere', () =>
   });
 });
 
-test('direction resolver supports legacy lookup and target helpers', () => {
-  const resolver = buildAnchoredImageDirectionResolver(LEGACY_MANIFEST);
+test('direction resolver supports generic lookup and target helpers', () => {
+  const resolver = buildAnchoredImageDirectionResolver(MANIFEST);
   const resolved = resolver.resolve([1, 0.2, 0.2]);
   const list = resolver.listImages();
   const raDec = toRaDec([0, 1, 0]);
   const target = icrsDirectionToTargetPc([2, 0, 0], 50, { x: 1, y: 2, z: 3 });
 
-  assert.equal(resolved?.iau, 'Ori');
-  assert.equal(resolver.getImage('Hunter')?.iau, 'Ori');
-  assert.equal(resolver.getImage('Orion')?.iau, 'Ori');
+  assert.equal(resolved?.groupId, 'Ori');
+  assert.equal(resolver.getImage('orion-art')?.groupId, 'Ori');
+  assert.equal(resolver.getImage('Orion')?.groupId, 'Ori');
   assert.equal(list.length, 2);
   assert.equal(list[0].hasArt, true);
   assert.equal(list[1].hasArt, false);
+  assert.deepEqual(Object.keys(list[0]).sort(), [
+    'attribution',
+    'centroidIcrs',
+    'cornersIcrs',
+    'groupId',
+    'hasArt',
+    'id',
+    'imageId',
+    'imageUpIcrs',
+    'label',
+    'metadata',
+  ]);
   assert.equal(raDec?.raDeg, 90);
   assert.deepEqual(target, { x: 51, y: 2, z: 3 });
 });
