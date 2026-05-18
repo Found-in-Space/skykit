@@ -4,7 +4,10 @@ import test from 'node:test';
 import { createStarCellKey } from '@found-in-space/star-products';
 import { STAR_HAS_PAYLOAD, STAR_IS_FRONTIER } from '../star-octree-format.js';
 import { createStarOctreeIndexSource } from '../star-octree-index-source.js';
-import { planObserverShellDemand } from '../star-octree-observer-shell.js';
+import {
+  loadRadiusForMagnitudeShell,
+  planObserverShellDemand,
+} from '../star-octree-observer-shell.js';
 import {
   planStarOctreeStrategyDemand,
   withMotionLookahead,
@@ -207,6 +210,75 @@ test('observer-shell demand uses header magLimit for pruning', async () => {
   }
 });
 
+test('observer-shell demand sizes magnitude shell by full cell width', async () => {
+  const indexOffset = HEADER_SIZE + DESCRIPTOR_SIZE;
+  const rootShard = createShardBytes({
+    parentGlobalDepth: 0,
+    entryNodes: [1, 0, 0, 0, 0, 0, 0, 0],
+    nodes: [
+      createShardNodeRecord({
+        flags: STAR_HAS_PAYLOAD,
+        localDepth: 1,
+        localPath: 0,
+        payloadOffset: 1000,
+        payloadLength: 10,
+      }),
+    ],
+  });
+  const { indexSource, restoreFetch } = createIndexSourceForBytes(concatBytes([
+    createStarHeaderBytes({
+      indexOffset,
+      indexLength: rootShard.length,
+      worldHalfSize: 100,
+      magLimit: 6.5,
+      maxLevel: 99,
+    }),
+    createOdscDescriptorBytes(),
+    rootShard,
+  ]));
+  const baseContext = {
+    providerId: 'provider-a',
+    strategy: { kind: 'observer-shell' },
+    viewRevision: 1,
+    demandRevision: 0,
+    attributes: ['position'],
+    coordinates: { units: ['pc', 'pc', 'pc'] },
+  };
+
+  try {
+    assert.equal(loadRadiusForMagnitudeShell(50, 6.5, 6.5), 100);
+
+    const included = await planObserverShellDemand({
+      indexSource,
+      context: withTraversalContext(indexSource, {
+        ...baseContext,
+        view: {
+          revision: 1,
+          observerPc: { x: 75, y: -50, z: -50 },
+          limitingMagnitude: 6.5,
+        },
+      }),
+    });
+    const pruned = await planObserverShellDemand({
+      indexSource,
+      context: withTraversalContext(indexSource, {
+        ...baseContext,
+        view: {
+          revision: 2,
+          observerPc: { x: 125, y: -50, z: -50 },
+          limitingMagnitude: 6.5,
+        },
+      }),
+    });
+    assert.equal(included.entries.length, 1);
+    assert.equal(included.entries[0].metadata.loadRadiusPc, 100);
+    assert.equal(pruned.entries.length, 0);
+    assert.equal(pruned.metadata.prunedNodeCount, 1);
+  } finally {
+    restoreFetch();
+  }
+});
+
 test('observer-shell motion hints do not cap visible demand', async () => {
   const indexOffset = HEADER_SIZE + DESCRIPTOR_SIZE;
   const rootShard = createShardBytes({
@@ -352,7 +424,7 @@ test('observer-shell motion lookahead decorator adds future-only prefetch demand
         ...baseContext,
         view: {
           revision: 1,
-          observerPc: { x: -75, y: -75, z: -75 },
+          observerPc: { x: -125, y: -75, z: -75 },
           limitingMagnitude: 6.5,
         },
       }),
@@ -364,7 +436,7 @@ test('observer-shell motion lookahead decorator adds future-only prefetch demand
         strategy: withMotionLookahead({ kind: 'observer-shell' }),
         view: {
           revision: 2,
-          observerPc: { x: -75, y: -75, z: -75 },
+          observerPc: { x: -125, y: -75, z: -75 },
           limitingMagnitude: 6.5,
           motion: {
             velocityPcPerSec: { x: 150, y: 0, z: 0 },
@@ -380,7 +452,7 @@ test('observer-shell motion lookahead decorator adds future-only prefetch demand
         strategy: withMotionLookahead({ kind: 'observer-shell' }),
         view: {
           revision: 3,
-          observerPc: { x: -75, y: -75, z: -75 },
+          observerPc: { x: -125, y: -75, z: -75 },
           limitingMagnitude: 6.5,
           motion: {
             speedPcPerSec: 150,
@@ -409,12 +481,12 @@ test('observer-shell motion lookahead decorator adds future-only prefetch demand
     assert.equal(motionPlan.signature, staticPlan.signature);
     assert.equal(motionPlan.metadata.motionLookahead.enabled, true);
     assert.deepEqual(motionPlan.metadata.motionLookahead.futureObserverPc, {
-      x: 75,
+      x: 25,
       y: -75,
       z: -75,
     });
     assert.equal(motionPlan.metadata.motionLookahead.prefetchNodeCount, 1);
-    assert.equal(motionPlan.metadata.motionLookahead.prefetchOverlapCount, 0);
+    assert.equal(motionPlan.metadata.motionLookahead.prefetchOverlapCount, 1);
     assert.equal(noVelocityPlan.metadata.motionLookahead.enabled, false);
     assert.equal(
       noVelocityPlan.entries.some((entry) => entry.role === 'prefetch'),
@@ -571,7 +643,7 @@ test('target-frustum motion lookahead decorator adds future-only prefetch demand
         ...baseContext,
         view: {
           revision: 1,
-          observerPc: { x: -75, y: -75, z: -75 },
+          observerPc: { x: -125, y: -75, z: -75 },
           limitingMagnitude: 6.5,
           directionIcrs: { x: 1, y: 0, z: 0 },
           verticalFovDeg: 120,
@@ -586,7 +658,7 @@ test('target-frustum motion lookahead decorator adds future-only prefetch demand
         strategy: withMotionLookahead({ kind: 'target-frustum' }),
         view: {
           revision: 2,
-          observerPc: { x: -75, y: -75, z: -75 },
+          observerPc: { x: -125, y: -75, z: -75 },
           limitingMagnitude: 6.5,
           directionIcrs: { x: 1, y: 0, z: 0 },
           verticalFovDeg: 120,
