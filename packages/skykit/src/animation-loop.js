@@ -22,6 +22,10 @@ export function createSkykitAnimationLoop(viewer, options = {}) {
     ?? globalThis.performance?.now?.bind(globalThis.performance)
     ?? Date.now;
   const maxDeltaSeconds = positiveFinite(options.maxDeltaSeconds, 0.1);
+  const maxFramesPerSecond = positiveFinite(options.maxFramesPerSecond, Number.POSITIVE_INFINITY);
+  const minFrameIntervalMs = Number.isFinite(maxFramesPerSecond)
+    ? 1000 / maxFramesPerSecond
+    : 0;
   let running = false;
   let disposed = false;
   let frameHandle = /** @type {number | ReturnType<typeof setTimeout> | null} */ (null);
@@ -72,6 +76,14 @@ export function createSkykitAnimationLoop(viewer, options = {}) {
   function tick(timeMs) {
     if (!running || disposed) return;
     const currentTimeMs = finiteNumber(timeMs, now());
+    if (
+      frameCount > 0
+      && minFrameIntervalMs > 0
+      && currentTimeMs - lastTimeMs < minFrameIntervalMs
+    ) {
+      frameHandle = requestFrame(tick);
+      return;
+    }
     const rawDeltaSeconds = Math.max(0, (currentTimeMs - lastTimeMs) / 1000);
     lastTimeMs = currentTimeMs;
     lastDeltaSeconds = Math.min(rawDeltaSeconds, maxDeltaSeconds);

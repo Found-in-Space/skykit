@@ -722,6 +722,7 @@ export interface SkykitStarPreloadRequest {
 export interface SkykitAnimationLoopOptions {
   autoStart?: boolean;
   render?: boolean;
+  maxFramesPerSecond?: number;
   maxDeltaSeconds?: number;
   requestAnimationFrame?: (callback: (timeMs: number) => void) => number | ReturnType<typeof setTimeout>;
   cancelAnimationFrame?: (handle: number | ReturnType<typeof setTimeout>) => void;

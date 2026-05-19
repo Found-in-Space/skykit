@@ -403,6 +403,41 @@ test('animation loop drives viewer frames with an injected scheduler and clock',
   await viewer.dispose();
 });
 
+test('animation loop can throttle rendered frames', async () => {
+  const renderer = createRenderer();
+  const viewer = await createSkykitViewer({ renderer });
+  const callbacks = [];
+  let nowMs = 1000;
+  const loop = createSkykitAnimationLoop(viewer, {
+    maxFramesPerSecond: 30,
+    now: () => nowMs,
+    requestAnimationFrame(callback) {
+      callbacks.push(callback);
+      return callbacks.length;
+    },
+  });
+
+  loop.start();
+  nowMs = 1016;
+  callbacks.shift()(nowMs);
+  assert.equal(renderer.renderCalls, 1);
+  assert.equal(loop.getSnapshot().frameCount, 1);
+
+  nowMs = 1030;
+  callbacks.shift()(nowMs);
+  assert.equal(renderer.renderCalls, 1);
+  assert.equal(loop.getSnapshot().frameCount, 1);
+
+  nowMs = 1050;
+  callbacks.shift()(nowMs);
+  assert.equal(renderer.renderCalls, 2);
+  assert.equal(loop.getSnapshot().frameCount, 2);
+  assert.ok(loop.getSnapshot().lastDeltaSeconds >= 0.033);
+
+  loop.dispose();
+  await viewer.dispose();
+});
+
 test('keyboard navigation plugin maps keys to batched observer movement and cleans listeners', async () => {
   const target = createEventTarget();
   const plugin = createKeyboardNavigationPlugin({

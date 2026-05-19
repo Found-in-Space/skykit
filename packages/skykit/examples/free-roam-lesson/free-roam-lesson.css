@@ -2,6 +2,12 @@ code {
   color: var(--accent-strong);
 }
 
+[data-status] {
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 .viewer-shell canvas {
   display: block;
   width: 100%;

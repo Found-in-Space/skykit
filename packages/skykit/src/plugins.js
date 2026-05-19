@@ -1110,6 +1110,8 @@ export function createSkykitStatusPlugin(options = {}) {
   const intervalSeconds = Math.max(0, finiteNumber(options.intervalSeconds, 0));
   let elapsedSinceRender = 0;
   let renderCount = 0;
+  /** @type {string | null} */
+  let lastTargetText = null;
   /** @type {{ viewerId?: string; viewRevision?: number } | null} */
   let lastSummary = null;
 
@@ -1151,7 +1153,11 @@ export function createSkykitStatusPlugin(options = {}) {
     if (typeof options.render === 'function') {
       options.render(payload);
     } else if (options.target && 'textContent' in options.target) {
-      options.target.textContent = JSON.stringify(viewerSnapshot, null, 2);
+      const targetText = JSON.stringify(viewerSnapshot, null, 2);
+      if (targetText !== lastTargetText) {
+        lastTargetText = targetText;
+        options.target.textContent = targetText;
+      }
     }
   }
 

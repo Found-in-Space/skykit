@@ -24,6 +24,8 @@ main().catch((error) => {
 async function main() {
   const host = document.querySelector('[data-viewer]');
   const statusTarget = document.querySelector('[data-status]');
+  const statusCopyGuard = createStatusCopyGuard(statusTarget);
+  let lastStatusText = '';
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   const camera = new THREE.PerspectiveCamera(60, 1, 0.001, 10000);
   const provider = createStarOctreeProviderService({ url: OCTREE_DEFAULT });
@@ -50,13 +52,21 @@ async function main() {
       }),
       createSkykitStatusPlugin({
         target: statusTarget,
+        intervalSeconds: 0.5,
         render({ viewer: snapshot }) {
+          if (statusCopyGuard.isHeld()) {
+            return;
+          }
           const stars = snapshot.parts.find((part) => part.id === 'streaming-stars')?.snapshot;
-          statusTarget.textContent = JSON.stringify({
+          const statusText = JSON.stringify({
             observerPc: snapshot.view.observerPc,
             parts: snapshot.partCount,
             stars,
           }, null, 2);
+          if (statusText !== lastStatusText) {
+            lastStatusText = statusText;
+            statusTarget.textContent = statusText;
+          }
         },
       }),
     ],
@@ -65,23 +75,75 @@ async function main() {
   const debug = createSkykitDebugBridge();
   debug.registerViewer(viewer);
   installSkykitDebugGlobal(debug);
-  const loop = createSkykitAnimationLoop(viewer);
+  const loop = createSkykitAnimationLoop(viewer, { maxFramesPerSecond: 30 });
 
   function resize() {
     const width = host.clientWidth || 1;
     const height = host.clientHeight || 1;
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
-    viewer.resize({ width, height, devicePixelRatio: window.devicePixelRatio || 1 });
+    viewer.resize({ width, height, devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2) });
   }
 
   window.addEventListener('resize', resize);
   window.addEventListener('beforeunload', () => {
     loop.dispose();
+    statusCopyGuard.dispose();
     void viewer.dispose();
     void provider.dispose?.();
   });
 
   resize();
   loop.start();
+}
+
+function createStatusCopyGuard(target) {
+  let pointerDown = false;
+  let held = false;
+
+  const hasSelection = () => selectionIntersectsNode(target);
+  const releaseIfIdle = () => {
+    if (!pointerDown && !hasSelection()) {
+      held = false;
+    }
+  };
+  const onPointerDown = () => {
+    pointerDown = true;
+    held = true;
+  };
+  const onPointerUp = () => {
+    pointerDown = false;
+    window.setTimeout(releaseIfIdle, 0);
+  };
+  const onSelectionChange = () => {
+    held = pointerDown || hasSelection();
+  };
+
+  target.addEventListener('pointerdown', onPointerDown);
+  document.addEventListener('pointerup', onPointerUp);
+  document.addEventListener('selectionchange', onSelectionChange);
+
+  return {
+    isHeld: () => held,
+    dispose() {
+      target.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('pointerup', onPointerUp);
+      document.removeEventListener('selectionchange', onSelectionChange);
+    },
+  };
+}
+
+function selectionIntersectsNode(node) {
+  const selection = window.getSelection?.();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    return false;
+  }
+
+  for (let index = 0; index < selection.rangeCount; index += 1) {
+    const range = selection.getRangeAt(index);
+    if (range.intersectsNode(node)) {
+      return true;
+    }
+  }
+  return false;
 }
