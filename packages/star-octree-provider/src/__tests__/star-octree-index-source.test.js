@@ -4,6 +4,7 @@ import test from 'node:test';
 import { createStarCellKey } from '@found-in-space/star-trees';
 import { parseStarHeader } from '../star-octree-format.js';
 import { createStarOctreeIndexSource } from '../star-octree-index-source.js';
+import { createStarOctreeScheduler } from '../star-octree-scheduler.js';
 import {
   HEADER_SIZE,
   DESCRIPTOR_SIZE,
@@ -209,3 +210,109 @@ test('ensureRootShardLoaded rejects malformed or truncated shard bytes', async (
     globalThis.fetch = originalFetch;
   }
 });
+
+test('speculative prefetch shard fetch aborts and does not poison the shard cache', async () => {
+  const shardOffset = 1024;
+  const shardBytes = createShardBytes();
+  let requestCount = 0;
+  /** @type {AbortSignal | undefined} */
+  let speculativeSignal;
+  const source = createStarOctreeIndexSource({
+    providerId: 'provider-a',
+    options: { url: 'memory://stars.octree' },
+    scheduler: createStarOctreeScheduler(),
+    rangeSource: {
+      persistentCacheAvailable: false,
+      fetchRange(_start, _end, options = {}) {
+        requestCount += 1;
+        if (requestCount === 1) {
+          speculativeSignal = options.signal;
+          return new Promise((resolve, reject) => {
+            options.signal?.addEventListener('abort', () => {
+              reject(options.signal?.reason);
+            }, { once: true });
+          });
+        }
+
+        return Promise.resolve(toArrayBuffer(shardBytes));
+      },
+    },
+  });
+  const prefetchController = new AbortController();
+
+  const prefetch = source.loadShard(shardOffset, {
+    lane: 'prefetch',
+    signal: prefetchController.signal,
+  });
+  await tick();
+  prefetchController.abort();
+
+  await assert.rejects(prefetch, { name: 'AbortError' });
+  await tick();
+
+  assert.equal(speculativeSignal?.aborted, true);
+  const shard = await source.loadShard(shardOffset, { lane: 'current' });
+
+  assert.equal(shard.header.nodeCount, 1);
+  assert.equal(requestCount, 2);
+});
+
+test('foreground shard consumer protects an existing speculative fetch', async () => {
+  const shardOffset = 2048;
+  const shardBytes = createShardBytes();
+  const fetchGate = createDeferred();
+  let requestCount = 0;
+  /** @type {AbortSignal | undefined} */
+  let fetchSignal;
+  const source = createStarOctreeIndexSource({
+    providerId: 'provider-a',
+    options: { url: 'memory://stars.octree' },
+    scheduler: createStarOctreeScheduler(),
+    rangeSource: {
+      persistentCacheAvailable: false,
+      fetchRange(_start, _end, options = {}) {
+        requestCount += 1;
+        fetchSignal = options.signal;
+        options.signal?.addEventListener('abort', () => {
+          fetchGate.reject(options.signal?.reason);
+        }, { once: true });
+        return fetchGate.promise;
+      },
+    },
+  });
+  const prefetchController = new AbortController();
+
+  const prefetch = source.loadShard(shardOffset, {
+    lane: 'prefetch',
+    signal: prefetchController.signal,
+  });
+  prefetch.catch(() => {});
+  await tick();
+  const current = source.loadShard(shardOffset, { lane: 'current' });
+  prefetchController.abort();
+  await assert.rejects(prefetch, { name: 'AbortError' });
+
+  assert.equal(fetchSignal?.aborted, false);
+  fetchGate.resolve(toArrayBuffer(shardBytes));
+
+  const shard = await current;
+  assert.equal(shard.header.nodeCount, 1);
+  assert.equal(fetchSignal?.aborted, false);
+  assert.equal(requestCount, 1);
+});
+
+function createDeferred() {
+  /** @type {(value: ArrayBuffer) => void} */
+  let resolve = () => {};
+  /** @type {(error: unknown) => void} */
+  let reject = () => {};
+  const promise = new Promise((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+  return { promise, resolve, reject };
+}
+
+async function tick() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}

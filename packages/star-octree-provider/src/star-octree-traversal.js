@@ -89,6 +89,7 @@ export function createTraversalStats() {
  *     distancePc?: number;
  *   };
   *   signal?: AbortSignal;
+  *   lane?: import('./star-octree-scheduler.js').StarOctreeSchedulerLane;
  * }} options
  */
 export async function traverseOctree(options) {
@@ -149,6 +150,10 @@ export async function traverseOctree(options) {
       options.bootstrap,
       item.node,
       stats,
+      {
+        lane: options.lane,
+        signal: options.signal,
+      },
     );
     throwIfAborted(options.signal);
     for (const child of children) {
@@ -170,14 +175,18 @@ export async function traverseOctree(options) {
  * @param {StarOctreeBootstrapIndex} bootstrap
  * @param {StarOctreeRuntimeNode} node
  * @param {TraversalStats} stats
+ * @param {{
+ *   lane?: import('./star-octree-scheduler.js').StarOctreeSchedulerLane;
+ *   signal?: AbortSignal;
+ * }} [options]
  * @returns {Promise<StarOctreeRuntimeNode[]>}
  */
-export async function readChildNodes(indexSource, bootstrap, node, stats = createTraversalStats()) {
+export async function readChildNodes(indexSource, bootstrap, node, stats = createTraversalStats(), options = {}) {
   if (node.childMask === 0) {
     return [];
   }
 
-  const shard = await indexSource.loadShard(node.shardOffset);
+  const shard = await indexSource.loadShard(node.shardOffset, options);
   /** @type {StarOctreeRuntimeNode[]} */
   const children = [];
 
@@ -188,7 +197,7 @@ export async function readChildNodes(indexSource, bootstrap, node, stats = creat
     }
 
     stats.frontierShardCount += 1;
-    const childShard = await indexSource.loadShard(childShardOffset);
+    const childShard = await indexSource.loadShard(childShardOffset, options);
     for (let octant = 0; octant < 8; octant += 1) {
       if ((node.childMask & (1 << octant)) === 0) continue;
       const childNodeIndex = childShard.header.entryNodes[octant];

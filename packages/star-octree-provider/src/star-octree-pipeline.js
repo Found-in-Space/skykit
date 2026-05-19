@@ -52,6 +52,7 @@ const DEFAULT_COORDINATES = {
  *   persistentCache?: 'on' | 'off';
  *   memoryBudgetBytes?: number;
  *   workTracker?: ReturnType<typeof import('./star-octree-work-tracker.js').createStarOctreeWorkTracker>;
+ *   scheduler?: ReturnType<typeof import('./star-octree-scheduler.js').createStarOctreeScheduler>;
  * }} options
  */
 export function createStarOctreePipeline(options) {
@@ -91,11 +92,15 @@ export function createStarOctreePipeline(options) {
    * @returns {Promise<StarOctreeDemandPlan>}
    */
   async function planDemandForContext(context) {
-    const enrichedContext = withTraversalContext(context);
-    return planStarOctreeStrategyDemand({
+    const enrichedContext = withTraversalContext(context, 'current');
+    return scheduleWork({
+      kind: 'traversal',
+      lane: 'current',
+      signal: context.signal,
+    }, () => planStarOctreeStrategyDemand({
       indexSource: options.indexSource,
       context: enrichedContext,
-    });
+    }));
   }
 
   /**
@@ -104,12 +109,16 @@ export function createStarOctreePipeline(options) {
    * @returns {Promise<StarOctreeDemandPlan>}
    */
   async function planPrefetchForContext(context, currentEntries) {
-    const enrichedContext = withTraversalContext(context);
-    return planStarOctreePrefetchDemand({
+    const enrichedContext = withTraversalContext(context, 'prefetch');
+    return scheduleWork({
+      kind: 'traversal',
+      lane: 'prefetch',
+      signal: context.signal,
+    }, () => planStarOctreePrefetchDemand({
       indexSource: options.indexSource,
       context: enrichedContext,
       currentEntries,
-    });
+    }));
   }
 
   /**
@@ -201,6 +210,7 @@ export function createStarOctreePipeline(options) {
 
         await options.indexSource.fetchNodePayloadBatchProgressive(nodes, {
           emitCachedFirst: streamOptions.streaming?.emitCachedFirst,
+          lane: 'current',
           signal: streamOptions.signal,
           onBatch(entries) {
             loadedNodes += entries.length;
@@ -329,6 +339,7 @@ export function createStarOctreePipeline(options) {
    *   memoryOwnership?: 'borrowed' | 'copy' | 'transfer';
    *   batchMode?: 'payload-range' | 'node';
    *   emitCachedFirst?: boolean;
+   *   lane?: import('./star-octree-scheduler.js').StarOctreeSchedulerLane;
    *   signal?: AbortSignal;
    * }} cellOptions
    * @returns {AsyncIterable<StarCellData[]>}
@@ -350,6 +361,7 @@ export function createStarOctreePipeline(options) {
         throwIfAborted(cellOptions.signal);
         await options.indexSource.fetchNodePayloadBatchProgressive(nodes, {
           emitCachedFirst: cellOptions.emitCachedFirst,
+          lane: cellOptions.lane ?? 'current',
           signal: cellOptions.signal,
           async onBatch(payloadEntries) {
             throwIfAborted(cellOptions.signal);
@@ -363,8 +375,9 @@ export function createStarOctreePipeline(options) {
             const cellEntries = await Promise.all(
               payloadEntries.map(async (entry) => ({
                 node: entry.node,
-                decoded: await decodePayloadEntry(entry.node, entry.buffer, {
+                decoded: await scheduleDecode(entry.node, entry.buffer, {
                   ...decodeContext,
+                  lane: cellOptions.lane ?? 'current',
                   signal: cellOptions.signal,
                 }),
               })),
@@ -437,14 +450,16 @@ export function createStarOctreePipeline(options) {
       throwIfAborted(warmOptions.signal);
       await options.indexSource.fetchNodePayloadBatchProgressive(nodes, {
         emitCachedFirst: warmOptions.emitCachedFirst,
+        lane: 'prefetch',
         signal: warmOptions.signal,
         async onBatch(payloadEntries) {
           throwIfAborted(warmOptions.signal);
           work?.update({ status: 'decoding' });
           await Promise.all(
             payloadEntries.map((entry) =>
-              decodePayloadEntry(entry.node, entry.buffer, {
+              scheduleDecode(entry.node, entry.buffer, {
                 ...decodeContext,
+                lane: 'prefetch',
                 signal: warmOptions.signal,
               }),
             ),
@@ -474,13 +489,14 @@ export function createStarOctreePipeline(options) {
       plan.entries
         .filter((entry) => (entry.role ?? 'current') === 'current')
         .map((entry) => entry.node),
-      { signal: streamOptions.signal },
+      { lane: 'current', signal: streamOptions.signal },
     );
     const cellEntries = await Promise.all(
       payloadEntries.map(async (entry) => ({
         node: entry.node,
-        decoded: await decodePayloadEntry(entry.node, entry.buffer, {
+        decoded: await scheduleDecode(entry.node, entry.buffer, {
           ...decodeContext,
+          lane: 'current',
           signal: streamOptions.signal,
         }),
       })),
@@ -524,6 +540,26 @@ export function createStarOctreePipeline(options) {
   }
 
   /**
+   * @param {StarOctreeRuntimeNode} node
+   * @param {ArrayBuffer} buffer
+   * @param {{
+   *   signal?: AbortSignal;
+   *   lane?: import('./star-octree-scheduler.js').StarOctreeSchedulerLane;
+   *   datasetId?: string | null;
+   *   decodeAttributes?: ReturnType<typeof normalizePayloadDecodeAttributes>;
+   *   attributeMask?: string;
+   * }} [decodeOptions]
+   */
+  function scheduleDecode(node, buffer, decodeOptions = {}) {
+    return scheduleWork({
+      kind: 'decode',
+      lane: decodeOptions.lane ?? 'current',
+      key: createStarCellKey(node),
+      signal: decodeOptions.signal,
+    }, () => decodePayloadEntry(node, buffer, decodeOptions));
+  }
+
+  /**
    * @param {{ node: StarOctreeRuntimeNode; decoded: DecodedStarSegment }} entry
    * @param {{
    *   attributes?: string[];
@@ -559,19 +595,21 @@ export function createStarOctreePipeline(options) {
 
   /**
    * @param {StarOctreeSelectionContext} context
+   * @param {import('./star-octree-scheduler.js').StarOctreeSchedulerLane} traversalLane
    * @returns {StarOctreeSelectionContext}
    */
-  function withTraversalContext(context) {
+  function withTraversalContext(context, traversalLane) {
     return {
       ...context,
-      traversal: createTraversalApi(context),
+      traversal: createTraversalApi(context, traversalLane),
     };
   }
 
   /**
    * @param {StarOctreeSelectionContext} context
+   * @param {import('./star-octree-scheduler.js').StarOctreeSchedulerLane} traversalLane
    */
-  function createTraversalApi(context) {
+  function createTraversalApi(context, traversalLane) {
     const api = {
       /**
        * @param {{
@@ -599,6 +637,7 @@ export function createStarOctreePipeline(options) {
           bootstrap,
           distanceToNode: selectionOptions.distanceToNode,
           signal: context.signal,
+          lane: traversalLane,
           async visitor(node, traversalHelpers) {
             const decision = await selectionOptions.visit(node, {
               context: traversalContext,
@@ -651,6 +690,19 @@ export function createStarOctreePipeline(options) {
     const id = `${options.providerId}:${prefix}:${nextStreamId}`;
     nextStreamId += 1;
     return id;
+  }
+
+  /**
+   * @template T
+   * @param {import('./star-octree-scheduler.js').StarOctreeSchedulerRequest} request
+   * @param {() => Promise<T> | T} task
+   * @returns {Promise<T>}
+   */
+  function scheduleWork(request, task) {
+    if (!options.scheduler) {
+      return Promise.resolve().then(task);
+    }
+    return options.scheduler.schedule(request, task).promise;
   }
 }
 

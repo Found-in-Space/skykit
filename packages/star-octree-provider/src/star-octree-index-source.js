@@ -17,6 +17,7 @@ import {
   planPayloadRangeBatches,
   runWithConcurrency,
 } from './star-octree-payloads.js';
+import { normalizeSchedulerLane } from './star-octree-scheduler.js';
 import { createUrlRangeSource } from './star-octree-url-source.js';
 
 /**
@@ -25,6 +26,8 @@ import { createUrlRangeSource } from './star-octree-url-source.js';
  * @typedef {import('./index.d.ts').StarOctreeRuntimeNode} StarOctreeRuntimeNode
  * @typedef {import('./star-octree-format.js').ParsedStarHeader} ParsedStarHeader
  * @typedef {import('./star-octree-format.js').ResolvedStarOctreeShard} ResolvedStarOctreeShard
+ * @typedef {import('./star-octree-scheduler.js').StarOctreeScheduledTask<ResolvedStarOctreeShard>} ScheduledShardTask
+ * @typedef {import('./star-octree-scheduler.js').StarOctreeSchedulerLane} StarOctreeSchedulerLane
  */
 
 const DEFAULT_SHARD_PREFETCH_BYTES = 65_536;
@@ -63,6 +66,25 @@ const DEFAULT_SHARD_PREFETCH_BYTES = 65_536;
  */
 
 /**
+ * @typedef {{
+ *   lane: StarOctreeSchedulerLane;
+ *   protected: boolean;
+ *   ready: boolean;
+ *   controller?: AbortController;
+ *   task?: ScheduledShardTask;
+ *   promise: Promise<ResolvedStarOctreeShard>;
+ *   consumers: Set<ShardConsumer>;
+ * }} ShardCacheEntry
+ */
+
+/**
+ * @typedef {{
+ *   lane: StarOctreeSchedulerLane;
+ *   aborted: boolean;
+ * }} ShardConsumer
+ */
+
+/**
  * @param {{
  *   providerId: string;
  *   options: StarOctreeProviderServiceOptions;
@@ -75,6 +97,7 @@ const DEFAULT_SHARD_PREFETCH_BYTES = 65_536;
  *     fetchRange(start: number, end: number, options?: { signal?: AbortSignal }): Promise<ArrayBuffer>;
  *   };
  *   sourceIdentity?: string;
+ *   scheduler?: ReturnType<typeof import('./star-octree-scheduler.js').createStarOctreeScheduler>;
  * }} createOptions
  */
 export function createStarOctreeIndexSource(createOptions) {
@@ -96,7 +119,7 @@ export function createStarOctreeIndexSource(createOptions) {
   let rootShardPromise = null;
   /** @type {LoadedRootShard | null} */
   let rootShard = null;
-  /** @type {Map<number, Promise<ResolvedStarOctreeShard>>} */
+  /** @type {Map<number, ShardCacheEntry>} */
   const shardCache = new Map();
   /** @type {Map<string, Promise<ArrayBuffer>>} */
   const payloadCache = new Map();
@@ -135,7 +158,7 @@ export function createStarOctreeIndexSource(createOptions) {
 
       rootShardPromise = (async () => {
         const bootstrap = await ensureBootstrapForRoot();
-        const shard = await loadShard(bootstrap.header.indexOffset);
+        const shard = await loadShard(bootstrap.header.indexOffset, { lane: 'current' });
         const nodes = shard.readRuntimeNodes(bootstrap.header);
         rootShard = { shard, nodes };
         return rootShard;
@@ -206,28 +229,70 @@ export function createStarOctreeIndexSource(createOptions) {
 
   /**
    * @param {number} shardOffset
+   * @param {{
+   *   lane?: StarOctreeSchedulerLane;
+   *   signal?: AbortSignal;
+   *   priority?: number;
+   * }} [options]
    * @returns {Promise<ResolvedStarOctreeShard>}
    */
-  async function loadShard(shardOffset) {
-    if (shardCache.has(shardOffset)) {
+  async function loadShard(shardOffset, options = {}) {
+    const lane = normalizeSchedulerLane(options.lane);
+    const existing = shardCache.get(shardOffset);
+    if (existing) {
       stats.shardCacheHits += 1;
-      return /** @type {Promise<ResolvedStarOctreeShard>} */ (shardCache.get(shardOffset));
+      if (lane !== 'prefetch') {
+        existing.protected = true;
+        existing.task?.promote(lane, options.priority);
+      }
+      return consumeShardEntry(existing, options);
     }
 
-    const shardPromise = loadShardUncached(shardOffset);
-    shardCache.set(shardOffset, shardPromise);
-    return shardPromise;
+    const controller = new AbortController();
+    const task = scheduleWork(createOptions.scheduler, {
+      kind: 'shard',
+      lane,
+      key: `shard:${shardOffset}`,
+      priority: options.priority,
+      signal: controller.signal,
+    }, () => loadShardUncached(shardOffset, {
+      signal: controller.signal,
+    }));
+    /** @type {ShardCacheEntry} */
+    const entry = {
+      lane,
+      protected: lane !== 'prefetch',
+      ready: false,
+      controller,
+      task,
+      promise: task.promise,
+      consumers: new Set(),
+    };
+    entry.promise.then(
+      () => {
+        entry.ready = true;
+      },
+      () => {
+        if (shardCache.get(shardOffset) === entry) {
+          shardCache.delete(shardOffset);
+        }
+      },
+    );
+    shardCache.set(shardOffset, entry);
+    return consumeShardEntry(entry, options);
   }
 
   /**
    * @param {number} shardOffset
+   * @param {{ signal?: AbortSignal }} [options]
    * @returns {Promise<ResolvedStarOctreeShard>}
    */
-  async function loadShardUncached(shardOffset) {
+  async function loadShardUncached(shardOffset, options = {}) {
     stats.shardFetches += 1;
     const initialBuffer = await rangeSource.fetchRange(
       shardOffset,
       shardOffset + DEFAULT_SHARD_PREFETCH_BYTES - 1,
+      { signal: options.signal },
     );
     const warmed = cacheContiguousShards(initialBuffer, shardOffset);
     if (warmed) {
@@ -254,6 +319,7 @@ export function createStarOctreeIndexSource(createOptions) {
     const fullBuffer = await rangeSource.fetchRange(
       shardOffset,
       shardOffset + totalSize - 1,
+      { signal: options.signal },
     );
     const parsed = cacheContiguousShards(fullBuffer, shardOffset);
 
@@ -313,7 +379,7 @@ export function createStarOctreeIndexSource(createOptions) {
       }
 
       if (!shardCache.has(shardOffset)) {
-        shardCache.set(shardOffset, Promise.resolve(parsed));
+        shardCache.set(shardOffset, createReadyShardEntry(parsed));
       }
 
       cursor += shardBlockSize(
@@ -326,10 +392,86 @@ export function createStarOctreeIndexSource(createOptions) {
   }
 
   /**
+   * @param {ResolvedStarOctreeShard} shard
+   * @returns {ShardCacheEntry}
+   */
+  function createReadyShardEntry(shard) {
+    return {
+      lane: 'current',
+      protected: true,
+      ready: true,
+      promise: Promise.resolve(shard),
+      consumers: new Set(),
+    };
+  }
+
+  /**
+   * @param {ShardCacheEntry} entry
+   * @param {{
+   *   lane?: StarOctreeSchedulerLane;
+   *   signal?: AbortSignal;
+   *   priority?: number;
+   * }} options
+   */
+  function consumeShardEntry(entry, options) {
+    const lane = normalizeSchedulerLane(options.lane);
+    if (lane !== 'prefetch') {
+      entry.protected = true;
+      entry.task?.promote(lane, options.priority);
+    }
+
+    throwIfAborted(options.signal);
+    if (!options.signal) {
+      return entry.promise;
+    }
+
+    /** @type {ShardConsumer} */
+    const consumer = { lane, aborted: false };
+    entry.consumers.add(consumer);
+    /** @type {(() => void) | null} */
+    let abortListener = null;
+    const abortPromise = new Promise((_, reject) => {
+      abortListener = () => {
+        consumer.aborted = true;
+        reject(createAbortError(options.signal?.reason));
+      };
+      options.signal?.addEventListener('abort', abortListener, { once: true });
+    });
+
+    return Promise.race([entry.promise, abortPromise]).finally(() => {
+      if (abortListener) {
+        options.signal?.removeEventListener('abort', abortListener);
+      }
+      entry.consumers.delete(consumer);
+      abortSpeculativeShardIfUnused(entry);
+    });
+  }
+
+  /**
+   * @param {ShardCacheEntry} entry
+   */
+  function abortSpeculativeShardIfUnused(entry) {
+    if (
+      entry.protected ||
+      entry.ready ||
+      entry.consumers.size > 0 ||
+      !entry.controller ||
+      entry.controller.signal.aborted
+    ) {
+      return;
+    }
+
+    entry.controller.abort(createAbortError());
+    entry.task?.cancel(createAbortError());
+  }
+
+  /**
    * @param {StarOctreeRuntimeNode[]} nodes
    * @param {{
    *   onBatch?: (entries: StarOctreePayloadEntry[]) => void | Promise<void>;
    *   emitCachedFirst?: boolean;
+   *   lane?: StarOctreeSchedulerLane;
+   *   priority?: number;
    *   signal?: AbortSignal;
    * }} options
    * @returns {Promise<StarOctreePayloadEntry[]>}
@@ -404,10 +546,20 @@ export function createStarOctreeIndexSource(createOptions) {
       return decodedBuffers;
     });
 
-    const batchPromises = runWithConcurrency(
-      batchTasks,
-      maxInflightPayloadBatches,
-    );
+    const batchPromises = createOptions.scheduler
+      ? batchTasks.map((task, batchIndex) =>
+          scheduleWork(createOptions.scheduler, {
+            kind: 'payload',
+            lane: options.lane ?? 'current',
+            key: `payload:${batches[batchIndex].start}:${batches[batchIndex].end}`,
+            priority: options.priority,
+            signal: options.signal,
+          }, task).promise,
+        )
+      : runWithConcurrency(
+          batchTasks,
+          maxInflightPayloadBatches,
+        );
 
     if (
       options.emitCachedFirst === false &&
@@ -492,9 +644,20 @@ function throwIfAborted(signal) {
     throw signal.reason;
   }
 
-  const error = new Error('Star octree payload fetch aborted.');
+  throw createAbortError();
+}
+
+/**
+ * @param {unknown} [reason]
+ */
+function createAbortError(reason) {
+  if (reason instanceof Error) {
+    return reason;
+  }
+
+  const error = new Error('Star octree fetch aborted.');
   error.name = 'AbortError';
-  throw error;
+  return error;
 }
 
 /**
@@ -524,6 +687,25 @@ function createInitialStats() {
  */
 function createPayloadCacheKey(node) {
   return `${node.payloadOffset}:${node.payloadLength}`;
+}
+
+/**
+ * @template T
+ * @param {ReturnType<typeof import('./star-octree-scheduler.js').createStarOctreeScheduler> | undefined} scheduler
+ * @param {import('./star-octree-scheduler.js').StarOctreeSchedulerRequest} request
+ * @param {() => Promise<T> | T} task
+ * @returns {import('./star-octree-scheduler.js').StarOctreeScheduledTask<T>}
+ */
+function scheduleWork(scheduler, request, task) {
+  if (scheduler) {
+    return scheduler.schedule(request, task);
+  }
+
+  return {
+    promise: Promise.resolve().then(task),
+    cancel() {},
+    promote() {},
+  };
 }
 
 /**

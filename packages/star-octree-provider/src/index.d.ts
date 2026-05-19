@@ -22,6 +22,13 @@ export interface StarOctreeProviderServiceOptions {
     maxInflightPayloadBatches?: number;
     payloadMaxGapBytes?: number;
     payloadMaxBatchBytes?: number;
+    maxInflightTraversalTasks?: number;
+    maxInflightShardFetches?: number;
+    maxInflightDecodeTasks?: number;
+    maxInflightPrefetchTraversalTasks?: number;
+    maxInflightPrefetchShardFetches?: number;
+    maxInflightPrefetchPayloadBatches?: number;
+    maxInflightPrefetchDecodeTasks?: number;
   };
 }
 
@@ -222,6 +229,13 @@ export interface StarOctreeProviderDescriptor {
     maxInflightPayloadBatches?: number;
     payloadMaxGapBytes?: number;
     payloadMaxBatchBytes?: number;
+    maxInflightTraversalTasks?: number;
+    maxInflightShardFetches?: number;
+    maxInflightDecodeTasks?: number;
+    maxInflightPrefetchTraversalTasks?: number;
+    maxInflightPrefetchShardFetches?: number;
+    maxInflightPrefetchPayloadBatches?: number;
+    maxInflightPrefetchDecodeTasks?: number;
   };
 }
 
@@ -360,6 +374,7 @@ export interface StarOctreeProviderSnapshot {
     startedAtMs?: number;
     finishedAtMs?: number;
   }>;
+  scheduler: StarOctreeSchedulerSnapshot;
   memory: {
     budgetBytes?: number;
     usedBytes?: number;
@@ -393,6 +408,37 @@ export interface StarOctreeProviderSnapshot {
     cellGeneratedRefs?: number;
     cellGeneratedPickMeta?: number;
     fetchTimeMs: number;
+  };
+}
+
+export interface StarOctreeSchedulerSnapshot {
+  queued: number;
+  active: number;
+  queuedByKind: Record<'traversal' | 'shard' | 'payload' | 'decode', number>;
+  queuedByLane: Record<'current' | 'replacement' | 'prefetch', number>;
+  activeByKind: Record<'traversal' | 'shard' | 'payload' | 'decode', number>;
+  activeByLane: Record<'current' | 'replacement' | 'prefetch', number>;
+  activePrefetchByKind: Record<'traversal' | 'shard' | 'payload' | 'decode', number>;
+  stats: {
+    queued: number;
+    started: number;
+    completed: number;
+    cancelled: number;
+    failed: number;
+    queuedByKind: Record<'traversal' | 'shard' | 'payload' | 'decode', number>;
+    queuedByLane: Record<'current' | 'replacement' | 'prefetch', number>;
+    startedByKind: Record<'traversal' | 'shard' | 'payload' | 'decode', number>;
+    startedByLane: Record<'current' | 'replacement' | 'prefetch', number>;
+    completedByKind: Record<'traversal' | 'shard' | 'payload' | 'decode', number>;
+    completedByLane: Record<'current' | 'replacement' | 'prefetch', number>;
+    cancelledByKind: Record<'traversal' | 'shard' | 'payload' | 'decode', number>;
+    cancelledByLane: Record<'current' | 'replacement' | 'prefetch', number>;
+    failedByKind: Record<'traversal' | 'shard' | 'payload' | 'decode', number>;
+    failedByLane: Record<'current' | 'replacement' | 'prefetch', number>;
+  };
+  limits: {
+    maxActiveByKind: Record<'traversal' | 'shard' | 'payload' | 'decode', number>;
+    maxActivePrefetchByKind: Record<'traversal' | 'shard' | 'payload' | 'decode', number>;
   };
 }
 

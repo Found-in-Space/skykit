@@ -3,6 +3,7 @@ import { createBlobRangeSource } from './star-octree-blob-source.js';
 import { createStarOctreeIndexSource } from './star-octree-index-source.js';
 import { createStarOctreePipeline } from './star-octree-pipeline.js';
 import { createStarOctreeProviderSession } from './star-octree-provider-session.js';
+import { createStarOctreeScheduler } from './star-octree-scheduler.js';
 import { createStarOctreeWorkTracker } from './star-octree-work-tracker.js';
 
 /**
@@ -109,9 +110,11 @@ function createProviderService(options, internals, sourceConfig = {}) {
   nextProviderId += 1;
   /** @type {Map<string, ReturnType<typeof createStarOctreeProviderSession>>} */
   const sessions = new Map();
+  const scheduler = createStarOctreeScheduler({ limits: options.limits });
   const indexSource = createStarOctreeIndexSource({
     providerId,
     options,
+    scheduler,
     ...(sourceConfig.createRangeSource
       ? { createRangeSource: sourceConfig.createRangeSource }
       : {}),
@@ -126,6 +129,7 @@ function createProviderService(options, internals, sourceConfig = {}) {
     persistentCache: options.persistentCache,
     memoryBudgetBytes: options.limits?.memoryBudgetBytes,
     workTracker,
+    scheduler,
   });
   const usePipelineSource =
     internals.useRealPipeline || !(internals.planDemand || internals.decodeNode);
@@ -186,6 +190,7 @@ function createProviderService(options, internals, sourceConfig = {}) {
         sessions,
         indexSource,
         pipeline,
+        scheduler,
         workTracker,
         sourceConfig,
       );
@@ -329,6 +334,27 @@ function createDescriptor(providerId, options, indexSource, sourceConfig = {}) {
       ...(options.limits?.payloadMaxBatchBytes !== undefined
         ? { payloadMaxBatchBytes: options.limits.payloadMaxBatchBytes }
         : {}),
+      ...(options.limits?.maxInflightShardFetches !== undefined
+        ? { maxInflightShardFetches: options.limits.maxInflightShardFetches }
+        : {}),
+      ...(options.limits?.maxInflightPrefetchShardFetches !== undefined
+        ? { maxInflightPrefetchShardFetches: options.limits.maxInflightPrefetchShardFetches }
+        : {}),
+      ...(options.limits?.maxInflightPrefetchPayloadBatches !== undefined
+        ? { maxInflightPrefetchPayloadBatches: options.limits.maxInflightPrefetchPayloadBatches }
+        : {}),
+      ...(options.limits?.maxInflightDecodeTasks !== undefined
+        ? { maxInflightDecodeTasks: options.limits.maxInflightDecodeTasks }
+        : {}),
+      ...(options.limits?.maxInflightPrefetchDecodeTasks !== undefined
+        ? { maxInflightPrefetchDecodeTasks: options.limits.maxInflightPrefetchDecodeTasks }
+        : {}),
+      ...(options.limits?.maxInflightTraversalTasks !== undefined
+        ? { maxInflightTraversalTasks: options.limits.maxInflightTraversalTasks }
+        : {}),
+      ...(options.limits?.maxInflightPrefetchTraversalTasks !== undefined
+        ? { maxInflightPrefetchTraversalTasks: options.limits.maxInflightPrefetchTraversalTasks }
+        : {}),
     },
   };
 }
@@ -339,6 +365,7 @@ function createDescriptor(providerId, options, indexSource, sourceConfig = {}) {
  * @param {Map<string, ReturnType<typeof createStarOctreeProviderSession>>} sessions
  * @param {ReturnType<typeof createStarOctreeIndexSource>} indexSource
  * @param {ReturnType<typeof createStarOctreePipeline>} pipeline
+ * @param {ReturnType<typeof createStarOctreeScheduler>} scheduler
  * @param {ReturnType<typeof createStarOctreeWorkTracker>} workTracker
  * @param {StarOctreeSourceConfig} [sourceConfig]
  * @returns {StarOctreeProviderSnapshot}
@@ -349,6 +376,7 @@ function createProviderSnapshot(
   sessions,
   indexSource,
   pipeline,
+  scheduler,
   workTracker,
   sourceConfig = {},
 ) {
@@ -357,6 +385,7 @@ function createProviderSnapshot(
   );
   const indexSnapshot = indexSource.getSnapshot();
   const decodedSnapshot = pipeline.getDecodedCacheSnapshot();
+  const schedulerSnapshot = scheduler.getSnapshot();
   const liveCellBytes = sessionSnapshots.reduce(
     (sum, session) => sum + session.memory.liveBytes,
     0,
@@ -389,6 +418,7 @@ function createProviderSnapshot(
       liveBytes: session.memory.liveBytes,
     })),
     workItems: workTracker.snapshot(),
+    scheduler: schedulerSnapshot,
     memory: {
       budgetBytes: decodedSnapshot.decodedCacheBudgetBytes,
       usedBytes: liveCellBytes + decodedSnapshot.decodedPayloadBytes,
