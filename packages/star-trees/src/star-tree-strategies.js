@@ -396,14 +396,35 @@ function evaluateObserverShellCell(options) {
  * }} options
  */
 function evaluateTargetFrustumCell(options) {
+  const loadRadiusPc = loadRadiusForMagnitudeShell(
+    options.cell.halfSize,
+    options.view.limitingMagnitude,
+    options.indexMagnitude,
+  );
+  const minimumDistancePc = options.queuedDistancePc ??
+    distanceToCellAabbPc(options.view.observerPc, options.cell);
+
+  if (minimumDistancePc > loadRadiusPc) {
+    return {
+      relevant: false,
+      descend: false,
+      distancePc: minimumDistancePc,
+      metadata: {
+        strategy: 'target-frustum',
+        shellRejected: true,
+        distancePc: minimumDistancePc,
+        loadRadiusPc,
+      },
+    };
+  }
+
   const visiblePoint = options.frustum.nearestVisiblePointToCell(options.cell);
 
   if (!visiblePoint) {
     return {
       relevant: false,
       descend: false,
-      distancePc: options.queuedDistancePc ??
-        distanceToCellAabbPc(options.view.observerPc, options.cell),
+      distancePc: minimumDistancePc,
       metadata: {
         strategy: 'target-frustum',
         frustumRejected: true,
@@ -412,11 +433,6 @@ function evaluateTargetFrustumCell(options) {
   }
 
   const distancePc = visiblePoint.distancePc;
-  const loadRadiusPc = loadRadiusForMagnitudeShell(
-    options.cell.halfSize,
-    options.view.limitingMagnitude,
-    options.indexMagnitude,
-  );
   const relevant = distancePc <= loadRadiusPc;
 
   if (!relevant) {
@@ -868,46 +884,44 @@ export function createFrustumTester(view) {
   const tanVertical = Math.tan(halfVerticalRad);
   const tanHorizontal = Math.tan(halfHorizontalRad);
   const planes = [
-    { normal: basis.forward, offset: -view.nearPc },
+    createFrustumPlane(basis.forward, -view.nearPc),
     ...(view.farPc !== undefined
-      ? [{ normal: scaleVector(basis.forward, -1), offset: view.farPc }]
+      ? [createFrustumPlane(scaleVector(basis.forward, -1), view.farPc)]
       : []),
-    { normal: normalizeVector(addVectors(scaleVector(basis.forward, tanVertical), scaleVector(basis.up, -1))), offset: 0 },
-    { normal: normalizeVector(addVectors(scaleVector(basis.forward, tanVertical), basis.up)), offset: 0 },
-    { normal: normalizeVector(addVectors(scaleVector(basis.forward, tanHorizontal), scaleVector(basis.right, -1))), offset: 0 },
-    { normal: normalizeVector(addVectors(scaleVector(basis.forward, tanHorizontal), basis.right)), offset: 0 },
+    createFrustumPlane(
+      normalizeVector(addVectors(scaleVector(basis.forward, tanVertical), scaleVector(basis.up, -1))),
+      0,
+    ),
+    createFrustumPlane(
+      normalizeVector(addVectors(scaleVector(basis.forward, tanVertical), basis.up)),
+      0,
+    ),
+    createFrustumPlane(
+      normalizeVector(addVectors(scaleVector(basis.forward, tanHorizontal), scaleVector(basis.right, -1))),
+      0,
+    ),
+    createFrustumPlane(
+      normalizeVector(addVectors(scaleVector(basis.forward, tanHorizontal), basis.right)),
+      0,
+    ),
   ];
+  // farPc is a forward-plane distance; use the corner ray length for a safe radial cull.
+  const maxVisibleDistancePc = view.farPc !== undefined
+    ? view.farPc * Math.hypot(1, tanHorizontal, tanVertical)
+    : undefined;
+  const boundaryRays = createFrustumBoundaryRays(view, basis, tanHorizontal, tanVertical);
 
   return {
     basis,
     containsPoint(point) {
       return containsPointInFrustum(point);
     },
-    intersectsCell(cell) {
-      const relativeCenter = {
-        x: cell.centerX - view.observerPc.x,
-        y: cell.centerY - view.observerPc.y,
-        z: cell.centerZ - view.observerPc.z,
-      };
-
-      for (const plane of planes) {
-        const centerDistance =
-          dotVector(plane.normal, relativeCenter) + plane.offset;
-        const radius =
-          cell.halfSize *
-          (
-            Math.abs(plane.normal.x) +
-            Math.abs(plane.normal.y) +
-            Math.abs(plane.normal.z)
-          );
-        if (centerDistance + radius < 0) {
-          return false;
-        }
+    intersectsCell,
+    nearestVisiblePointToCell(cell) {
+      if (!intersectsCell(cell)) {
+        return null;
       }
 
-      return true;
-    },
-    nearestVisiblePointToCell(cell) {
       const bounds = createCellBounds(cell);
       const corners = createAabbCorners(bounds);
       let nearest = null;
@@ -945,7 +959,7 @@ export function createFrustumTester(view) {
         }
       }
 
-      for (const ray of createFrustumBoundaryRays(view, basis, tanHorizontal, tanVertical)) {
+      for (const ray of boundaryRays) {
         const clipped = clipRayToAabb(view.observerPc, ray, bounds);
         if (clipped) {
           addCandidate(clipped);
@@ -955,6 +969,53 @@ export function createFrustumTester(view) {
       return nearest;
     },
   };
+
+  function intersectsCell(cell) {
+    const relativeCenterX = cell.centerX - view.observerPc.x;
+    const relativeCenterY = cell.centerY - view.observerPc.y;
+    const relativeCenterZ = cell.centerZ - view.observerPc.z;
+
+    if (outsideRadialFrustumBounds(
+      relativeCenterX,
+      relativeCenterY,
+      relativeCenterZ,
+      cell.halfSize,
+    )) {
+      return false;
+    }
+
+    for (const plane of planes) {
+      const centerDistance =
+        plane.normal.x * relativeCenterX +
+        plane.normal.y * relativeCenterY +
+        plane.normal.z * relativeCenterZ +
+        plane.offset;
+      const radius = cell.halfSize * plane.radiusScale;
+      if (centerDistance + radius < 0) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function outsideRadialFrustumBounds(relativeCenterX, relativeCenterY, relativeCenterZ, halfSize) {
+    const centerDistanceSquared =
+      relativeCenterX * relativeCenterX +
+      relativeCenterY * relativeCenterY +
+      relativeCenterZ * relativeCenterZ;
+    const halfDiagonalPc = halfSize * SQRT_3;
+
+    if (maxVisibleDistancePc !== undefined) {
+      const maximumDistancePc = maxVisibleDistancePc + halfDiagonalPc + GEOMETRY_EPSILON;
+      if (centerDistanceSquared > maximumDistancePc * maximumDistancePc) {
+        return true;
+      }
+    }
+
+    const minimumDistancePc = view.nearPc - halfDiagonalPc - GEOMETRY_EPSILON;
+    return minimumDistancePc > 0 && centerDistanceSquared < minimumDistancePc * minimumDistancePc;
+  }
 
   function containsPointInFrustum(point) {
     const relative = subtractVectors(point, view.observerPc);
@@ -1463,6 +1524,14 @@ function unchanged(reasons) {
   return { replan: false, reasons };
 }
 
+function createFrustumPlane(normal, offset) {
+  return {
+    normal,
+    offset,
+    radiusScale: Math.abs(normal.x) + Math.abs(normal.y) + Math.abs(normal.z),
+  };
+}
+
 function createCellBounds(cell) {
   return {
     minX: cell.centerX - cell.halfSize,
@@ -1555,31 +1624,43 @@ function clipRayToAabb(origin, ray, bounds) {
   let lower = ray.minDistancePc;
   let upper = ray.maxDistancePc ?? Number.POSITIVE_INFINITY;
 
-  const axes = [
-    { axis: 'x', min: bounds.minX, max: bounds.maxX },
-    { axis: 'y', min: bounds.minY, max: bounds.maxY },
-    { axis: 'z', min: bounds.minZ, max: bounds.maxZ },
-  ];
-
-  for (const { axis, min, max } of axes) {
-    const direction = ray.direction[axis];
-    const start = origin[axis];
-
-    if (Math.abs(direction) <= GEOMETRY_EPSILON) {
-      if (start < min - GEOMETRY_EPSILON || start > max + GEOMETRY_EPSILON) {
-        return null;
-      }
-      continue;
-    }
-
-    const first = (min - start) / direction;
-    const second = (max - start) / direction;
-    lower = Math.max(lower, Math.min(first, second));
-    upper = Math.min(upper, Math.max(first, second));
-
-    if (lower - upper > GEOMETRY_EPSILON) {
+  const directionX = ray.direction.x;
+  if (Math.abs(directionX) <= GEOMETRY_EPSILON) {
+    if (origin.x < bounds.minX - GEOMETRY_EPSILON || origin.x > bounds.maxX + GEOMETRY_EPSILON) {
       return null;
     }
+  } else {
+    const first = (bounds.minX - origin.x) / directionX;
+    const second = (bounds.maxX - origin.x) / directionX;
+    lower = Math.max(lower, Math.min(first, second));
+    upper = Math.min(upper, Math.max(first, second));
+    if (lower - upper > GEOMETRY_EPSILON) return null;
+  }
+
+  const directionY = ray.direction.y;
+  if (Math.abs(directionY) <= GEOMETRY_EPSILON) {
+    if (origin.y < bounds.minY - GEOMETRY_EPSILON || origin.y > bounds.maxY + GEOMETRY_EPSILON) {
+      return null;
+    }
+  } else {
+    const first = (bounds.minY - origin.y) / directionY;
+    const second = (bounds.maxY - origin.y) / directionY;
+    lower = Math.max(lower, Math.min(first, second));
+    upper = Math.min(upper, Math.max(first, second));
+    if (lower - upper > GEOMETRY_EPSILON) return null;
+  }
+
+  const directionZ = ray.direction.z;
+  if (Math.abs(directionZ) <= GEOMETRY_EPSILON) {
+    if (origin.z < bounds.minZ - GEOMETRY_EPSILON || origin.z > bounds.maxZ + GEOMETRY_EPSILON) {
+      return null;
+    }
+  } else {
+    const first = (bounds.minZ - origin.z) / directionZ;
+    const second = (bounds.maxZ - origin.z) / directionZ;
+    lower = Math.max(lower, Math.min(first, second));
+    upper = Math.min(upper, Math.max(first, second));
+    if (lower - upper > GEOMETRY_EPSILON) return null;
   }
 
   if (!Number.isFinite(lower) || lower < -GEOMETRY_EPSILON) {

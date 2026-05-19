@@ -5,6 +5,7 @@ import {
   apparentMagnitude,
   consumeStarCellDeltas,
   combineStarTreeStrategies,
+  createFrustumTester,
   createObserverShellStrategy,
   createPathDistanceEvaluator,
   createPathVolumeStrategy,
@@ -19,6 +20,7 @@ import {
   encodeMorton3D,
   evaluateStarTreeDemandGate,
   estimateStarCellBytes,
+  normalizeTargetFrustumView,
   parseStarCellKey,
   supportsTransferableBuffers,
   temperatureToRgb,
@@ -289,6 +291,31 @@ test('target-frustum strategy uses the nearest visible witness', () => {
   assert.equal(evaluation.relevant, true);
   assert.equal(Math.round(evaluation.distancePc * 1e6) / 1e6, 100);
   assert.deepEqual(roundVector(evaluation.metadata.nearestVisiblePc), { x: 50, y: 86.60254, z: 0 });
+});
+
+test('target-frustum radial bounds keep far-plane corners visible', () => {
+  const view = normalizeTargetFrustumView({
+    observerPc: { x: 0, y: 0, z: 0 },
+    directionIcrs: { x: 1, y: 0, z: 0 },
+    verticalFovDeg: 60,
+    aspectRatio: 1,
+    nearPc: 0,
+    farPc: 100,
+  }, createTargetFrustumStrategy({ overscanDeg: 0 }));
+  const frustum = createFrustumTester(view);
+
+  assert.equal(frustum.intersectsCell(createNode({
+    centerX: 100,
+    centerY: Math.tan(Math.PI / 6) * 100,
+    centerZ: Math.tan(Math.PI / 6) * 100,
+    halfSize: 0.1,
+  })), true);
+  assert.equal(frustum.nearestVisiblePointToCell(createNode({
+    centerX: 200,
+    centerY: 200,
+    centerZ: 200,
+    halfSize: 1,
+  })), null);
 });
 
 test('sphere, path, and composite strategies provide semantic priorities', () => {
