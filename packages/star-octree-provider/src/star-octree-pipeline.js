@@ -202,6 +202,7 @@ export function createStarOctreePipeline(options) {
       try {
         const { plan } = await planDemandForStreamOptions(streamOptions);
         const nodes = plan.entries.map((entry) => entry.node);
+        const priorityByNode = createPriorityByNode(plan.entries);
         totalNodes = nodes.length;
         const work = options.workTracker?.start({
           status: 'fetching',
@@ -211,6 +212,7 @@ export function createStarOctreePipeline(options) {
         await options.indexSource.fetchNodePayloadBatchProgressive(nodes, {
           emitCachedFirst: streamOptions.streaming?.emitCachedFirst,
           lane: 'current',
+          priorityByNode,
           signal: streamOptions.signal,
           onBatch(entries) {
             loadedNodes += entries.length;
@@ -350,6 +352,7 @@ export function createStarOctreePipeline(options) {
     const decodeContext = createDecodeContext(attributes);
     const currentEntries = entries.filter((entry) => (entry.role ?? 'current') === 'current');
     const nodes = currentEntries.map((entry) => entry.node);
+    const priorityByNode = createPriorityByNode(currentEntries);
     const work = options.workTracker?.start({
       sessionId: cellOptions.sessionId,
       status: 'fetching',
@@ -362,6 +365,7 @@ export function createStarOctreePipeline(options) {
         await options.indexSource.fetchNodePayloadBatchProgressive(nodes, {
           emitCachedFirst: cellOptions.emitCachedFirst,
           lane: cellOptions.lane ?? 'current',
+          priorityByNode,
           signal: cellOptions.signal,
           async onBatch(payloadEntries) {
             throwIfAborted(cellOptions.signal);
@@ -378,6 +382,7 @@ export function createStarOctreePipeline(options) {
                 decoded: await scheduleDecode(entry.node, entry.buffer, {
                   ...decodeContext,
                   lane: cellOptions.lane ?? 'current',
+                  priority: priorityByNode.get(entry.node),
                   signal: cellOptions.signal,
                 }),
               })),
@@ -436,6 +441,7 @@ export function createStarOctreePipeline(options) {
     const nodes = entries
       .filter((entry) => entry.node.payloadLength > 0)
       .map((entry) => entry.node);
+    const priorityByNode = createPriorityByNode(entries);
     if (nodes.length === 0) {
       return;
     }
@@ -451,6 +457,7 @@ export function createStarOctreePipeline(options) {
       await options.indexSource.fetchNodePayloadBatchProgressive(nodes, {
         emitCachedFirst: warmOptions.emitCachedFirst,
         lane: 'prefetch',
+        priorityByNode,
         signal: warmOptions.signal,
         async onBatch(payloadEntries) {
           throwIfAborted(warmOptions.signal);
@@ -460,6 +467,7 @@ export function createStarOctreePipeline(options) {
               scheduleDecode(entry.node, entry.buffer, {
                 ...decodeContext,
                 lane: 'prefetch',
+                priority: priorityByNode.get(entry.node),
                 signal: warmOptions.signal,
               }),
             ),
@@ -485,11 +493,16 @@ export function createStarOctreePipeline(options) {
     const { context, plan } = await planDemandForStreamOptions(streamOptions);
     const attributes = normalizeCellAttributes(context.attributes);
     const decodeContext = createDecodeContext(attributes);
+    const currentEntries = plan.entries
+      .filter((entry) => (entry.role ?? 'current') === 'current');
+    const priorityByNode = createPriorityByNode(currentEntries);
     const payloadEntries = await options.indexSource.fetchNodePayloadBatchProgressive(
-      plan.entries
-        .filter((entry) => (entry.role ?? 'current') === 'current')
-        .map((entry) => entry.node),
-      { lane: 'current', signal: streamOptions.signal },
+      currentEntries.map((entry) => entry.node),
+      {
+        lane: 'current',
+        priorityByNode,
+        signal: streamOptions.signal,
+      },
     );
     const cellEntries = await Promise.all(
       payloadEntries.map(async (entry) => ({
@@ -497,6 +510,7 @@ export function createStarOctreePipeline(options) {
         decoded: await scheduleDecode(entry.node, entry.buffer, {
           ...decodeContext,
           lane: 'current',
+          priority: priorityByNode.get(entry.node),
           signal: streamOptions.signal,
         }),
       })),
@@ -545,6 +559,7 @@ export function createStarOctreePipeline(options) {
    * @param {{
    *   signal?: AbortSignal;
    *   lane?: import('./star-octree-scheduler.js').StarOctreeSchedulerLane;
+   *   priority?: number;
    *   datasetId?: string | null;
    *   decodeAttributes?: ReturnType<typeof normalizePayloadDecodeAttributes>;
    *   attributeMask?: string;
@@ -555,6 +570,7 @@ export function createStarOctreePipeline(options) {
       kind: 'decode',
       lane: decodeOptions.lane ?? 'current',
       key: createStarCellKey(node),
+      priority: decodeOptions.priority,
       signal: decodeOptions.signal,
     }, () => decodePayloadEntry(node, buffer, decodeOptions));
   }
@@ -758,6 +774,20 @@ function recordArrayMemory(stats, cellArray, decodedArray) {
  */
 function normalizeCellAttributes(attributes) {
   return Array.isArray(attributes) ? [...attributes] : [...DEFAULT_ATTRIBUTES];
+}
+
+/**
+ * @param {StarOctreeDemandEntry[]} entries
+ * @returns {WeakMap<StarOctreeRuntimeNode, number>}
+ */
+function createPriorityByNode(entries) {
+  const priorityByNode = new WeakMap();
+  for (const entry of entries) {
+    if (entry.priority !== undefined) {
+      priorityByNode.set(entry.node, entry.priority);
+    }
+  }
+  return priorityByNode;
 }
 
 /**

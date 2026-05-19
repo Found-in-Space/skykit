@@ -6,6 +6,9 @@
 export const PAYLOAD_RECORD_SIZE = 16;
 export const DEFAULT_PAYLOAD_MAX_GAP_BYTES = 131_072;
 export const DEFAULT_PAYLOAD_MAX_BATCH_BYTES = 512_000;
+export const DEFAULT_PREFETCH_PAYLOAD_MAX_GAP_BYTES = 16_384;
+export const DEFAULT_PREFETCH_PAYLOAD_MAX_BATCH_BYTES = 262_144;
+export const DEFAULT_PREFETCH_PAYLOAD_MIN_USEFUL_RATIO = 0.5;
 export const DEFAULT_MAX_INFLIGHT_PAYLOAD_BATCHES = 8;
 export const DEFAULT_DECODE_ATTRIBUTES = Object.freeze(['position', 'teffLog8', 'magAbs']);
 
@@ -65,6 +68,7 @@ async function readAllChunks(reader) {
  * @param {{
  *   maxGapBytes?: number;
  *   maxBatchBytes?: number;
+ *   minUsefulRatio?: number;
  * }} options
  */
 export function planPayloadRangeBatches(nodes, options = {}) {
@@ -76,6 +80,7 @@ export function planPayloadRangeBatches(nodes, options = {}) {
     options.maxBatchBytes,
     DEFAULT_PAYLOAD_MAX_BATCH_BYTES,
   );
+  const minUsefulRatio = normalizeRatio(options.minUsefulRatio, 0);
   const payloadNodes = nodes
     .filter((node) => node && node.payloadLength > 0)
     .sort((left, right) => left.payloadOffset - right.payloadOffset);
@@ -90,6 +95,7 @@ export function planPayloadRangeBatches(nodes, options = {}) {
       currentBatch = {
         start,
         end,
+        payloadBytes: node.payloadLength,
         nodes: [node],
       };
       batches.push(currentBatch);
@@ -98,9 +104,16 @@ export function planPayloadRangeBatches(nodes, options = {}) {
 
     const gapBytes = start - currentBatch.end - 1;
     const spanBytes = end - currentBatch.start + 1;
+    const payloadBytes = currentBatch.payloadBytes + node.payloadLength;
+    const usefulRatio = spanBytes > 0 ? payloadBytes / spanBytes : 1;
 
-    if (gapBytes <= maxGapBytes && spanBytes <= maxBatchBytes) {
+    if (
+      gapBytes <= maxGapBytes &&
+      spanBytes <= maxBatchBytes &&
+      usefulRatio >= minUsefulRatio
+    ) {
       currentBatch.end = end;
+      currentBatch.payloadBytes = payloadBytes;
       currentBatch.nodes.push(node);
       continue;
     }
@@ -108,23 +121,20 @@ export function planPayloadRangeBatches(nodes, options = {}) {
     currentBatch = {
       start,
       end,
+      payloadBytes: node.payloadLength,
       nodes: [node],
     };
     batches.push(currentBatch);
   }
 
   return batches.map((batch) => {
-    const payloadBytes = batch.nodes.reduce(
-      (sum, node) => sum + node.payloadLength,
-      0,
-    );
     const spanBytes = batch.end - batch.start + 1;
 
     return {
       ...batch,
-      payloadBytes,
+      payloadBytes: batch.payloadBytes,
       spanBytes,
-      gapBytes: Math.max(0, spanBytes - payloadBytes),
+      gapBytes: Math.max(0, spanBytes - batch.payloadBytes),
     };
   });
 }
@@ -259,4 +269,16 @@ export function runWithConcurrency(tasks, concurrency) {
 function normalizePositiveInteger(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : fallback;
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ */
+function normalizeRatio(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+  return Math.min(1, Math.max(0, number));
 }

@@ -22,6 +22,9 @@ export interface StarOctreeProviderServiceOptions {
     maxInflightPayloadBatches?: number;
     payloadMaxGapBytes?: number;
     payloadMaxBatchBytes?: number;
+    prefetchPayloadMaxGapBytes?: number;
+    prefetchPayloadMaxBatchBytes?: number;
+    prefetchPayloadMinUsefulRatio?: number;
     maxInflightTraversalTasks?: number;
     maxInflightShardFetches?: number;
     maxInflightDecodeTasks?: number;
@@ -232,6 +235,9 @@ export interface StarOctreeProviderDescriptor {
     maxInflightPayloadBatches?: number;
     payloadMaxGapBytes?: number;
     payloadMaxBatchBytes?: number;
+    prefetchPayloadMaxGapBytes?: number;
+    prefetchPayloadMaxBatchBytes?: number;
+    prefetchPayloadMinUsefulRatio?: number;
     maxInflightTraversalTasks?: number;
     maxInflightShardFetches?: number;
     maxInflightDecodeTasks?: number;

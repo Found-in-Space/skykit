@@ -10,12 +10,13 @@ import {
 } from './star-octree-format.js';
 import { createStarCellKey } from '@found-in-space/star-trees';
 import {
-  DEFAULT_MAX_INFLIGHT_PAYLOAD_BATCHES,
   DEFAULT_PAYLOAD_MAX_BATCH_BYTES,
   DEFAULT_PAYLOAD_MAX_GAP_BYTES,
+  DEFAULT_PREFETCH_PAYLOAD_MAX_BATCH_BYTES,
+  DEFAULT_PREFETCH_PAYLOAD_MAX_GAP_BYTES,
+  DEFAULT_PREFETCH_PAYLOAD_MIN_USEFUL_RATIO,
   decompressGzip,
   planPayloadRangeBatches,
-  runWithConcurrency,
 } from './star-octree-payloads.js';
 import { normalizeSchedulerLane } from './star-octree-scheduler.js';
 import { createUrlRangeSource } from './star-octree-url-source.js';
@@ -27,6 +28,7 @@ import { createUrlRangeSource } from './star-octree-url-source.js';
  * @typedef {import('./star-octree-format.js').ParsedStarHeader} ParsedStarHeader
  * @typedef {import('./star-octree-format.js').ResolvedStarOctreeShard} ResolvedStarOctreeShard
  * @typedef {import('./star-octree-scheduler.js').StarOctreeScheduledTask<ResolvedStarOctreeShard>} ScheduledShardTask
+ * @typedef {import('./star-octree-scheduler.js').StarOctreeScheduledTask<Map<string, ArrayBuffer>>} ScheduledPayloadBatchTask
  * @typedef {import('./star-octree-scheduler.js').StarOctreeSchedulerLane} StarOctreeSchedulerLane
  */
 
@@ -85,6 +87,35 @@ const DEFAULT_SHARD_PREFETCH_BYTES = 65_536;
  */
 
 /**
+ * @typedef {{
+ *   lane: StarOctreeSchedulerLane;
+ *   protected: boolean;
+ *   ready: boolean;
+ *   controller?: AbortController;
+ *   task?: ScheduledPayloadBatchTask;
+ *   promise: Promise<Map<string, ArrayBuffer>>;
+ *   consumers: Set<PayloadConsumer>;
+ *   cacheKeys: Set<string>;
+ * }} PayloadBatchCacheEntry
+ */
+
+/**
+ * @typedef {{
+ *   node: StarOctreeRuntimeNode;
+ *   cacheKey: string;
+ *   batch: PayloadBatchCacheEntry;
+ *   promise: Promise<ArrayBuffer>;
+ * }} PayloadCacheEntry
+ */
+
+/**
+ * @typedef {{
+ *   lane: StarOctreeSchedulerLane;
+ *   aborted: boolean;
+ * }} PayloadConsumer
+ */
+
+/**
  * @param {{
  *   providerId: string;
  *   options: StarOctreeProviderServiceOptions;
@@ -121,7 +152,7 @@ export function createStarOctreeIndexSource(createOptions) {
   let rootShard = null;
   /** @type {Map<number, ShardCacheEntry>} */
   const shardCache = new Map();
-  /** @type {Map<string, Promise<ArrayBuffer>>} */
+  /** @type {Map<string, PayloadCacheEntry>} */
   const payloadCache = new Map();
   const payloadMaxGapBytes =
     createOptions.options.limits?.payloadMaxGapBytes ??
@@ -129,10 +160,16 @@ export function createStarOctreeIndexSource(createOptions) {
   const payloadMaxBatchBytes =
     createOptions.options.limits?.payloadMaxBatchBytes ??
     DEFAULT_PAYLOAD_MAX_BATCH_BYTES;
-  const maxInflightPayloadBatches =
-    createOptions.options.limits?.maxInflightPayloadBatches ??
-    DEFAULT_MAX_INFLIGHT_PAYLOAD_BATCHES;
-
+  const prefetchPayloadMaxGapBytes =
+    createOptions.options.limits?.prefetchPayloadMaxGapBytes ??
+    DEFAULT_PREFETCH_PAYLOAD_MAX_GAP_BYTES;
+  const prefetchPayloadMaxBatchBytes =
+    createOptions.options.limits?.prefetchPayloadMaxBatchBytes ??
+    DEFAULT_PREFETCH_PAYLOAD_MAX_BATCH_BYTES;
+  const prefetchPayloadMinUsefulRatio = normalizeRatio(
+    createOptions.options.limits?.prefetchPayloadMinUsefulRatio,
+    DEFAULT_PREFETCH_PAYLOAD_MIN_USEFUL_RATIO,
+  );
   return {
     persistentCacheAvailable: rangeSource.persistentCacheAvailable,
     sourceIdentity:
@@ -242,7 +279,8 @@ export function createStarOctreeIndexSource(createOptions) {
     if (existing) {
       stats.shardCacheHits += 1;
       if (lane !== 'prefetch') {
-        existing.protected = true;
+        existing.protected = existing.protected || !options.signal;
+        existing.lane = lane;
         existing.task?.promote(lane, options.priority);
       }
       return consumeShardEntry(existing, options);
@@ -261,7 +299,7 @@ export function createStarOctreeIndexSource(createOptions) {
     /** @type {ShardCacheEntry} */
     const entry = {
       lane,
-      protected: lane !== 'prefetch',
+      protected: lane !== 'prefetch' && !options.signal,
       ready: false,
       controller,
       task,
@@ -416,7 +454,8 @@ export function createStarOctreeIndexSource(createOptions) {
   function consumeShardEntry(entry, options) {
     const lane = normalizeSchedulerLane(options.lane);
     if (lane !== 'prefetch') {
-      entry.protected = true;
+      entry.protected = entry.protected || !options.signal;
+      entry.lane = lane;
       entry.task?.promote(lane, options.priority);
     }
 
@@ -454,7 +493,7 @@ export function createStarOctreeIndexSource(createOptions) {
     if (
       entry.protected ||
       entry.ready ||
-      entry.consumers.size > 0 ||
+      hasForegroundConsumers(entry.consumers) ||
       !entry.controller ||
       entry.controller.signal.aborted
     ) {
@@ -472,6 +511,7 @@ export function createStarOctreeIndexSource(createOptions) {
    *   emitCachedFirst?: boolean;
    *   lane?: StarOctreeSchedulerLane;
    *   priority?: number;
+   *   priorityByNode?: WeakMap<StarOctreeRuntimeNode, number>;
    *   signal?: AbortSignal;
    * }} options
    * @returns {Promise<StarOctreePayloadEntry[]>}
@@ -487,14 +527,23 @@ export function createStarOctreeIndexSource(createOptions) {
     const cachedNodes = [];
     /** @type {StarOctreeRuntimeNode[]} */
     const missingNodes = [];
+    /** @type {Map<string, Promise<StarOctreePayloadEntry>>} */
+    const entryPromises = new Map();
     /** @type {Promise<unknown>[]} */
     const notifyPromises = [];
+    const lane = normalizeSchedulerLane(options.lane);
 
     for (const node of requestedNodes) {
       const cacheKey = createPayloadCacheKey(node);
-      if (payloadCache.has(cacheKey)) {
+      const cachedEntry = payloadCache.get(cacheKey);
+      if (cachedEntry) {
         stats.payloadCacheHits += 1;
         cachedNodes.push(node);
+        entryPromises.set(
+          cacheKey,
+          consumePayloadEntry(cachedEntry, node, options)
+            .then((buffer) => ({ node, buffer })),
+        );
       } else {
         missingNodes.push(node);
       }
@@ -502,107 +551,126 @@ export function createStarOctreeIndexSource(createOptions) {
 
     if (options.emitCachedFirst !== false && cachedNodes.length > 0) {
       notifyPromises.push(
-        Promise.all(cachedNodes.map(async (node) => ({
-          node,
-          buffer: await /** @type {Promise<ArrayBuffer>} */ (
-            payloadCache.get(createPayloadCacheKey(node))
+        Promise.all(cachedNodes.map((node) =>
+          /** @type {Promise<StarOctreePayloadEntry>} */ (
+            entryPromises.get(createPayloadCacheKey(node))
           ),
-        }))).then((entries) => {
+        )).then((entries) => {
           throwIfAborted(options.signal);
           return options.onBatch?.(entries);
         }),
       );
     }
 
+    const rangeOptions = lane === 'prefetch'
+      ? {
+          maxGapBytes: prefetchPayloadMaxGapBytes,
+          maxBatchBytes: prefetchPayloadMaxBatchBytes,
+          minUsefulRatio: prefetchPayloadMinUsefulRatio,
+        }
+      : {
+          maxGapBytes: payloadMaxGapBytes,
+          maxBatchBytes: payloadMaxBatchBytes,
+        };
     const batches = planPayloadRangeBatches(missingNodes, {
-      maxGapBytes: payloadMaxGapBytes,
-      maxBatchBytes: payloadMaxBatchBytes,
+      ...rangeOptions,
     });
 
-    const batchTasks = batches.map((batch) => async () => {
-      stats.payloadBatchRequests += 1;
-      stats.payloadNodesFetched += batch.nodes.length;
-      stats.payloadCompressedBytesRequested += batch.payloadBytes;
-      stats.payloadSpanBytesRequested += batch.spanBytes;
-      stats.payloadGapBytesRequested += batch.gapBytes;
-      throwIfAborted(options.signal);
-      const batchBuffer = await rangeSource.fetchRange(batch.start, batch.end, {
-        signal: options.signal,
+    const batchTasks = batches.map((batch) => {
+      const controller = new AbortController();
+      const priority = maxNodePriority(batch.nodes, options);
+      const task = scheduleWork(createOptions.scheduler, {
+        kind: 'payload',
+        lane,
+        key: `payload:${batch.start}:${batch.end}`,
+        priority,
+        signal: controller.signal,
+      }, async () => {
+        stats.payloadBatchRequests += 1;
+        stats.payloadNodesFetched += batch.nodes.length;
+        stats.payloadCompressedBytesRequested += batch.payloadBytes;
+        stats.payloadSpanBytesRequested += batch.spanBytes;
+        stats.payloadGapBytesRequested += batch.gapBytes;
+        throwIfAborted(controller.signal);
+        const batchBuffer = await rangeSource.fetchRange(batch.start, batch.end, {
+          signal: controller.signal,
+        });
+        throwIfAborted(controller.signal);
+        /** @type {Map<string, ArrayBuffer>} */
+        const decodedBuffers = new Map();
+
+        await Promise.all(batch.nodes.map(async (node) => {
+          const sliceStart = node.payloadOffset - batch.start;
+          const sliceEnd = sliceStart + node.payloadLength;
+          decodedBuffers.set(
+            createPayloadCacheKey(node),
+            await decompressGzip(batchBuffer.slice(sliceStart, sliceEnd)),
+          );
+        }));
+
+        throwIfAborted(controller.signal);
+        return decodedBuffers;
       });
-      throwIfAborted(options.signal);
-      /** @type {Map<string, ArrayBuffer>} */
-      const decodedBuffers = new Map();
+      /** @type {PayloadBatchCacheEntry} */
+      const batchEntry = {
+        lane,
+        protected: lane !== 'prefetch' && !options.signal,
+        ready: false,
+        controller,
+        task,
+        promise: task.promise,
+        consumers: new Set(),
+        cacheKeys: new Set(batch.nodes.map(createPayloadCacheKey)),
+      };
 
-      await Promise.all(batch.nodes.map(async (node) => {
-        const sliceStart = node.payloadOffset - batch.start;
-        const sliceEnd = sliceStart + node.payloadLength;
-        decodedBuffers.set(
-          createPayloadCacheKey(node),
-          await decompressGzip(batchBuffer.slice(sliceStart, sliceEnd)),
-        );
-      }));
+      batchEntry.promise.then(
+        () => {
+          batchEntry.ready = true;
+        },
+        () => {
+          deletePayloadBatchEntries(batchEntry);
+        },
+      );
 
-      throwIfAborted(options.signal);
-      return decodedBuffers;
+      return { batch, batchEntry };
     });
 
-    const batchPromises = createOptions.scheduler
-      ? batchTasks.map((task, batchIndex) =>
-          scheduleWork(createOptions.scheduler, {
-            kind: 'payload',
-            lane: options.lane ?? 'current',
-            key: `payload:${batches[batchIndex].start}:${batches[batchIndex].end}`,
-            priority: options.priority,
-            signal: options.signal,
-          }, task).promise,
-        )
-      : runWithConcurrency(
-          batchTasks,
-          maxInflightPayloadBatches,
-        );
-
-    if (
-      options.emitCachedFirst === false &&
-      cachedNodes.length > 0 &&
-      options.onBatch
-    ) {
-      notifyPromises.push(
-        Promise.all(batchPromises)
-          .then(() => {
-            throwIfAborted(options.signal);
-            return Promise.all(cachedNodes.map(async (node) => ({
-            node,
-            buffer: await /** @type {Promise<ArrayBuffer>} */ (
-              payloadCache.get(createPayloadCacheKey(node))
-            ),
-          })));
-          })
-          .then((entries) => options.onBatch?.(entries)),
-      );
-    }
+    const batchPromises = batchTasks.map(({ batchEntry }) => batchEntry.promise);
 
     batches.forEach((batch, batchIndex) => {
-      const batchPromise = batchPromises[batchIndex];
+      const batchEntry = batchTasks[batchIndex].batchEntry;
 
       for (const node of batch.nodes) {
         const cacheKey = createPayloadCacheKey(node);
-        const payloadPromise = batchPromise.then((decodedBuffers) => {
+        const payloadPromise = batchEntry.promise.then((decodedBuffers) => {
           const buffer = decodedBuffers.get(cacheKey);
           if (!buffer) {
             throw new Error(`Missing decoded payload buffer for ${cacheKey}`);
           }
           return buffer;
         });
+        /** @type {PayloadCacheEntry} */
+        const payloadEntry = {
+          node,
+          cacheKey,
+          batch: batchEntry,
+          promise: payloadPromise,
+        };
         payloadPromise.catch(() => {
-          if (payloadCache.get(cacheKey) === payloadPromise) {
+          if (payloadCache.get(cacheKey) === payloadEntry) {
             payloadCache.delete(cacheKey);
           }
         });
-        payloadCache.set(cacheKey, payloadPromise);
+        payloadCache.set(cacheKey, payloadEntry);
+        entryPromises.set(
+          cacheKey,
+          consumePayloadEntry(payloadEntry, node, options)
+            .then((buffer) => ({ node, buffer })),
+        );
       }
 
       if (options.onBatch) {
-        notifyPromises.push(batchPromise
+        notifyPromises.push(batchEntry.promise
           .then((decodedBuffers) => batch.nodes.map((node) => {
             throwIfAborted(options.signal);
             const buffer = decodedBuffers.get(createPayloadCacheKey(node));
@@ -615,13 +683,31 @@ export function createStarOctreeIndexSource(createOptions) {
       }
     });
 
+    if (
+      options.emitCachedFirst === false &&
+      cachedNodes.length > 0 &&
+      options.onBatch
+    ) {
+      notifyPromises.push(
+        Promise.all(batchPromises)
+          .then(() => {
+            throwIfAborted(options.signal);
+            return Promise.all(cachedNodes.map((node) =>
+              /** @type {Promise<StarOctreePayloadEntry>} */ (
+                entryPromises.get(createPayloadCacheKey(node))
+              ),
+            ));
+          })
+          .then((entries) => options.onBatch?.(entries)),
+      );
+    }
+
     try {
-      const entries = await Promise.all(requestedNodes.map(async (node) => ({
-        node,
-        buffer: await /** @type {Promise<ArrayBuffer>} */ (
-          payloadCache.get(createPayloadCacheKey(node))
+      const entries = await Promise.all(requestedNodes.map((node) =>
+        /** @type {Promise<StarOctreePayloadEntry>} */ (
+          entryPromises.get(createPayloadCacheKey(node))
         ),
-      })));
+      ));
       throwIfAborted(options.signal);
       await Promise.all(notifyPromises);
       return entries;
@@ -629,6 +715,114 @@ export function createStarOctreeIndexSource(createOptions) {
       await Promise.allSettled(notifyPromises);
       throw error;
     }
+  }
+
+  /**
+   * @param {PayloadCacheEntry} entry
+   * @param {StarOctreeRuntimeNode} node
+   * @param {{
+   *   lane?: StarOctreeSchedulerLane;
+   *   signal?: AbortSignal;
+   *   priority?: number;
+   *   priorityByNode?: WeakMap<StarOctreeRuntimeNode, number>;
+   * }} options
+   */
+  function consumePayloadEntry(entry, node, options) {
+    const lane = normalizeSchedulerLane(options.lane);
+    const priority = nodePriority(node, options);
+    if (lane !== 'prefetch') {
+      entry.batch.protected = entry.batch.protected || !options.signal;
+      entry.batch.lane = lane;
+      entry.batch.task?.promote(lane, priority);
+    }
+
+    throwIfAborted(options.signal);
+    if (!options.signal) {
+      return entry.promise;
+    }
+
+    /** @type {PayloadConsumer} */
+    const consumer = { lane, aborted: false };
+    entry.batch.consumers.add(consumer);
+    /** @type {(() => void) | null} */
+    let abortListener = null;
+    const abortPromise = new Promise((_, reject) => {
+      abortListener = () => {
+        consumer.aborted = true;
+        reject(createAbortError(options.signal?.reason));
+      };
+      options.signal?.addEventListener('abort', abortListener, { once: true });
+    });
+
+    return Promise.race([entry.promise, abortPromise]).finally(() => {
+      if (abortListener) {
+        options.signal?.removeEventListener('abort', abortListener);
+      }
+      entry.batch.consumers.delete(consumer);
+      abortSpeculativePayloadBatchIfUnused(entry.batch);
+    });
+  }
+
+  /**
+   * @param {PayloadBatchCacheEntry} batchEntry
+   */
+  function abortSpeculativePayloadBatchIfUnused(batchEntry) {
+    if (
+      batchEntry.protected ||
+      batchEntry.ready ||
+      hasForegroundConsumers(batchEntry.consumers) ||
+      !batchEntry.controller ||
+      batchEntry.controller.signal.aborted
+    ) {
+      return;
+    }
+
+    batchEntry.controller.abort(createAbortError());
+    batchEntry.task?.cancel(createAbortError());
+  }
+
+  /**
+   * @param {PayloadBatchCacheEntry} batchEntry
+   */
+  function deletePayloadBatchEntries(batchEntry) {
+    for (const cacheKey of batchEntry.cacheKeys) {
+      const entry = payloadCache.get(cacheKey);
+      if (entry?.batch === batchEntry) {
+        payloadCache.delete(cacheKey);
+      }
+    }
+  }
+
+  /**
+   * @param {Set<ShardConsumer | PayloadConsumer>} consumers
+   */
+  function hasForegroundConsumers(consumers) {
+    for (const consumer of consumers) {
+      if (consumer.lane !== 'prefetch' && !consumer.aborted) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * @param {StarOctreeRuntimeNode[]} nodes
+   * @param {{ priority?: number; priorityByNode?: WeakMap<StarOctreeRuntimeNode, number> }} options
+   */
+  function maxNodePriority(nodes, options) {
+    return nodes.reduce(
+      (maxPriority, node) => Math.max(maxPriority, nodePriority(node, options)),
+      0,
+    );
+  }
+
+  /**
+   * @param {StarOctreeRuntimeNode} node
+   * @param {{ priority?: number; priorityByNode?: WeakMap<StarOctreeRuntimeNode, number> }} options
+   */
+  function nodePriority(node, options) {
+    const priority = options.priorityByNode?.get(node) ?? options.priority ?? 0;
+    return Number.isFinite(Number(priority)) ? Number(priority) : 0;
   }
 }
 
@@ -706,6 +900,18 @@ function scheduleWork(scheduler, request, task) {
     cancel() {},
     promote() {},
   };
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ */
+function normalizeRatio(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+  return Math.min(1, Math.max(0, number));
 }
 
 /**

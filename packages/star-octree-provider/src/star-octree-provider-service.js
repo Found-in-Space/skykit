@@ -334,6 +334,15 @@ function createDescriptor(providerId, options, indexSource, sourceConfig = {}) {
       ...(options.limits?.payloadMaxBatchBytes !== undefined
         ? { payloadMaxBatchBytes: options.limits.payloadMaxBatchBytes }
         : {}),
+      ...(options.limits?.prefetchPayloadMaxGapBytes !== undefined
+        ? { prefetchPayloadMaxGapBytes: options.limits.prefetchPayloadMaxGapBytes }
+        : {}),
+      ...(options.limits?.prefetchPayloadMaxBatchBytes !== undefined
+        ? { prefetchPayloadMaxBatchBytes: options.limits.prefetchPayloadMaxBatchBytes }
+        : {}),
+      ...(options.limits?.prefetchPayloadMinUsefulRatio !== undefined
+        ? { prefetchPayloadMinUsefulRatio: options.limits.prefetchPayloadMinUsefulRatio }
+        : {}),
       ...(options.limits?.maxInflightShardFetches !== undefined
         ? { maxInflightShardFetches: options.limits.maxInflightShardFetches }
         : {}),

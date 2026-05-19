@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { gzipSync } from 'node:zlib';
 
 import { createStarCellKey } from '@found-in-space/star-trees';
 import { parseStarHeader } from '../star-octree-format.js';
@@ -301,6 +302,195 @@ test('foreground shard consumer protects an existing speculative fetch', async (
   assert.equal(requestCount, 1);
 });
 
+test('aborted foreground shard consumer releases its in-flight range request', async () => {
+  const shardOffset = 3072;
+  const fetchGate = createDeferred();
+  /** @type {AbortSignal | undefined} */
+  let fetchSignal;
+  const source = createStarOctreeIndexSource({
+    providerId: 'provider-a',
+    options: { url: 'memory://stars.octree' },
+    scheduler: createStarOctreeScheduler(),
+    rangeSource: {
+      persistentCacheAvailable: false,
+      fetchRange(_start, _end, options = {}) {
+        fetchSignal = options.signal;
+        options.signal?.addEventListener('abort', () => {
+          fetchGate.reject(options.signal?.reason);
+        }, { once: true });
+        return fetchGate.promise;
+      },
+    },
+  });
+  const controller = new AbortController();
+
+  const current = source.loadShard(shardOffset, {
+    lane: 'current',
+    signal: controller.signal,
+  });
+  current.catch(() => {});
+  await tick();
+  controller.abort();
+
+  await assert.rejects(current, { name: 'AbortError' });
+  await tick();
+
+  assert.equal(fetchSignal?.aborted, true);
+});
+
+test('aborted prefetch payload fetch does not poison later foreground demand', async () => {
+  const payloadBytes = gzipSync(new Uint8Array([1, 2, 3, 4]));
+  const node = createPayloadNode({
+    payloadOffset: 100,
+    payloadLength: payloadBytes.length,
+  });
+  let requestCount = 0;
+  /** @type {AbortSignal | undefined} */
+  let speculativeSignal;
+  const source = createStarOctreeIndexSource({
+    providerId: 'provider-a',
+    options: { url: 'memory://payloads.octree' },
+    scheduler: createStarOctreeScheduler(),
+    rangeSource: {
+      persistentCacheAvailable: false,
+      fetchRange(_start, _end, options = {}) {
+        requestCount += 1;
+        if (requestCount === 1) {
+          speculativeSignal = options.signal;
+          return new Promise((resolve, reject) => {
+            options.signal?.addEventListener('abort', () => {
+              reject(options.signal?.reason);
+            }, { once: true });
+          });
+        }
+
+        return Promise.resolve(toArrayBuffer(payloadBytes));
+      },
+    },
+  });
+  const prefetchController = new AbortController();
+
+  const prefetch = source.fetchNodePayloadBatchProgressive([node], {
+    lane: 'prefetch',
+    signal: prefetchController.signal,
+  });
+  prefetch.catch(() => {});
+  await tick();
+  prefetchController.abort();
+  await assert.rejects(prefetch, { name: 'AbortError' });
+  await tick();
+
+  const entries = await source.fetchNodePayloadBatchProgressive([node], {
+    lane: 'current',
+  });
+
+  assert.equal(speculativeSignal?.aborted, true);
+  assert.equal(requestCount, 2);
+  assert.deepEqual([...new Uint8Array(entries[0].buffer)], [1, 2, 3, 4]);
+});
+
+test('foreground payload demand promotes an existing speculative range request', async () => {
+  const payloadBytes = gzipSync(new Uint8Array([5, 6, 7, 8]));
+  const node = createPayloadNode({
+    payloadOffset: 200,
+    payloadLength: payloadBytes.length,
+  });
+  const fetchGate = createDeferred();
+  let requestCount = 0;
+  /** @type {AbortSignal | undefined} */
+  let fetchSignal;
+  const source = createStarOctreeIndexSource({
+    providerId: 'provider-a',
+    options: { url: 'memory://payloads.octree' },
+    scheduler: createStarOctreeScheduler(),
+    rangeSource: {
+      persistentCacheAvailable: false,
+      fetchRange(_start, _end, options = {}) {
+        requestCount += 1;
+        fetchSignal = options.signal;
+        options.signal?.addEventListener('abort', () => {
+          fetchGate.reject(options.signal?.reason);
+        }, { once: true });
+        return fetchGate.promise;
+      },
+    },
+  });
+  const prefetchController = new AbortController();
+
+  const prefetch = source.fetchNodePayloadBatchProgressive([node], {
+    lane: 'prefetch',
+    signal: prefetchController.signal,
+  });
+  prefetch.catch(() => {});
+  await tick();
+  const current = source.fetchNodePayloadBatchProgressive([node], {
+    lane: 'current',
+  });
+  prefetchController.abort();
+  await assert.rejects(prefetch, { name: 'AbortError' });
+
+  assert.equal(fetchSignal?.aborted, false);
+  fetchGate.resolve(toArrayBuffer(payloadBytes));
+  const entries = await current;
+
+  assert.equal(fetchSignal?.aborted, false);
+  assert.equal(requestCount, 1);
+  assert.deepEqual([...new Uint8Array(entries[0].buffer)], [5, 6, 7, 8]);
+});
+
+test('payload batch scheduling uses the highest requested node priority', async () => {
+  const payloadA = gzipSync(new Uint8Array([1]));
+  const payloadB = gzipSync(new Uint8Array([2]));
+  const nodeA = createPayloadNode({
+    payloadOffset: 500,
+    payloadLength: payloadA.length,
+  });
+  const nodeB = createPayloadNode({
+    payloadOffset: 500 + payloadA.length,
+    payloadLength: payloadB.length,
+  });
+  const priorityByNode = new WeakMap([
+    [nodeA, 2],
+    [nodeB, 9],
+  ]);
+  const scheduledRequests = [];
+  const scheduler = {
+    schedule(request, run) {
+      scheduledRequests.push(request);
+      return {
+        promise: Promise.resolve().then(run),
+        cancel() {},
+        promote() {},
+      };
+    },
+  };
+  const source = createStarOctreeIndexSource({
+    providerId: 'provider-a',
+    options: {
+      url: 'memory://payloads.octree',
+      limits: {
+        payloadMaxGapBytes: 64,
+        payloadMaxBatchBytes: 1024,
+      },
+    },
+    scheduler,
+    rangeSource: {
+      persistentCacheAvailable: false,
+      fetchRange() {
+        return Promise.resolve(toArrayBuffer(concatBytes([payloadA, payloadB])));
+      },
+    },
+  });
+
+  await source.fetchNodePayloadBatchProgressive([nodeA, nodeB], {
+    lane: 'current',
+    priorityByNode,
+  });
+
+  const payloadRequest = scheduledRequests.find((request) => request.kind === 'payload');
+  assert.equal(payloadRequest?.priority, 9);
+});
+
 function createDeferred() {
   /** @type {(value: ArrayBuffer) => void} */
   let resolve = () => {};
@@ -311,6 +501,30 @@ function createDeferred() {
     reject = innerReject;
   });
   return { promise, resolve, reject };
+}
+
+function createPayloadNode(overrides = {}) {
+  return {
+    mortonCode: '0',
+    centerX: 0,
+    centerY: 0,
+    centerZ: 0,
+    halfSize: 1,
+    level: 0,
+    gridX: 0,
+    gridY: 0,
+    gridZ: 0,
+    flags: 1,
+    childMask: 0,
+    payloadOffset: 0,
+    payloadLength: 0,
+    firstChild: 0,
+    localDepth: 0,
+    localPath: 0,
+    shardOffset: 0,
+    nodeIndex: 1,
+    ...overrides,
+  };
 }
 
 async function tick() {

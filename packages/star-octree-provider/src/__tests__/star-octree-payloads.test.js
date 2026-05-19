@@ -36,6 +36,26 @@ test('planPayloadRangeBatches coalesces nearby ranges and respects batch limits'
   );
 });
 
+test('planPayloadRangeBatches can require useful bytes before merging speculative ranges', () => {
+  const nodes = [
+    createNode('a', { payloadOffset: 100, payloadLength: 10 }),
+    createNode('b', { payloadOffset: 140, payloadLength: 10 }),
+  ];
+
+  const foreground = planPayloadRangeBatches(nodes, {
+    maxGapBytes: 64,
+    maxBatchBytes: 128,
+  });
+  const prefetch = planPayloadRangeBatches(nodes, {
+    maxGapBytes: 64,
+    maxBatchBytes: 128,
+    minUsefulRatio: 0.5,
+  });
+
+  assert.deepEqual(foreground.map((batch) => batch.nodes.length), [2]);
+  assert.deepEqual(prefetch.map((batch) => batch.nodes.length), [1, 1]);
+});
+
 test('decodeStarPayload returns requested provider-native parsec attributes without refs', () => {
   const node = createNode('node-a', {
     centerX: 10,
