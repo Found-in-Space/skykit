@@ -49,10 +49,12 @@ export async function planObserverShellDemand(options) {
     },
   });
   const entries = [...result.entries];
+  const cellKeyForEntry = createEntryCellKeyCache();
 
   entries.sort((left, right) =>
     compareObserverShellEntries(left, right, {
       coarseFirst: options.context.streaming?.coarseFirst !== false,
+      cellKeyForEntry,
     }),
   );
 
@@ -98,7 +100,10 @@ function evaluationToTraversalDecision(evaluation) {
 /**
  * @param {StarOctreeDemandEntry} left
  * @param {StarOctreeDemandEntry} right
- * @param {{ coarseFirst: boolean }} options
+ * @param {{
+ *   coarseFirst: boolean;
+ *   cellKeyForEntry: (entry: StarOctreeDemandEntry) => string;
+ * }} options
  */
 function compareObserverShellEntries(left, right, options) {
   if (options.coarseFirst) {
@@ -116,7 +121,7 @@ function compareObserverShellEntries(left, right, options) {
 
   const priorityDelta = (right.priority ?? 0) - (left.priority ?? 0);
   if (priorityDelta !== 0) return priorityDelta;
-  return createStarCellKey(left.node).localeCompare(createStarCellKey(right.node));
+  return options.cellKeyForEntry(left).localeCompare(options.cellKeyForEntry(right));
 }
 
 /**
@@ -128,6 +133,21 @@ function createCurrentNodeSetSignature(entries) {
     .map((entry) => createStarCellKey(entry.node))
     .sort()
     .join('|');
+}
+
+function createEntryCellKeyCache() {
+  /** @type {WeakMap<StarOctreeDemandEntry, string>} */
+  const cache = new WeakMap();
+  /** @type {(entry: StarOctreeDemandEntry) => string} */
+  const cellKeyForEntry = (entry) => {
+    let cellKey = cache.get(entry);
+    if (!cellKey) {
+      cellKey = createStarCellKey(entry.node);
+      cache.set(entry, cellKey);
+    }
+    return cellKey;
+  };
+  return cellKeyForEntry;
 }
 
 /**

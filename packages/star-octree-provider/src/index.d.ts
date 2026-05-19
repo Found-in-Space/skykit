@@ -85,7 +85,9 @@ export interface StarOctreeSelectionContext {
     progressive?: boolean;
     emitCachedFirst?: boolean;
     coarseFirst?: boolean;
+    prefetchMode?: 'inline' | 'defer' | 'off';
   };
+  signal?: AbortSignal;
   traversal: {
     select(options: {
       distanceToNode?: (node: StarOctreeRuntimeNode) => number;

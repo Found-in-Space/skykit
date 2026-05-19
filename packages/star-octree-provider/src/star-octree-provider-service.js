@@ -127,18 +127,30 @@ function createProviderService(options, internals, sourceConfig = {}) {
     memoryBudgetBytes: options.limits?.memoryBudgetBytes,
     workTracker,
   });
+  const usePipelineSource =
+    internals.useRealPipeline || !(internals.planDemand || internals.decodeNode);
   let disposed = false;
 
   const source = {
     planDemand:
       internals.planDemand ??
       ((context) => pipeline.planDemandForContext(context)),
+    ...(usePipelineSource
+      ? {
+          /**
+           * @param {StarOctreeSelectionContext} context
+           * @param {StarOctreeDemandEntry[]} currentEntries
+           */
+          planPrefetch(context, currentEntries) {
+            return pipeline.planPrefetchForContext(context, currentEntries);
+          },
+        }
+      : {}),
     decodeNode:
       internals.decodeNode ??
       ((entry) => createDefaultDecodedStarSegment(entry.node)),
-    ...(!internals.useRealPipeline && (internals.planDemand || internals.decodeNode)
-      ? {}
-      : {
+    ...(usePipelineSource
+      ? {
           /**
            * @param {StarOctreeDemandEntry[]} entries
            * @param {Parameters<ReturnType<typeof createStarOctreePipeline>['streamCellsForEntries']>[1]} streamOptions
@@ -153,7 +165,8 @@ function createProviderService(options, internals, sourceConfig = {}) {
           warmEntries(entries, warmOptions) {
             return pipeline.warmEntries(entries, warmOptions);
           },
-        }),
+        }
+      : {}),
   };
 
   /** @type {StarOctreeProviderService} */

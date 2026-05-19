@@ -14,6 +14,7 @@ import { createAsyncQueue } from './star-octree-queue.js';
 import { STAR_HAS_PAYLOAD } from './star-octree-format.js';
 import {
   normalizeStrategyView,
+  planStarOctreePrefetchDemand,
   planStarOctreeStrategyDemand,
 } from './star-octree-strategies.js';
 import { traverseOctree } from './star-octree-traversal.js';
@@ -65,6 +66,7 @@ export function createStarOctreePipeline(options) {
   return {
     getDecodedCacheSnapshot,
     planDemandForContext,
+    planPrefetchForContext,
     planDemandForStreamOptions,
     streamPayloads,
     streamCells,
@@ -93,6 +95,20 @@ export function createStarOctreePipeline(options) {
     return planStarOctreeStrategyDemand({
       indexSource: options.indexSource,
       context: enrichedContext,
+    });
+  }
+
+  /**
+   * @param {StarOctreeSelectionContext} context
+   * @param {StarOctreeDemandEntry[]} currentEntries
+   * @returns {Promise<StarOctreeDemandPlan>}
+   */
+  async function planPrefetchForContext(context, currentEntries) {
+    const enrichedContext = withTraversalContext(context);
+    return planStarOctreePrefetchDemand({
+      indexSource: options.indexSource,
+      context: enrichedContext,
+      currentEntries,
     });
   }
 
@@ -562,11 +578,11 @@ export function createStarOctreePipeline(options) {
        *   distanceToNode?: (node: StarOctreeRuntimeNode) => number;
        *   visit: (
        *     node: StarOctreeRuntimeNode,
-     *     helpers: {
-     *       context: StarOctreeSelectionContext;
-     *       bootstrap: import('./index.js').StarOctreeBootstrapIndex;
-     *       queuedDistancePc: number;
-     *     }
+       *     helpers: {
+       *       context: StarOctreeSelectionContext;
+       *       bootstrap: import('./index.js').StarOctreeBootstrapIndex;
+       *       queuedDistancePc: number;
+       *     }
        *   ) => Promise<import('./index.js').StarOctreeTraversalDecision> | import('./index.js').StarOctreeTraversalDecision;
        * }} selectionOptions
        */
@@ -582,6 +598,7 @@ export function createStarOctreePipeline(options) {
           indexSource: options.indexSource,
           bootstrap,
           distanceToNode: selectionOptions.distanceToNode,
+          signal: context.signal,
           async visitor(node, traversalHelpers) {
             const decision = await selectionOptions.visit(node, {
               context: traversalContext,
@@ -728,6 +745,7 @@ function createSelectionContext(providerId, options, extras = {}) {
         ? { coarseFirst: options.streaming.coarseFirst }
         : {}),
     },
+    signal: cellOptions.signal,
     traversal: createUnavailableTraversal(),
   };
 }

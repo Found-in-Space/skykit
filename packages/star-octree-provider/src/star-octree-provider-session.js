@@ -41,6 +41,10 @@ const DEFAULT_COORDINATES = {
 /**
  * @typedef {{
  *   planDemand(context: StarOctreeSelectionContext): Promise<StarOctreeDemandPlan> | StarOctreeDemandPlan;
+ *   planPrefetch?: (
+ *     context: StarOctreeSelectionContext,
+ *     currentEntries: StarOctreeDemandEntry[]
+ *   ) => Promise<StarOctreeDemandPlan> | StarOctreeDemandPlan;
  *   decodeNode(entry: StarOctreeDemandEntry, context: StarOctreeSelectionContext): DecodedStarSegment;
  *   streamCells?: (
  *     entries: StarOctreeDemandEntry[],
@@ -92,6 +96,8 @@ export function createStarOctreeProviderSession(createOptions) {
   const activePlans = new Set();
   /** @type {Set<Promise<void>>} */
   const activePrefetches = new Set();
+  /** @type {Set<() => void>} */
+  const activePrefetchCancels = new Set();
 
   /** @type {StarOctreeViewPatch} */
   let currentView = {};
@@ -236,7 +242,11 @@ export function createStarOctreeProviderSession(createOptions) {
 
     Promise.resolve()
       .then(async () => {
-        const context = createSelectionContext(planOptions.view, planOptions.viewRevision);
+        const context = createSelectionContext(
+          planOptions.view,
+          planOptions.viewRevision,
+          abortController.signal,
+        );
         const plan = await createOptions.source.planDemand(context);
 
         if (disposed || token !== latestPlanToken || abortController.signal.aborted) {
@@ -302,7 +312,13 @@ export function createStarOctreeProviderSession(createOptions) {
       if (!isActivePlan(applyOptions)) {
         return;
       }
-      startPrefetch(prefetchEntries, applyOptions.token, applyOptions.signal);
+      schedulePrefetch(
+        prefetchEntries,
+        applyOptions.context,
+        currentEntries,
+        applyOptions.token,
+        applyOptions.signal,
+      );
       return;
     }
 
@@ -393,7 +409,13 @@ export function createStarOctreeProviderSession(createOptions) {
     if (!isActivePlan(applyOptions)) {
       return;
     }
-    startPrefetch(prefetchEntries, applyOptions.token, applyOptions.signal);
+    schedulePrefetch(
+      prefetchEntries,
+      applyOptions.context,
+      currentEntries,
+      applyOptions.token,
+      applyOptions.signal,
+    );
   }
 
   /**
@@ -448,6 +470,67 @@ export function createStarOctreeProviderSession(createOptions) {
 
   /**
    * @param {StarOctreeDemandEntry[]} prefetchEntries
+   * @param {StarOctreeSelectionContext} context
+   * @param {StarOctreeDemandEntry[]} currentEntries
+   * @param {number} token
+   * @param {AbortSignal} signal
+   */
+  function schedulePrefetch(prefetchEntries, context, currentEntries, token, signal) {
+    const shouldPlanDeferredPrefetch =
+      Boolean(createOptions.source.planPrefetch) &&
+      context.strategy.kind === 'motion-lookahead' &&
+      context.streaming?.prefetchMode === 'defer';
+    if (
+      disposed ||
+      token !== latestPlanToken ||
+      signal.aborted ||
+      (prefetchEntries.length === 0 && !shouldPlanDeferredPrefetch)
+    ) {
+      return;
+    }
+
+    let cancel = () => {};
+    cancel = scheduleIdleTask(() => {
+      activePrefetchCancels.delete(cancel);
+      if (!isActivePrefetch(token, signal)) {
+        return;
+      }
+
+      startPrefetch(prefetchEntries, token, signal);
+
+      if (!shouldPlanDeferredPrefetch || !createOptions.source.planPrefetch) {
+        return;
+      }
+
+      const planning = Promise.resolve()
+        .then(() => createOptions.source.planPrefetch?.(context, currentEntries))
+        .then((plan) => {
+          if (!plan || !isActivePrefetch(token, signal)) {
+            return;
+          }
+
+          const plannedEntries = normalizeDemandEntries(plan.entries, {
+            coarseFirst: options.streaming.coarseFirst !== false,
+          }).filter(
+            (entry) =>
+              entry.role === 'prefetch' &&
+              !liveCellsByKey.has(createStarCellKey(entry.node)),
+          );
+          startPrefetch(plannedEntries, token, signal);
+        })
+        .catch(() => {
+          // Prefetch is best-effort; foreground demand must not fail because warming did.
+        })
+        .finally(() => {
+          activePrefetches.delete(planning);
+        });
+      activePrefetches.add(planning);
+    });
+    activePrefetchCancels.add(cancel);
+  }
+
+  /**
+   * @param {StarOctreeDemandEntry[]} prefetchEntries
    * @param {number} token
    * @param {AbortSignal} signal
    */
@@ -482,9 +565,10 @@ export function createStarOctreeProviderSession(createOptions) {
   /**
    * @param {StarOctreeViewPatch | StarOctreeViewState} view
    * @param {number} nextViewRevision
+   * @param {AbortSignal} [signal]
    * @returns {StarOctreeSelectionContext}
    */
-  function createSelectionContext(view, nextViewRevision) {
+  function createSelectionContext(view, nextViewRevision, signal) {
     return {
       providerId,
       sessionId,
@@ -497,7 +581,11 @@ export function createStarOctreeProviderSession(createOptions) {
       demandRevision,
       attributes: options.attributes,
       coordinates: options.coordinates,
-      streaming: options.streaming,
+      streaming: {
+        ...options.streaming,
+        prefetchMode: options.strategy.kind === 'motion-lookahead' ? 'defer' : 'inline',
+      },
+      signal,
       traversal: createUnavailableTraversal(),
     };
   }
@@ -617,6 +705,10 @@ export function createStarOctreeProviderSession(createOptions) {
       return;
     }
     activeAbortController.abort(createAbortError());
+    for (const cancel of activePrefetchCancels) {
+      cancel();
+    }
+    activePrefetchCancels.clear();
   }
 
   function assertActive() {
@@ -637,6 +729,14 @@ export function createStarOctreeProviderSession(createOptions) {
     return !disposed &&
       applyOptions.token === latestPlanToken &&
       !applyOptions.signal.aborted;
+  }
+
+  /**
+   * @param {number} token
+   * @param {AbortSignal} signal
+   */
+  function isActivePrefetch(token, signal) {
+    return !disposed && token === latestPlanToken && !signal.aborted;
   }
 }
 
@@ -742,6 +842,7 @@ function createViewState(view, revision) {
  * @returns {StarOctreeDemandEntry[]}
  */
 function normalizeDemandEntries(entries, sortOptions) {
+  const cellKeyForEntry = createEntryCellKeyCache();
   return [...entries].sort((a, b) => {
     const roleDelta = roleOrder(a) - roleOrder(b);
     if (roleDelta !== 0) return roleDelta;
@@ -766,7 +867,7 @@ function normalizeDemandEntries(entries, sortOptions) {
 
     const priorityDelta = (b.priority ?? 0) - (a.priority ?? 0);
     if (priorityDelta !== 0) return priorityDelta;
-    return createStarCellKey(a.node).localeCompare(createStarCellKey(b.node));
+    return cellKeyForEntry(a).localeCompare(cellKeyForEntry(b));
   });
 }
 
@@ -831,6 +932,21 @@ function createDemandSignature(entries) {
     .join('|');
 }
 
+function createEntryCellKeyCache() {
+  /** @type {WeakMap<StarOctreeDemandEntry, string>} */
+  const cache = new WeakMap();
+  /** @type {(entry: StarOctreeDemandEntry) => string} */
+  const cellKeyForEntry = (entry) => {
+    let cellKey = cache.get(entry);
+    if (!cellKey) {
+      cellKey = createStarCellKey(entry.node);
+      cache.set(entry, cellKey);
+    }
+    return cellKey;
+  };
+  return cellKeyForEntry;
+}
+
 /**
  * @param {ReturnType<typeof createAsyncQueue<StarOctreeCellDelta>>} queue
  * @param {() => void} onReturn
@@ -867,4 +983,23 @@ function createAbortError() {
  */
 function isAbortError(error) {
   return error instanceof Error && error.name === 'AbortError';
+}
+
+/**
+ * @param {() => void} callback
+ * @returns {() => void}
+ */
+function scheduleIdleTask(callback) {
+  const idleCallback = globalThis.requestIdleCallback;
+  if (typeof idleCallback === 'function') {
+    const idleId = idleCallback.call(globalThis, callback, { timeout: 1_000 });
+    return () => {
+      if (typeof globalThis.cancelIdleCallback === 'function') {
+        globalThis.cancelIdleCallback(idleId);
+      }
+    };
+  }
+
+  const timeoutId = setTimeout(callback, 0);
+  return () => clearTimeout(timeoutId);
 }

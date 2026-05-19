@@ -25,6 +25,7 @@ import { createStarCellKey } from '@found-in-space/star-trees';
  * @typedef {{
  *   node: StarOctreeRuntimeNode;
  *   distancePc: number;
+ *   cellKey?: string;
  * }} TraversalQueueItem
  */
 
@@ -87,10 +88,13 @@ export function createTraversalStats() {
  *     descend: boolean;
  *     distancePc?: number;
  *   };
+  *   signal?: AbortSignal;
  * }} options
  */
 export async function traverseOctree(options) {
+  throwIfAborted(options.signal);
   const root = await options.indexSource.ensureRootShardLoaded();
+  throwIfAborted(options.signal);
   const queue = new TraversalPriorityQueue();
   /** @type {StarOctreeRuntimeNode[]} */
   const selected = [];
@@ -106,6 +110,7 @@ export async function traverseOctree(options) {
   }
 
   while (queue.length > 0) {
+    throwIfAborted(options.signal);
     const item = queue.pop();
     if (!item) break;
 
@@ -118,6 +123,7 @@ export async function traverseOctree(options) {
     const decision = await options.visitor(item.node, {
       queuedDistancePc: item.distancePc,
     });
+    throwIfAborted(options.signal);
 
     if (!decision.include) {
       stats.prunedNodeCount += 1;
@@ -144,6 +150,7 @@ export async function traverseOctree(options) {
       item.node,
       stats,
     );
+    throwIfAborted(options.signal);
     for (const child of children) {
       queue.push({
         node: child,
@@ -222,34 +229,114 @@ class TraversalPriorityQueue {
    * @param {TraversalQueueItem} item
    */
   push(item) {
-    let low = 0;
-    let high = this.items.length;
-
-    while (low < high) {
-      const middle = Math.floor((low + high) / 2);
-      const existing = this.items[middle];
-      if (
-        item.distancePc > existing.distancePc ||
-        (
-          item.distancePc === existing.distancePc &&
-          item.node.level > existing.node.level
-        ) ||
-        (
-          item.distancePc === existing.distancePc &&
-          item.node.level === existing.node.level &&
-          createStarCellKey(item.node) > createStarCellKey(existing.node)
-        )
-      ) {
-        low = middle + 1;
-      } else {
-        high = middle;
-      }
-    }
-
-    this.items.splice(low, 0, item);
+    item.cellKey ??= createStarCellKey(item.node);
+    this.items.push(item);
+    this.siftUp(this.items.length - 1);
   }
 
   pop() {
-    return this.items.shift() ?? null;
+    if (this.items.length === 0) {
+      return null;
+    }
+
+    const first = this.items[0];
+    const last = this.items.pop();
+    if (this.items.length > 0 && last) {
+      this.items[0] = last;
+      this.siftDown(0);
+    }
+    return first;
   }
+
+  /**
+   * @param {number} index
+   */
+  siftUp(index) {
+    let childIndex = index;
+    while (childIndex > 0) {
+      const parentIndex = Math.floor((childIndex - 1) / 2);
+      if (compareQueueItems(this.items[parentIndex], this.items[childIndex]) <= 0) {
+        break;
+      }
+      this.swap(parentIndex, childIndex);
+      childIndex = parentIndex;
+    }
+  }
+
+  /**
+   * @param {number} index
+   */
+  siftDown(index) {
+    let parentIndex = index;
+
+    for (;;) {
+      const leftIndex = parentIndex * 2 + 1;
+      const rightIndex = leftIndex + 1;
+      let smallestIndex = parentIndex;
+
+      if (
+        leftIndex < this.items.length &&
+        compareQueueItems(this.items[leftIndex], this.items[smallestIndex]) < 0
+      ) {
+        smallestIndex = leftIndex;
+      }
+
+      if (
+        rightIndex < this.items.length &&
+        compareQueueItems(this.items[rightIndex], this.items[smallestIndex]) < 0
+      ) {
+        smallestIndex = rightIndex;
+      }
+
+      if (smallestIndex === parentIndex) {
+        break;
+      }
+
+      this.swap(parentIndex, smallestIndex);
+      parentIndex = smallestIndex;
+    }
+  }
+
+  /**
+   * @param {number} left
+   * @param {number} right
+   */
+  swap(left, right) {
+    const item = this.items[left];
+    this.items[left] = this.items[right];
+    this.items[right] = item;
+  }
+}
+
+/**
+ * @param {TraversalQueueItem} left
+ * @param {TraversalQueueItem} right
+ */
+function compareQueueItems(left, right) {
+  const distanceDelta = left.distancePc - right.distancePc;
+  if (distanceDelta !== 0) return distanceDelta;
+
+  const levelDelta = left.node.level - right.node.level;
+  if (levelDelta !== 0) return levelDelta;
+
+  const leftCellKey = left.cellKey ?? createStarCellKey(left.node);
+  const rightCellKey = right.cellKey ?? createStarCellKey(right.node);
+  return leftCellKey.localeCompare(rightCellKey);
+}
+
+/**
+ * @param {AbortSignal | undefined} signal
+ */
+function throwIfAborted(signal) {
+  if (!signal?.aborted) {
+    return;
+  }
+
+  if (signal.reason instanceof Error) {
+    throw signal.reason;
+  }
+
+  const error = new Error('Star octree traversal aborted.');
+  error.name = 'AbortError';
+  throw error;
 }

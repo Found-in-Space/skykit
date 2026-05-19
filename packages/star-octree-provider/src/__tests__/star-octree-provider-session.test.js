@@ -243,6 +243,63 @@ test('prefetch warming uses the active session attributes', async () => {
   assert.equal(warmOptions.sessionId, 'session-a');
 });
 
+test('motion-lookahead prefetch planning is deferred until current demand is emitted', async () => {
+  const currentNode = createNode('current', { gridX: 0 });
+  const prefetchNode = createNode('prefetch', { gridX: 1 });
+  let planPrefetchCalled = false;
+  let warmEntries = null;
+  const session = createStarOctreeProviderSession({
+    providerId: 'provider-a',
+    sessionId: 'session-a',
+    options: {
+      strategy: {
+        kind: 'motion-lookahead',
+        strategy: { kind: 'observer-shell' },
+      },
+    },
+    source: {
+      planDemand(context) {
+        assert.equal(context.streaming?.prefetchMode, 'defer');
+        return createPlan([currentNode]);
+      },
+      planPrefetch(context, currentEntries) {
+        planPrefetchCalled = true;
+        assert.equal(context.streaming?.prefetchMode, 'defer');
+        assert.deepEqual(currentEntries.map((entry) => createStarCellKey(entry.node)), [
+          createStarCellKey(currentNode),
+        ]);
+        return {
+          entries: [{ node: prefetchNode, role: 'prefetch' }],
+          signature: createStarCellKey(prefetchNode),
+        };
+      },
+      decodeNode(entry) {
+        return oneStar(entry.node);
+      },
+      async *streamCells(entries) {
+        yield entries.map((entry) => createCell(entry.node));
+      },
+      async warmEntries(entries) {
+        warmEntries = entries;
+      },
+    },
+  });
+  const iterator = session.deltas()[Symbol.asyncIterator]();
+
+  session.updateView({ observerPc: { x: 0, y: 0, z: 0 } }, { demand: 'force' });
+  await readUntilCurrent(iterator);
+
+  assert.equal(planPrefetchCalled, false);
+  assert.equal(warmEntries, null);
+
+  await tick();
+
+  assert.equal(planPrefetchCalled, true);
+  assert.deepEqual(warmEntries.map((entry) => createStarCellKey(entry.node)), [
+    createStarCellKey(prefetchNode),
+  ]);
+});
+
 function upsertCellKeys(deltas) {
   return deltas
     .filter((delta) => delta.type === 'stars/cells-upsert')
