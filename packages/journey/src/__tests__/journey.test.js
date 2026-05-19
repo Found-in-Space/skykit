@@ -29,6 +29,10 @@ test('createJourney normalizes ordered orbit scenes and generated transitions', 
     },
     scenes: {
       inside: {
+        view: {
+          observerPc: { x: 8, y: 0, z: 0 },
+          targetPc: { x: 0, y: 0, z: 0 },
+        },
         camera: { type: 'orbit', center: 'sun', radiusPc: 8, angularSpeedRadPerSec: 0.26, lookAt: 'orion' },
       },
       outside: {
@@ -42,6 +46,7 @@ test('createJourney normalizes ordered orbit scenes and generated transitions', 
   });
 
   assert.equal(journey.initialSceneId, 'inside');
+  assert.deepEqual(journey.getScene('inside')?.view?.observerPc, { x: 8, y: 0, z: 0 });
   assert.deepEqual(journey.sceneIds, ['inside', 'outside', 'hyades']);
   assert.equal(journey.targets.hyades.positionPc.x, 17);
   assert.equal(journey.getScene('inside')?.camera.radiusPc, 8);

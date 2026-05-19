@@ -20,6 +20,10 @@ const journey = createJourney({
   scenes: {
     sol: {
       title: 'Start at the Sun',
+      view: {
+        observerPc: { x: 8, y: 0, z: 0 },
+        targetPc: { x: 0, y: 0, z: 0 },
+      },
       camera: { type: 'orbit', center: 'sun', radiusPc: 8, angularSpeedRadPerSec: 0.26 },
     },
     hyades: {
@@ -47,6 +51,8 @@ const frame = evaluator.evaluate(5);
 Orbit cameras require `radiusPc` and `angularSpeedRadPerSec`. `normal` is
 optional: omit it to let SkyKit/spatial derive a natural insertion plane from
 the approach vector, or provide it to request a specific orbital plane.
+Scene `view` describes authored viewer state such as the starting observer,
+target, or orientation. Put the initial boundary on the initial scene.
 
 Journey waypoints, cues, scenes, and guides are independent authored IDs plus
 coordinates. They do not use star IDs directly. A lesson or game that wants a

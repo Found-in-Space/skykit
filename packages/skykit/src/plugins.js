@@ -605,12 +605,14 @@ export function createSkykitJourneyPlugin(options = {}) {
 
     if (isInitialJourneyEvent(event)) {
       const initialNormal = destinationOrbit.normal ?? { x: 0, y: 1, z: 0 };
+      const initialObserverPc = resolveInitialSceneObserverPc(scene)
+        ?? defaultOrbitPosition(destinationOrbit.center, destinationOrbit.radius, initialNormal);
       rememberResolvedJourneyOrbit(scene, {
         ...destinationOrbit,
         normal: initialNormal,
       });
       context.requestViewState({
-        observerPc: defaultOrbitPosition(destinationOrbit.center, destinationOrbit.radius, initialNormal),
+        observerPc: initialObserverPc,
         targetPc: lookTarget,
       }, id);
       await context.actions.invoke(SKYKIT_ACTIONS.navigation.orbit, {
@@ -715,6 +717,14 @@ export function createSkykitJourneyPlugin(options = {}) {
       ? /** @type {Record<string, unknown>} */ (previousScene.camera)
       : null;
     return camera && camera.type === 'orbit' ? resolveJourneyOrbit(camera, context) : null;
+  }
+
+  /** @param {Record<string, unknown>} scene */
+  function resolveInitialSceneObserverPc(scene) {
+    const view = scene.view && typeof scene.view === 'object'
+      ? /** @type {{ observerPc?: unknown }} */ (scene.view)
+      : null;
+    return normalizeOptionalVector3(view?.observerPc);
   }
 
   /**
@@ -1431,6 +1441,16 @@ function normalizeDirectionVector(value, fallback) {
   return length > 1e-9
     ? { x: vector.x / length, y: vector.y / length, z: vector.z / length }
     : cloneVector3(fallback);
+}
+
+/** @param {unknown} value */
+function normalizeOptionalVector3(value) {
+  if (!value || typeof value !== 'object') return null;
+  const vector = /** @type {{ x?: unknown; y?: unknown; z?: unknown }} */ (value);
+  const x = Number(vector.x);
+  const y = Number(vector.y);
+  const z = Number(vector.z);
+  return [x, y, z].every(Number.isFinite) ? { x, y, z } : null;
 }
 
 /**

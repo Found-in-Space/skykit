@@ -112,6 +112,10 @@ const journey = createJourney({
   },
   scenes: {
     sol: {
+      view: {
+        observerPc: { x: 8, y: 0, z: 0 },
+        targetPc: { x: 0, y: 0, z: 0 },
+      },
       camera: { type: 'orbit', center: 'sun', radiusPc: 8, angularSpeedRadPerSec: 0.26 },
     },
     hyades: {
@@ -127,6 +131,10 @@ const scene = journey.resolveSceneSpec('hyades', { fromSceneId: 'sol' });
 For orbit cameras, `normal` is optional. If omitted, SkyKit asks spatial to
 derive the insertion plane from the approach vector. If supplied, spatial plans
 a smooth insertion into that requested plane.
+
+Scene `view` is the authored boundary for viewer state such as
+observer/target/orientation. Put the starting boundary on the initial scene
+instead of scattering that state through application mount code.
 
 The interactive runtime should be event-driven:
 

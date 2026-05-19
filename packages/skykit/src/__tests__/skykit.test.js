@@ -889,6 +889,9 @@ test('journey plugin executes semantic orbit-transfer scenes without snapping', 
     },
     scenes: {
       inside: {
+        view: {
+          observerPc: { x: 0, y: 4, z: 0 },
+        },
         camera: {
           type: 'orbit',
           center: 'sun',
@@ -939,6 +942,8 @@ test('journey plugin executes semantic orbit-transfer scenes without snapping', 
   });
 
   await flushMicrotasks();
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 0, y: 4, z: 0 });
   viewer.update(0.001);
   viewer.update(0);
   assert.ok(Math.abs(distance(viewer.getViewState().observerPc, { x: 0, y: 0, z: 0 }) - 4) < 1e-9);
