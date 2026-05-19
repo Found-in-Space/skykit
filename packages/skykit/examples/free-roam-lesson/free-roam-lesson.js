@@ -75,7 +75,7 @@ async function main() {
   const debug = createSkykitDebugBridge();
   debug.registerViewer(viewer);
   installSkykitDebugGlobal(debug);
-  const loop = createSkykitAnimationLoop(viewer, { maxFramesPerSecond: 30 });
+  const loop = createSkykitAnimationLoop(viewer);
 
   function resize() {
     const width = host.clientWidth || 1;

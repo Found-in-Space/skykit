@@ -53,6 +53,7 @@ export interface StarOctreeDemandPlan {
   signature?: string;
   reasons?: string[];
   metadata?: Record<string, unknown>;
+  plannerCache?: unknown;
 }
 
 export interface StarOctreeTraversalDecision {
@@ -94,6 +95,8 @@ export interface StarOctreeSelectionContext {
     coarseFirst?: boolean;
     prefetchMode?: 'inline' | 'defer' | 'off';
   };
+  plannerCache?: unknown;
+  traversalLane?: 'current' | 'replacement' | 'prefetch';
   signal?: AbortSignal;
   traversal: {
     select(options: {
@@ -320,7 +323,9 @@ export interface StarOctreeSessionSnapshot {
       | 'failed'
       | 'disposed';
     demandNodeCount: number;
+    desiredCellCount?: number;
     currentCellCount: number;
+    inFlightCellCount?: number;
     activeWorkItemCount: number;
   };
   cells: Array<{

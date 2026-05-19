@@ -601,6 +601,7 @@ export function createStarOctreePipeline(options) {
   function withTraversalContext(context, traversalLane) {
     return {
       ...context,
+      traversalLane,
       traversal: createTraversalApi(context, traversalLane),
     };
   }

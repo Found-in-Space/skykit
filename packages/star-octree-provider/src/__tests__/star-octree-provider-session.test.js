@@ -91,12 +91,12 @@ test('session replacement retains B, loads only C, then removes A', async () => 
   );
 });
 
-test('superseded demand aborts outstanding stream work before it can emit', async () => {
+test('superseded demand keeps overlapping in-flight stream work', async () => {
   const nodeA = createNode('a', { gridX: 0 });
   const nodeB = createNode('b', { gridX: 1 });
   const plans = [
     createPlan([nodeA]),
-    createPlan([nodeB]),
+    createPlan([nodeA, nodeB]),
   ];
   let releaseFirstStream = () => {};
   let observedAbort = false;
@@ -105,7 +105,7 @@ test('superseded demand aborts outstanding stream work before it can emit', asyn
     sessionId: 'session-a',
     source: {
       planDemand() {
-        return plans.shift() ?? createPlan([nodeB]);
+        return plans.shift() ?? createPlan([nodeA, nodeB]);
       },
       decodeNode(entry) {
         return oneStar(entry.node);
@@ -134,15 +134,198 @@ test('superseded demand aborts outstanding stream work before it can emit', asyn
   releaseFirstStream();
 
   const deltas = await readUntilCurrent(iterator);
-  assert.equal(observedAbort, true);
-  assert.deepEqual(upsertCellKeys(deltas), [createStarCellKey(nodeB)]);
-  assert.equal(deltas.some((delta) =>
-    delta.type === 'stars/cells-upsert' &&
-    delta.cells.some((cell) => cell.cellKey === createStarCellKey(nodeA))
-  ), false);
+  assert.equal(observedAbort, false);
+  assert.deepEqual(sortKeys(upsertCellKeys(deltas)), [
+    createStarCellKey(nodeA),
+    createStarCellKey(nodeB),
+  ].sort());
 });
 
-test('load errors report stars/error without deleting existing visible cells', async () => {
+test('moving views coalesce planning without aborting the active traversal', async () => {
+  const nodeA = createNode('a', { gridX: 0 });
+  let releaseFirstPlan = () => {};
+  let firstPlanSignal = null;
+  let planCalls = 0;
+  const session = createStarOctreeProviderSession({
+    providerId: 'provider-a',
+    sessionId: 'session-a',
+    source: {
+      async planDemand(context) {
+        planCalls += 1;
+        if (planCalls === 1) {
+          firstPlanSignal = context.signal;
+          await new Promise((resolve) => {
+            releaseFirstPlan = resolve;
+          });
+        }
+        return createPlan([nodeA]);
+      },
+      decodeNode(entry) {
+        return oneStar(entry.node);
+      },
+    },
+  });
+  const iterator = session.deltas()[Symbol.asyncIterator]();
+
+  session.updateView({ observerPc: { x: 0, y: 0, z: 0 } }, { demand: 'force' });
+  await tick();
+  session.updateView({ observerPc: { x: 1, y: 0, z: 0 } }, { demand: 'force' });
+  await tick();
+
+  assert.equal(firstPlanSignal.aborted, false);
+  releaseFirstPlan();
+  const deltas = await readUntilCurrent(iterator);
+
+  assert.deepEqual(upsertCellKeys(deltas), [createStarCellKey(nodeA)]);
+  assert.equal(firstPlanSignal.aborted, false);
+  assert.equal(planCalls >= 1, true);
+});
+
+test('rapid overlapping demands do not duplicate in-flight loads', async () => {
+  const nodeA = createNode('a', { gridX: 0 });
+  let releaseStream = () => {};
+  let streamCalls = 0;
+  const session = createStarOctreeProviderSession({
+    providerId: 'provider-a',
+    sessionId: 'session-a',
+    source: {
+      planDemand() {
+        return createPlan([nodeA]);
+      },
+      decodeNode(entry) {
+        return oneStar(entry.node);
+      },
+      async *streamCells(entries) {
+        streamCalls += 1;
+        await new Promise((resolve) => {
+          releaseStream = resolve;
+        });
+        yield entries.map((entry) => createCell(entry.node));
+      },
+    },
+  });
+  const iterator = session.deltas()[Symbol.asyncIterator]();
+
+  session.updateView({ observerPc: { x: 0, y: 0, z: 0 } }, { demand: 'force' });
+  await tick();
+  session.updateView({ observerPc: { x: 1, y: 0, z: 0 } }, { demand: 'force' });
+  await tick();
+  session.updateView({ observerPc: { x: 2, y: 0, z: 0 } }, { demand: 'force' });
+  await tick();
+  releaseStream();
+
+  const deltas = await readUntilCurrent(iterator);
+  assert.equal(streamCalls, 1);
+  assert.deepEqual(upsertCellKeys(deltas), [createStarCellKey(nodeA)]);
+  assert.equal(session.getSnapshot().demand.inFlightCellCount, 0);
+});
+
+test('stale in-flight cells are discarded after demand moves elsewhere', async () => {
+  const nodeA = createNode('a', { gridX: 0 });
+  const nodeB = createNode('b', { gridX: 1 });
+  const plans = [
+    createPlan([nodeA]),
+    createPlan([nodeB]),
+  ];
+  let releaseStaleStream = () => {};
+  const observedDeltas = [];
+  const session = createStarOctreeProviderSession({
+    providerId: 'provider-a',
+    sessionId: 'session-a',
+    source: {
+      planDemand() {
+        return plans.shift() ?? createPlan([nodeB]);
+      },
+      decodeNode(entry) {
+        return oneStar(entry.node);
+      },
+      async *streamCells(entries) {
+        const key = createStarCellKey(entries[0].node);
+        if (key === createStarCellKey(nodeA)) {
+          await new Promise((resolve) => {
+            releaseStaleStream = resolve;
+          });
+        }
+        yield entries.map((entry) => createCell(entry.node));
+      },
+    },
+  });
+  session.subscribe((delta) => observedDeltas.push(delta));
+  const iterator = session.deltas()[Symbol.asyncIterator]();
+
+  session.updateView({ observerPc: { x: 0, y: 0, z: 0 } }, { demand: 'force' });
+  await tick();
+  session.updateView({ observerPc: { x: 1, y: 0, z: 0 } }, { demand: 'force' });
+  const currentDeltas = await readUntilCurrent(iterator);
+  releaseStaleStream();
+  await tick();
+  await tick();
+
+  assert.deepEqual(upsertCellKeys(currentDeltas), [createStarCellKey(nodeB)]);
+  assert.equal(
+    observedDeltas.some((delta) =>
+      delta.type === 'stars/cells-upsert' &&
+      delta.cells.some((cell) => cell.cellKey === createStarCellKey(nodeA))
+    ),
+    false,
+  );
+  assert.deepEqual(
+    session.getSnapshot().cells.map((cell) => cell.cellKey),
+    [createStarCellKey(nodeB)],
+  );
+});
+
+test('stale load failures are ignored without clearing visible cells', async () => {
+  const nodeA = createNode('a', { gridX: 0 });
+  const nodeB = createNode('b', { gridX: 1 });
+  const plans = [
+    createPlan([nodeA]),
+    createPlan([nodeB]),
+  ];
+  let releaseStaleStream = () => {};
+  const observedDeltas = [];
+  const session = createStarOctreeProviderSession({
+    providerId: 'provider-a',
+    sessionId: 'session-a',
+    source: {
+      planDemand() {
+        return plans.shift() ?? createPlan([nodeB]);
+      },
+      decodeNode(entry) {
+        return oneStar(entry.node);
+      },
+      async *streamCells(entries) {
+        const key = createStarCellKey(entries[0].node);
+        if (key === createStarCellKey(nodeA)) {
+          await new Promise((resolve) => {
+            releaseStaleStream = resolve;
+          });
+          throw new Error('stale load failed');
+        }
+        yield entries.map((entry) => createCell(entry.node));
+      },
+    },
+  });
+  session.subscribe((delta) => observedDeltas.push(delta));
+  const iterator = session.deltas()[Symbol.asyncIterator]();
+
+  session.updateView({ observerPc: { x: 0, y: 0, z: 0 } }, { demand: 'force' });
+  await tick();
+  session.updateView({ observerPc: { x: 1, y: 0, z: 0 } }, { demand: 'force' });
+  await readUntilCurrent(iterator);
+  releaseStaleStream();
+  await tick();
+  await tick();
+
+  assert.equal(observedDeltas.some((delta) => delta.type === 'stars/error'), false);
+  assert.equal(session.getSnapshot().lastError, null);
+  assert.deepEqual(
+    session.getSnapshot().cells.map((cell) => cell.cellKey),
+    [createStarCellKey(nodeB)],
+  );
+});
+
+test('still-desired load errors report stars/error without deleting visible cells', async () => {
   const nodeA = createNode('a', { gridX: 0 });
   const nodeB = createNode('b', { gridX: 1 });
   const plans = [
@@ -304,6 +487,10 @@ function upsertCellKeys(deltas) {
   return deltas
     .filter((delta) => delta.type === 'stars/cells-upsert')
     .flatMap((delta) => delta.cells.map((cell) => cell.cellKey));
+}
+
+function sortKeys(cellKeys) {
+  return [...cellKeys].sort();
 }
 
 async function readUntilCurrent(iterator) {

@@ -92,8 +92,18 @@ export function createStarOctreeProviderSession(createOptions) {
   const liveCellsByKey = new Map();
   /** @type {Map<StarCellKey, StarOctreeDemandEntry>} */
   const entriesByCellKey = new Map();
+  /** @type {Map<StarCellKey, StarOctreeDemandEntry>} */
+  let desiredCurrentEntriesByCellKey = new Map();
+  /** @type {Map<StarCellKey, StarOctreeDemandEntry>} */
+  const inFlightCurrentEntriesByCellKey = new Map();
+  /** @type {Set<StarCellKey>} */
+  let pendingRemovalCellKeys = new Set();
   /** @type {Set<number>} */
   const activePlans = new Set();
+  /** @type {Set<Promise<void>>} */
+  const activeCurrentLoads = new Set();
+  /** @type {Set<AbortController>} */
+  const activeCurrentLoadControllers = new Set();
   /** @type {Set<Promise<void>>} */
   const activePrefetches = new Set();
   /** @type {Set<() => void>} */
@@ -104,12 +114,26 @@ export function createStarOctreeProviderSession(createOptions) {
   /** @type {StarOctreeViewState | null} */
   let demandAnchorView = null;
   /** @type {AbortController | null} */
-  let activeAbortController = null;
+  let activePlanningAbortController = null;
+  /** @type {{
+   *   force: boolean;
+   *   reasons: string[];
+   *   view: StarOctreeViewPatch;
+   *   viewRevision: number;
+   * } | null} */
+  let queuedPlanOptions = null;
+  /** @type {unknown} */
+  let plannerCache = null;
   let viewRevision = 0;
   let demandRevision = 0;
   let demandSignature = '';
   let demandNodeCount = 0;
+  let latestCurrentViewRevision = 0;
+  let latestDemandHasProduced = false;
+  let lastCurrentEmittedViewRevision = 0;
+  let lastCurrentEmittedDemandRevision = -1;
   let latestPlanToken = 0;
+  let lastAppliedPlanToken = 0;
   /** @type {StarOctreeSessionSnapshot['demand']['status']} */
   let status = 'idle';
   /** @type {string[]} */
@@ -232,9 +256,26 @@ export function createStarOctreeProviderSession(createOptions) {
    * }} planOptions
    */
   function scheduleDemandPlanning(planOptions) {
-    abortActiveWork();
+    cancelScheduledPrefetch();
+    if (activePlanningAbortController) {
+      queuedPlanOptions = planOptions;
+      status = 'planning';
+      return;
+    }
+    startDemandPlanning(planOptions);
+  }
+
+  /**
+   * @param {{
+   *   force: boolean;
+   *   reasons: string[];
+   *   view: StarOctreeViewPatch;
+   *   viewRevision: number;
+   * }} planOptions
+   */
+  function startDemandPlanning(planOptions) {
     const abortController = new AbortController();
-    activeAbortController = abortController;
+    activePlanningAbortController = abortController;
     const token = latestPlanToken + 1;
     latestPlanToken = token;
     activePlans.add(token);
@@ -249,8 +290,16 @@ export function createStarOctreeProviderSession(createOptions) {
         );
         const plan = await createOptions.source.planDemand(context);
 
-        if (disposed || token !== latestPlanToken || abortController.signal.aborted) {
+        if (
+          disposed ||
+          abortController.signal.aborted ||
+          token <= lastAppliedPlanToken
+        ) {
           return;
+        }
+
+        if ('plannerCache' in plan) {
+          plannerCache = plan.plannerCache;
         }
 
         await applyDemandPlan(plan, {
@@ -261,11 +310,12 @@ export function createStarOctreeProviderSession(createOptions) {
           token,
           signal: abortController.signal,
         });
+        lastAppliedPlanToken = token;
       })
       .catch((error) => {
         if (
           disposed ||
-          token !== latestPlanToken ||
+          token <= lastAppliedPlanToken ||
           abortController.signal.aborted ||
           isAbortError(error)
         ) {
@@ -276,6 +326,14 @@ export function createStarOctreeProviderSession(createOptions) {
       })
       .finally(() => {
         activePlans.delete(token);
+        if (activePlanningAbortController === abortController) {
+          activePlanningAbortController = null;
+        }
+        const queued = queuedPlanOptions;
+        queuedPlanOptions = null;
+        if (!disposed && queued) {
+          startDemandPlanning(queued);
+        }
       });
   }
 
@@ -302,111 +360,38 @@ export function createStarOctreeProviderSession(createOptions) {
     const demandChanged = applyOptions.force || nextSignature !== demandSignature;
     lastReasons = plan.reasons?.length ? plan.reasons : applyOptions.reasons;
 
-    if (!demandChanged) {
-      demandNodeCount = currentEntries.length;
-      status = 'current';
-      if (!isActivePlan(applyOptions)) {
-        return;
-      }
-      emitCurrent(applyOptions.viewRevision);
-      if (!isActivePlan(applyOptions)) {
-        return;
-      }
-      schedulePrefetch(
-        prefetchEntries,
-        applyOptions.context,
-        currentEntries,
-        applyOptions.token,
-        applyOptions.signal,
-      );
-      return;
+    if (demandChanged) {
+      demandRevision += 1;
+      demandSignature = nextSignature;
     }
-
-    demandRevision += 1;
-    demandSignature = nextSignature;
     demandNodeCount = currentEntries.length;
-    status = 'loading';
+    latestCurrentViewRevision = applyOptions.viewRevision;
 
     const nextEntriesByCellKey = new Map(
       currentEntries.map((entry) => [createStarCellKey(entry.node), entry]),
     );
-    const entriesToLoad = currentEntries.filter(
-      (entry) => !liveCellsByKey.has(createStarCellKey(entry.node)),
+    desiredCurrentEntriesByCellKey = nextEntriesByCellKey;
+    latestDemandHasProduced = false;
+    pendingRemovalCellKeys = new Set(
+      Array.from(liveCellsByKey.keys())
+        .filter((cellKey) => !desiredCurrentEntriesByCellKey.has(cellKey)),
     );
-    const cellKeysToRemoveAfterReplacement = Array.from(liveCellsByKey.keys())
-      .filter((cellKey) => !nextEntriesByCellKey.has(cellKey));
+    const entriesToLoad = currentEntries.filter((entry) => {
+      const cellKey = createStarCellKey(entry.node);
+      return !liveCellsByKey.has(cellKey) &&
+        !inFlightCurrentEntriesByCellKey.has(cellKey);
+    });
 
-    if (createOptions.source.streamCells) {
-      for await (const cells of createOptions.source.streamCells(
-        entriesToLoad,
-        {
-          sessionId,
-          attributes: options.attributes,
-          coordinates: options.coordinates,
-          memoryOwnership: options.memory.ownership,
-          batchMode: 'payload-range',
-          emitCachedFirst: options.streaming.emitCachedFirst,
-          signal: applyOptions.signal,
-        },
-      )) {
-        if (!isActivePlan(applyOptions)) {
-          return;
-        }
-
-        const acceptedCells = storeLoadedCells(cells, nextEntriesByCellKey);
-        if (acceptedCells.length > 0) {
-          status = 'streaming';
-          emitDelta({
-            type: 'stars/cells-upsert',
-            providerId,
-            sessionId,
-            viewRevision: applyOptions.viewRevision,
-            demandRevision,
-            cells: acceptedCells,
-          });
-        }
-      }
+    if (entriesToLoad.length > 0) {
+      status = 'loading';
+      startCurrentLoad(entriesToLoad, applyOptions.context);
+    } else if (hasIncompleteDesiredCells()) {
+      status = 'loading';
     } else {
-      for (const entry of entriesToLoad) {
-        if (!isActivePlan(applyOptions)) {
-          return;
-        }
-        const decoded = createOptions.source.decodeNode(entry, applyOptions.context);
-        const cell = createStarCellData({
-          node: entry.node,
-          decoded,
-          attributes: options.attributes,
-          coordinates: options.coordinates,
-          memoryOwnership: options.memory.ownership,
-        });
-        const acceptedCells = storeLoadedCells([cell], nextEntriesByCellKey);
-        if (acceptedCells.length > 0) {
-          status = 'streaming';
-          emitDelta({
-            type: 'stars/cells-upsert',
-            providerId,
-            sessionId,
-            viewRevision: applyOptions.viewRevision,
-            demandRevision,
-            cells: acceptedCells,
-          });
-        }
-      }
+      finishCurrentDemandIfReady();
     }
 
-    if (!isActivePlan(applyOptions)) {
-      return;
-    }
-
-    removeCellsAfterReplacement(cellKeysToRemoveAfterReplacement, applyOptions.viewRevision);
-
-    if (!isActivePlan(applyOptions)) {
-      return;
-    }
-
-    status = 'current';
-    emitCurrent(applyOptions.viewRevision);
-    if (!isActivePlan(applyOptions)) {
+    if (!isActivePlan(applyOptions) || queuedPlanOptions) {
       return;
     }
     schedulePrefetch(
@@ -419,15 +404,114 @@ export function createStarOctreeProviderSession(createOptions) {
   }
 
   /**
+   * @param {StarOctreeDemandEntry[]} entries
+   * @param {StarOctreeSelectionContext} context
+   */
+  function startCurrentLoad(entries, context) {
+    if (entries.length === 0) return;
+    /** @type {Map<StarCellKey, StarOctreeDemandEntry>} */
+    const loadingEntriesByCellKey = new Map();
+    for (const entry of entries) {
+      const cellKey = createStarCellKey(entry.node);
+      if (
+        liveCellsByKey.has(cellKey) ||
+        inFlightCurrentEntriesByCellKey.has(cellKey)
+      ) {
+        continue;
+      }
+      loadingEntriesByCellKey.set(cellKey, entry);
+      inFlightCurrentEntriesByCellKey.set(cellKey, entry);
+    }
+    if (loadingEntriesByCellKey.size === 0) return;
+
+    const controller = new AbortController();
+    activeCurrentLoadControllers.add(controller);
+    const load = (async () => {
+      try {
+        await loadCurrentEntries(
+          Array.from(loadingEntriesByCellKey.values()),
+          context,
+          controller.signal,
+        );
+      } catch (error) {
+        handleCurrentLoadError(error, loadingEntriesByCellKey);
+      } finally {
+        activeCurrentLoadControllers.delete(controller);
+        activeCurrentLoads.delete(load);
+        clearInFlightEntries(loadingEntriesByCellKey);
+        finishCurrentDemandIfReady();
+      }
+    })();
+    activeCurrentLoads.add(load);
+  }
+
+  /**
+   * @param {StarOctreeDemandEntry[]} entries
+   * @param {StarOctreeSelectionContext} context
+   * @param {AbortSignal} signal
+   */
+  async function loadCurrentEntries(entries, context, signal) {
+    if (createOptions.source.streamCells) {
+      for await (const cells of createOptions.source.streamCells(
+        entries,
+        {
+          sessionId,
+          attributes: options.attributes,
+          coordinates: options.coordinates,
+          memoryOwnership: options.memory.ownership,
+          batchMode: 'payload-range',
+          emitCachedFirst: options.streaming.emitCachedFirst,
+          signal,
+        },
+      )) {
+        acceptLoadedCells(cells);
+      }
+      return;
+    }
+
+    for (const entry of entries) {
+      throwIfAborted(signal);
+      const decoded = createOptions.source.decodeNode(entry, context);
+      const cell = createStarCellData({
+        node: entry.node,
+        decoded,
+        attributes: options.attributes,
+        coordinates: options.coordinates,
+        memoryOwnership: options.memory.ownership,
+      });
+      acceptLoadedCells([cell]);
+    }
+  }
+
+  /**
    * @param {StarCellData[]} cells
-   * @param {Map<StarCellKey, StarOctreeDemandEntry>} nextEntriesByCellKey
+   */
+  function acceptLoadedCells(cells) {
+    const acceptedCells = storeLoadedCells(cells);
+    if (acceptedCells.length === 0) return;
+    latestDemandHasProduced = true;
+    status = 'streaming';
+    removePendingCellsAfterReplacement();
+    emitDelta({
+      type: 'stars/cells-upsert',
+      providerId,
+      sessionId,
+      viewRevision: latestCurrentViewRevision,
+      demandRevision,
+      cells: acceptedCells,
+    });
+    finishCurrentDemandIfReady();
+  }
+
+  /**
+   * @param {StarCellData[]} cells
    * @returns {StarCellData[]}
    */
-  function storeLoadedCells(cells, nextEntriesByCellKey) {
+  function storeLoadedCells(cells) {
     /** @type {StarCellData[]} */
     const acceptedCells = [];
     for (const cell of cells) {
-      const entry = nextEntriesByCellKey.get(cell.cellKey);
+      const entry = desiredCurrentEntriesByCellKey.get(cell.cellKey);
       if (!entry) {
         continue;
       }
@@ -440,13 +524,35 @@ export function createStarOctreeProviderSession(createOptions) {
   }
 
   /**
-   * @param {StarCellKey[]} cellKeys
-   * @param {number} currentViewRevision
+   * @param {Map<StarCellKey, StarOctreeDemandEntry>} loadingEntriesByCellKey
    */
-  function removeCellsAfterReplacement(cellKeys, currentViewRevision) {
+  function clearInFlightEntries(loadingEntriesByCellKey) {
+    for (const [cellKey, entry] of loadingEntriesByCellKey) {
+      if (inFlightCurrentEntriesByCellKey.get(cellKey) === entry) {
+        inFlightCurrentEntriesByCellKey.delete(cellKey);
+      }
+    }
+  }
+
+  /**
+   * @param {unknown} error
+   * @param {Map<StarCellKey, StarOctreeDemandEntry>} loadingEntriesByCellKey
+   */
+  function handleCurrentLoadError(error, loadingEntriesByCellKey) {
+    if (disposed || isAbortError(error)) return;
+    const stillDesired = Array.from(loadingEntriesByCellKey.keys())
+      .some((cellKey) => desiredCurrentEntriesByCellKey.has(cellKey));
+    if (!stillDesired) return;
+    failSession(error);
+  }
+
+  function removePendingCellsAfterReplacement() {
+    if (!latestDemandHasProduced && pendingRemovalCellKeys.size > 0) {
+      return;
+    }
     /** @type {StarCellKey[]} */
     const removedCellKeys = [];
-    for (const cellKey of cellKeys) {
+    for (const cellKey of pendingRemovalCellKeys) {
       if (!liveCellsByKey.has(cellKey)) {
         continue;
       }
@@ -460,12 +566,40 @@ export function createStarOctreeProviderSession(createOptions) {
         type: 'stars/cells-remove',
         providerId,
         sessionId,
-        viewRevision: currentViewRevision,
+        viewRevision: latestCurrentViewRevision,
         demandRevision,
         cellKeys: removedCellKeys.sort(),
         reason: 'demand-excluded',
       });
     }
+    pendingRemovalCellKeys.clear();
+  }
+
+  function finishCurrentDemandIfReady() {
+    if (disposed || hasIncompleteDesiredCells()) {
+      return;
+    }
+    latestDemandHasProduced = true;
+    removePendingCellsAfterReplacement();
+    status = 'current';
+    if (
+      lastCurrentEmittedViewRevision === latestCurrentViewRevision &&
+      lastCurrentEmittedDemandRevision === demandRevision
+    ) {
+      return;
+    }
+    lastCurrentEmittedViewRevision = latestCurrentViewRevision;
+    lastCurrentEmittedDemandRevision = demandRevision;
+    emitCurrent(latestCurrentViewRevision);
+  }
+
+  function hasIncompleteDesiredCells() {
+    for (const cellKey of desiredCurrentEntriesByCellKey.keys()) {
+      if (!liveCellsByKey.has(cellKey)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -585,6 +719,8 @@ export function createStarOctreeProviderSession(createOptions) {
         ...options.streaming,
         prefetchMode: options.strategy.kind === 'motion-lookahead' ? 'defer' : 'inline',
       },
+      plannerCache,
+      traversalLane: 'current',
       signal,
       traversal: createUnavailableTraversal(),
     };
@@ -686,7 +822,9 @@ export function createStarOctreeProviderSession(createOptions) {
         revision: demandRevision,
         status,
         demandNodeCount,
+        desiredCellCount: desiredCurrentEntriesByCellKey.size,
         currentCellCount: liveCellsByKey.size,
+        inFlightCellCount: inFlightCurrentEntriesByCellKey.size,
         activeWorkItemCount: getActiveWorkItemCount(),
       },
       cells: cellSummaries,
@@ -701,10 +839,26 @@ export function createStarOctreeProviderSession(createOptions) {
   }
 
   function abortActiveWork() {
-    if (!activeAbortController || activeAbortController.signal.aborted) {
-      return;
+    abortActivePlanning();
+    for (const controller of activeCurrentLoadControllers) {
+      if (!controller.signal.aborted) {
+        controller.abort(createAbortError());
+      }
     }
-    activeAbortController.abort(createAbortError());
+    activeCurrentLoadControllers.clear();
+    inFlightCurrentEntriesByCellKey.clear();
+  }
+
+  function abortActivePlanning() {
+    if (activePlanningAbortController && !activePlanningAbortController.signal.aborted) {
+      activePlanningAbortController.abort(createAbortError());
+    }
+    activePlanningAbortController = null;
+    queuedPlanOptions = null;
+    cancelScheduledPrefetch();
+  }
+
+  function cancelScheduledPrefetch() {
     for (const cancel of activePrefetchCancels) {
       cancel();
     }
@@ -719,7 +873,9 @@ export function createStarOctreeProviderSession(createOptions) {
 
   function getActiveWorkItemCount() {
     const sourceWorkCount = createOptions.getActiveWorkItemCount?.(sessionId);
-    return activePlans.size + (sourceWorkCount ?? activePrefetches.size);
+    return activePlans.size +
+      activeCurrentLoads.size +
+      (sourceWorkCount ?? activePrefetches.size);
   }
 
   /**
@@ -976,6 +1132,13 @@ function createAbortError() {
   const error = new Error('Superseded star demand revision aborted.');
   error.name = 'AbortError';
   return error;
+}
+
+/** @param {AbortSignal | undefined} signal */
+function throwIfAborted(signal) {
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
 }
 
 /**
