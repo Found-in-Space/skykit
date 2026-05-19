@@ -185,9 +185,9 @@ own views.
 ```js
 import {
   OCTREE_DEFAULT,
-  createObserverShellStrategy,
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
+import { createObserverShellStrategy } from '@found-in-space/star-trees';
 
 const provider = createStarOctreeProviderService({ url: OCTREE_DEFAULT });
 

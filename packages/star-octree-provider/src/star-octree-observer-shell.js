@@ -1,29 +1,18 @@
-import { createStarCellKey } from '@found-in-space/star-trees';
-import { distanceToNodeAabbPc } from './star-octree-traversal.js';
+import {
+  createStarCellKey,
+  createStarTreeStrategyEvaluator,
+  distanceToCellAabbPc,
+  normalizeObserverShellView,
+} from '@found-in-space/star-trees';
 
 /**
  * @typedef {import('./index.d.ts').StarOctreeDemandEntry} StarOctreeDemandEntry
  * @typedef {import('./index.d.ts').StarOctreeDemandPlan} StarOctreeDemandPlan
  * @typedef {import('./index.d.ts').StarOctreeSelectionContext} StarOctreeSelectionContext
- * @typedef {import('./index.d.ts').StarOctreeViewPatch} StarOctreeViewPatch
  * @typedef {ReturnType<typeof import('./star-octree-index-source.js').createStarOctreeIndexSource>} StarOctreeIndexSource
  */
 
-const DEFAULT_OBSERVER_PC = Object.freeze({ x: 0, y: 0, z: 0 });
 const DEFAULT_LIMITING_MAGNITUDE = 6.5;
-
-/**
- * @param {number} halfSize
- * @param {number} limitingMagnitude
- * @param {number} indexMagnitude
- */
-export function loadRadiusForMagnitudeShell(
-  halfSize,
-  limitingMagnitude,
-  indexMagnitude,
-) {
-  return halfSize * 10 ** ((limitingMagnitude - indexMagnitude) / 5);
-}
 
 /**
  * @param {{
@@ -33,23 +22,33 @@ export function loadRadiusForMagnitudeShell(
  * @returns {Promise<StarOctreeDemandPlan>}
  */
 export async function planObserverShellDemand(options) {
-  const observerPc = normalizePoint(
-    options.context.view.observerPc,
-    DEFAULT_OBSERVER_PC,
-  );
-  const limitingMagnitude = normalizeFiniteNumber(
-    options.context.view.limitingMagnitude,
-    DEFAULT_LIMITING_MAGNITUDE,
-  );
-  const motion = resolveMotionPriorityContext(options.context.view.motion);
-  const currentResult = await collectObserverShellEntries({
-    context: options.context,
-    observerPc,
-    limitingMagnitude,
-    motion,
-    role: 'current',
+  const view = normalizeObserverShellView(options.context.view);
+  let indexMagnitude = DEFAULT_LIMITING_MAGNITUDE;
+  /** @type {import('@found-in-space/star-trees').StarTreeStrategyEvaluator | null} */
+  let evaluator = null;
+  const getEvaluator = () => {
+    if (!evaluator) {
+      evaluator = createStarTreeStrategyEvaluator({
+        strategy: { kind: 'observer-shell' },
+        view,
+        indexMagnitude,
+        role: 'current',
+      });
+    }
+    return evaluator;
+  };
+
+  const result = await options.context.traversal.select({
+    distanceToNode: (node) => distanceToCellAabbPc(view.observerPc, node),
+    visit(node, { bootstrap, queuedDistancePc }) {
+      if (!evaluator) {
+        indexMagnitude = bootstrap.header.magLimit;
+      }
+      const evaluation = getEvaluator().evaluateCell(node, { queuedDistancePc });
+      return evaluationToTraversalDecision(evaluation);
+    },
   });
-  const entries = [...currentResult.entries];
+  const entries = [...result.entries];
 
   entries.sort((left, right) =>
     compareObserverShellEntries(left, right, {
@@ -63,260 +62,36 @@ export async function planObserverShellDemand(options) {
     reasons: ['observer-shell'],
     metadata: {
       strategy: 'observer-shell',
-      observerPc,
-      limitingMagnitude,
-      indexMagnitude: currentResult.indexMagnitude,
-      inspectedNodeCount: currentResult.stats.inspectedNodeCount,
-      selectedNodeCount: currentResult.stats.selectedNodeCount,
-      payloadNodeCount: currentResult.stats.payloadNodeCount,
-      prunedNodeCount: currentResult.stats.prunedNodeCount,
-      motion,
+      observerPc: view.observerPc,
+      limitingMagnitude: view.limitingMagnitude,
+      indexMagnitude,
+      motion: createMotionSummary(view.motion),
+      inspectedNodeCount: result.stats.inspectedNodeCount,
+      selectedNodeCount: result.stats.selectedNodeCount,
+      payloadNodeCount: result.stats.payloadNodeCount,
+      prunedNodeCount: result.stats.prunedNodeCount,
       prefetchNodeCount: 0,
       prefetchOverlapCount: 0,
-      frontierShardCount: currentResult.stats.frontierShardCount,
-      maxLevelInspected: currentResult.stats.maxLevelInspected,
+      frontierShardCount: result.stats.frontierShardCount,
+      maxLevelInspected: result.stats.maxLevelInspected,
     },
   };
 }
 
 /**
- * @param {{
- *   context: StarOctreeSelectionContext;
- *   observerPc: { x: number; y: number; z: number };
- *   currentObserverPc?: { x: number; y: number; z: number };
- *   limitingMagnitude: number;
- *   motion: ReturnType<typeof resolveMotionPriorityContext>;
- *   role: 'current' | 'prefetch';
- * }} options
+ * @param {import('@found-in-space/star-trees').StarTreeStrategyEvaluation} evaluation
  */
-async function collectObserverShellEntries(options) {
-  let indexMagnitude = DEFAULT_LIMITING_MAGNITUDE;
-  const result = await options.context.traversal.select({
-    distanceToNode: (node) => distanceToNodeAabbPc(options.observerPc, node),
-    visit(node, { bootstrap }) {
-      indexMagnitude = bootstrap.header.magLimit;
-      const distancePc = distanceToNodeAabbPc(options.observerPc, node);
-      const loadRadiusPc = loadRadiusForMagnitudeShell(
-        node.halfSize,
-        options.limitingMagnitude,
-        indexMagnitude,
-      );
-      const include = distancePc <= loadRadiusPc;
-      const motionScore = include
-        ? scoreMotionPriority({
-            node,
-            observerPc: options.currentObserverPc ?? options.observerPc,
-            motion: options.role === 'current'
-              ? options.motion
-              : { ...options.motion, enabled: false },
-          })
-        : null;
-
-      return {
-        include,
-        descend: include,
-        distancePc,
-        priority: -distancePc + (motionScore?.motionPriorityBias ?? 0),
-        role: options.role,
-        reasons: [
-          options.role === 'current'
-            ? 'observer-shell'
-            : 'motion-lookahead',
-        ],
-        metadata: {
-          distancePc,
-          loadRadiusPc,
-          limitingMagnitude: options.limitingMagnitude,
-          indexMagnitude,
-          ...(options.role === 'prefetch'
-            ? {
-                prefetchKind: 'motion-lookahead',
-                futureObserverPc: options.observerPc,
-              }
-            : {}),
-          ...(motionScore ?? {}),
-        },
-      };
-    },
-  });
-
-  return { entries: result.entries, stats: result.stats, indexMagnitude };
-}
-
-/**
- * @param {StarOctreeViewPatch | undefined} view
- */
-export function normalizeObserverShellView(view = {}) {
-  const observerPc = normalizePoint(view.observerPc, DEFAULT_OBSERVER_PC);
-  const limitingMagnitude = normalizeFiniteNumber(
-    view.limitingMagnitude ?? view.mDesired,
-    DEFAULT_LIMITING_MAGNITUDE,
-  );
-
+function evaluationToTraversalDecision(evaluation) {
   return {
-    ...view,
-    observerPc,
-    limitingMagnitude,
-  };
-}
-
-/**
- * @param {unknown} value
- * @param {{ x: number; y: number; z: number }} fallback
- */
-function normalizePoint(value, fallback) {
-  if (!value || typeof value !== 'object') {
-    return { ...fallback };
-  }
-
-  const point = /** @type {Partial<typeof fallback>} */ (value);
-  const x = Number(point.x);
-  const y = Number(point.y);
-  const z = Number(point.z);
-
-  return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)
-    ? { x, y, z }
-    : { ...fallback };
-}
-
-/**
- * @param {unknown} value
- * @param {number} fallback
- */
-function normalizeFiniteNumber(value, fallback) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : fallback;
-}
-
-/**
- * @param {StarOctreeSelectionContext['view']['motion']} motion
- */
-function resolveMotionPriorityContext(motion) {
-  const speedPcPerSec = resolveMotionSpeed(motion);
-  const lookaheadSecs = normalizeFiniteNumber(
-    motion?.lookaheadSecs,
-    0,
-  );
-  const velocityDirection = resolveMotionDirection(motion);
-
-  if (!(speedPcPerSec > 0) || !(lookaheadSecs > 0)) {
-    return {
-      enabled: false,
-      speedPcPerSec,
-      lookaheadSecs,
-      lookaheadDistancePc: 0,
-      velocityDirection,
-    };
-  }
-
-  const lookaheadDistancePc = speedPcPerSec * lookaheadSecs;
-
-  return {
-    enabled: true,
-    speedPcPerSec,
-    lookaheadSecs,
-    lookaheadDistancePc,
-    velocityDirection,
-  };
-}
-
-/**
- * @param {StarOctreeSelectionContext['view']['motion']} motion
- */
-function resolveMotionSpeed(motion) {
-  const explicitSpeed = Number(motion?.speedPcPerSec);
-  if (Number.isFinite(explicitSpeed) && explicitSpeed > 0) {
-    return explicitSpeed;
-  }
-
-  const velocity = motion?.velocityPcPerSec;
-  if (!velocity) {
-    return 0;
-  }
-
-  const x = Number(velocity.x);
-  const y = Number(velocity.y);
-  const z = Number(velocity.z);
-  const speed = Math.hypot(x, y, z);
-  return Number.isFinite(speed) ? speed : 0;
-}
-
-/**
- * @param {StarOctreeSelectionContext['view']['motion']} motion
- */
-function resolveMotionDirection(motion) {
-  const velocity = motion?.velocityPcPerSec;
-  if (!velocity) {
-    return null;
-  }
-
-  const x = Number(velocity.x);
-  const y = Number(velocity.y);
-  const z = Number(velocity.z);
-  const length = Math.hypot(x, y, z);
-  if (!(length > 0) || !Number.isFinite(length)) {
-    return null;
-  }
-
-  return {
-    x: x / length,
-    y: y / length,
-    z: z / length,
-  };
-}
-
-/**
- * @param {{
- *   node: import('./index.d.ts').StarOctreeRuntimeNode;
- *   observerPc: { x: number; y: number; z: number };
- *   motion: ReturnType<typeof resolveMotionPriorityContext>;
- * }} options
- */
-function scoreMotionPriority(options) {
-  if (!options.motion.enabled) {
-    return null;
-  }
-
-  const metadata = {
-    motionPriorityBias: 0,
-    motionLookaheadDistancePc: options.motion.lookaheadDistancePc,
-  };
-  const direction = options.motion.velocityDirection;
-  if (!direction) {
-    return metadata;
-  }
-
-  const deltaX = options.node.centerX - options.observerPc.x;
-  const deltaY = options.node.centerY - options.observerPc.y;
-  const deltaZ = options.node.centerZ - options.observerPc.z;
-  const centerDistancePc = Math.hypot(deltaX, deltaY, deltaZ);
-  const forwardDistancePc =
-    deltaX * direction.x + deltaY * direction.y + deltaZ * direction.z;
-  const lateralDistancePc = Math.max(
-    0,
-    Math.sqrt(Math.max(0, centerDistancePc ** 2 - forwardDistancePc ** 2)) -
-      options.node.halfSize,
-  );
-  const lookaheadErrorPc = Math.abs(
-    forwardDistancePc - options.motion.lookaheadDistancePc,
-  );
-  const behindPenaltyPc =
-    forwardDistancePc < 0
-      ? Math.abs(forwardDistancePc) + options.motion.lookaheadDistancePc
-      : 0;
-  const motionPriorityBias = -(
-    lateralDistancePc +
-    lookaheadErrorPc * 0.25 +
-    behindPenaltyPc
-  );
-
-  return {
-    ...metadata,
-    motionPriorityBias,
-    motionForwardDistancePc: forwardDistancePc,
-    motionLateralDistancePc: lateralDistancePc,
-    motionLookaheadErrorPc: lookaheadErrorPc,
-    motionBehindPenaltyPc: behindPenaltyPc,
+    include: evaluation.relevant,
+    emit: evaluation.emit,
+    descend: evaluation.descend ?? evaluation.relevant,
+    distancePc: evaluation.distancePc,
+    priority: evaluation.priority,
+    relevance: evaluation.relevance,
+    role: evaluation.role,
+    reasons: evaluation.reasons,
+    metadata: evaluation.metadata,
   };
 }
 
@@ -396,4 +171,29 @@ function metadataNumber(entry, key) {
 function optionalMetadataNumber(entry, key) {
   const value = Number(entry.metadata?.[key]);
   return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * @param {import('@found-in-space/star-trees').StarTreeViewPatch['motion']} motion
+ */
+function createMotionSummary(motion) {
+  const velocity = motion?.velocityPcPerSec;
+  const explicitSpeed = Number(motion?.speedPcPerSec);
+  const velocitySpeed = velocity
+    ? Math.hypot(Number(velocity.x), Number(velocity.y), Number(velocity.z))
+    : 0;
+  const speedPcPerSec = Number.isFinite(explicitSpeed) && explicitSpeed > 0
+    ? explicitSpeed
+    : (Number.isFinite(velocitySpeed) ? velocitySpeed : 0);
+  const lookaheadSecs = Number(motion?.lookaheadSecs);
+  const normalizedLookaheadSecs = Number.isFinite(lookaheadSecs) && lookaheadSecs > 0
+    ? lookaheadSecs
+    : 0;
+
+  return {
+    enabled: speedPcPerSec > 0 && normalizedLookaheadSecs > 0,
+    speedPcPerSec,
+    lookaheadSecs: normalizedLookaheadSecs,
+    lookaheadDistancePc: speedPcPerSec * normalizedLookaheadSecs,
+  };
 }

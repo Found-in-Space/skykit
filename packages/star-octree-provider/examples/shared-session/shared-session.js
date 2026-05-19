@@ -1,9 +1,11 @@
 import {
   OCTREE_DEFAULT,
-  createObserverShellStrategy,
-  createSphereVolumeStrategy,
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
+import {
+  createObserverShellStrategy,
+  createSphereVolumeStrategy,
+} from '@found-in-space/star-trees';
 
 const provider = createStarOctreeProviderService({ url: OCTREE_DEFAULT });
 const status = document.querySelector('[data-status]');

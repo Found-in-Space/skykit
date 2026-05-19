@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createStarCellKey } from '@found-in-space/star-trees';
+import {
+  createStarCellKey,
+  loadRadiusForMagnitudeShell,
+  withMotionLookahead,
+} from '@found-in-space/star-trees';
 import { STAR_HAS_PAYLOAD, STAR_IS_FRONTIER } from '../star-octree-format.js';
 import { createStarOctreeIndexSource } from '../star-octree-index-source.js';
-import {
-  loadRadiusForMagnitudeShell,
-  planObserverShellDemand,
-} from '../star-octree-observer-shell.js';
+import { planObserverShellDemand } from '../star-octree-observer-shell.js';
 import {
   planStarOctreeStrategyDemand,
-  withMotionLookahead,
 } from '../star-octree-strategies.js';
 import { planTargetFrustumDemand } from '../star-octree-target-frustum.js';
 import { traverseOctree } from '../star-octree-traversal.js';

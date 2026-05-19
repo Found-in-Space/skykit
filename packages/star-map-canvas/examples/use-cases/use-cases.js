@@ -1,10 +1,10 @@
 import {
   OCTREE_DEFAULT,
-  createObserverShellStrategy,
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
 import {
   consumeStarCellDeltas,
+  createObserverShellStrategy,
   createStarCellKey,
   createStarCellStore,
 } from '@found-in-space/star-trees';

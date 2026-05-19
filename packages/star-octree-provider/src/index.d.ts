@@ -3,6 +3,10 @@ import type {
   StarCellDelta,
   StarCellKey,
   StarCoordinateOutput,
+  StarTreeDemandThresholds,
+  StarTreePointPc,
+  StarTreeStrategy,
+  StarTreeVolumeRequest,
 } from '@found-in-space/star-trees';
 
 export declare const OCTREE_c56103: string;
@@ -26,102 +30,6 @@ export interface StarOctreeFileProviderServiceOptions {
   file: Blob;
   datasetId?: string | null;
   limits?: StarOctreeProviderServiceOptions['limits'];
-}
-
-export interface StarOctreeDemandThresholds {
-  observerMoveThresholdPc?: number;
-  limitingMagnitudeDelta?: number;
-  directionAngleDeg?: number;
-}
-
-export interface StarOctreePointPc {
-  x: number;
-  y: number;
-  z: number;
-}
-
-export interface StarOctreeObserverShellStrategy {
-  kind: 'observer-shell';
-}
-
-export interface StarOctreeTargetFrustumStrategy {
-  kind: 'target-frustum';
-  verticalFovDeg?: number;
-  overscanDeg?: number;
-  targetRadiusPc?: number;
-  nearPc?: number;
-  farPc?: number;
-}
-
-export interface StarOctreeSphereVolumeStrategy {
-  kind: 'sphere-volume';
-  centerPc: StarOctreePointPc;
-  radiusPc: number;
-}
-
-export interface StarOctreePathVolumeStrategy {
-  kind: 'path-volume';
-  pointsPc: StarOctreePointPc[];
-  radiusPc: number;
-}
-
-export interface StarOctreeMotionLookaheadStrategy {
-  kind: 'motion-lookahead';
-  strategy: StarOctreeFetchStrategy;
-}
-
-export interface StarOctreeCompositeStrategy {
-  kind: 'composite';
-  mode: 'union';
-  strategies: StarOctreeFetchStrategy[];
-}
-
-export interface StarOctreeCustomStrategy {
-  kind: 'custom';
-  selectDemand: (
-    context: StarOctreeSelectionContext
-  ) => Promise<StarOctreeDemandPlan> | StarOctreeDemandPlan;
-  shouldReplan?: (
-    context: StarOctreeDemandGateContext
-  ) => StarOctreeDemandGateResult;
-}
-
-export type StarOctreeFetchStrategy =
-  | StarOctreeObserverShellStrategy
-  | StarOctreeTargetFrustumStrategy
-  | StarOctreeSphereVolumeStrategy
-  | StarOctreePathVolumeStrategy
-  | StarOctreeMotionLookaheadStrategy
-  | StarOctreeCompositeStrategy
-  | StarOctreeCustomStrategy;
-
-export interface StarOctreeSphereVolumeRequest {
-  type: 'sphere';
-  centerPc: StarOctreePointPc;
-  radiusPc: number;
-}
-
-export interface StarOctreePathVolumeRequest {
-  type: 'path';
-  pointsPc: StarOctreePointPc[];
-  radiusPc: number;
-}
-
-export type StarOctreeVolumeRequest =
-  | StarOctreeSphereVolumeRequest
-  | StarOctreePathVolumeRequest;
-
-export interface TravelRadiusProfilePoint {
-  progress: number;
-  radiusPc: number;
-}
-
-export interface BuildTravelVolumeRequestsOptions {
-  routePointsPc: StarOctreePointPc[];
-  radiusProfile?: TravelRadiusProfilePoint[];
-  defaultRadiusPc?: number;
-  paddingPc?: number;
-  quantizeStepPc?: number;
 }
 
 export interface StarOctreeDemandEntry {
@@ -167,7 +75,7 @@ export interface StarOctreeTraversalSelectionResult {
 export interface StarOctreeSelectionContext {
   providerId: string;
   sessionId?: string;
-  strategy: StarOctreeFetchStrategy;
+  strategy: StarTreeStrategy;
   view: StarOctreeViewState;
   viewRevision: number;
   demandRevision: number;
@@ -186,6 +94,7 @@ export interface StarOctreeSelectionContext {
         helpers: {
           context: StarOctreeSelectionContext;
           bootstrap: StarOctreeBootstrapIndex;
+          queuedDistancePc: number;
         }
       ) =>
         | Promise<StarOctreeTraversalDecision>
@@ -196,8 +105,8 @@ export interface StarOctreeSelectionContext {
 
 export interface StarOctreeSessionOptions {
   id?: string;
-  strategy?: StarOctreeFetchStrategy;
-  demandThresholds?: StarOctreeDemandThresholds;
+  strategy?: StarTreeStrategy;
+  demandThresholds?: StarTreeDemandThresholds;
   attributes?: Array<
     | 'position'
     | 'teffLog8'
@@ -242,21 +151,6 @@ export interface StarOctreeViewPatch {
 export interface StarOctreeViewState extends StarOctreeViewPatch {
   revision: number;
 }
-
-export interface StarOctreeDemandGateContext {
-  strategy: StarOctreeFetchStrategy;
-  thresholds?: StarOctreeDemandThresholds;
-  previousDemandView: StarOctreeViewState | null;
-  nextView: StarOctreeViewState;
-  reason?: string;
-}
-
-export type StarOctreeDemandGateResult =
-  | boolean
-  | {
-      replan: boolean;
-      reasons?: string[];
-    };
 
 export interface ViewUpdateOptions {
   demand?: 'auto' | 'force' | 'suppress';
@@ -397,7 +291,7 @@ export type StarOctreeCellDelta = StarCellDelta;
 
 export interface StarOctreeSessionSnapshot {
   id: string;
-  strategy: StarOctreeFetchStrategy;
+  strategy: StarTreeStrategy;
   view: StarOctreeViewState;
   demand: {
     revision: number;
@@ -495,7 +389,7 @@ export interface StarOctreeProviderSnapshot {
 export interface StarOctreeCellStreamOptions {
   id?: string;
   sessionId?: string;
-  strategy?: StarOctreeFetchStrategy;
+  strategy?: StarTreeStrategy;
   view?: StarOctreeViewPatch;
   viewRevision?: number;
   demandRevision?: number;
@@ -517,7 +411,7 @@ export interface StarOctreeCellStreamOptions {
 export interface StarOctreeDemandInspection {
   providerId: string;
   streamId?: string;
-  strategy: StarOctreeFetchStrategy;
+  strategy: StarTreeStrategy;
   view: StarOctreeViewState;
   reasons: string[];
   signature?: string;
@@ -534,7 +428,7 @@ export interface StarOctreeDemandInspection {
   nodes: Array<{
     level: number;
     mortonCode: string;
-    centerPc: StarOctreePointPc;
+    centerPc: StarTreePointPc;
     halfSizePc: number;
     payloadBytes: number;
     role: 'current' | 'prefetch';
@@ -547,7 +441,7 @@ export interface StarOctreeDemandInspection {
 
 export interface StarOctreePayloadStreamOptions {
   id?: string;
-  strategy?: StarOctreeFetchStrategy;
+  strategy?: StarTreeStrategy;
   view?: StarOctreeViewPatch;
   streaming?: {
     progressive?: boolean;
@@ -591,7 +485,7 @@ export interface StarOctreeProviderService {
 }
 
 export interface WarmVolumeProgress {
-  request: StarOctreeVolumeRequest;
+  request: StarTreeVolumeRequest;
   requestIndex: number;
   delta: StarOctreeCellDelta;
 }
@@ -611,48 +505,16 @@ export declare function createStarOctreeFileProviderService(
   options: StarOctreeFileProviderServiceOptions
 ): StarOctreeProviderService;
 
-export declare function createObserverShellStrategy(): StarOctreeObserverShellStrategy;
-
-export declare function createTargetFrustumStrategy(
-  options?: Omit<StarOctreeTargetFrustumStrategy, 'kind'>
-): StarOctreeTargetFrustumStrategy;
-
-export declare function createSphereVolumeStrategy(
-  options: Omit<StarOctreeSphereVolumeRequest, 'type'>
-): StarOctreeSphereVolumeStrategy;
-
-export declare function createPathVolumeStrategy(
-  options: Omit<StarOctreePathVolumeRequest, 'type'>
-): StarOctreePathVolumeStrategy;
-
-export declare function withMotionLookahead(
-  strategy: StarOctreeFetchStrategy
-): StarOctreeMotionLookaheadStrategy;
-
-export declare function combineStarOctreeStrategies(
-  strategies: StarOctreeFetchStrategy[],
-  options?: { mode?: 'union' }
-): StarOctreeCompositeStrategy;
-
-export declare function buildTravelVolumeRequests(
-  options: BuildTravelVolumeRequestsOptions
-): StarOctreePathVolumeRequest[];
-
 export declare function streamVolumeCells(
   provider: StarOctreeProviderService,
-  request: StarOctreeVolumeRequest,
+  request: StarTreeVolumeRequest,
   options?: Omit<StarOctreeCellStreamOptions, 'strategy'>
 ): AsyncIterable<StarOctreeCellDelta>;
 
 export declare function warmVolumeRequests(
   provider: StarOctreeProviderService,
-  requests: StarOctreeVolumeRequest[],
+  requests: StarTreeVolumeRequest[],
   options?: Omit<StarOctreeCellStreamOptions, 'strategy'> & {
     onProgress?: (progress: WarmVolumeProgress) => void;
   }
 ): Promise<WarmVolumeResult>;
-
-export declare function distancePointToPathPc(
-  point: StarOctreePointPc,
-  pointsPc: StarOctreePointPc[]
-): number;

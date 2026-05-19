@@ -15,11 +15,13 @@ import {
 } from '@found-in-space/skykit';
 import {
   OCTREE_DEFAULT,
-  combineStarOctreeStrategies,
-  createObserverShellStrategy,
-  createSphereVolumeStrategy,
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
+import {
+  combineStarTreeStrategies,
+  createObserverShellStrategy,
+  createSphereVolumeStrategy,
+} from '@found-in-space/star-trees';
 import { createThreeStarField } from '@found-in-space/three-star-field';
 
 const UNITS_PER_PARSEC = 0.001;
@@ -59,7 +61,7 @@ async function main() {
         provider,
         renderer: starField,
         session: {
-          strategy: combineStarOctreeStrategies([
+          strategy: combineStarTreeStrategies([
             createObserverShellStrategy(),
             createSphereVolumeStrategy({
               centerPc: HYADES_CENTER_PC,

@@ -96,7 +96,7 @@ test('target-frustum streams validate required view state clearly', async () => 
   assert.equal(result.value.type, 'stars/error');
   assert.equal(
     result.value.error.code,
-    'ERR_STAR_OCTREE_INVALID_VIEW',
+    'ERR_STAR_TREE_INVALID_VIEW',
   );
 });
 

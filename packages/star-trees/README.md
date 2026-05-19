@@ -2,12 +2,13 @@
 
 Status: current alpha package.
 
-Cell-keyed star data types, stores, Morton helpers, and star math helpers for
-Found in Space packages.
+Cell-keyed star data types, stores, Morton helpers, viewer-space strategy
+helpers, and star math helpers for Found in Space packages.
 
-This package understands `StarCellData` and star-specific interpretation such as
-magnitude, temperature, object refs, pick metadata, and sky projections. It does
-not load octree bytes or own provider sessions.
+This package understands `StarCellData`, tree-cell strategy evaluation, and
+star-specific interpretation such as magnitude, temperature, object refs, pick
+metadata, and sky projections. It does not load octree bytes or own provider
+sessions.
 
 ## Public Star Identity
 

@@ -8,14 +8,6 @@ export {
 } from './star-octree-provider-service.js';
 
 export {
-  buildTravelVolumeRequests,
-  combineStarOctreeStrategies,
-  createObserverShellStrategy,
-  createPathVolumeStrategy,
-  createSphereVolumeStrategy,
-  createTargetFrustumStrategy,
-  distancePointToPathPc,
   streamVolumeCells,
   warmVolumeRequests,
-  withMotionLookahead,
 } from './star-octree-strategies.js';

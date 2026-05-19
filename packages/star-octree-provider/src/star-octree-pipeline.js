@@ -22,7 +22,7 @@ import { traverseOctree } from './star-octree-traversal.js';
  * @typedef {import('./index.js').StarOctreeDemandEntry} StarOctreeDemandEntry
  * @typedef {import('./index.js').StarOctreeDemandInspection} StarOctreeDemandInspection
  * @typedef {import('./index.js').StarOctreeDemandPlan} StarOctreeDemandPlan
- * @typedef {import('./index.js').StarOctreeFetchStrategy} StarOctreeFetchStrategy
+ * @typedef {import('@found-in-space/star-trees').StarTreeStrategy} StarTreeStrategy
  * @typedef {import('./index.js').StarOctreePayloadDelta} StarOctreePayloadDelta
  * @typedef {import('./index.js').StarOctreePayloadStreamOptions} StarOctreePayloadStreamOptions
  * @typedef {import('./index.js').StarOctreeRuntimeNode} StarOctreeRuntimeNode
@@ -507,10 +507,11 @@ export function createStarOctreePipeline(options) {
        *   distanceToNode?: (node: StarOctreeRuntimeNode) => number;
        *   visit: (
        *     node: StarOctreeRuntimeNode,
-       *     helpers: {
-       *       context: StarOctreeSelectionContext;
-       *       bootstrap: import('./index.js').StarOctreeBootstrapIndex;
-       *     }
+     *     helpers: {
+     *       context: StarOctreeSelectionContext;
+     *       bootstrap: import('./index.js').StarOctreeBootstrapIndex;
+     *       queuedDistancePc: number;
+     *     }
        *   ) => Promise<import('./index.js').StarOctreeTraversalDecision> | import('./index.js').StarOctreeTraversalDecision;
        * }} selectionOptions
        */
@@ -526,10 +527,11 @@ export function createStarOctreePipeline(options) {
           indexSource: options.indexSource,
           bootstrap,
           distanceToNode: selectionOptions.distanceToNode,
-          async visitor(node) {
+          async visitor(node, traversalHelpers) {
             const decision = await selectionOptions.visit(node, {
               context: traversalContext,
               bootstrap,
+              queuedDistancePc: traversalHelpers.queuedDistancePc,
             });
             const include = decision.include === true;
             const emit = decision.emit !== false;
@@ -631,7 +633,7 @@ function createUnavailableTraversal() {
 }
 
 /**
- * @param {StarOctreeFetchStrategy} strategy
+ * @param {StarTreeStrategy} strategy
  * @param {StarOctreeViewPatch | undefined} view
  */
 function normalizeContextView(strategy, view) {

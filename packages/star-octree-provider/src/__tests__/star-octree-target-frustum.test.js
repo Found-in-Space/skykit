@@ -5,7 +5,7 @@ import {
   createFrustumTester,
   normalizeTargetFrustumView,
   quaternionToCameraBasis,
-} from '../star-octree-target-frustum.js';
+} from '@found-in-space/star-trees';
 
 test('quaternionToCameraBasis follows SkyKit camera orientation convention', () => {
   const basis = quaternionToCameraBasis({ x: 0, y: 0, z: 0, w: 1 });
@@ -53,8 +53,8 @@ test('target-frustum derives a POC-parity target frustum with defaults', () => {
   assert.equal(view.targetRadiusPc, 96);
   assert.equal(view.farPc, 106);
   assert.deepEqual(roundVector(frustum.basis.forward), { x: 0, y: 0, z: -1 });
-  assert.equal(frustum.intersectsNode(createNode({ centerZ: -10 })), true);
-  assert.equal(frustum.intersectsNode(createNode({ centerZ: 10 })), false);
+  assert.equal(frustum.intersectsCell(createNode({ centerZ: -10 })), true);
+  assert.equal(frustum.intersectsCell(createNode({ centerZ: 10 })), false);
 });
 
 test('target-frustum can derive from directionIcrs without a target distance', () => {
@@ -71,8 +71,8 @@ test('target-frustum can derive from directionIcrs without a target distance', (
   assert.equal(view.frustumMode, 'direction');
   assert.equal(view.farPc, undefined);
   assert.deepEqual(roundVector(frustum.basis.forward), { x: 1, y: 0, z: 0 });
-  assert.equal(frustum.intersectsNode(createNode({ centerX: 10 })), true);
-  assert.equal(frustum.intersectsNode(createNode({ centerX: -10 })), false);
+  assert.equal(frustum.intersectsCell(createNode({ centerX: 10 })), true);
+  assert.equal(frustum.intersectsCell(createNode({ centerX: -10 })), false);
 });
 
 test('frustum tester intersects axis-aligned octree nodes exactly enough for pruning', () => {
@@ -89,10 +89,10 @@ test('frustum tester intersects axis-aligned octree nodes exactly enough for pru
   );
   const frustum = createFrustumTester(view);
 
-  assert.equal(frustum.intersectsNode(createNode({ centerZ: -10 })), true);
-  assert.equal(frustum.intersectsNode(createNode({ centerX: 100, centerZ: -10 })), false);
-  assert.equal(frustum.intersectsNode(createNode({ centerZ: 10 })), false);
-  assert.equal(frustum.intersectsNode(createNode({ centerZ: -150 })), false);
+  assert.equal(frustum.intersectsCell(createNode({ centerZ: -10 })), true);
+  assert.equal(frustum.intersectsCell(createNode({ centerX: 100, centerZ: -10 })), false);
+  assert.equal(frustum.intersectsCell(createNode({ centerZ: 10 })), false);
+  assert.equal(frustum.intersectsCell(createNode({ centerZ: -150 })), false);
 });
 
 test('frustum tester measures the closest visible witness instead of raw box distance', () => {
@@ -107,7 +107,7 @@ test('frustum tester measures the closest visible witness instead of raw box dis
     { kind: 'target-frustum', overscanDeg: 0 },
   );
   const frustum = createFrustumTester(view);
-  const witness = frustum.nearestVisiblePointToNode(createNode({
+  const witness = frustum.nearestVisiblePointToCell(createNode({
     centerX: 75,
     centerY: 75,
     centerZ: 0,

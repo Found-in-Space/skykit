@@ -1,22 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createStarCellKey } from '@found-in-space/star-trees';
 import {
   buildTravelVolumeRequests,
-  combineStarOctreeStrategies,
   createObserverShellStrategy,
   createPathVolumeStrategy,
   createSphereVolumeStrategy,
   createTargetFrustumStrategy,
   distancePointToPathPc,
+  createStarCellKey,
+  combineStarTreeStrategies,
+  withMotionLookahead,
+} from '@found-in-space/star-trees';
+import {
   planStarOctreeStrategyDemand,
   streamVolumeCells,
   warmVolumeRequests,
-  withMotionLookahead,
 } from '../star-octree-strategies.js';
 
-test('strategy factories create first-class provider strategies', () => {
+test('star-tree strategy factories create first-class strategy values', () => {
   assert.deepEqual(createObserverShellStrategy(), { kind: 'observer-shell' });
   assert.deepEqual(createTargetFrustumStrategy({ verticalFovDeg: 50 }), {
     kind: 'target-frustum',
@@ -31,7 +33,7 @@ test('strategy factories create first-class provider strategies', () => {
     radiusPc: 4,
   });
   assert.equal(withMotionLookahead({ kind: 'observer-shell' }).kind, 'motion-lookahead');
-  assert.equal(combineStarOctreeStrategies([{ kind: 'observer-shell' }]).kind, 'composite');
+  assert.equal(combineStarTreeStrategies([{ kind: 'observer-shell' }]).kind, 'composite');
 });
 
 test('sphere strategy selects nodes whose AABB overlaps the sphere', async () => {
@@ -119,22 +121,21 @@ test('travel volume requests fall back to a single full-path request', () => {
   assert.equal(requests[0].radiusPc, 4);
 });
 
-test('composite union dedupes entries and current role wins over prefetch', async () => {
-  const nodeA = createNode({ nodeKey: 'node-a', level: 2 });
-  const nodeB = createNode({ nodeKey: 'node-b', level: 1 });
-  const strategy = combineStarOctreeStrategies([
-    createCustomPlanStrategy('current-a', [
-      { node: nodeA, role: 'current', priority: 1, reasons: ['current-a'] },
-    ]),
-    createCustomPlanStrategy('prefetch-a-current-b', [
-      { node: nodeA, role: 'prefetch', priority: 100, reasons: ['prefetch-a'] },
-      { node: nodeB, role: 'current', priority: 10, reasons: ['current-b'] },
-    ]),
+test('composite union selects cells matched by any child strategy', async () => {
+  const nodeA = createNode({ nodeKey: 'node-a', centerX: 0, halfSize: 1, level: 2 });
+  const nodeB = createNode({ nodeKey: 'node-b', centerX: 10, halfSize: 1, level: 1 });
+  const nodeC = createNode({ nodeKey: 'node-c', centerX: 50, halfSize: 1, level: 3 });
+  const strategy = combineStarTreeStrategies([
+    createSphereVolumeStrategy({ centerPc: { x: 0, y: 0, z: 0 }, radiusPc: 2 }),
+    createPathVolumeStrategy({
+      pointsPc: [{ x: 10, y: -1, z: 0 }, { x: 10, y: 1, z: 0 }],
+      radiusPc: 2,
+    }),
   ]);
 
   const plan = await planStarOctreeStrategyDemand({
     indexSource: {},
-    context: createSelectionContext(strategy, []),
+    context: createSelectionContext(strategy, [nodeA, nodeB, nodeC]),
   });
 
   assert.deepEqual(
@@ -142,40 +143,19 @@ test('composite union dedupes entries and current role wins over prefetch', asyn
     [['node-b', 'current'], ['node-a', 'current']],
   );
   assert.equal(plan.signature, [nodeA, nodeB].map(createStarCellKey).sort().join('|'));
-  assert.deepEqual(plan.entries.find((entry) => entry.node.nodeKey === 'node-a').reasons, [
-    'current-a',
-    'prefetch-a',
-  ]);
-  assert.equal(
-    plan.entries.find((entry) => entry.node.nodeKey === 'node-a').metadata.strategyContributors.length,
-    2,
-  );
+  assert.equal(plan.metadata.strategy, 'composite');
+  assert.equal(plan.entries[0].metadata.strategyContributors.length, 2);
 });
 
 test('motion-lookahead decorator adds future-only prefetch demand', async () => {
-  const nodeA = createNode({ nodeKey: 'current-node' });
-  const nodeB = createNode({ nodeKey: 'future-node' });
-  const baseStrategy = {
-    kind: 'custom',
-    selectDemand(context) {
-      const node = context.view.observerPc?.x >= 50 ? nodeB : nodeA;
-      return {
-        entries: [{
-          node,
-          role: 'current',
-          priority: 1,
-          reasons: ['position-custom'],
-          metadata: { strategy: 'position-custom' },
-        }],
-        reasons: ['position-custom'],
-      };
-    },
-  };
+  const nodeA = createNode({ nodeKey: 'current-node', centerX: 0, halfSize: 10 });
+  const nodeB = createNode({ nodeKey: 'future-node', centerX: 100, halfSize: 10 });
+  const baseStrategy = createObserverShellStrategy();
   const strategy = withMotionLookahead(baseStrategy);
   const plan = await planStarOctreeStrategyDemand({
     indexSource: {},
     context: {
-      ...createSelectionContext(strategy, []),
+      ...createSelectionContext(strategy, [nodeA, nodeB]),
       view: {
         revision: 1,
         observerPc: { x: 0, y: 0, z: 0 },
@@ -254,18 +234,6 @@ test('warmVolumeRequests consumes streams and reports progress with cells', asyn
   assert.deepEqual(progress, ['stars/cells-upsert', 'stars/current']);
 });
 
-function createCustomPlanStrategy(reason, entries) {
-  return {
-    kind: 'custom',
-    selectDemand() {
-      return {
-        entries,
-        reasons: [reason],
-      };
-    },
-  };
-}
-
 function createCurrentDelta() {
   return {
     type: 'stars/current',
@@ -298,6 +266,7 @@ function createSelectionContext(strategy, nodes, visits = []) {
           const decision = await options.visit(node, {
             context: {},
             bootstrap: { header: { magLimit: 6.5 } },
+            queuedDistancePc: options.distanceToNode?.(node) ?? 0,
           });
           visits.push({
             nodeKey: node.nodeKey,

@@ -1,10 +1,10 @@
 import {
   OCTREE_DEFAULT,
-  createObserverShellStrategy,
   createStarOctreeProviderService,
 } from '../../src/index.js';
 import {
   apparentMagnitude as computeApparentMagnitude,
+  createObserverShellStrategy,
   createStarCellKey,
   decodeTemperatureK,
 } from '@found-in-space/star-trees';

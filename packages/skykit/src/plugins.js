@@ -6,12 +6,12 @@ import {
 } from '@found-in-space/journey';
 
 import {
-  combineStarOctreeStrategies,
+  combineStarTreeStrategies,
   createObserverShellStrategy,
   createPathVolumeStrategy,
   createSphereVolumeStrategy,
   withMotionLookahead,
-} from '@found-in-space/star-octree-provider';
+} from '@found-in-space/star-trees';
 
 import {
   IDENTITY_QUATERNION as SPATIAL_IDENTITY_QUATERNION,
@@ -607,7 +607,7 @@ export function createSkykitStarStrategiesFromSpatialHints(hints, options = {}) 
     .map((request) => request.strategy);
   if (options.combine === false) return strategies;
   if (strategies.length === 0) return null;
-  return strategies.length === 1 ? strategies[0] : combineStarOctreeStrategies(strategies);
+  return strategies.length === 1 ? strategies[0] : combineStarTreeStrategies(strategies);
 }
 
 /**

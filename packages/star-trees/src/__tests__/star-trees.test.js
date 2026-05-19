@@ -4,12 +4,20 @@ import test from 'node:test';
 import {
   apparentMagnitude,
   consumeStarCellDeltas,
+  combineStarTreeStrategies,
+  createObserverShellStrategy,
+  createPathDistanceEvaluator,
+  createPathVolumeStrategy,
+  createStarTreeStrategyEvaluator,
+  createSphereVolumeStrategy,
   createStarCellData,
   createStarCellKey,
   createStarCellStore,
+  createTargetFrustumStrategy,
   decodeMorton3D,
   decodeTemperatureK,
   encodeMorton3D,
+  evaluateStarTreeDemandGate,
   estimateStarCellBytes,
   parseStarCellKey,
   supportsTransferableBuffers,
@@ -194,6 +202,106 @@ test('star math helpers compute apparent magnitude, temperatures, and colors', (
   assert.ok(rgb.every((channel) => channel >= 0 && channel <= 255));
 });
 
+test('observer-shell strategy evaluates magnitude-limited cell relevance', () => {
+  const evaluator = createStarTreeStrategyEvaluator({
+    strategy: createObserverShellStrategy(),
+    view: { observerPc: { x: 0, y: 0, z: 0 }, limitingMagnitude: 6.5 },
+    indexMagnitude: 3,
+  });
+
+  const near = evaluator.evaluateCell(createNode({ centerX: 1, halfSize: 1 }));
+  const far = evaluator.evaluateCell(createNode({ centerX: 20, halfSize: 1 }));
+
+  assert.equal(near.relevant, true);
+  assert.equal(near.descend, true);
+  assert.equal(near.emit, true);
+  assert.ok(near.priority > far.priority);
+  assert.equal(far.relevant, false);
+  assert.equal(far.descend, false);
+});
+
+test('target-frustum strategy uses the nearest visible witness', () => {
+  const evaluator = createStarTreeStrategyEvaluator({
+    strategy: createTargetFrustumStrategy({ overscanDeg: 0 }),
+    view: {
+      observerPc: { x: 0, y: 0, z: 0 },
+      directionIcrs: { x: 0, y: 1, z: 0 },
+      verticalFovDeg: 60,
+      aspectRatio: 1,
+      nearPc: 0,
+      limitingMagnitude: 6.5,
+    },
+    indexMagnitude: 3,
+  });
+  const evaluation = evaluator.evaluateCell(createNode({
+    centerX: 75,
+    centerY: 75,
+    centerZ: 0,
+    halfSize: 25,
+  }));
+
+  assert.equal(evaluation.relevant, true);
+  assert.equal(Math.round(evaluation.distancePc * 1e6) / 1e6, 100);
+  assert.deepEqual(roundVector(evaluation.metadata.nearestVisiblePc), { x: 50, y: 86.60254, z: 0 });
+});
+
+test('sphere, path, and composite strategies provide semantic priorities', () => {
+  const sphere = createSphereVolumeStrategy({ centerPc: { x: 0, y: 0, z: 0 }, radiusPc: 10 });
+  const path = createPathVolumeStrategy({
+    pointsPc: [{ x: 20, y: -10, z: 0 }, { x: 20, y: 10, z: 0 }],
+    radiusPc: 5,
+  });
+  const composite = createStarTreeStrategyEvaluator({
+    strategy: combineStarTreeStrategies([sphere, path]),
+  });
+
+  const sphereCell = composite.evaluateCell(createNode({ centerX: 0, halfSize: 1 }));
+  const pathCell = composite.evaluateCell(createNode({ centerX: 20, centerY: 2, halfSize: 1 }));
+  const farCell = composite.evaluateCell(createNode({ centerX: 100, halfSize: 1 }));
+
+  assert.equal(sphereCell.relevant, true);
+  assert.equal(pathCell.relevant, true);
+  assert.equal(farCell.relevant, false);
+  assert.ok(sphereCell.priority > (farCell.priority ?? Number.NEGATIVE_INFINITY));
+  assert.equal(sphereCell.metadata.strategyContributors.length, 2);
+});
+
+test('path strategy normalizes path points once per prepared evaluator', () => {
+  const evaluator = createStarTreeStrategyEvaluator({
+    strategy: createPathVolumeStrategy({
+      pointsPc: [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }],
+      radiusPc: 2,
+    }),
+  });
+  const distance = createPathDistanceEvaluator([
+    { x: 0, y: 0, z: 0 },
+    { x: 10, y: 0, z: 0 },
+  ]);
+
+  assert.equal(distance.distanceToCoordinates(5, 4, 0), 4);
+  assert.equal(evaluator.evaluateCell(createNode({ centerX: 5, centerY: 2, centerZ: 0, halfSize: 0.5 })).relevant, true);
+  assert.equal(evaluator.evaluateCell(createNode({ centerX: 5, centerY: 4, centerZ: 0, halfSize: 0.5 })).relevant, false);
+});
+
+test('demand gate helpers apply movement and direction thresholds', () => {
+  const unchanged = evaluateStarTreeDemandGate({
+    strategy: createObserverShellStrategy(),
+    thresholds: { observerMoveThresholdPc: 1 },
+    previousDemandView: { revision: 1, observerPc: { x: 0, y: 0, z: 0 } },
+    nextView: { revision: 2, observerPc: { x: 0.5, y: 0, z: 0 } },
+  });
+  const changed = evaluateStarTreeDemandGate({
+    strategy: createObserverShellStrategy(),
+    thresholds: { observerMoveThresholdPc: 1 },
+    previousDemandView: { revision: 1, observerPc: { x: 0, y: 0, z: 0 } },
+    nextView: { revision: 2, observerPc: { x: 2, y: 0, z: 0 } },
+  });
+
+  assert.equal(unchanged.replan, false);
+  assert.equal(changed.replan, true);
+  assert.ok(changed.reasons.includes('observer-move-threshold'));
+});
+
 function createNode(overrides = {}) {
   const node = {
     centerX: 1,
@@ -216,6 +324,14 @@ function createNode(overrides = {}) {
         node.level,
       ),
     ),
+  };
+}
+
+function roundVector(vector) {
+  return {
+    x: Math.round(vector.x * 1e6) / 1e6,
+    y: Math.round(vector.y * 1e6) / 1e6,
+    z: Math.round(vector.z * 1e6) / 1e6,
   };
 }
 

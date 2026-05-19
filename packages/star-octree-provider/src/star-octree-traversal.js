@@ -73,7 +73,10 @@ export function createTraversalStats() {
  *   indexSource: StarOctreeIndexSource;
  *   bootstrap: StarOctreeBootstrapIndex;
  *   distanceToNode?: (node: StarOctreeRuntimeNode) => number;
- *   visitor: (node: StarOctreeRuntimeNode) => Promise<{
+ *   visitor: (
+ *     node: StarOctreeRuntimeNode,
+ *     helpers: { queuedDistancePc: number }
+ *   ) => Promise<{
  *     include: boolean;
  *     emit?: boolean;
  *     descend: boolean;
@@ -112,7 +115,9 @@ export async function traverseOctree(options) {
         ? item.node.level
         : Math.max(stats.maxLevelInspected, item.node.level);
 
-    const decision = await options.visitor(item.node);
+    const decision = await options.visitor(item.node, {
+      queuedDistancePc: item.distancePc,
+    });
 
     if (!decision.include) {
       stats.prunedNodeCount += 1;

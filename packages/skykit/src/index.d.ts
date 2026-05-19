@@ -21,10 +21,12 @@ import type {
   TimedJourneyEvaluator,
   TimedJourneyFrame,
 } from '@found-in-space/journey';
-import type { StarCellDelta } from '@found-in-space/star-trees';
+import type {
+  StarCellDelta,
+  StarTreeStrategy,
+} from '@found-in-space/star-trees';
 import type {
   StarOctreeCoordinateOutput,
-  StarOctreeFetchStrategy,
   StarOctreeProviderService,
   StarOctreeProviderSession,
   StarOctreeSessionOptions,
@@ -708,11 +710,11 @@ export interface SkykitJourneyPluginOptions {
 
 export interface SkykitSpatialPreloadStrategyOptions {
   combine?: boolean;
-  baseStrategy?: StarOctreeFetchStrategy;
+  baseStrategy?: StarTreeStrategy;
 }
 
 export interface SkykitStarPreloadRequest {
-  strategy: StarOctreeFetchStrategy;
+  strategy: StarTreeStrategy;
   view?: StarOctreeViewPatch;
   sourceHint: SpatialPreloadHint;
 }
@@ -902,7 +904,7 @@ export declare function createSkykitStarPreloadRequestsFromSpatialHints(
 export declare function createSkykitStarStrategiesFromSpatialHints(
   hints: Iterable<SpatialPreloadHint>,
   options?: SkykitSpatialPreloadStrategyOptions
-): StarOctreeFetchStrategy | StarOctreeFetchStrategy[] | null;
+): StarTreeStrategy | StarTreeStrategy[] | null;
 export declare function createSkyGrabPlugin(options?: SkykitDragLookOptions): SkykitPlugin & {
   getSnapshot(): unknown;
 };

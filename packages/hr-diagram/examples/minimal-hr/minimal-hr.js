@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import {
   OCTREE_DEFAULT,
-  createObserverShellStrategy,
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
+import { createObserverShellStrategy } from '@found-in-space/star-trees';
 import { createHrDiagramRenderer } from '@found-in-space/hr-diagram';
 
 const canvas = document.querySelector('#hr');

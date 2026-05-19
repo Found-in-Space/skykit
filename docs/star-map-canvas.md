@@ -198,11 +198,11 @@ those behaviors in their own code.
 
 ```js
 import {
-  createObserverShellStrategy,
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
 import {
   consumeStarCellDeltas,
+  createObserverShellStrategy,
   createStarCellStore,
 } from '@found-in-space/star-trees';
 import { createCanvasStarMap } from '@found-in-space/star-map-canvas';

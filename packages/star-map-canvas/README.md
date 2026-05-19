@@ -26,11 +26,11 @@ increasing RA/east runs toward the left side of the map.
 
 ```js
 import {
-  createObserverShellStrategy,
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
 import {
   consumeStarCellDeltas,
+  createObserverShellStrategy,
   createStarCellStore,
 } from '@found-in-space/star-trees';
 import { createCanvasStarMap } from '@found-in-space/star-map-canvas';

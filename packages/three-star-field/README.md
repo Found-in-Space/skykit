@@ -17,9 +17,9 @@ import {
   createThreeStarField,
 } from '@found-in-space/three-star-field';
 import {
-  createObserverShellStrategy,
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
+import { createObserverShellStrategy } from '@found-in-space/star-trees';
 
 const provider = createStarOctreeProviderService({ url });
 const field = createThreeStarField({ renderScale: 0.001 });

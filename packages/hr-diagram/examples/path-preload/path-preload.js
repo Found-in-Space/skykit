@@ -1,9 +1,9 @@
 import {
   OCTREE_DEFAULT,
-  buildTravelVolumeRequests,
   createStarOctreeProviderService,
   warmVolumeRequests,
 } from '@found-in-space/star-octree-provider';
+import { buildTravelVolumeRequests } from '@found-in-space/star-trees';
 
 const provider = createStarOctreeProviderService({ url: OCTREE_DEFAULT });
 const requests = buildTravelVolumeRequests({

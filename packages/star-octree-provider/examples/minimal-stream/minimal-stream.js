@@ -1,9 +1,9 @@
 import {
   OCTREE_DEFAULT,
-  createObserverShellStrategy,
   createStarOctreeProviderService,
 } from '../../src/index.js';
 import {
+  createObserverShellStrategy,
   createStarCellKey,
   decodeTemperatureK,
 } from '@found-in-space/star-trees';

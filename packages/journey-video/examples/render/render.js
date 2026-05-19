@@ -8,9 +8,9 @@ import {
 } from '@found-in-space/skykit';
 import {
   OCTREE_DEFAULT,
-  createObserverShellStrategy,
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
+import { createObserverShellStrategy } from '@found-in-space/star-trees';
 import { createThreeStarField } from '@found-in-space/three-star-field';
 import { normalizeJourneyVideoLayout } from '@found-in-space/journey-video/export';
 

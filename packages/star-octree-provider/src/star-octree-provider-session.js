@@ -17,8 +17,8 @@ import {
  * @typedef {import('./index.d.ts').StarOctreeCoordinateOutput} StarOctreeCoordinateOutput
  * @typedef {import('./index.d.ts').StarOctreeDemandEntry} StarOctreeDemandEntry
  * @typedef {import('./index.d.ts').StarOctreeDemandPlan} StarOctreeDemandPlan
- * @typedef {import('./index.d.ts').StarOctreeDemandThresholds} StarOctreeDemandThresholds
- * @typedef {import('./index.d.ts').StarOctreeFetchStrategy} StarOctreeFetchStrategy
+ * @typedef {import('@found-in-space/star-trees').StarTreeDemandThresholds} StarTreeDemandThresholds
+ * @typedef {import('@found-in-space/star-trees').StarTreeStrategy} StarTreeStrategy
  * @typedef {import('./index.d.ts').StarOctreeProviderSession} StarOctreeProviderSession
  * @typedef {import('./index.d.ts').StarOctreeRuntimeNode} StarOctreeRuntimeNode
  * @typedef {import('./index.d.ts').StarOctreeSelectionContext} StarOctreeSelectionContext
@@ -643,8 +643,8 @@ export function createStarOctreeProviderSession(createOptions) {
  * @param {StarOctreeSessionOptions | undefined} options
  * @returns {{
  *   id?: string;
- *   strategy: StarOctreeFetchStrategy;
- *   demandThresholds?: StarOctreeDemandThresholds;
+ *   strategy: StarTreeStrategy;
+ *   demandThresholds?: StarTreeDemandThresholds;
  *   attributes: string[];
  *   coordinates: StarOctreeCoordinateOutput;
  *   streaming: {

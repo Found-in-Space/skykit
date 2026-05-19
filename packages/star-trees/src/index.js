@@ -1,6 +1,31 @@
 export const ERR_STAR_CELLS_TRANSFER_UNAVAILABLE =
   'ERR_STAR_CELLS_TRANSFER_UNAVAILABLE';
 
+export {
+  ERR_STAR_TREE_INVALID_VIEW,
+  buildTravelVolumeRequests,
+  combineStarTreeStrategies,
+  createFrustumTester,
+  createObserverShellStrategy,
+  createPathDistanceEvaluator,
+  createPathVolumeStrategy,
+  createSphereVolumeStrategy,
+  createStarTreeStrategyEvaluator,
+  createStrategyForVolumeRequest,
+  createTargetFrustumStrategy,
+  distancePointToPathPc,
+  distanceToCellAabbPc,
+  evaluateStarTreeDemandGate,
+  loadRadiusForMagnitudeShell,
+  normalizeObserverShellView,
+  normalizeStarTreeDemandThresholds,
+  normalizeStarTreeStrategyView,
+  normalizeTargetFrustumView,
+  quaternionToCameraBasis,
+  resolveMotionLookahead,
+  withMotionLookahead,
+} from './star-tree-strategies.js';
+
 const DEFAULT_COORDINATE_OUTPUT = {
   name: 'position',
   frame: 'icrs',

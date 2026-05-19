@@ -1,13 +1,15 @@
 import {
   OCTREE_DEFAULT,
-  combineStarOctreeStrategies,
+  createStarOctreeProviderService,
+} from '@found-in-space/star-octree-provider';
+import {
+  combineStarTreeStrategies,
   createObserverShellStrategy,
   createPathVolumeStrategy,
   createSphereVolumeStrategy,
-  createStarOctreeProviderService,
   createTargetFrustumStrategy,
   withMotionLookahead,
-} from '@found-in-space/star-octree-provider';
+} from '@found-in-space/star-trees';
 
 const provider = createStarOctreeProviderService({ url: OCTREE_DEFAULT });
 const status = document.querySelector('[data-status]');
@@ -36,7 +38,7 @@ const cases = [
     limitingMagnitude: 4.5,
     motion: { velocityPcPerSec: { x: 12, y: 0, z: -6 }, lookaheadSecs: 4 },
   }],
-  ['composite union', combineStarOctreeStrategies([sphere, path]), {}],
+  ['composite union', combineStarTreeStrategies([sphere, path]), {}],
 ];
 
 document.querySelector('[data-run]').addEventListener('click', run);
