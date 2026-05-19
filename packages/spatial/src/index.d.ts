@@ -287,11 +287,23 @@ export interface SpatialFlyToNavigationOptions {
 }
 
 export type SpatialArrivalAction =
-  | ({ type: 'orbit'; center: SpatialVector3 } & SpatialOrbitOptions)
-  | ({ type: 'orbitalInsert'; center: SpatialVector3 } & SpatialOrbitalInsertOptions);
+  | {
+      type: 'orbit';
+      center: SpatialVector3;
+      radius: number;
+      angularSpeedRadPerSec: number;
+      normal?: SpatialVector3;
+    }
+  | ({
+      type: 'orbitalInsert';
+      center: SpatialVector3;
+      angularSpeedRadPerSec: number;
+      normal?: SpatialVector3;
+    } & Omit<SpatialOrbitalInsertOptions, 'angularSpeed' | 'orbitNormal'>);
 
 export interface SpatialRouteFollowOptions extends SpatialFlyToNavigationOptions {
   arrivalAction?: SpatialArrivalAction | null;
+  arrivalSpeed?: number;
 }
 
 export interface SpatialRouteFollowMotionModel extends SpatialMotionModel {
@@ -311,7 +323,7 @@ export interface SpatialOrbitalInsertOptions extends SpatialFlyToNavigationOptio
   insertionRadius?: number;
   orbitNormal?: SpatialVector3;
   approachSpeed?: number;
-  sampleStepSeconds?: number;
+  sampleStepSecs?: number;
   maxPoints?: number;
   mode?: 'current-trajectory' | 'specified-orbit';
   approachVelocity?: SpatialVector3;
@@ -328,7 +340,44 @@ export interface SpatialOrbitalInsertMotionOptions extends SpatialOrbitalInsertO
 
 export interface SpatialOrbitalInsertRoute {
   points: SpatialVector3[];
-  arrivalAction: { type: 'orbit'; center: SpatialVector3; radius: number; angularSpeed: number; orbitNormal: SpatialVector3 };
+  arrivalAction: {
+    type: 'orbit';
+    center: SpatialVector3;
+    radius: number;
+    angularSpeedRadPerSec: number;
+    normal: SpatialVector3;
+  };
+}
+
+export interface SpatialOrbitTransferOrbit {
+  center: SpatialVector3;
+  radius: number;
+  angularSpeedRadPerSec?: number;
+  normal?: SpatialVector3;
+}
+
+export interface SpatialOrbitTransferOptions {
+  start?: unknown;
+  sourceOrbit?: SpatialOrbitTransferOrbit | null;
+  destinationOrbit?: SpatialOrbitTransferOrbit | null;
+  durationSecs?: number;
+  sampleStepSecs?: number;
+  maxPoints?: number;
+  approachVelocity?: SpatialVector3;
+  mode?: 'current-trajectory' | 'specified-orbit';
+}
+
+export interface SpatialOrbitTransferRoute {
+  points: SpatialVector3[];
+  departureSpeed: number;
+  arrivalSpeed: number;
+  arrivalAction: {
+    type: 'orbit';
+    center: SpatialVector3;
+    radius: number;
+    angularSpeedRadPerSec: number;
+    normal: SpatialVector3;
+  };
 }
 
 export interface SpatialOrbitMotionModel extends SpatialMotionModel {
@@ -480,7 +529,7 @@ export declare function createFlyToSpatialMotionModel(options?: SpatialFlyToMoti
 export declare function buildSpatialPolylineRoute(points?: Iterable<unknown>): SpatialPolylineRoute;
 export declare function sampleSpatialPolylineRoutePosition(route: SpatialPolylineRoute | null | undefined, distance: number): SpatialVector3 | null;
 export declare function deriveSpatialOrbitAngle(input: SpatialOrbitAngleInput): number;
-export declare function buildSpatialOrbitalInsertRoute(start: unknown, options?: SpatialOrbitalInsertOptions): SpatialOrbitalInsertRoute | null;
+export declare function createOrbitTransferRoute(options?: SpatialOrbitTransferOptions): SpatialOrbitTransferRoute | null;
 export declare function computeSpatialLookAtOrientation(input: SpatialLookAtInput): SpatialQuaternion | null;
 export declare function createRouteFollowSpatialMotionModel(options?: SpatialRouteFollowOptions & { points?: Iterable<SpatialVector3> }): SpatialRouteFollowMotionModel;
 export declare function createOrbitSpatialMotionModel(options?: SpatialOrbitOptions & { center?: SpatialVector3 }): SpatialOrbitMotionModel;

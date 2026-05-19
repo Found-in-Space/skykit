@@ -85,7 +85,7 @@ Until then, a `journey-dom` package would likely be too thin.
 
 ## 2. Interactive Lane
 
-The website's current `journey-builder.js` is the seed for the interactive lane.
+The interactive lane is now package-owned through `createJourney()`.
 
 Core concepts:
 
@@ -100,16 +100,28 @@ journey graph
   resolves the active scene plus transition metadata
 ```
 
-The package should expose a small graph/controller surface:
+The package should expose one authored interactive journey surface:
 
 ```js
-const graph = createJourneyGraph({
-  initialSceneId: 'sol',
-  scenes,
-  transitions,
+const journey = createJourney({
+  initial: 'sol',
+  order: ['sol', 'hyades'],
+  targets: {
+    sun: { positionPc: { x: 0, y: 0, z: 0 } },
+    hyades: { positionPc: { x: 17.574, y: 42.316, z: 13.963 } },
+  },
+  scenes: {
+    sol: {
+      camera: { type: 'orbit', center: 'sun', radiusPc: 8, angularSpeedRadPerSec: 0.26 },
+    },
+    hyades: {
+      camera: { type: 'orbit', center: 'hyades', radiusPc: 15, angularSpeedRadPerSec: 0.2 },
+    },
+  },
+  travel: { type: 'orbit-transfer', durationSecs: 5 },
 });
 
-const scene = graph.resolveSceneSpec('hyades', { fromSceneId: 'sol' });
+const scene = journey.resolveSceneSpec('hyades', { fromSceneId: 'sol' });
 ```
 
 The interactive runtime should be event-driven:
@@ -244,9 +256,6 @@ status/debug output
 Useful website references:
 
 ```txt
-src/scripts/journey-builder.js
-  minimal interactive scene graph
-
 src/scripts/narrated-tour.js
   DOM scroll/nav adapter for chapter activation
 
@@ -278,7 +287,7 @@ Implemented first slice:
   provider-neutral preload hint materialization
 
 @found-in-space/journey
-  createJourneyGraph()
+  createJourney()
   createJourneyController()
   normalizeTimedJourney()
   createTimedJourneyEvaluator()
@@ -289,7 +298,7 @@ Implemented first slice:
 @found-in-space/skykit
   createSkykitJourneyPlugin()
   skykit:journey.* action registration
-  skykit:navigation.transitionTo
+  semantic orbit-transfer execution for authored scenes
   spatial preload hint to star-octree preload request mapping
 
 @found-in-space/journey-video

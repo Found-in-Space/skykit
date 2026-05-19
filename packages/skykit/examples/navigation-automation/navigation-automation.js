@@ -43,14 +43,21 @@ async function main() {
     viewer.actions.invoke(SKYKIT_ACTIONS.navigation.flyPolyline, {
       points: [{ x: 0, y: 0, z: 0 }, { x: 4, y: 0, z: -10 }, { x: 8, y: 0, z: -18 }],
       durationSecs: 5,
-      arrivalAction: { type: 'orbit', center: { x: 8, y: 0, z: -18 }, radius: 6, angularSpeed: 0.3 },
+      arrivalAction: {
+        type: 'orbit',
+        center: { x: 8, y: 0, z: -18 },
+        radius: 6,
+        angularSpeedRadPerSec: 0.3,
+        normal: { x: 0, y: 1, z: 0 },
+      },
     });
   });
   document.querySelector('[data-orbit]').addEventListener('click', () => {
     viewer.actions.invoke(SKYKIT_ACTIONS.navigation.orbit, {
       center: { x: 8, y: 0, z: -18 },
       radius: 6,
-      angularSpeed: 0.3,
+      angularSpeedRadPerSec: 0.3,
+      normal: { x: 0, y: 1, z: 0 },
     });
   });
   document.querySelector('[data-stop]').addEventListener('click', () => {

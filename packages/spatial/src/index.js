@@ -40,11 +40,11 @@ export {
   createThrustSpatialMotionModel,
 } from './motion.js';
 export {
-  buildSpatialOrbitalInsertRoute,
   buildSpatialPolylineRoute,
   computeSpatialLookAtOrientation,
   createLookAtSpatialMotionModel,
   createOrbitSpatialMotionModel,
+  createOrbitTransferRoute,
   createOrbitalInsertSpatialMotionModel,
   createRouteFollowSpatialMotionModel,
   createSpatialNavigationAutomation,

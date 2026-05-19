@@ -10,6 +10,7 @@ export declare const FIS_JOURNEY_FORMAT: 'fis-journey-v1';
 export interface JourneySceneSpec {
   sceneId?: string;
   title?: string;
+  camera?: JourneyCameraSpec;
   view?: Record<string, unknown>;
   navigation?: Record<string, unknown>;
   preloadHints?: SpatialPreloadHint[];
@@ -34,12 +35,67 @@ export interface JourneyGraph {
   listResolvedTransitionSpecs(): JourneySceneSpec[];
 }
 
+export interface JourneyTargetSpec {
+  positionPc: SpatialVector3;
+  [key: string]: unknown;
+}
+
+export type JourneyTargetRef = string | SpatialVector3 | Record<string, unknown>;
+
+export interface JourneyOrbitCameraSpec {
+  type: 'orbit';
+  center: JourneyTargetRef;
+  radiusPc: number;
+  angularSpeedRadPerSec: number;
+  lookAt?: JourneyTargetRef;
+  normal?: SpatialVector3 | Record<string, unknown>;
+  dwellSecs?: number;
+  [key: string]: unknown;
+}
+
+export type JourneyCameraSpec =
+  | JourneyOrbitCameraSpec
+  | ({ type: string } & Record<string, unknown>);
+
+export interface JourneyTravelSpec {
+  type: 'orbit-transfer';
+  durationSecs: number;
+  sampleStepSecs?: number;
+  dwellSecs?: number;
+  [key: string]: unknown;
+}
+
+export interface JourneyDefinition extends JourneyGraph {
+  id: string | null;
+  title: string | null;
+  targets: Record<string, JourneyTargetSpec>;
+  travel: JourneyTravelSpec;
+  order: string[];
+}
+
+export interface CreateJourneyTransitionOptions {
+  id?: string;
+  fromSceneId: string;
+  toSceneId: string;
+  travel?: Partial<JourneyTravelSpec>;
+  [key: string]: unknown;
+}
+
+export interface CreateJourneyOptions {
+  id?: string;
+  title?: string;
+  initial?: string;
+  order?: string[];
+  targets?: Record<string, JourneyTargetSpec | { positionPc: SpatialVector3 }>;
+  scenes?: Record<string, JourneySceneSpec>;
+  travel?: Partial<JourneyTravelSpec>;
+  transitions?: Iterable<CreateJourneyTransitionOptions>;
+}
+
 export interface CreateJourneyGraphOptions {
   initialSceneId?: string | null;
   scenes?: Record<string, JourneySceneSpec>;
   transitions?: Iterable<Partial<JourneyTransitionSpec> & {
-    from?: string;
-    to?: string;
     fromSceneId?: string;
     toSceneId?: string;
   }>;
@@ -235,6 +291,7 @@ export interface DeleteJourneyEaseLocationGroupResult {
   clearedIds: string[];
 }
 
+export declare function createJourney(options?: CreateJourneyOptions): JourneyDefinition;
 export declare function createJourneyGraph(options?: CreateJourneyGraphOptions): JourneyGraph;
 export declare function createJourneyController(options?: CreateJourneyControllerOptions): JourneyController;
 export declare function normalizeTimedJourney(journeyInput?: unknown): TimedJourney;

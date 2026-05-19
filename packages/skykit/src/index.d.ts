@@ -14,6 +14,7 @@ import type {
 import type {
   CreateTimedJourneyEvaluatorOptions,
   JourneyController,
+  JourneyDefinition,
   JourneyGraph,
   JourneySceneSpec,
   TimedJourney,
@@ -670,6 +671,7 @@ export interface SkykitNavigationPluginOptions extends SpatialNavigationAutomati
 export interface SkykitJourneyPluginOptions {
   id?: string;
   priority?: number;
+  journey?: JourneyDefinition;
   controller?: JourneyController | null;
   graph?: JourneyGraph;
   scenes?: Record<string, JourneySceneSpec>;

@@ -23,6 +23,7 @@ import {
 /** @typedef {import('./index.d.ts').SpatialMotionUpdateInput} SpatialMotionUpdateInput */
 
 const EPSILON = 1e-9;
+const DEFAULT_ROUTE_SETTLE_SECS = 0.5;
 
 /**
  * @param {Iterable<unknown>} [points]
@@ -124,8 +125,11 @@ export function buildSpatialOrbitalInsertRoute(start, options = {}) {
   const automation = createOrbitalInsertState(startPosition, options);
   if (!automation) return null;
 
-  const sampleStepSeconds = positiveFinite(options.sampleStepSeconds, 1 / 30);
-  const maxPoints = Math.max(2, Math.floor(positiveFinite(options.maxPoints, 512)));
+  const sampleStepSeconds = positiveFinite(options.sampleStepSecs, 1 / 60);
+  const defaultMaxPoints = automation.durationSecs != null
+    ? Math.ceil((automation.durationSecs + DEFAULT_ROUTE_SETTLE_SECS) / sampleStepSeconds) + 1
+    : 512;
+  const maxPoints = Math.max(2, Math.floor(positiveFinite(options.maxPoints, defaultMaxPoints)));
   const points = [cloneVector3(startPosition)];
   let position = cloneVector3(startPosition);
 
@@ -145,9 +149,71 @@ export function buildSpatialOrbitalInsertRoute(start, options = {}) {
       type: 'orbit',
       center: cloneVector3(automation.center),
       radius: automation.radius,
-      angularSpeed: automation.angularSpeed,
-      orbitNormal: cloneVector3(automation.orbitNormal),
+      angularSpeedRadPerSec: automation.angularSpeed,
+      normal: cloneVector3(automation.orbitNormal),
     },
+  };
+}
+
+/**
+ * @param {import('./index.d.ts').SpatialOrbitTransferOptions} [options]
+ * @returns {import('./index.d.ts').SpatialOrbitTransferRoute | null}
+ */
+export function createOrbitTransferRoute(options = {}) {
+  const start = normalizeOptionalVector3(options.start);
+  const destinationOrbit = normalizeOrbitTransferOrbit(options.destinationOrbit);
+  if (!start || !destinationOrbit) return null;
+
+  const sourceOrbit = normalizeOrbitTransferOrbit(options.sourceOrbit, true);
+  const durationSecs = positiveFinite(options.durationSecs, 5);
+  const sampleStepSecs = positiveFinite(options.sampleStepSecs, 1 / 60);
+  const maxPoints = Math.max(
+    2,
+    Math.floor(positiveFinite(
+      options.maxPoints,
+      Math.ceil((durationSecs + DEFAULT_ROUTE_SETTLE_SECS) / sampleStepSecs) + 1,
+    )),
+  );
+  const currentDistance = pointDistance(start, destinationOrbit.center);
+  const sameCenter = sourceOrbit
+    ? pointDistance(sourceOrbit.center, destinationOrbit.center) < 1e-6
+    : currentDistance <= destinationOrbit.radius * 1.01;
+
+  if (sameCenter) {
+    return {
+      points: createSameCenterOrbitTransferPoints({
+        start,
+        sourceOrbit,
+        destinationOrbit,
+        durationSecs,
+        sampleStepSecs,
+        maxPoints,
+      }),
+      arrivalAction: createOrbitArrivalAction(destinationOrbit),
+      departureSpeed: sourceOrbit ? orbitSpeed(sourceOrbit) : 0,
+      arrivalSpeed: orbitSpeed(destinationOrbit),
+    };
+  }
+
+  const approachVelocity = normalizeOptionalVector3(options.approachVelocity)
+    ?? (sourceOrbit ? orbitTangentVelocity(start, sourceOrbit) : null);
+  const route = buildSpatialOrbitalInsertRoute(start, {
+    center: destinationOrbit.center,
+    radius: destinationOrbit.radius,
+    angularSpeed: destinationOrbit.angularSpeedRadPerSec,
+    orbitNormal: destinationOrbit.normal,
+    durationSecs,
+    sampleStepSecs,
+    maxPoints,
+    mode: options.mode ?? 'specified-orbit',
+    approachVelocity: approachVelocity ?? undefined,
+  });
+  if (!route) return null;
+  return {
+    points: route.points.map(cloneVector3),
+    arrivalAction: createOrbitArrivalAction(destinationOrbit),
+    departureSpeed: sourceOrbit ? orbitSpeed(sourceOrbit) : 0,
+    arrivalSpeed: orbitSpeed(destinationOrbit),
   };
 }
 
@@ -437,7 +503,11 @@ export function createSpatialNavigationAutomation(options = {}) {
       acceleration: positiveFinite(nextOptions.acceleration, defaults.acceleration),
       durationSecs: resolveDuration(nextOptions),
       elapsedSecs: 0,
-      currentSpeed: Math.max(0, finiteNumber(nextOptions.currentSpeed, lastSnapshot.speedNavigationUnitsPerSecond ?? 0)),
+      currentSpeed: Math.max(0, finiteNumber(
+        nextOptions.currentSpeed,
+        resolveDuration(nextOptions) == null ? lastSnapshot.speedNavigationUnitsPerSecond ?? 0 : 0,
+      )),
+      arrivalSpeed: Math.max(0, finiteNumber(nextOptions.arrivalSpeed, 0)),
       deceleration: positiveFinite(nextOptions.deceleration, defaults.deceleration),
       arrivalThreshold: positiveFinite(nextOptions.arrivalThreshold, defaults.arrivalThreshold),
       arrivalAction: nextOptions.arrivalAction ?? null,
@@ -676,7 +746,13 @@ export function createSpatialNavigationAutomation(options = {}) {
     if (automation.durationSecs != null) {
       automation.elapsedSecs = Math.min(automation.durationSecs, automation.elapsedSecs + dt);
       const linear = clamp(automation.elapsedSecs / automation.durationSecs, 0, 1);
-      automation.distance = automation.route.totalLength * smoothstep(0, 1, linear);
+      automation.distance = automation.route.totalLength * routeDurationFraction({
+        linear,
+        durationSecs: automation.durationSecs,
+        totalLength: automation.route.totalLength,
+        departureSpeed: automation.currentSpeed,
+        arrivalSpeed: automation.arrivalSpeed,
+      });
     } else {
       const { step } = resolveAutomationStep(automation, remaining, dt);
       automation.distance = Math.min(automation.route.totalLength, automation.distance + step);
@@ -706,7 +782,11 @@ export function createSpatialNavigationAutomation(options = {}) {
     }
     const arrival = /** @type {import('./index.d.ts').SpatialArrivalAction} */ (action);
     if (arrival.type === 'orbit') {
-      const started = beginOrbit(arrival.center, arrival, pose);
+      const started = beginOrbit(arrival.center, {
+        radius: arrival.radius,
+        angularSpeed: finiteNumber(arrival.angularSpeedRadPerSec, defaults.angularSpeed),
+        orbitNormal: arrival.normal,
+      }, pose);
       if (!started) movementAutomation = null;
       callback?.();
       return clonePose(pose);
@@ -714,6 +794,8 @@ export function createSpatialNavigationAutomation(options = {}) {
     if (arrival.type === 'orbitalInsert') {
       const started = beginOrbitalInsert(arrival.center, {
         ...arrival,
+        angularSpeed: arrival.angularSpeedRadPerSec,
+        orbitNormal: arrival.normal,
         onInserted: callback ?? undefined,
       }, pose);
       if (!started) {
@@ -937,7 +1019,7 @@ function advanceOrbitalInsert(currentPosition, automation, dt) {
 
   const nextOffset = subtractVectors(position, automation.center);
   const nextDistance = vectorLength(nextOffset);
-  if (nextDistance <= automation.radius * 1.002 && nextDistance > EPSILON) {
+  if (nextDistance <= automation.radius * 1.00005 && nextDistance > EPSILON) {
     const angle = deriveSpatialOrbitAngle({
       center: automation.center,
       position,
@@ -958,6 +1040,167 @@ function advanceOrbitalInsert(currentPosition, automation, dt) {
     };
   }
   return { active: true, enteredOrbit: false, position };
+}
+
+/**
+ * @param {unknown} value
+ * @param {boolean} [optional]
+ * @returns {(import('./index.d.ts').SpatialOrbitTransferOrbit & {
+ *   angularSpeedRadPerSec: number;
+ *   normal: SpatialVector3;
+ * }) | null}
+ */
+function normalizeOrbitTransferOrbit(value, optional = false) {
+  if (!value || typeof value !== 'object') return optional ? null : null;
+  const source = /** @type {Record<string, unknown>} */ (value);
+  const center = normalizeOptionalVector3(source.center);
+  if (!center) return null;
+  const radius = positiveFinite(source.radius, Number.NaN);
+  if (!(radius > 0)) return null;
+  return {
+    center,
+    radius,
+    angularSpeedRadPerSec: finiteNumber(source.angularSpeedRadPerSec, 0.1),
+    normal: normalizeDirectionOrFallback(source.normal, LOCAL_UP),
+  };
+}
+
+/**
+ * @param {{
+ *   start: SpatialVector3;
+ *   sourceOrbit: (import('./index.d.ts').SpatialOrbitTransferOrbit & {
+ *     angularSpeedRadPerSec: number;
+ *     normal: SpatialVector3;
+ *   }) | null;
+ *   destinationOrbit: import('./index.d.ts').SpatialOrbitTransferOrbit & {
+ *     angularSpeedRadPerSec: number;
+ *     normal: SpatialVector3;
+ *   };
+ *   durationSecs: number;
+ *   sampleStepSecs: number;
+ *   maxPoints: number;
+ * }} options
+ * @returns {SpatialVector3[]}
+ */
+function createSameCenterOrbitTransferPoints(options) {
+  const { start, sourceOrbit, destinationOrbit, durationSecs, sampleStepSecs, maxPoints } = options;
+  const pointCount = Math.max(2, Math.min(maxPoints, Math.ceil(durationSecs / sampleStepSecs) + 1));
+  const center = destinationOrbit.center;
+  const normal = destinationOrbit.normal;
+  const currentDistance = pointDistance(start, center);
+  const startRadius = currentDistance > EPSILON
+    ? currentDistance
+    : sourceOrbit?.radius ?? destinationOrbit.radius;
+  const startAngle = currentDistance > EPSILON
+    ? deriveSpatialOrbitAngle({ center, position: start, orbitNormal: normal })
+    : 0;
+  const sourceAngularSpeed = sourceOrbit?.angularSpeedRadPerSec ?? destinationOrbit.angularSpeedRadPerSec;
+  const points = [cloneVector3(start)];
+
+  for (let index = 1; index < pointCount; index += 1) {
+    const linear = index / (pointCount - 1);
+    const radiusBlend = smoothstep(0, 1, linear);
+    const speedIntegralBlend = sourceAngularSpeed * (linear - (linear * linear) / 2)
+      + destinationOrbit.angularSpeedRadPerSec * ((linear * linear) / 2);
+    const radius = startRadius + (destinationOrbit.radius - startRadius) * radiusBlend;
+    const angle = startAngle + speedIntegralBlend * durationSecs;
+    points.push(orbitPosition(center, radius, angle, normal));
+  }
+
+  return points;
+}
+
+/**
+ * @param {{
+ *   linear: number;
+ *   durationSecs: number;
+ *   totalLength: number;
+ *   departureSpeed: number;
+ *   arrivalSpeed: number;
+ * }} options
+ */
+function routeDurationFraction(options) {
+  const linear = clamp(options.linear, 0, 1);
+  if (linear <= 0) return 0;
+  if (linear >= 1) return 1;
+  if (!(options.totalLength > EPSILON) || !(options.durationSecs > EPSILON)) {
+    return smoothstep(0, 1, linear);
+  }
+  let departureSlope = clamp((Math.max(0, options.departureSpeed) * options.durationSecs) / options.totalLength, 0, 3);
+  let arrivalSlope = clamp((Math.max(0, options.arrivalSpeed) * options.durationSecs) / options.totalLength, 0, 3);
+  const slopeMagnitude = Math.hypot(departureSlope, arrivalSlope);
+  if (slopeMagnitude > 3) {
+    const scale = 3 / slopeMagnitude;
+    departureSlope *= scale;
+    arrivalSlope *= scale;
+  }
+  return clamp(cubicHermiteUnit(linear, departureSlope, arrivalSlope), 0, 1);
+}
+
+/**
+ * @param {number} linear
+ * @param {number} departureSlope
+ * @param {number} arrivalSlope
+ */
+function cubicHermiteUnit(linear, departureSlope, arrivalSlope) {
+  const u2 = linear * linear;
+  const u3 = u2 * linear;
+  return (u3 - 2 * u2 + linear) * departureSlope
+    + (-2 * u3 + 3 * u2)
+    + (u3 - u2) * arrivalSlope;
+}
+
+/**
+ * @param {import('./index.d.ts').SpatialOrbitTransferOrbit & {
+ *   angularSpeedRadPerSec: number;
+ *   normal: SpatialVector3;
+ * }} orbit
+ * @returns {import('./index.d.ts').SpatialOrbitTransferRoute['arrivalAction']}
+ */
+function createOrbitArrivalAction(orbit) {
+  return {
+    type: 'orbit',
+    center: cloneVector3(orbit.center),
+    radius: orbit.radius,
+    angularSpeedRadPerSec: orbit.angularSpeedRadPerSec,
+    normal: cloneVector3(orbit.normal),
+  };
+}
+
+/**
+ * @param {import('./index.d.ts').SpatialOrbitTransferOrbit & {
+ *   angularSpeedRadPerSec: number;
+ *   normal: SpatialVector3;
+ * }} orbit
+ */
+function orbitSpeed(orbit) {
+  return Math.abs(orbit.angularSpeedRadPerSec) * orbit.radius;
+}
+
+/**
+ * @param {SpatialVector3} position
+ * @param {import('./index.d.ts').SpatialOrbitTransferOrbit & {
+ *   angularSpeedRadPerSec: number;
+ *   normal: SpatialVector3;
+ * }} orbit
+ * @returns {SpatialVector3}
+ */
+function orbitTangentVelocity(position, orbit) {
+  const basis = createOrbitBasis({ orbitNormal: orbit.normal });
+  const angle = deriveSpatialOrbitAngle({
+    center: orbit.center,
+    position,
+    orbitNormal: orbit.normal,
+  });
+  const tangent = {
+    x: -basis.xAxis.x * Math.sin(angle) + basis.zAxis.x * Math.cos(angle),
+    y: -basis.xAxis.y * Math.sin(angle) + basis.zAxis.y * Math.cos(angle),
+    z: -basis.xAxis.z * Math.sin(angle) + basis.zAxis.z * Math.cos(angle),
+  };
+  return scaleVector(
+    normalizeDirectionOrFallback(tangent, LOCAL_FORWARD),
+    orbit.angularSpeedRadPerSec * orbit.radius,
+  );
 }
 
 /**
@@ -1364,6 +1607,7 @@ function serializeOrientation(automation) {
  *   durationSecs: number | null;
  *   elapsedSecs: number;
  *   currentSpeed: number;
+ *   arrivalSpeed: number;
  *   deceleration: number;
  *   arrivalThreshold: number;
  *   arrivalAction: unknown;

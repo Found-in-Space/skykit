@@ -3,7 +3,6 @@ import test from 'node:test';
 
 import {
   IDENTITY_QUATERNION,
-  buildSpatialOrbitalInsertRoute,
   buildSpatialPolylineRoute,
   createSpatialOrientationTrack,
   createSpatialPoseTransition,
@@ -13,6 +12,7 @@ import {
   createDirectSpatialMotionModel,
   createFlyToSpatialMotionModel,
   createInertialSpatialMotionModel,
+  createOrbitTransferRoute,
   createSpatialNavigationAutomation,
   createThrustSpatialMotionModel,
   deriveSpatialOrbitAngle,
@@ -194,23 +194,87 @@ test('spatial navigation automation smooths route, orbit, insert, and look-at', 
   assert.ok(Math.abs(distance(pose.position, { x: 10, y: 0, z: 0 }) - 5) < 1e-9);
 });
 
-test('orbit angle and orbital insertion derive a usable orbit plane', () => {
+test('orbit angle and orbit transfer derive smooth same-center and insertion routes', () => {
   assert.equal(deriveSpatialOrbitAngle({
     center: { x: 0, y: 0, z: 0 },
     position: { x: 1, y: 0, z: 0 },
   }), 0);
 
-  const route = buildSpatialOrbitalInsertRoute({ x: 12, y: 0, z: 0 }, {
-    center: { x: 0, y: 0, z: 0 },
-    radius: 4,
-    angularSpeed: 0.5,
-    approachVelocity: { x: -1, y: 0, z: -1 },
-    mode: 'current-trajectory',
-    sampleStepSeconds: 0.25,
+  const sameCenter = createOrbitTransferRoute({
+    start: { x: 8, y: 0, z: 0 },
+    sourceOrbit: {
+      center: { x: 0, y: 0, z: 0 },
+      radius: 8,
+      angularSpeedRadPerSec: 0.26,
+      normal: { x: 0, y: 0, z: 1 },
+    },
+    destinationOrbit: {
+      center: { x: 0, y: 0, z: 0 },
+      radius: 175,
+      angularSpeedRadPerSec: 0.06,
+      normal: { x: 0, y: 0, z: 1 },
+    },
+    durationSecs: 5,
+    sampleStepSecs: 0.25,
   });
-  assert.ok(route);
-  assert.ok(route.points.length > 1);
-  assert.ok(Math.abs(route.arrivalAction.orbitNormal.y) > 0.1);
+  assert.ok(sameCenter);
+  assert.ok(sameCenter.points.length > 10);
+  assert.deepEqual(sameCenter.points[0], { x: 8, y: 0, z: 0 });
+  assert.ok(Math.abs(distance(sameCenter.points.at(-1), { x: 0, y: 0, z: 0 }) - 175) < 1e-9);
+  assert.equal(sameCenter.arrivalAction.angularSpeedRadPerSec, 0.06);
+  assert.deepEqual(sameCenter.arrivalAction.normal, { x: 0, y: 0, z: 1 });
+  assert.equal(sameCenter.departureSpeed, 8 * 0.26);
+  assert.equal(sameCenter.arrivalSpeed, 175 * 0.06);
+
+  const inserted = createOrbitTransferRoute({
+    start: { x: 175, y: 0, z: 0 },
+    sourceOrbit: {
+      center: { x: 0, y: 0, z: 0 },
+      radius: 175,
+      angularSpeedRadPerSec: 0.06,
+      normal: { x: 0, y: 0, z: 1 },
+    },
+    destinationOrbit: {
+      center: { x: 17.574, y: 42.316, z: 13.963 },
+      radius: 15,
+      angularSpeedRadPerSec: 0.2,
+      normal: { x: 0, y: 0, z: 1 },
+    },
+    durationSecs: 5,
+    sampleStepSecs: 0.25,
+  });
+  assert.ok(inserted);
+  assert.ok(inserted.points.length > 10);
+  assert.deepEqual(inserted.points[0], { x: 175, y: 0, z: 0 });
+  assert.ok(Math.abs(distance(inserted.points.at(-1), inserted.arrivalAction.center) - 15) < 1e-9);
+  assert.ok(Math.abs(orbitPlaneOffset(inserted.points.at(-1), inserted.arrivalAction)) < 1e-9);
+  assert.equal(inserted.departureSpeed, 175 * 0.06);
+  assert.equal(inserted.arrivalSpeed, 15 * 0.2);
+
+  const automation = createSpatialNavigationAutomation();
+  automation.flyPolyline(inserted.points, {
+    durationSecs: 5,
+    currentSpeed: inserted.departureSpeed,
+    arrivalSpeed: inserted.arrivalSpeed,
+    arrivalAction: inserted.arrivalAction,
+  });
+  let pose = { position: { x: 175, y: 0, z: 0 }, orientation: IDENTITY_QUATERNION };
+  let previous = pose.position;
+  const steps = [];
+  for (let index = 0; index < 180; index += 1) {
+    pose = automation.update({ pose, deltaSeconds: 1 / 30 });
+    steps.push({
+      active: automation.getSnapshot().activeAutomation,
+      distance: distance(previous, pose.position),
+      planeOffset: orbitPlaneOffset(pose.position, inserted.arrivalAction),
+    });
+    previous = pose.position;
+  }
+  const handoffIndex = steps.findIndex((step) => step.active === 'orbit');
+  assert.ok(handoffIndex > 0);
+  assert.ok(Math.abs(steps[handoffIndex].planeOffset) < 1e-9);
+  assert.ok(steps[handoffIndex - 1].distance > inserted.arrivalSpeed / 30 * 0.4);
+  assert.ok(Math.abs(steps[handoffIndex + 1].distance - inserted.arrivalSpeed / 30) < 0.02);
 });
 
 test('computeSpatialLookAtOrientation points local forward at the target', () => {
@@ -227,4 +291,10 @@ test('computeSpatialLookAtOrientation points local forward at the target', () =>
 
 function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+function orbitPlaneOffset(point, orbit) {
+  return (point.x - orbit.center.x) * orbit.normal.x
+    + (point.y - orbit.center.y) * orbit.normal.y
+    + (point.z - orbit.center.z) * orbit.normal.z;
 }

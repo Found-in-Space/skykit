@@ -15,6 +15,7 @@ import {
 
 import {
   IDENTITY_QUATERNION as SPATIAL_IDENTITY_QUATERNION,
+  createOrbitTransferRoute,
   createSpatialPoseTransition,
   createSpatialNavigationAutomation,
   resolveSpatialTarget,
@@ -385,7 +386,9 @@ export function createSkykitNavigationPlugin(options = {}) {
 export function createSkykitJourneyPlugin(options = {}) {
   const id = options.id ?? 'journey';
   const controller = options.controller
-    ?? (options.graph || options.scenes ? createJourneyController(options) : null);
+    ?? (options.journey
+      ? createJourneyController({ graph: options.journey })
+      : (options.graph || options.scenes ? createJourneyController(options) : null));
   const evaluator = options.evaluator
     ?? (options.timedJourney ? createTimedJourneyEvaluator(options.timedJourney, options.evaluatorOptions) : null);
   let disposed = false;
@@ -398,6 +401,8 @@ export function createSkykitJourneyPlugin(options = {}) {
   let pluginContext = null;
   /** @type {(() => void) | null} */
   let unsubscribeController = null;
+  /** @type {Promise<unknown>} */
+  let pendingSceneApplication = Promise.resolve(null);
 
   /** @type {SkykitThreePart} */
   const part = {
@@ -407,7 +412,7 @@ export function createSkykitJourneyPlugin(options = {}) {
       pluginContext = context;
       if (controller) {
         unsubscribeController = controller.subscribe((event) => {
-          applySceneSpec(event.spec, context, event);
+          queueSceneApplication(event.spec, context, event);
         });
         applyInitialScene(context);
       }
@@ -451,14 +456,27 @@ export function createSkykitJourneyPlugin(options = {}) {
   /** @param {import('./index.d.ts').SkykitThreePluginContext} context */
   function registerJourneyActions(context) {
     const unregisters = [
-      context.actions.registerAction(SKYKIT_ACTIONS.journey.goToChapter, ({ payload }) => {
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.goToChapter, async ({ payload }) => {
+        await pendingSceneApplication;
         const sceneId = resolveSceneId(payload);
-        return sceneId && controller ? controller.goTo(sceneId, { source: SKYKIT_ACTIONS.journey.goToChapter }) : null;
+        const spec = sceneId && controller ? controller.goTo(sceneId, { source: SKYKIT_ACTIONS.journey.goToChapter }) : null;
+        await pendingSceneApplication;
+        return spec;
       }, { label: 'Go to journey chapter' }),
-      context.actions.registerAction(SKYKIT_ACTIONS.journey.next, () => controller?.next({ source: SKYKIT_ACTIONS.journey.next }) ?? null, {
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.next, async () => {
+        await pendingSceneApplication;
+        const spec = controller?.next({ source: SKYKIT_ACTIONS.journey.next }) ?? null;
+        await pendingSceneApplication;
+        return spec;
+      }, {
         label: 'Next journey chapter',
       }),
-      context.actions.registerAction(SKYKIT_ACTIONS.journey.previous, () => controller?.previous({ source: SKYKIT_ACTIONS.journey.previous }) ?? null, {
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.previous, async () => {
+        await pendingSceneApplication;
+        const spec = controller?.previous({ source: SKYKIT_ACTIONS.journey.previous }) ?? null;
+        await pendingSceneApplication;
+        return spec;
+      }, {
         label: 'Previous journey chapter',
       }),
       context.actions.registerAction(SKYKIT_ACTIONS.journey.seek, ({ payload }) => {
@@ -496,13 +514,26 @@ export function createSkykitJourneyPlugin(options = {}) {
     }
     initialSceneApplied = true;
     const spec = controller.graph.resolveSceneSpec(sceneId, { fromSceneId: snapshot.previousSceneId });
-    applySceneSpec(spec, context, {
+    queueSceneApplication(spec, context, {
       type: 'journey/initial',
       sceneId,
       previousSceneId: snapshot.previousSceneId,
       source: 'attach',
       spec,
     });
+  }
+
+  /**
+   * @param {unknown} spec
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   * @param {unknown} event
+   */
+  function queueSceneApplication(spec, context, event) {
+    pendingSceneApplication = Promise.resolve(applySceneSpec(spec, context, event)).catch((error) => {
+      console.error?.(`[skykit:${id}] failed to apply journey scene`, error);
+      return null;
+    });
+    return pendingSceneApplication;
   }
 
   /**
@@ -529,7 +560,7 @@ export function createSkykitJourneyPlugin(options = {}) {
    * @param {import('./index.d.ts').SkykitThreePluginContext} context
    * @param {unknown} event
    */
-  function applySceneSpec(spec, context, event) {
+  async function applySceneSpec(spec, context, event) {
     const scene = /** @type {Record<string, unknown> | null} */ (spec && typeof spec === 'object' ? spec : null);
     options.onScene?.(scene, context, event);
     if (!scene) return;
@@ -537,8 +568,10 @@ export function createSkykitJourneyPlugin(options = {}) {
       context.requestViewState(/** @type {Partial<import('./index.d.ts').SkykitViewState>} */ (scene.view), id);
     }
     const navigation = /** @type {Record<string, unknown> | null} */ (scene.navigation && typeof scene.navigation === 'object' ? scene.navigation : null);
-    if (navigation?.transitionTo) {
-      void context.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, navigation.transitionTo, {
+    if (isOrbitCameraScene(scene)) {
+      await applyOrbitCameraScene(scene, context, event);
+    } else if (navigation?.transitionTo) {
+      await context.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, navigation.transitionTo, {
         source: id,
       });
     }
@@ -546,6 +579,128 @@ export function createSkykitJourneyPlugin(options = {}) {
       options.onPreloadHints?.(scene.preloadHints, scene, context);
     }
     options.onLayerState?.(scene, context);
+  }
+
+  /**
+   * @param {Record<string, unknown>} scene
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   * @param {unknown} event
+   */
+  async function applyOrbitCameraScene(scene, context, event) {
+    const camera = /** @type {Record<string, unknown>} */ (scene.camera);
+    const destinationOrbit = await resolveJourneyOrbit(camera, context);
+    if (!destinationOrbit) return;
+    const lookTarget = await resolveJourneyTarget(camera.lookAt ?? camera.center, context)
+      ?? destinationOrbit.center;
+    const source = { source: id };
+    await context.actions.invoke(SKYKIT_ACTIONS.navigation.cancel, null, source);
+    context.requestViewState({ targetPc: lookTarget }, id);
+    await context.actions.invoke(SKYKIT_ACTIONS.navigation.lockAt, {
+      ...lookTarget,
+      up: destinationOrbit.normal,
+      dwellSecs: resolveJourneyDwellSecs(camera, scene.travel),
+      recenterSpeed: 0.06,
+    }, source);
+
+    if (isInitialJourneyEvent(event)) {
+      context.requestViewState({
+        observerPc: defaultOrbitPosition(destinationOrbit.center, destinationOrbit.radius, destinationOrbit.normal),
+        targetPc: lookTarget,
+      }, id);
+      await context.actions.invoke(SKYKIT_ACTIONS.navigation.orbit, {
+        center: destinationOrbit.center,
+        radius: destinationOrbit.radius,
+        angularSpeedRadPerSec: destinationOrbit.angularSpeedRadPerSec,
+        normal: destinationOrbit.normal,
+      }, source);
+      return;
+    }
+
+    const travel = normalizeJourneySceneTravel(scene.travel);
+    const route = createOrbitTransferRoute({
+      start: context.getViewState().observerPc,
+      sourceOrbit: await resolveSourceJourneyOrbit(event, context),
+      destinationOrbit,
+      durationSecs: travel.durationSecs,
+      sampleStepSecs: travel.sampleStepSecs,
+    });
+    if (route && Array.isArray(route.points) && route.points.length >= 2) {
+      await context.actions.invoke(SKYKIT_ACTIONS.navigation.flyPolyline, {
+        points: route.points,
+        durationSecs: travel.durationSecs,
+        currentSpeed: route.departureSpeed,
+        arrivalSpeed: route.arrivalSpeed,
+        arrivalThreshold: travel.arrivalThreshold,
+        arrivalAction: route.arrivalAction,
+      }, source);
+      return;
+    }
+    await context.actions.invoke(SKYKIT_ACTIONS.navigation.orbit, {
+      center: destinationOrbit.center,
+      radius: destinationOrbit.radius,
+      angularSpeedRadPerSec: destinationOrbit.angularSpeedRadPerSec,
+      normal: destinationOrbit.normal,
+    }, source);
+  }
+
+  /**
+   * @param {Record<string, unknown>} camera
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   */
+  async function resolveJourneyOrbit(camera, context) {
+    const center = await resolveJourneyTarget(camera.center, context);
+    if (!center) return null;
+    return {
+      center,
+      radius: positiveFinite(camera.radiusPc, 1),
+      angularSpeedRadPerSec: finiteNumber(camera.angularSpeedRadPerSec, 0.1),
+      normal: normalizeDirectionVector(camera.normal, { x: 0, y: 1, z: 0 }),
+    };
+  }
+
+  /**
+   * @param {unknown} input
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   */
+  async function resolveJourneyTarget(input, context) {
+    if (typeof input === 'string') {
+      const targets = resolveJourneyTargets();
+      const target = targets[input];
+      if (target && typeof target === 'object' && target.positionPc) {
+        return normalizeVector3(target.positionPc, { x: 0, y: 0, z: 0 });
+      }
+      return null;
+    }
+    return await resolveSpatialTarget(
+      /** @type {import('@found-in-space/spatial').SpatialTargetInput} */ (input),
+      { observerPc: context.getViewState().observerPc },
+    );
+  }
+
+  function resolveJourneyTargets() {
+    const graph = controller?.graph;
+    if (graph && typeof graph === 'object' && 'targets' in graph) {
+      return /** @type {Record<string, { positionPc?: unknown }>} */ (
+        /** @type {Record<string, unknown>} */ (graph).targets ?? {}
+      );
+    }
+    return /** @type {Record<string, { positionPc?: unknown }>} */ (options.journey?.targets ?? {});
+  }
+
+  /**
+   * @param {unknown} event
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   */
+  async function resolveSourceJourneyOrbit(event, context) {
+    const previousSceneId = event && typeof event === 'object'
+      ? /** @type {{ previousSceneId?: unknown }} */ (event).previousSceneId
+      : null;
+    if (typeof previousSceneId !== 'string') return null;
+    const previousScene = controller?.graph.getScene(previousSceneId);
+    const camera = previousScene?.camera && typeof previousScene.camera === 'object'
+      ? /** @type {Record<string, unknown>} */ (previousScene.camera)
+      : null;
+    return camera && camera.type === 'orbit' ? resolveJourneyOrbit(camera, context) : null;
   }
 
   /**
@@ -1174,6 +1329,95 @@ function getDefaultEventTarget() {
   return typeof globalThis.addEventListener === 'function' ? globalThis : null;
 }
 
+/** @param {Record<string, unknown>} scene */
+function isOrbitCameraScene(scene) {
+  return Boolean(
+    scene.camera
+    && typeof scene.camera === 'object'
+    && /** @type {{ type?: unknown }} */ (scene.camera).type === 'orbit',
+  );
+}
+
+/** @param {unknown} event */
+function isInitialJourneyEvent(event) {
+  return Boolean(
+    event
+    && typeof event === 'object'
+    && /** @type {{ type?: unknown; previousSceneId?: unknown }} */ (event).type === 'journey/initial',
+  );
+}
+
+/** @param {unknown} value */
+function normalizeJourneySceneTravel(value) {
+  const source = /** @type {Record<string, unknown>} */ (
+    value && typeof value === 'object' ? value : {}
+  );
+  return {
+    durationSecs: positiveFinite(source.durationSecs, 5),
+    sampleStepSecs: positiveFinite(source.sampleStepSecs, 1 / 60),
+    arrivalThreshold: positiveFinite(source.arrivalThreshold, 0.05),
+  };
+}
+
+/**
+ * @param {Record<string, unknown>} camera
+ * @param {unknown} travel
+ */
+function resolveJourneyDwellSecs(camera, travel) {
+  if (camera.dwellSecs != null) return Math.max(0, finiteNumber(camera.dwellSecs, 0));
+  if (travel && typeof travel === 'object' && 'dwellSecs' in travel) {
+    return Math.max(0, finiteNumber(/** @type {{ dwellSecs?: unknown }} */ (travel).dwellSecs, 0));
+  }
+  return 0;
+}
+
+/**
+ * @param {Vector3Like} center
+ * @param {number} radius
+ * @param {Vector3Like} normal
+ * @returns {Vector3Like}
+ */
+function defaultOrbitPosition(center, radius, normal) {
+  const axis = Math.abs(normal.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
+  const projected = projectOnPlane(axis, normal);
+  const length = Math.hypot(projected.x, projected.y, projected.z);
+  const direction = length > 1e-9
+    ? { x: projected.x / length, y: projected.y / length, z: projected.z / length }
+    : { x: 1, y: 0, z: 0 };
+  return {
+    x: center.x + direction.x * radius,
+    y: center.y + direction.y * radius,
+    z: center.z + direction.z * radius,
+  };
+}
+
+/**
+ * @param {unknown} value
+ * @param {Vector3Like} fallback
+ * @returns {Vector3Like}
+ */
+function normalizeDirectionVector(value, fallback) {
+  const vector = normalizeVector3(value, fallback);
+  const length = Math.hypot(vector.x, vector.y, vector.z);
+  return length > 1e-9
+    ? { x: vector.x / length, y: vector.y / length, z: vector.z / length }
+    : cloneVector3(fallback);
+}
+
+/**
+ * @param {Vector3Like} vector
+ * @param {Vector3Like} normal
+ * @returns {Vector3Like}
+ */
+function projectOnPlane(vector, normal) {
+  const amount = vector.x * normal.x + vector.y * normal.y + vector.z * normal.z;
+  return {
+    x: vector.x - normal.x * amount,
+    y: vector.y - normal.y * amount,
+    z: vector.z - normal.z * amount,
+  };
+}
+
 /**
  * @param {unknown} payload
  * @returns {Record<string, unknown>}
@@ -1181,6 +1425,14 @@ function getDefaultEventTarget() {
 function payloadOptions(payload) {
   if (!payload || typeof payload !== 'object') return {};
   const options = /** @type {Record<string, unknown>} */ ({ ...payload });
+  if ('angularSpeedRadPerSec' in options) {
+    options.angularSpeed = options.angularSpeedRadPerSec;
+    delete options.angularSpeedRadPerSec;
+  }
+  if ('normal' in options) {
+    options.orbitNormal = options.normal;
+    delete options.normal;
+  }
   delete options.x;
   delete options.y;
   delete options.z;

@@ -17,6 +17,43 @@ const DEFAULT_TARGET_DISTANCE_PC = 100;
 const DEFAULT_TIME_STEP_SECS = 0.05;
 const DEFAULT_EASE_SECS = 3;
 const DEFAULT_RAMP_SAMPLE_SECS = 0.5;
+const DEFAULT_INTERACTIVE_TRAVEL_SECS = 5;
+const DEFAULT_INTERACTIVE_SAMPLE_STEP_SECS = 1 / 60;
+const DEFAULT_INTERACTIVE_ANGULAR_SPEED = 0.1;
+
+/**
+ * Canonical authored interactive journey API. Lessons describe targets,
+ * ordered scenes, orbit camera intent, and default travel policy; downstream
+ * packages turn that intent into geometry and motion.
+ *
+ * @param {import('./index.d.ts').CreateJourneyOptions} [options]
+ * @returns {import('./index.d.ts').JourneyDefinition}
+ */
+export function createJourney(options = {}) {
+  const source = /** @type {Record<string, unknown>} */ (
+    options && typeof options === 'object' ? options : {}
+  );
+  const targets = normalizeJourneyTargets(source.targets);
+  const scenes = normalizeJourneyScenes(source.scenes);
+  const sceneIds = normalizeJourneySceneOrder(source.order, scenes);
+  const initialSceneId = resolveInitialJourneyScene(source.initial, sceneIds);
+  const travel = normalizeJourneyTravel(source.travel);
+  const transitions = normalizeJourneyTransitions(source.transitions, sceneIds, travel);
+  const graph = createJourneyGraph({
+    initialSceneId,
+    scenes: Object.fromEntries(sceneIds.map((sceneId) => [sceneId, scenes[sceneId]])),
+    transitions,
+  });
+
+  return {
+    ...graph,
+    id: typeof source.id === 'string' ? source.id : null,
+    title: typeof source.title === 'string' ? source.title : null,
+    targets,
+    travel,
+    order: [...sceneIds],
+  };
+}
 
 /**
  * @param {{ initialSceneId?: string | null; scenes?: Record<string, object>; transitions?: Iterable<object> }} [options]
@@ -30,9 +67,9 @@ export function createJourneyGraph(options = {}) {
     ]),
   );
   const transitions = Array.from(options.transitions ?? []).map((transition, index) => {
-    const source = /** @type {{ id?: unknown; from?: unknown; to?: unknown; fromSceneId?: unknown; toSceneId?: unknown }} */ (transition);
-    const fromSceneId = typeof source.fromSceneId === 'string' ? source.fromSceneId : source.from;
-    const toSceneId = typeof source.toSceneId === 'string' ? source.toSceneId : source.to;
+    const source = /** @type {{ id?: unknown; fromSceneId?: unknown; toSceneId?: unknown }} */ (transition);
+    const fromSceneId = source.fromSceneId;
+    const toSceneId = source.toSceneId;
     if (typeof fromSceneId !== 'string' || typeof toSceneId !== 'string') {
       throw new TypeError('Journey transitions require string fromSceneId/toSceneId values.');
     }
@@ -552,6 +589,191 @@ function positiveFinite(value, fallback) {
 /** @param {number} value @param {number} min @param {number} max */
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+/** @param {unknown} value */
+function normalizeJourneyTargets(value) {
+  const entries = Object.entries(
+    value && typeof value === 'object'
+      ? /** @type {Record<string, unknown>} */ (value)
+      : {},
+  );
+  return Object.fromEntries(entries.map(([targetId, target]) => {
+    const source = /** @type {Record<string, unknown>} */ (
+      target && typeof target === 'object' ? target : {}
+    );
+    return [
+      targetId,
+      {
+        ...source,
+        positionPc: normalizeJourneyPositionPc(source.positionPc, `targets.${targetId}.positionPc`),
+      },
+    ];
+  }));
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} label
+ */
+function normalizeJourneyPositionPc(value, label) {
+  if (!value || typeof value !== 'object') {
+    throw new TypeError(`Journey ${label} must be a vector with x/y/z parsec coordinates.`);
+  }
+  const vector = /** @type {{ x?: unknown; y?: unknown; z?: unknown }} */ (value);
+  const x = Number(vector.x);
+  const y = Number(vector.y);
+  const z = Number(vector.z);
+  if (![x, y, z].every(Number.isFinite)) {
+    throw new TypeError(`Journey ${label} must be a vector with finite x/y/z coordinates.`);
+  }
+  return { x, y, z };
+}
+
+/** @param {unknown} value */
+function normalizeJourneyScenes(value) {
+  const entries = Object.entries(
+    value && typeof value === 'object'
+      ? /** @type {Record<string, unknown>} */ (value)
+      : {},
+  );
+  return Object.fromEntries(entries.map(([sceneId, scene]) => {
+    const source = /** @type {Record<string, unknown>} */ (
+      scene && typeof scene === 'object' ? scene : {}
+    );
+    const camera = normalizeJourneyCamera(source.camera);
+    return [
+      sceneId,
+      {
+        ...source,
+        ...(camera ? { camera } : {}),
+        sceneId,
+      },
+    ];
+  }));
+}
+
+/**
+ * @param {unknown} orderInput
+ * @param {Record<string, unknown>} scenes
+ */
+function normalizeJourneySceneOrder(orderInput, scenes) {
+  const sceneIds = Object.keys(scenes);
+  const order = Array.isArray(orderInput)
+    ? orderInput.map(String).filter((sceneId) => sceneId.length > 0)
+    : sceneIds;
+  const unknownSceneId = order.find((sceneId) => !Object.hasOwn(scenes, sceneId));
+  if (unknownSceneId) {
+    throw new TypeError(`Journey order references unknown scene "${unknownSceneId}".`);
+  }
+  const ordered = [...order];
+  for (const sceneId of sceneIds) {
+    if (!ordered.includes(sceneId)) ordered.push(sceneId);
+  }
+  return ordered;
+}
+
+/**
+ * @param {unknown} initial
+ * @param {string[]} sceneIds
+ */
+function resolveInitialJourneyScene(initial, sceneIds) {
+  if (typeof initial === 'string') {
+    if (!sceneIds.includes(initial)) {
+      throw new TypeError(`Journey initial scene "${initial}" is not declared in scenes.`);
+    }
+    return initial;
+  }
+  return sceneIds[0] ?? null;
+}
+
+/** @param {unknown} value */
+function normalizeJourneyCamera(value) {
+  if (!value || typeof value !== 'object') return null;
+  const source = /** @type {Record<string, unknown>} */ (value);
+  const type = source.type == null ? 'orbit' : String(source.type);
+  if (type !== 'orbit') {
+    return { ...source, type };
+  }
+  if (source.center == null) {
+    throw new TypeError('Journey orbit cameras require a center target.');
+  }
+  return {
+    ...source,
+    type,
+    center: source.center,
+    lookAt: source.lookAt ?? source.center,
+    radiusPc: positiveFinite(source.radiusPc, 1),
+    angularSpeedRadPerSec: finiteNumber(source.angularSpeedRadPerSec, DEFAULT_INTERACTIVE_ANGULAR_SPEED),
+    ...(source.normal != null ? { normal: source.normal } : {}),
+    ...(source.dwellSecs != null ? { dwellSecs: Math.max(0, finiteNumber(source.dwellSecs, 0)) } : {}),
+  };
+}
+
+/** @param {unknown} value */
+function normalizeJourneyTravel(value) {
+  const source = /** @type {Record<string, unknown>} */ (
+    value && typeof value === 'object' ? value : {}
+  );
+  const type = source.type == null ? 'orbit-transfer' : String(source.type);
+  if (type !== 'orbit-transfer') {
+    throw new TypeError(`Unsupported journey travel type "${type}".`);
+  }
+  return {
+    ...source,
+    type,
+    durationSecs: positiveFinite(source.durationSecs, DEFAULT_INTERACTIVE_TRAVEL_SECS),
+    sampleStepSecs: positiveFinite(source.sampleStepSecs, DEFAULT_INTERACTIVE_SAMPLE_STEP_SECS),
+    ...(source.dwellSecs != null ? { dwellSecs: Math.max(0, finiteNumber(source.dwellSecs, 0)) } : {}),
+  };
+}
+
+/**
+ * @param {unknown} entriesInput
+ * @param {string[]} sceneIds
+ * @param {Record<string, unknown>} defaultTravel
+ */
+function normalizeJourneyTransitions(entriesInput, sceneIds, defaultTravel) {
+  const entries = entriesInput && typeof /** @type {{ [Symbol.iterator]?: unknown }} */ (entriesInput)[Symbol.iterator] === 'function'
+    ? Array.from(/** @type {Iterable<unknown>} */ (entriesInput))
+    : [];
+  if (entries.length === 0) {
+    return sceneIds.slice(1).map((toSceneId, index) => {
+      const fromSceneId = sceneIds[index];
+      return {
+        id: `${fromSceneId}->${toSceneId}`,
+        fromSceneId,
+        toSceneId,
+        travel: { ...defaultTravel },
+      };
+    });
+  }
+  return entries.map((entry, index) => {
+    const source = /** @type {Record<string, unknown>} */ (
+      entry && typeof entry === 'object' ? entry : {}
+    );
+    const fromSceneId = typeof source.fromSceneId === 'string' ? source.fromSceneId : null;
+    const toSceneId = typeof source.toSceneId === 'string' ? source.toSceneId : null;
+    if (!fromSceneId || !toSceneId) {
+      throw new TypeError('Journey transitions require canonical fromSceneId/toSceneId values.');
+    }
+    if (!sceneIds.includes(fromSceneId) || !sceneIds.includes(toSceneId)) {
+      throw new TypeError(`Journey transition "${fromSceneId}->${toSceneId}" references an unknown scene.`);
+    }
+    return {
+      ...source,
+      id: String(source.id ?? `${fromSceneId}->${toSceneId}`),
+      fromSceneId,
+      toSceneId,
+      travel: {
+        ...defaultTravel,
+        ...(source.travel && typeof source.travel === 'object'
+          ? normalizeJourneyTravel({ ...defaultTravel, .../** @type {Record<string, unknown>} */ (source.travel) })
+          : {}),
+      },
+      index,
+    };
+  });
 }
 
 /** @param {unknown} entries */

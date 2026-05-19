@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   createJourneyController,
+  createJourney,
   createJourneyGraph,
   createTimedJourneyEvaluator,
   deleteJourneyEaseLocationGroupHelpers,
@@ -16,6 +17,42 @@ import {
   rebuildJourneyEaseLocationGroup,
   sampleJourneyLocationArcPoint,
 } from '../index.js';
+
+test('createJourney normalizes ordered orbit scenes and generated transitions', () => {
+  const journey = createJourney({
+    initial: 'inside',
+    order: ['inside', 'outside', 'hyades'],
+    targets: {
+      sun: { positionPc: { x: 0, y: 0, z: 0 } },
+      hyades: { positionPc: { x: 17, y: 42, z: 14 } },
+      orion: { positionPc: { x: 44, y: 410, z: -39 } },
+    },
+    scenes: {
+      inside: {
+        camera: { type: 'orbit', center: 'sun', radiusPc: 8, angularSpeedRadPerSec: 0.26, lookAt: 'orion' },
+      },
+      outside: {
+        camera: { type: 'orbit', center: 'sun', radiusPc: 175, angularSpeedRadPerSec: 0.06, lookAt: 'sun' },
+      },
+      hyades: {
+        camera: { type: 'orbit', center: 'hyades', radiusPc: 15, angularSpeedRadPerSec: 0.2 },
+      },
+    },
+    travel: { type: 'orbit-transfer', durationSecs: 5 },
+  });
+
+  assert.equal(journey.initialSceneId, 'inside');
+  assert.deepEqual(journey.sceneIds, ['inside', 'outside', 'hyades']);
+  assert.equal(journey.targets.hyades.positionPc.x, 17);
+  assert.equal(journey.getScene('inside')?.camera.radiusPc, 8);
+  assert.equal(journey.transitions.length, 2);
+  assert.deepEqual(journey.transitions.map((transition) => transition.id), [
+    'inside->outside',
+    'outside->hyades',
+  ]);
+  assert.equal(journey.getTransition('inside', 'outside')?.travel.durationSecs, 5);
+  assert.equal(journey.resolveSceneSpec('outside', { fromSceneId: 'inside' })?.travel.type, 'orbit-transfer');
+});
 
 test('interactive graph resolves scenes and transition overrides', () => {
   const graph = createJourneyGraph({

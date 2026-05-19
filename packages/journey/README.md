@@ -8,16 +8,29 @@ generic parameter tracks, and waypoint retiming helpers. It depends on
 construct viewers, renderers, DOM scrollers, or star providers.
 
 ```js
-import { createJourneyController, createTimedJourneyEvaluator } from '@found-in-space/journey';
+import { createJourney, createJourneyController, createTimedJourneyEvaluator } from '@found-in-space/journey';
 
-const controller = createJourneyController({
-  initialSceneId: 'sol',
-  scenes: {
-    sol: { title: 'Start at the Sun' },
-    hyades: { title: 'Fly to the Hyades' },
+const journey = createJourney({
+  initial: 'sol',
+  order: ['sol', 'hyades'],
+  targets: {
+    sun: { positionPc: { x: 0, y: 0, z: 0 } },
+    hyades: { positionPc: { x: 17.574, y: 42.316, z: 13.963 } },
   },
+  scenes: {
+    sol: {
+      title: 'Start at the Sun',
+      camera: { type: 'orbit', center: 'sun', radiusPc: 8, angularSpeedRadPerSec: 0.26 },
+    },
+    hyades: {
+      title: 'Fly to the Hyades',
+      camera: { type: 'orbit', center: 'hyades', radiusPc: 15, angularSpeedRadPerSec: 0.2 },
+    },
+  },
+  travel: { type: 'orbit-transfer', durationSecs: 5 },
 });
 
+const controller = createJourneyController({ graph: journey });
 controller.goTo('hyades');
 
 const evaluator = createTimedJourneyEvaluator({

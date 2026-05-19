@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
+import { createJourney } from '@found-in-space/journey';
 
 import {
   SKYKIT_ACTION_NAMESPACE,
@@ -65,6 +66,16 @@ function createRenderer() {
       this.disposed = true;
     },
   };
+}
+
+async function flushMicrotasks(count = 10) {
+  for (let index = 0; index < count; index += 1) {
+    await Promise.resolve();
+  }
+}
+
+function distance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
 test('createSkykitViewer creates roots, mounts renderer, runs lifecycle, and disposes cleanly', async () => {
@@ -861,6 +872,102 @@ test('journey plugin registers actions, applies scenes, timed frames, and preloa
   viewer.update(0.5);
   viewer.update(0);
   assert.ok(viewer.getViewState().observerPc.x > beforePlayX);
+
+  await viewer.dispose();
+});
+
+test('journey plugin executes semantic orbit-transfer scenes without snapping', async () => {
+  const navigationPlugin = createSkykitNavigationPlugin({ speed: 20, acceleration: 20, deceleration: 20 });
+  const journey = createJourney({
+    initial: 'inside',
+    order: ['inside', 'outside', 'hyades'],
+    targets: {
+      sun: { positionPc: { x: 0, y: 0, z: 0 } },
+      hyades: { positionPc: { x: 18, y: 42, z: 7 } },
+      orion: { positionPc: { x: 0, y: 0, z: -100 } },
+    },
+    scenes: {
+      inside: {
+        camera: {
+          type: 'orbit',
+          center: 'sun',
+          radiusPc: 4,
+          angularSpeedRadPerSec: 0.4,
+          lookAt: 'orion',
+          normal: { x: 0, y: 0, z: 1 },
+        },
+      },
+      outside: {
+        camera: {
+          type: 'orbit',
+          center: 'sun',
+          radiusPc: 10,
+          angularSpeedRadPerSec: 0.2,
+          lookAt: 'sun',
+          normal: { x: 0, y: 0, z: 1 },
+        },
+      },
+      hyades: {
+        camera: {
+          type: 'orbit',
+          center: 'hyades',
+          radiusPc: 6,
+          angularSpeedRadPerSec: 0.3,
+          lookAt: 'hyades',
+          normal: { x: 0, y: 0, z: 1 },
+        },
+      },
+    },
+    travel: { type: 'orbit-transfer', durationSecs: 2, sampleStepSecs: 0.25 },
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [
+      navigationPlugin,
+      createSkykitJourneyPlugin({ journey }),
+    ],
+  });
+
+  await flushMicrotasks();
+  viewer.update(0.001);
+  viewer.update(0);
+  assert.ok(Math.abs(distance(viewer.getViewState().observerPc, { x: 0, y: 0, z: 0 }) - 4) < 1e-9);
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.journey.goToChapter, 'outside');
+  await flushMicrotasks();
+  viewer.update(1);
+  viewer.update(0);
+  const halfwayRadius = distance(viewer.getViewState().observerPc, { x: 0, y: 0, z: 0 });
+  assert.ok(halfwayRadius > 4);
+  assert.ok(halfwayRadius < 10);
+
+  viewer.update(1.1);
+  viewer.update(0);
+  const arrival = { ...viewer.getViewState().observerPc };
+  assert.ok(Math.abs(distance(arrival, { x: 0, y: 0, z: 0 }) - 10) < 1e-9);
+  assert.equal(navigationPlugin.getSnapshot().navigation.activeAutomation, 'orbit');
+  viewer.update(0.25);
+  viewer.update(0);
+  assert.ok(Math.abs(distance(viewer.getViewState().observerPc, { x: 0, y: 0, z: 0 }) - 10) < 1e-9);
+  assert.notDeepEqual(viewer.getViewState().observerPc, arrival);
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.journey.goToChapter, 'hyades');
+  await flushMicrotasks();
+  let handoff = null;
+  let previous = { ...viewer.getViewState().observerPc };
+  for (let index = 0; index < 120; index += 1) {
+    viewer.update(1 / 30);
+    viewer.update(0);
+    const current = { ...viewer.getViewState().observerPc };
+    const step = distance(previous, current);
+    if (!handoff && navigationPlugin.getSnapshot().navigation.activeAutomation === 'orbit') {
+      handoff = { position: current, step };
+    }
+    previous = current;
+  }
+  assert.ok(handoff);
+  assert.ok(Math.abs(handoff.position.z - 7) < 1e-6);
+  assert.ok(handoff.step < 0.5);
 
   await viewer.dispose();
 });
