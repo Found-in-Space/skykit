@@ -382,6 +382,14 @@ export interface StarOctreeProviderSnapshot {
     decodedCacheHits?: number;
     decodedPersistentCacheHits?: number;
     decodedCacheEvictions?: number;
+    decodedCacheHitsByMask?: Record<string, number>;
+    decodedCacheMissesByMask?: Record<string, number>;
+    decodedCacheWritesByMask?: Record<string, number>;
+    decodedPersistentCacheHitsByMask?: Record<string, number>;
+    cellCopiedBytes?: number;
+    cellBorrowedBytes?: number;
+    cellGeneratedRefs?: number;
+    cellGeneratedPickMeta?: number;
     fetchTimeMs: number;
   };
 }

@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { createDecodedCacheKey } from '../star-octree-decoded-cache.js';
 import {
   decodeStarPayload,
   decompressGzip,
+  normalizePayloadDecodeAttributes,
+  payloadDecodeAttributeMask,
   planPayloadRangeBatches,
 } from '../star-octree-payloads.js';
 
@@ -33,7 +36,7 @@ test('planPayloadRangeBatches coalesces nearby ranges and respects batch limits'
   );
 });
 
-test('decodeStarPayload returns provider-native parsec attributes and refs', () => {
+test('decodeStarPayload returns requested provider-native parsec attributes without refs', () => {
   const node = createNode('node-a', {
     centerX: 10,
     centerY: 20,
@@ -46,7 +49,6 @@ test('decodeStarPayload returns provider-native parsec attributes and refs', () 
       { local: [1, -1, 0.25], magAbs: -1.46, teffLog8: 222 },
     ]),
     node,
-    { datasetId: 'dataset-a' },
   );
 
   assert.equal(decoded.count, 2);
@@ -55,10 +57,74 @@ test('decodeStarPayload returns provider-native parsec attributes and refs', () 
   ]);
   assertFloatArrayClose(decoded.magAbs, [4.25, -1.46]);
   assert.deepEqual(Array.from(decoded.teffLog8), [128, 222]);
-  assert.deepEqual(decoded.refs, [
-    { datasetId: 'dataset-a', level: 0, mortonCode: '0', ordinal: 0 },
-    { datasetId: 'dataset-a', level: 0, mortonCode: '0', ordinal: 1 },
+  assert.equal(decoded.refs, undefined);
+});
+
+test('decodeStarPayload omits optional numeric columns when not requested', () => {
+  const decoded = decodeStarPayload(
+    createPayloadBytes([
+      { local: [0, 0, 0], magAbs: 4.25, teffLog8: 128 },
+      { local: [1, 0, 0], magAbs: -1.46, teffLog8: 222 },
+    ]),
+    createNode('node-a'),
+    { attributes: ['position'] },
+  );
+
+  assert.equal(decoded.count, 2);
+  assert.deepEqual(Array.from(decoded.positionsPc), [0, 0, 0, 1, 0, 0]);
+  assert.equal(decoded.teffLog8, undefined);
+  assert.equal(decoded.magAbs, undefined);
+  assert.equal(decoded.refs, undefined);
+});
+
+test('decodeStarPayload decodes only requested optional numeric columns', () => {
+  const node = createNode('node-a');
+  const payload = createPayloadBytes([
+    { local: [0, 0, 0], magAbs: 4.25, teffLog8: 128 },
   ]);
+  const teffOnly = decodeStarPayload(payload, node, {
+    attributes: ['position', 'teffLog8'],
+  });
+  const magOnly = decodeStarPayload(payload, node, {
+    attributes: ['position', 'magAbs'],
+  });
+
+  assert.deepEqual(Array.from(teffOnly.teffLog8), [128]);
+  assert.equal(teffOnly.magAbs, undefined);
+  assertFloatArrayClose(magOnly.magAbs, [4.25]);
+  assert.equal(magOnly.teffLog8, undefined);
+});
+
+test('payload decode attribute masks and decoded cache keys are stable', () => {
+  const node = createNode('node-a', {
+    payloadOffset: 100,
+    payloadLength: 16,
+  });
+  const positionMask = payloadDecodeAttributeMask(['position']);
+  const teffMask = payloadDecodeAttributeMask(['position', 'teffLog8']);
+  const magMask = payloadDecodeAttributeMask(['position', 'magAbs']);
+  const fullMask = payloadDecodeAttributeMask(
+    normalizePayloadDecodeAttributes(['position', 'teffLog8', 'magAbs']),
+  );
+
+  assert.equal(positionMask, 'p');
+  assert.equal(teffMask, 'p+t');
+  assert.equal(magMask, 'p+m');
+  assert.equal(fullMask, 'p+t+m');
+  assert.notEqual(
+    createDecodedCacheKey({
+      sourceIdentity: 'source-a',
+      datasetId: 'dataset-a',
+      node,
+      attributeMask: positionMask,
+    }),
+    createDecodedCacheKey({
+      sourceIdentity: 'source-a',
+      datasetId: 'dataset-a',
+      node,
+      attributeMask: fullMask,
+    }),
+  );
 });
 
 test('decompressGzip reads while writing so browser backpressure cannot stall', async () => {

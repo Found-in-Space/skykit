@@ -148,7 +148,7 @@ function createProviderService(options, internals, sourceConfig = {}) {
           },
           /**
            * @param {StarOctreeDemandEntry[]} entries
-           * @param {{ sessionId?: string }} [warmOptions]
+           * @param {{ sessionId?: string; attributes?: string[]; emitCachedFirst?: boolean; signal?: AbortSignal }} [warmOptions]
            */
           warmEntries(entries, warmOptions) {
             return pipeline.warmEntries(entries, warmOptions);
@@ -400,6 +400,14 @@ function createProviderSnapshot(
       decodedCacheHits: decodedSnapshot.decodedCacheHits,
       decodedPersistentCacheHits: decodedSnapshot.decodedPersistentCacheHits,
       decodedCacheEvictions: decodedSnapshot.decodedCacheEvictions,
+      decodedCacheHitsByMask: decodedSnapshot.decodedCacheHitsByMask,
+      decodedCacheMissesByMask: decodedSnapshot.decodedCacheMissesByMask,
+      decodedCacheWritesByMask: decodedSnapshot.decodedCacheWritesByMask,
+      decodedPersistentCacheHitsByMask: decodedSnapshot.decodedPersistentCacheHitsByMask,
+      cellCopiedBytes: decodedSnapshot.cellCopiedBytes,
+      cellBorrowedBytes: decodedSnapshot.cellBorrowedBytes,
+      cellGeneratedRefs: decodedSnapshot.cellGeneratedRefs,
+      cellGeneratedPickMeta: decodedSnapshot.cellGeneratedPickMeta,
       fetchTimeMs: indexSnapshot.stats.fetchTimeMs,
     },
   };

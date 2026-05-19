@@ -196,6 +196,53 @@ test('unchanged demand emits current without duplicate cell upserts', async () =
   assert.equal(session.getSnapshot().demand.revision, 1);
 });
 
+test('prefetch warming uses the active session attributes', async () => {
+  const currentNode = createNode('current', { gridX: 0 });
+  const prefetchNode = createNode('prefetch', { gridX: 1 });
+  let warmEntries = null;
+  let warmOptions = null;
+  const session = createStarOctreeProviderSession({
+    providerId: 'provider-a',
+    sessionId: 'session-a',
+    options: { attributes: ['position'] },
+    source: {
+      planDemand() {
+        return {
+          entries: [
+            { node: currentNode },
+            { node: prefetchNode, role: 'prefetch' },
+          ],
+          signature: [
+            createStarCellKey(currentNode),
+            `${createStarCellKey(prefetchNode)}:prefetch`,
+          ].join('|'),
+        };
+      },
+      decodeNode(entry) {
+        return oneStar(entry.node);
+      },
+      async *streamCells(entries) {
+        yield entries.map((entry) => createCell(entry.node));
+      },
+      async warmEntries(entries, options) {
+        warmEntries = entries;
+        warmOptions = options;
+      },
+    },
+  });
+  const iterator = session.deltas()[Symbol.asyncIterator]();
+
+  session.updateView({ observerPc: { x: 0, y: 0, z: 0 } }, { demand: 'force' });
+  await readUntilCurrent(iterator);
+  await tick();
+
+  assert.deepEqual(warmEntries.map((entry) => createStarCellKey(entry.node)), [
+    createStarCellKey(prefetchNode),
+  ]);
+  assert.deepEqual(warmOptions.attributes, ['position']);
+  assert.equal(warmOptions.sessionId, 'session-a');
+});
+
 function upsertCellKeys(deltas) {
   return deltas
     .filter((delta) => delta.type === 'stars/cells-upsert')

@@ -109,6 +109,46 @@ test('streamCells emits independent cell deltas and a complete current set', asy
   }
 });
 
+test('streamCells with position-only attributes avoids optional decoded columns', async () => {
+  const fixture = createObjectStreamFixture();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fixture.fileBytes, []);
+
+  try {
+    const provider = createStarOctreeProviderService({
+      id: 'provider-a',
+      url: 'memory://stars.octree',
+    });
+    const deltas = [];
+
+    for await (const delta of provider.streamCells({
+      view: { observerPc: { x: 0, y: 0, z: 0 }, limitingMagnitude: 6.5 },
+      attributes: ['position'],
+    })) {
+      deltas.push(delta);
+    }
+
+    const cells = deltas
+      .filter((delta) => delta.type === 'stars/cells-upsert')
+      .flatMap((delta) => delta.cells);
+    const snapshot = provider.getSnapshot();
+
+    assert.equal(cells.length, 2);
+    assert.equal(cells.reduce((sum, cell) => sum + cell.count, 0), 3);
+    assert.equal(cells.every((cell) => cell.attributes.teffLog8 === undefined), true);
+    assert.equal(cells.every((cell) => cell.attributes.magAbs === undefined), true);
+    assert.equal(cells.every((cell) => cell.refs === undefined), true);
+    assert.equal(cells.every((cell) => cell.pickMeta === undefined), true);
+    assert.equal(snapshot.stats.decodedCacheWritesByMask.p, 2);
+    assert.equal(snapshot.stats.cellGeneratedRefs, 0);
+    assert.equal(snapshot.stats.cellGeneratedPickMeta, 0);
+    assert.equal(snapshot.stats.cellCopiedBytes, 0);
+    assert.equal(snapshot.stats.cellBorrowedBytes, 36);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('fetchCells returns decoded cell records', async () => {
   const fixture = createObjectStreamFixture();
   const originalFetch = globalThis.fetch;
@@ -125,6 +165,15 @@ test('fetchCells returns decoded cell records', async () => {
 
     assert.deepEqual(cells.map((cell) => cell.cellKey), fixture.payloadNodeKeys);
     assert.equal(cells.reduce((sum, cell) => sum + cell.count, 0), 3);
+    assert.deepEqual(
+      cells.flatMap((cell) => Array.from(cell.attributes.teffLog8)),
+      [128, 222, 64],
+    );
+    assertFloatArrayClose(
+      new Float32Array(cells.flatMap((cell) => Array.from(cell.attributes.magAbs))),
+      [4.25, -1.46, 6.1],
+    );
+    assert.equal(provider.getSnapshot().stats.decodedCacheWritesByMask['p+t+m'], 2);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -318,4 +367,12 @@ function createPayloadBytes(records) {
   });
 
   return toArrayBuffer(bytes);
+}
+
+function assertFloatArrayClose(actual, expected) {
+  assert.equal(actual.length, expected.length);
+
+  for (let index = 0; index < actual.length; index += 1) {
+    assert.equal(Math.abs(actual[index] - expected[index]) < 1e-6, true);
+  }
 }

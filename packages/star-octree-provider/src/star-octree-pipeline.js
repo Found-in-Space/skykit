@@ -4,7 +4,12 @@ import {
   createStarCellKey,
 } from '@found-in-space/star-trees';
 import { toDeltaError } from './star-octree-errors.js';
-import { decodeStarPayload } from './star-octree-payloads.js';
+import {
+  DEFAULT_DECODE_ATTRIBUTES,
+  decodeStarPayload,
+  normalizePayloadDecodeAttributes,
+  payloadDecodeAttributeMask,
+} from './star-octree-payloads.js';
 import { createAsyncQueue } from './star-octree-queue.js';
 import { STAR_HAS_PAYLOAD } from './star-octree-format.js';
 import {
@@ -55,6 +60,7 @@ export function createStarOctreePipeline(options) {
     persistentCache: options.persistentCache,
     memoryBudgetBytes: options.memoryBudgetBytes,
   });
+  const cellMemoryStats = createCellMemoryStats();
 
   return {
     getDecodedCacheSnapshot,
@@ -69,7 +75,13 @@ export function createStarOctreePipeline(options) {
   };
 
   function getDecodedCacheSnapshot() {
-    return decodedCache.getSnapshot();
+    return {
+      ...decodedCache.getSnapshot(),
+      cellCopiedBytes: cellMemoryStats.copiedBytes,
+      cellBorrowedBytes: cellMemoryStats.borrowedBytes,
+      cellGeneratedRefs: cellMemoryStats.generatedRefs,
+      cellGeneratedPickMeta: cellMemoryStats.generatedPickMeta,
+    };
   }
 
   /**
@@ -243,7 +255,7 @@ export function createStarOctreePipeline(options) {
 
         for await (const cells of streamCellsForEntries(plan.entries, {
           sessionId: streamOptions.sessionId,
-          attributes: streamOptions.attributes,
+          attributes: context.attributes,
           coordinates: streamOptions.coordinates,
           memoryOwnership: streamOptions.memory?.ownership,
           batchMode: streamOptions.streaming?.batchMode ?? 'payload-range',
@@ -307,6 +319,8 @@ export function createStarOctreePipeline(options) {
    */
   function streamCellsForEntries(entries, cellOptions) {
     const queue = createAsyncQueue();
+    const attributes = normalizeCellAttributes(cellOptions.attributes);
+    const decodeContext = createDecodeContext(attributes);
     const currentEntries = entries.filter((entry) => (entry.role ?? 'current') === 'current');
     const nodes = currentEntries.map((entry) => entry.node);
     const work = options.workTracker?.start({
@@ -334,6 +348,7 @@ export function createStarOctreePipeline(options) {
               payloadEntries.map(async (entry) => ({
                 node: entry.node,
                 decoded: await decodePayloadEntry(entry.node, entry.buffer, {
+                  ...decodeContext,
                   signal: cellOptions.signal,
                 }),
               })),
@@ -342,14 +357,22 @@ export function createStarOctreePipeline(options) {
 
             if (cellOptions.batchMode === 'node') {
               for (const cellEntry of cellEntries) {
-                queue.push([createCell(cellEntry, cellOptions)]);
+                queue.push([createCell(cellEntry, {
+                  ...cellOptions,
+                  attributes,
+                  datasetId: decodeContext.datasetId,
+                })]);
               }
               work?.update({ status: 'streaming' });
               return;
             }
 
             if (cellEntries.length > 0) {
-              queue.push(cellEntries.map((entry) => createCell(entry, cellOptions)));
+              queue.push(cellEntries.map((entry) => createCell(entry, {
+                ...cellOptions,
+                attributes,
+                datasetId: decodeContext.datasetId,
+              })));
               work?.update({ status: 'streaming' });
             }
           },
@@ -376,9 +399,11 @@ export function createStarOctreePipeline(options) {
    * Warm payload and decoded caches for entries without emitting cells.
    *
    * @param {StarOctreeDemandEntry[]} entries
-   * @param {{ sessionId?: string; emitCachedFirst?: boolean; signal?: AbortSignal }} [warmOptions]
+   * @param {{ sessionId?: string; attributes?: string[]; emitCachedFirst?: boolean; signal?: AbortSignal }} [warmOptions]
    */
   async function warmEntries(entries, warmOptions = {}) {
+    const attributes = normalizeCellAttributes(warmOptions.attributes);
+    const decodeContext = createDecodeContext(attributes);
     const nodes = entries
       .filter((entry) => entry.node.payloadLength > 0)
       .map((entry) => entry.node);
@@ -403,6 +428,7 @@ export function createStarOctreePipeline(options) {
           await Promise.all(
             payloadEntries.map((entry) =>
               decodePayloadEntry(entry.node, entry.buffer, {
+                ...decodeContext,
                 signal: warmOptions.signal,
               }),
             ),
@@ -425,7 +451,9 @@ export function createStarOctreePipeline(options) {
    * @returns {Promise<StarCellData[]>}
    */
   async function fetchCells(streamOptions = {}) {
-    const { plan } = await planDemandForStreamOptions(streamOptions);
+    const { context, plan } = await planDemandForStreamOptions(streamOptions);
+    const attributes = normalizeCellAttributes(context.attributes);
+    const decodeContext = createDecodeContext(attributes);
     const payloadEntries = await options.indexSource.fetchNodePayloadBatchProgressive(
       plan.entries
         .filter((entry) => (entry.role ?? 'current') === 'current')
@@ -436,35 +464,46 @@ export function createStarOctreePipeline(options) {
       payloadEntries.map(async (entry) => ({
         node: entry.node,
         decoded: await decodePayloadEntry(entry.node, entry.buffer, {
+          ...decodeContext,
           signal: streamOptions.signal,
         }),
       })),
     );
 
     return cellEntries.map((entry) => createCell(entry, {
-      attributes: streamOptions.attributes,
+      attributes,
       coordinates: streamOptions.coordinates,
       memoryOwnership: streamOptions.memory?.ownership,
+      datasetId: decodeContext.datasetId,
     }));
   }
 
   /**
    * @param {StarOctreeRuntimeNode} node
    * @param {ArrayBuffer} buffer
-   * @param {{ signal?: AbortSignal }} [decodeOptions]
+   * @param {{
+   *   signal?: AbortSignal;
+   *   datasetId?: string | null;
+   *   decodeAttributes?: ReturnType<typeof normalizePayloadDecodeAttributes>;
+   *   attributeMask?: string;
+   * }} [decodeOptions]
    */
   async function decodePayloadEntry(node, buffer, decodeOptions = {}) {
     throwIfAborted(decodeOptions.signal);
-    const datasetId = options.indexSource.getSnapshot().datasetId;
-    const cacheKey = decodedCache.createKey(node, datasetId);
-    const cached = await decodedCache.get(cacheKey, node, datasetId);
+    const decodeAttributes = decodeOptions.decodeAttributes ??
+      normalizePayloadDecodeAttributes(DEFAULT_DECODE_ATTRIBUTES);
+    const attributeMask = decodeOptions.attributeMask ??
+      payloadDecodeAttributeMask(decodeAttributes);
+    const datasetId = decodeOptions.datasetId ?? options.indexSource.getSnapshot().datasetId;
+    const cacheKey = decodedCache.createKey(node, datasetId, attributeMask);
+    const cached = await decodedCache.get(cacheKey, node, datasetId, attributeMask);
     throwIfAborted(decodeOptions.signal);
     if (cached) {
       return cached;
     }
 
-    const decoded = decodeStarPayload(buffer, node, { datasetId });
-    decodedCache.set(cacheKey, decoded);
+    const decoded = decodeStarPayload(buffer, node, { attributes: decodeAttributes });
+    decodedCache.set(cacheKey, decoded, attributeMask);
     return decoded;
   }
 
@@ -474,16 +513,32 @@ export function createStarOctreePipeline(options) {
    *   attributes?: string[];
    *   coordinates?: StarOctreeCoordinateOutput;
    *   memoryOwnership?: 'borrowed' | 'copy' | 'transfer';
+   *   datasetId?: string | null;
    * }} cellOptions
    */
   function createCell(entry, cellOptions) {
-    return createStarCellData({
+    const cell = createStarCellData({
       node: entry.node,
       decoded: entry.decoded,
       attributes: cellOptions.attributes,
       coordinates: cellOptions.coordinates,
       memoryOwnership: cellOptions.memoryOwnership,
+      datasetId: cellOptions.datasetId,
     });
+    recordCellMemoryStats(cellMemoryStats, cell, entry.decoded);
+    return cell;
+  }
+
+  /**
+   * @param {string[]} attributes
+   */
+  function createDecodeContext(attributes) {
+    const decodeAttributes = normalizePayloadDecodeAttributes(attributes);
+    return {
+      datasetId: options.indexSource.getSnapshot().datasetId,
+      decodeAttributes,
+      attributeMask: payloadDecodeAttributeMask(decodeAttributes),
+    };
   }
 
   /**
@@ -582,6 +637,59 @@ export function createStarOctreePipeline(options) {
   }
 }
 
+function createCellMemoryStats() {
+  return {
+    copiedBytes: 0,
+    borrowedBytes: 0,
+    generatedRefs: 0,
+    generatedPickMeta: 0,
+  };
+}
+
+/**
+ * @param {ReturnType<typeof createCellMemoryStats>} stats
+ * @param {StarCellData} cell
+ * @param {DecodedStarSegment} decoded
+ */
+function recordCellMemoryStats(stats, cell, decoded) {
+  recordArrayMemory(stats, cell.coordinates.components, decoded.positionsPc);
+  if (cell.attributes.teffLog8) {
+    recordArrayMemory(stats, cell.attributes.teffLog8, decoded.teffLog8);
+  }
+  if (cell.attributes.magAbs) {
+    recordArrayMemory(stats, cell.attributes.magAbs, decoded.magAbs);
+  }
+  stats.generatedRefs += cell.refs?.length ?? 0;
+  stats.generatedPickMeta += cell.pickMeta?.length ?? 0;
+}
+
+/**
+ * @param {ReturnType<typeof createCellMemoryStats>} stats
+ * @param {Float32Array | Uint8Array} cellArray
+ * @param {Float32Array | Uint8Array | undefined} decodedArray
+ */
+function recordArrayMemory(stats, cellArray, decodedArray) {
+  if (
+    decodedArray &&
+    cellArray.buffer === decodedArray.buffer &&
+    cellArray.byteOffset === decodedArray.byteOffset &&
+    cellArray.byteLength === decodedArray.byteLength
+  ) {
+    stats.borrowedBytes += cellArray.byteLength;
+    return;
+  }
+
+  stats.copiedBytes += cellArray.byteLength;
+}
+
+/**
+ * @param {string[] | undefined} attributes
+ * @returns {string[]}
+ */
+function normalizeCellAttributes(attributes) {
+  return Array.isArray(attributes) ? [...attributes] : [...DEFAULT_ATTRIBUTES];
+}
+
 /**
  * @param {string} providerId
  * @param {StarOctreePayloadStreamOptions | StarOctreeCellStreamOptions} options
@@ -608,7 +716,7 @@ function createSelectionContext(providerId, options, extras = {}) {
     },
     viewRevision,
     demandRevision: extras.demandRevision ?? cellOptions.demandRevision ?? 0,
-    attributes: cellOptions.attributes ?? DEFAULT_ATTRIBUTES,
+    attributes: normalizeCellAttributes(cellOptions.attributes),
     coordinates: {
       ...DEFAULT_COORDINATES,
       ...(cellOptions.coordinates ?? {}),

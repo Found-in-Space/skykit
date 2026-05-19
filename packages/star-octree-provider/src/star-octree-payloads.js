@@ -1,5 +1,4 @@
 /**
- * @typedef {import('@found-in-space/star-trees').StarObjectRef} StarObjectRef
  * @typedef {import('@found-in-space/star-trees').DecodedStarSegment} DecodedStarSegment
  * @typedef {import('./index.d.ts').StarOctreeRuntimeNode} StarOctreeRuntimeNode
  */
@@ -8,6 +7,7 @@ export const PAYLOAD_RECORD_SIZE = 16;
 export const DEFAULT_PAYLOAD_MAX_GAP_BYTES = 131_072;
 export const DEFAULT_PAYLOAD_MAX_BATCH_BYTES = 512_000;
 export const DEFAULT_MAX_INFLIGHT_PAYLOAD_BATCHES = 8;
+export const DEFAULT_DECODE_ATTRIBUTES = Object.freeze(['position', 'teffLog8', 'magAbs']);
 
 /**
  * @param {ArrayBuffer} compressed
@@ -130,11 +130,43 @@ export function planPayloadRangeBatches(nodes, options = {}) {
 }
 
 /**
+ * @param {readonly string[] | { teffLog8?: boolean; magAbs?: boolean } | undefined} attributes
+ */
+export function normalizePayloadDecodeAttributes(attributes = DEFAULT_DECODE_ATTRIBUTES) {
+  if (attributes && !Array.isArray(attributes) && typeof attributes === 'object') {
+    const attributeOptions =
+      /** @type {{ teffLog8?: boolean; magAbs?: boolean }} */ (attributes);
+    return {
+      teffLog8: attributeOptions.teffLog8 === true,
+      magAbs: attributeOptions.magAbs === true,
+    };
+  }
+
+  const requested = new Set(Array.isArray(attributes) ? attributes : DEFAULT_DECODE_ATTRIBUTES);
+  return {
+    teffLog8: requested.has('teffLog8'),
+    magAbs: requested.has('magAbs'),
+  };
+}
+
+/**
+ * @param {readonly string[] | { teffLog8?: boolean; magAbs?: boolean } | undefined} attributes
+ */
+export function payloadDecodeAttributeMask(attributes = DEFAULT_DECODE_ATTRIBUTES) {
+  const normalized = normalizePayloadDecodeAttributes(attributes);
+  return [
+    'p',
+    ...(normalized.teffLog8 ? ['t'] : []),
+    ...(normalized.magAbs ? ['m'] : []),
+  ].join('+');
+}
+
+/**
  * Decode one decompressed star payload into provider-native parsec positions.
  *
  * @param {ArrayBuffer} buffer
  * @param {StarOctreeRuntimeNode} node
- * @param {{ datasetId?: string | null }} options
+ * @param {{ attributes?: readonly string[] | { teffLog8?: boolean; magAbs?: boolean } }} options
  * @returns {DecodedStarSegment}
  */
 export function decodeStarPayload(buffer, node, options = {}) {
@@ -146,38 +178,35 @@ export function decodeStarPayload(buffer, node, options = {}) {
 
   const count = Math.floor(buffer.byteLength / PAYLOAD_RECORD_SIZE);
   const view = new DataView(buffer);
+  const decodeAttributes = normalizePayloadDecodeAttributes(options.attributes);
   const positionsPc = new Float32Array(count * 3);
-  const teffLog8 = new Uint8Array(count);
-  const magAbs = new Float32Array(count);
-  /** @type {StarObjectRef[]} */
-  const refs = [];
+  const teffLog8 = decodeAttributes.teffLog8 ? new Uint8Array(count) : null;
+  const magAbs = decodeAttributes.magAbs ? new Float32Array(count) : null;
 
   for (let ordinal = 0; ordinal < count; ordinal += 1) {
     const offset = ordinal * PAYLOAD_RECORD_SIZE;
     const localX = view.getFloat32(offset, true);
     const localY = view.getFloat32(offset + 4, true);
     const localZ = view.getFloat32(offset + 8, true);
-    const magnitude = view.getInt16(offset + 12, true);
 
     positionsPc[ordinal * 3] = node.centerX + localX * node.halfSize;
     positionsPc[ordinal * 3 + 1] = node.centerY + localY * node.halfSize;
     positionsPc[ordinal * 3 + 2] = node.centerZ + localZ * node.halfSize;
-    magAbs[ordinal] = magnitude / 100;
-    teffLog8[ordinal] = view.getUint8(offset + 14);
-    refs.push({
-      datasetId: options.datasetId ?? null,
-      level: node.level,
-      mortonCode: node.mortonCode,
-      ordinal,
-    });
+
+    if (magAbs) {
+      magAbs[ordinal] = view.getInt16(offset + 12, true) / 100;
+    }
+
+    if (teffLog8) {
+      teffLog8[ordinal] = view.getUint8(offset + 14);
+    }
   }
 
   return {
     count,
     positionsPc,
-    teffLog8,
-    magAbs,
-    refs,
+    ...(teffLog8 ? { teffLog8 } : {}),
+    ...(magAbs ? { magAbs } : {}),
   };
 }
 

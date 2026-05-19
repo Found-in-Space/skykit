@@ -1,7 +1,8 @@
-const DECODED_CACHE_VERSION = 1;
+const DECODED_CACHE_VERSION = 2;
 const DEFAULT_DECODED_CACHE_BUDGET_BYTES = 64 * 1024 * 1024;
 const PERSISTENT_DECODED_CACHE_NAME =
-  'skykit-star-octree-provider-decoded-alpha-v1';
+  'skykit-star-octree-provider-decoded-alpha-v2';
+const DEFAULT_ATTRIBUTE_MASK = 'p+t+m';
 
 /**
  * @typedef {import('./index.d.ts').StarOctreeRuntimeNode} StarOctreeRuntimeNode
@@ -28,6 +29,14 @@ export function createDecodedPayloadCache(options) {
   let evictions = 0;
   let usedBytes = 0;
   let clock = 0;
+  /** @type {Record<string, number>} */
+  const hitsByMask = {};
+  /** @type {Record<string, number>} */
+  const missesByMask = {};
+  /** @type {Record<string, number>} */
+  const writesByMask = {};
+  /** @type {Record<string, number>} */
+  const persistentHitsByMask = {};
 
   const memoryBudgetBytes =
     options.memoryBudgetBytes ?? DEFAULT_DECODED_CACHE_BUDGET_BYTES;
@@ -36,11 +45,12 @@ export function createDecodedPayloadCache(options) {
     /**
      * @param {StarOctreeRuntimeNode} node
      */
-    createKey(node, datasetId = options.datasetId) {
+    createKey(node, datasetId = options.datasetId, attributeMask = DEFAULT_ATTRIBUTE_MASK) {
       return createDecodedCacheKey({
         sourceIdentity: options.sourceIdentity,
         datasetId,
         node,
+        attributeMask,
       });
     },
 
@@ -48,12 +58,14 @@ export function createDecodedPayloadCache(options) {
      * @param {string} key
      * @param {StarOctreeRuntimeNode} node
      * @param {string | null | undefined} datasetId
+     * @param {string} [attributeMask]
      * @returns {Promise<DecodedStarSegment | null>}
      */
-    async get(key, node, datasetId = options.datasetId) {
+    async get(key, node, datasetId = options.datasetId, attributeMask = DEFAULT_ATTRIBUTE_MASK) {
       const entry = memory.get(key);
       if (entry) {
         hits += 1;
+        incrementCounter(hitsByMask, attributeMask);
         clock += 1;
         entry.lastUsed = clock;
         return entry.segment;
@@ -62,11 +74,13 @@ export function createDecodedPayloadCache(options) {
       const persistent = await readPersistent(key, node, datasetId);
       if (persistent) {
         persistentHits += 1;
-        set(key, persistent);
+        incrementCounter(persistentHitsByMask, attributeMask);
+        set(key, persistent, attributeMask);
         return persistent;
       }
 
       misses += 1;
+      incrementCounter(missesByMask, attributeMask);
       return null;
     },
 
@@ -82,6 +96,10 @@ export function createDecodedPayloadCache(options) {
         decodedPersistentCacheHits: persistentHits,
         decodedCacheEvictions: evictions,
         decodedCacheBudgetBytes: memoryBudgetBytes,
+        decodedCacheHitsByMask: { ...hitsByMask },
+        decodedCacheMissesByMask: { ...missesByMask },
+        decodedCacheWritesByMask: { ...writesByMask },
+        decodedPersistentCacheHitsByMask: { ...persistentHitsByMask },
       };
     },
   };
@@ -89,8 +107,9 @@ export function createDecodedPayloadCache(options) {
   /**
    * @param {string} key
    * @param {DecodedStarSegment} segment
+   * @param {string} [attributeMask]
    */
-  function set(key, segment) {
+  function set(key, segment, attributeMask = DEFAULT_ATTRIBUTE_MASK) {
     const bytes = estimateDecodedBytes(segment);
     const current = memory.get(key);
     if (current) {
@@ -105,6 +124,7 @@ export function createDecodedPayloadCache(options) {
     });
     usedBytes += bytes;
     writes += 1;
+    incrementCounter(writesByMask, attributeMask);
     evictToBudget();
     void writePersistent(key, segment).catch(() => {});
   }
@@ -177,6 +197,7 @@ export function createDecodedPayloadCache(options) {
  *   sourceIdentity: string;
  *   datasetId?: string | null;
  *   node: StarOctreeRuntimeNode;
+ *   attributeMask?: string;
  * }} options
  */
 export function createDecodedCacheKey(options) {
@@ -185,6 +206,7 @@ export function createDecodedCacheKey(options) {
     options.sourceIdentity,
     options.datasetId ?? 'unknown-dataset',
     'star-record-16',
+    `attrs:${options.attributeMask ?? DEFAULT_ATTRIBUTE_MASK}`,
     options.node.payloadOffset,
     options.node.payloadLength,
   ].join(':');
@@ -263,12 +285,6 @@ function decodePersistentSegment(buffer, node, datasetId) {
     positionsPc,
     ...(teffLog8 ? { teffLog8 } : {}),
     ...(magAbs ? { magAbs } : {}),
-    refs: Array.from({ length: count }, (_, ordinal) => ({
-      datasetId,
-      level: node.level,
-      mortonCode: node.mortonCode,
-      ordinal,
-    })),
   };
 }
 
@@ -277,4 +293,12 @@ function decodePersistentSegment(buffer, node, datasetId) {
  */
 function createPersistentUrl(key) {
   return `https://cache.local/skykit/star-octree-provider/decoded/${encodeURIComponent(key)}`;
+}
+
+/**
+ * @param {Record<string, number>} counter
+ * @param {string} key
+ */
+function incrementCounter(counter, key) {
+  counter[key] = (counter[key] ?? 0) + 1;
 }

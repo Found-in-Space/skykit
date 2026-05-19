@@ -76,6 +76,24 @@ Upserts and removes mutate that cell store, then rebuild/coalesce the aggregate
 arrays. The Three object itself is stable. Retained cells are not removed and
 re-added because a payload batch changed shape.
 
+## Payload Decode And Memory
+
+Payload decode is attribute-aware. Positions are always decoded, but optional
+numeric columns such as `teffLog8` and `magAbs` are decoded only when requested
+by the active stream/session/fetch attributes. Object refs and pick metadata are
+not payload decode work; they are generated lazily when the emitted cell asks
+for `objectRef` or `pickMeta`.
+
+The default same-thread fast path is borrowed typed-array memory. When a cell is
+created without a coordinate transform and with borrowed ownership, its
+`StarCellData` arrays reuse the decoded-cache typed arrays directly. Borrowed
+decoded buffers must be treated as immutable after emission.
+
+`SharedArrayBuffer` is intentionally not part of the current streaming path. It
+may become useful for a future decode-worker mode, but it requires browser
+cross-origin isolation and render-path validation for WebGL uploads. Until that
+architecture exists, normal borrowed `ArrayBuffer` views are the zero-copy path.
+
 ## Diagnostics To Keep
 
 When investigating streaming performance, prefer cell-level metrics:
@@ -89,6 +107,9 @@ When investigating streaming performance, prefer cell-level metrics:
 - current live star count
 - duplicate live cell keys, which should always be zero
 - largest single cell and largest aggregate rebuild size
+- decoded-cache hits, misses, and writes by attribute mask
+- copied versus borrowed cell bytes
+- generated object refs and pick metadata counts
 
 Useful checks during rapid motion:
 

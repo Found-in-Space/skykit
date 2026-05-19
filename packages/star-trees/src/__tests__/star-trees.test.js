@@ -71,13 +71,57 @@ test('createStarCellData omits unrequested attributes', () => {
   assert.equal(estimateStarCellBytes(cell), 12);
 });
 
-test('createStarCellData applies coordinate transforms during packing', () => {
+test('createStarCellData reuses decoded buffers for borrowed no-transform cells', () => {
+  const decoded = {
+    count: 2,
+    positionsPc: new Float32Array([1, 2, 3, 4, 5, 6]),
+    teffLog8: new Uint8Array([100, 120]),
+    magAbs: new Float32Array([1.5, 2.5]),
+  };
   const cell = createStarCellData({
     node: createNode(),
-    decoded: {
-      count: 1,
-      positionsPc: new Float32Array([10, 20, 30]),
-    },
+    decoded,
+    attributes: ['position', 'teffLog8', 'magAbs'],
+  });
+
+  assert.equal(cell.coordinates.components, decoded.positionsPc);
+  assert.equal(cell.attributes.teffLog8, decoded.teffLog8);
+  assert.equal(cell.attributes.magAbs, decoded.magAbs);
+});
+
+test('createStarCellData copy mode allocates independent typed arrays', () => {
+  const decoded = {
+    count: 1,
+    positionsPc: new Float32Array([1, 2, 3]),
+    teffLog8: new Uint8Array([100]),
+    magAbs: new Float32Array([1.5]),
+  };
+  const cell = createStarCellData({
+    node: createNode(),
+    decoded,
+    attributes: ['position', 'teffLog8', 'magAbs'],
+    memoryOwnership: 'copy',
+  });
+
+  assert.notEqual(cell.coordinates.components, decoded.positionsPc);
+  assert.notEqual(cell.coordinates.components.buffer, decoded.positionsPc.buffer);
+  assert.notEqual(cell.attributes.teffLog8, decoded.teffLog8);
+  assert.notEqual(cell.attributes.teffLog8.buffer, decoded.teffLog8.buffer);
+  assert.notEqual(cell.attributes.magAbs, decoded.magAbs);
+  assert.notEqual(cell.attributes.magAbs.buffer, decoded.magAbs.buffer);
+  assert.deepEqual(Array.from(cell.coordinates.components), [1, 2, 3]);
+  assert.deepEqual(Array.from(cell.attributes.teffLog8), [100]);
+  assertFloatArrayClose(cell.attributes.magAbs, [1.5]);
+});
+
+test('createStarCellData applies coordinate transforms during packing', () => {
+  const decoded = {
+    count: 1,
+    positionsPc: new Float32Array([10, 20, 30]),
+  };
+  const cell = createStarCellData({
+    node: createNode(),
+    decoded,
     attributes: ['position'],
     coordinates: {
       name: 'render-position',
@@ -94,6 +138,8 @@ test('createStarCellData applies coordinate transforms during packing', () => {
 
   assert.equal(cell.coordinates.name, 'render-position');
   assert.deepEqual(cell.coordinates.units, ['render', 'render', 'render']);
+  assert.notEqual(cell.coordinates.components, decoded.positionsPc);
+  assert.notEqual(cell.coordinates.components.buffer, decoded.positionsPc.buffer);
   assertFloatArrayClose(cell.coordinates.components, [0.01, 1.02, -0.03]);
 });
 

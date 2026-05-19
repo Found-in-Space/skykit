@@ -51,29 +51,34 @@ export function createStarCellData(options) {
   const includePickMeta = attributes.includes('pickMeta');
   const includeRefs = attributes.includes('objectRef');
   const { node, decoded } = options;
+  const memoryOwnership = options.memoryOwnership ?? 'borrowed';
   const mortonCode = resolveNodeMortonCode(node);
   const cellKey = createStarCellKey(node.level, mortonCode);
-  const positions = new Float32Array(decoded.count * 3);
-  const teffLog8 = includeTeffLog8 ? new Uint8Array(decoded.count) : null;
-  const magAbs = includeMagAbs ? new Float32Array(decoded.count) : null;
+  const canBorrowPositions =
+    memoryOwnership === 'borrowed' &&
+    !coordinates.transformPosition &&
+    decoded.positionsPc.length === decoded.count * 3;
+  const positions = canBorrowPositions
+    ? decoded.positionsPc
+    : new Float32Array(decoded.count * 3);
+  const teffLog8 = includeTeffLog8
+    ? createCellTeffLog8Array(decoded.teffLog8, decoded.count, memoryOwnership)
+    : null;
+  const magAbs = includeMagAbs
+    ? createCellMagAbsArray(decoded.magAbs, decoded.count, memoryOwnership)
+    : null;
   /** @type {import('./index.d.ts').StarObjectRef[] | undefined} */
   let refs;
   /** @type {import('./index.d.ts').StarPickMeta[] | undefined} */
   const pickMeta = includePickMeta ? [] : undefined;
 
-  writePositions({
-    output: positions,
-    node,
-    decoded,
-    coordinates,
-  });
-
-  if (teffLog8) {
-    teffLog8.set(decoded.teffLog8 ?? new Uint8Array(decoded.count));
-  }
-
-  if (magAbs) {
-    magAbs.set(decoded.magAbs ?? new Float32Array(decoded.count));
+  if (!canBorrowPositions) {
+    writePositions({
+      output: positions,
+      node,
+      decoded,
+      coordinates,
+    });
   }
 
   if (includeRefs) {
@@ -147,7 +152,7 @@ export function createStarCellData(options) {
     ...(pickMeta ? { pickMeta } : {}),
   };
 
-  if (options.memoryOwnership === 'transfer') {
+  if (memoryOwnership === 'transfer') {
     const transferBuffers = [
       positions.buffer,
       ...(teffLog8 ? [teffLog8.buffer] : []),
@@ -535,6 +540,40 @@ function normalizeCoordinates(coordinates) {
       ? { transformPosition: coordinates.transformPosition }
       : {}),
   };
+}
+
+/**
+ * @param {Uint8Array | undefined} source
+ * @param {number} count
+ * @param {'borrowed' | 'copy' | 'transfer'} memoryOwnership
+ */
+function createCellTeffLog8Array(source, count, memoryOwnership) {
+  if (memoryOwnership === 'borrowed' && source && source.length === count) {
+    return source;
+  }
+
+  const output = new Uint8Array(count);
+  if (source) {
+    output.set(source.subarray(0, count));
+  }
+  return output;
+}
+
+/**
+ * @param {Float32Array | undefined} source
+ * @param {number} count
+ * @param {'borrowed' | 'copy' | 'transfer'} memoryOwnership
+ */
+function createCellMagAbsArray(source, count, memoryOwnership) {
+  if (memoryOwnership === 'borrowed' && source && source.length === count) {
+    return source;
+  }
+
+  const output = new Float32Array(count);
+  if (source) {
+    output.set(source.subarray(0, count));
+  }
+  return output;
 }
 
 /**

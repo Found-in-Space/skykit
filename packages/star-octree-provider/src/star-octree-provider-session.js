@@ -56,7 +56,7 @@ const DEFAULT_COORDINATES = {
  *   ) => AsyncIterable<StarCellData[]>;
  *   warmEntries?: (
  *     entries: StarOctreeDemandEntry[],
- *     options?: { sessionId?: string; emitCachedFirst?: boolean; signal?: AbortSignal }
+ *     options?: { sessionId?: string; attributes?: string[]; emitCachedFirst?: boolean; signal?: AbortSignal }
  *   ) => Promise<void>;
  * }} SessionSource
  */
@@ -464,6 +464,7 @@ export function createStarOctreeProviderSession(createOptions) {
 
     const prefetch = createOptions.source.warmEntries(prefetchEntries, {
       sessionId,
+      attributes: options.attributes,
       emitCachedFirst: options.streaming.emitCachedFirst,
       signal,
     });
