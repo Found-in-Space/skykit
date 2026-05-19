@@ -124,6 +124,10 @@ const journey = createJourney({
 const scene = journey.resolveSceneSpec('hyades', { fromSceneId: 'sol' });
 ```
 
+For orbit cameras, `normal` is optional. If omitted, SkyKit asks spatial to
+derive the insertion plane from the approach vector. If supplied, spatial plans
+a smooth insertion into that requested plane.
+
 The interactive runtime should be event-driven:
 
 ```txt

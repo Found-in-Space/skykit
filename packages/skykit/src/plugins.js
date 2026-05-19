@@ -399,6 +399,7 @@ export function createSkykitJourneyPlugin(options = {}) {
   let timedPreloadHintsEmitted = false;
   /** @type {import('./index.d.ts').SkykitThreePluginContext | null} */
   let pluginContext = null;
+  const resolvedJourneyOrbits = new Map();
   /** @type {(() => void) | null} */
   let unsubscribeController = null;
   /** @type {Promise<unknown>} */
@@ -597,21 +598,26 @@ export function createSkykitJourneyPlugin(options = {}) {
     context.requestViewState({ targetPc: lookTarget }, id);
     await context.actions.invoke(SKYKIT_ACTIONS.navigation.lockAt, {
       ...lookTarget,
-      up: destinationOrbit.normal,
+      ...(destinationOrbit.normal ? { up: destinationOrbit.normal } : {}),
       dwellSecs: resolveJourneyDwellSecs(camera, scene.travel),
       recenterSpeed: 0.06,
     }, source);
 
     if (isInitialJourneyEvent(event)) {
+      const initialNormal = destinationOrbit.normal ?? { x: 0, y: 1, z: 0 };
+      rememberResolvedJourneyOrbit(scene, {
+        ...destinationOrbit,
+        normal: initialNormal,
+      });
       context.requestViewState({
-        observerPc: defaultOrbitPosition(destinationOrbit.center, destinationOrbit.radius, destinationOrbit.normal),
+        observerPc: defaultOrbitPosition(destinationOrbit.center, destinationOrbit.radius, initialNormal),
         targetPc: lookTarget,
       }, id);
       await context.actions.invoke(SKYKIT_ACTIONS.navigation.orbit, {
         center: destinationOrbit.center,
         radius: destinationOrbit.radius,
         angularSpeedRadPerSec: destinationOrbit.angularSpeedRadPerSec,
-        normal: destinationOrbit.normal,
+        normal: initialNormal,
       }, source);
       return;
     }
@@ -625,6 +631,7 @@ export function createSkykitJourneyPlugin(options = {}) {
       sampleStepSecs: travel.sampleStepSecs,
     });
     if (route && Array.isArray(route.points) && route.points.length >= 2) {
+      rememberResolvedJourneyOrbit(scene, route.arrivalAction);
       await context.actions.invoke(SKYKIT_ACTIONS.navigation.flyPolyline, {
         points: route.points,
         durationSecs: travel.durationSecs,
@@ -635,11 +642,16 @@ export function createSkykitJourneyPlugin(options = {}) {
       }, source);
       return;
     }
+    const fallbackNormal = destinationOrbit.normal ?? { x: 0, y: 1, z: 0 };
+    rememberResolvedJourneyOrbit(scene, {
+      ...destinationOrbit,
+      normal: fallbackNormal,
+    });
     await context.actions.invoke(SKYKIT_ACTIONS.navigation.orbit, {
       center: destinationOrbit.center,
       radius: destinationOrbit.radius,
       angularSpeedRadPerSec: destinationOrbit.angularSpeedRadPerSec,
-      normal: destinationOrbit.normal,
+      normal: fallbackNormal,
     }, source);
   }
 
@@ -654,7 +666,7 @@ export function createSkykitJourneyPlugin(options = {}) {
       center,
       radius: positiveFinite(camera.radiusPc, 1),
       angularSpeedRadPerSec: finiteNumber(camera.angularSpeedRadPerSec, 0.1),
-      normal: normalizeDirectionVector(camera.normal, { x: 0, y: 1, z: 0 }),
+      ...(camera.normal != null ? { normal: normalizeDirectionVector(camera.normal, { x: 0, y: 1, z: 0 }) } : {}),
     };
   }
 
@@ -696,11 +708,28 @@ export function createSkykitJourneyPlugin(options = {}) {
       ? /** @type {{ previousSceneId?: unknown }} */ (event).previousSceneId
       : null;
     if (typeof previousSceneId !== 'string') return null;
+    const resolved = resolvedJourneyOrbits.get(previousSceneId);
+    if (resolved) return resolved;
     const previousScene = controller?.graph.getScene(previousSceneId);
     const camera = previousScene?.camera && typeof previousScene.camera === 'object'
       ? /** @type {Record<string, unknown>} */ (previousScene.camera)
       : null;
     return camera && camera.type === 'orbit' ? resolveJourneyOrbit(camera, context) : null;
+  }
+
+  /**
+   * @param {Record<string, unknown>} scene
+   * @param {{ center: Vector3Like; radius: number; angularSpeedRadPerSec: number; normal: Vector3Like }} orbit
+   */
+  function rememberResolvedJourneyOrbit(scene, orbit) {
+    const sceneId = typeof scene.sceneId === 'string' ? scene.sceneId : null;
+    if (!sceneId) return;
+    resolvedJourneyOrbits.set(sceneId, {
+      center: cloneVector3(orbit.center),
+      radius: orbit.radius,
+      angularSpeedRadPerSec: orbit.angularSpeedRadPerSec,
+      normal: cloneVector3(orbit.normal),
+    });
   }
 
   /**

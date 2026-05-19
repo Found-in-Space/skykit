@@ -44,6 +44,10 @@ const evaluator = createTimedJourneyEvaluator({
 const frame = evaluator.evaluate(5);
 ```
 
+Orbit cameras require `radiusPc` and `angularSpeedRadPerSec`. `normal` is
+optional: omit it to let SkyKit/spatial derive a natural insertion plane from
+the approach vector, or provide it to request a specific orbital plane.
+
 Journey waypoints, cues, scenes, and guides are independent authored IDs plus
 coordinates. They do not use star IDs directly. A lesson or game that wants a
 journey target to follow a star should keep the star's `StarObjectRef` in

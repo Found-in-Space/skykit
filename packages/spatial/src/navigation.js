@@ -1,4 +1,5 @@
 import {
+  addVectors,
   clonePose,
   cloneQuaternion,
   cloneVector3,
@@ -21,9 +22,15 @@ import {
 /** @typedef {import('./index.d.ts').SpatialQuaternion} SpatialQuaternion */
 /** @typedef {import('./index.d.ts').SpatialPose} SpatialPose */
 /** @typedef {import('./index.d.ts').SpatialMotionUpdateInput} SpatialMotionUpdateInput */
+/** @typedef {{ center: SpatialVector3; radius: number; angularSpeedRadPerSec: number; normal: SpatialVector3 | null; normalSpecified: boolean }} NormalizedOrbitTransferOrbit */
+/** @typedef {NormalizedOrbitTransferOrbit & { normal: SpatialVector3 }} ResolvedOrbitTransferOrbit */
+/** @typedef {{ radial: SpatialVector3; orbit: ResolvedOrbitTransferOrbit }} OrbitInsertionCandidate */
+/** @typedef {{ x: number[]; y: number[]; z: number[]; durationSecs: number }} QuinticVectorCoefficients */
 
 const EPSILON = 1e-9;
 const DEFAULT_ROUTE_SETTLE_SECS = 0.5;
+const ORBIT_INSERT_CANDIDATE_COUNT = 48;
+const ORBIT_INSERT_COST_SAMPLES = 32;
 
 /**
  * @param {Iterable<unknown>} [points]
@@ -122,37 +129,45 @@ export function deriveSpatialOrbitAngle(input) {
 export function buildSpatialOrbitalInsertRoute(start, options = {}) {
   const startPosition = normalizeOptionalVector3(start);
   if (!startPosition) return null;
-  const automation = createOrbitalInsertState(startPosition, options);
-  if (!automation) return null;
-
+  const center = normalizeOptionalVector3(options.center);
+  if (!center) return null;
+  const currentDistance = pointDistance(startPosition, center);
+  const radius = positiveFinite(options.radius, currentDistance || 1);
+  const angularSpeedRadPerSec = finiteNumber(options.angularSpeed, 0.1);
   const sampleStepSeconds = positiveFinite(options.sampleStepSecs, 1 / 60);
-  const defaultMaxPoints = automation.durationSecs != null
-    ? Math.ceil((automation.durationSecs + DEFAULT_ROUTE_SETTLE_SECS) / sampleStepSeconds) + 1
-    : 512;
+  const durationSecs = positiveFinite(options.durationSecs, 5);
+  const defaultMaxPoints = Math.ceil((durationSecs + DEFAULT_ROUTE_SETTLE_SECS) / sampleStepSeconds) + 1;
   const maxPoints = Math.max(2, Math.floor(positiveFinite(options.maxPoints, defaultMaxPoints)));
-  const points = [cloneVector3(startPosition)];
-  let position = cloneVector3(startPosition);
-
-  while (points.length < maxPoints) {
-    const result = advanceOrbitalInsert(position, automation, sampleStepSeconds);
-    position = result.position;
-    const previous = points[points.length - 1];
-    if (pointDistance(previous, position) > 1e-6) {
-      points.push(cloneVector3(position));
-    }
-    if (!result.active) break;
-  }
-
-  return {
-    points,
-    arrivalAction: {
-      type: 'orbit',
-      center: cloneVector3(automation.center),
-      radius: automation.radius,
-      angularSpeedRadPerSec: automation.angularSpeed,
-      normal: cloneVector3(automation.orbitNormal),
-    },
-  };
+  const destinationOrbit = normalizeOrbitTransferOrbit({
+    center,
+    radius,
+    angularSpeedRadPerSec,
+    ...(options.orbitNormal != null ? { normal: options.orbitNormal } : {}),
+  });
+  if (!destinationOrbit) return null;
+  const approachVelocity = normalizeOptionalVector3(options.approachVelocity)
+    ?? resolveOrbitApproachVelocity(startPosition, null, destinationOrbit, durationSecs);
+  const transferOrbit = resolveTransferDestinationOrbit({
+    start: startPosition,
+    sourceOrbit: null,
+    destinationOrbit,
+    approachVelocity,
+  });
+  const route = createPhysicsLiteOrbitInsertRoute({
+    start: startPosition,
+    sourceOrbit: null,
+    destinationOrbit: transferOrbit,
+    durationSecs,
+    sampleStepSecs: sampleStepSeconds,
+    maxPoints,
+    approachVelocity,
+  });
+  return route
+    ? {
+        points: route.points,
+        arrivalAction: route.arrivalAction,
+      }
+    : null;
 }
 
 /**
@@ -178,43 +193,43 @@ export function createOrbitTransferRoute(options = {}) {
   const sameCenter = sourceOrbit
     ? pointDistance(sourceOrbit.center, destinationOrbit.center) < 1e-6
     : currentDistance <= destinationOrbit.radius * 1.01;
+  const approachVelocity = normalizeOptionalVector3(options.approachVelocity)
+    ?? resolveOrbitApproachVelocity(start, sourceOrbit, destinationOrbit, durationSecs);
 
-  if (sameCenter) {
+  const transferOrbit = resolveTransferDestinationOrbit({
+    start,
+    sourceOrbit,
+    destinationOrbit,
+    approachVelocity,
+  });
+
+  if (sameCenter && shouldUseSameCenterOrbitTransfer(sourceOrbit, transferOrbit)) {
     return {
       points: createSameCenterOrbitTransferPoints({
         start,
         sourceOrbit,
-        destinationOrbit,
+        destinationOrbit: transferOrbit,
         durationSecs,
         sampleStepSecs,
         maxPoints,
       }),
-      arrivalAction: createOrbitArrivalAction(destinationOrbit),
+      arrivalAction: createOrbitArrivalAction(transferOrbit),
       departureSpeed: sourceOrbit ? orbitSpeed(sourceOrbit) : 0,
-      arrivalSpeed: orbitSpeed(destinationOrbit),
+      arrivalSpeed: orbitSpeed(transferOrbit),
     };
   }
 
-  const approachVelocity = normalizeOptionalVector3(options.approachVelocity)
-    ?? (sourceOrbit ? orbitTangentVelocity(start, sourceOrbit) : null);
-  const route = buildSpatialOrbitalInsertRoute(start, {
-    center: destinationOrbit.center,
-    radius: destinationOrbit.radius,
-    angularSpeed: destinationOrbit.angularSpeedRadPerSec,
-    orbitNormal: destinationOrbit.normal,
+  const route = createPhysicsLiteOrbitInsertRoute({
+    start,
+    sourceOrbit,
+    destinationOrbit: transferOrbit,
     durationSecs,
     sampleStepSecs,
     maxPoints,
-    mode: options.mode ?? 'specified-orbit',
     approachVelocity: approachVelocity ?? undefined,
   });
   if (!route) return null;
-  return {
-    points: route.points.map(cloneVector3),
-    arrivalAction: createOrbitArrivalAction(destinationOrbit),
-    departureSpeed: sourceOrbit ? orbitSpeed(sourceOrbit) : 0,
-    arrivalSpeed: orbitSpeed(destinationOrbit),
-  };
+  return route;
 }
 
 /**
@@ -556,20 +571,32 @@ export function createSpatialNavigationAutomation(options = {}) {
    * @param {unknown} center
    * @param {import('./index.d.ts').SpatialOrbitalInsertOptions} nextOptions
    * @param {SpatialPose | null} [pose]
+   * @param {import('./index.d.ts').SpatialOrbitTransferOrbit | null} [pendingSourceOrbit]
    */
-  function beginOrbitalInsert(center, nextOptions, pose = null) {
+  function beginOrbitalInsert(center, nextOptions, pose = null, pendingSourceOrbit = null) {
     const normalizedCenter = normalizeOptionalVector3(center);
     const currentPose = pose ?? null;
+    const activeOrbit = movementAutomation?.type === 'orbit' ? movementAutomation : null;
+    const sourceOrbit = pendingSourceOrbit ?? (activeOrbit
+      ? {
+          center: activeOrbit.center,
+          radius: activeOrbit.radius,
+          angularSpeedRadPerSec: activeOrbit.angularSpeed,
+          normal: activeOrbit.orbitNormal,
+        }
+      : null);
     if (!normalizedCenter || !currentPose) {
       movementAutomation = {
         type: 'pendingOrbitalInsert',
         center: normalizedCenter ?? { x: 0, y: 0, z: 0 },
         options: { ...nextOptions },
+        sourceOrbit,
       };
       return Boolean(normalizedCenter);
     }
     const distance = pointDistance(currentPose.position, normalizedCenter);
     const radius = positiveFinite(nextOptions.radius, distance || 1);
+    const angularSpeed = finiteNumber(nextOptions.angularSpeed, defaults.angularSpeed);
     const onInserted = typeof nextOptions.onInserted === 'function' ? nextOptions.onInserted : null;
     if (distance <= radius * 1.01) {
       beginOrbit(normalizedCenter, {
@@ -584,17 +611,40 @@ export function createSpatialNavigationAutomation(options = {}) {
       onInserted?.();
       return true;
     }
-    const automation = createOrbitalInsertState(currentPose.position, {
-      ...nextOptions,
-      center: normalizedCenter,
-      radius,
-      approachVelocity: nextOptions.approachVelocity ?? lastSnapshot.velocity,
+    const approachVelocity = nextOptions.approachVelocity ?? lastSnapshot.velocity;
+    const durationSecs = resolveDuration(nextOptions)
+      ?? Math.max(
+        0.5,
+        distance / Math.max(
+          positiveFinite(nextOptions.approachSpeed ?? nextOptions.speed, defaults.speed),
+          EPSILON,
+        ),
+      );
+    const route = createOrbitTransferRoute({
+      start: currentPose.position,
+      sourceOrbit,
+      destinationOrbit: {
+        center: normalizedCenter,
+        radius,
+        angularSpeedRadPerSec: angularSpeed,
+        ...(nextOptions.orbitNormal != null ? { normal: nextOptions.orbitNormal } : {}),
+      },
+      durationSecs,
+      sampleStepSecs: nextOptions.sampleStepSecs,
+      maxPoints: nextOptions.maxPoints,
+      approachVelocity,
     });
-    if (!automation) return false;
-    movementAutomation = {
-      ...automation,
-      onInserted,
-    };
+    if (!route || !beginFlyPolyline(route.points, {
+      ...nextOptions,
+      durationSecs,
+      currentSpeed: route.departureSpeed,
+      arrivalSpeed: route.arrivalSpeed,
+      arrivalThreshold: nextOptions.arrivalThreshold,
+      arrivalAction: route.arrivalAction,
+      onArrive: onInserted ?? undefined,
+    })) {
+      return false;
+    }
     return true;
   }
 
@@ -648,7 +698,7 @@ export function createSpatialNavigationAutomation(options = {}) {
         : clonePose(pose);
     }
     if (movementAutomation.type === 'pendingOrbitalInsert') {
-      return beginOrbitalInsert(movementAutomation.center, movementAutomation.options, pose)
+      return beginOrbitalInsert(movementAutomation.center, movementAutomation.options, pose, movementAutomation.sourceOrbit)
         ? updateMovement(pose, dt)
         : clonePose(pose);
     }
@@ -667,27 +717,6 @@ export function createSpatialNavigationAutomation(options = {}) {
           movementAutomation.angle,
           movementAutomation.orbitNormal,
         ),
-        orientation: cloneQuaternion(pose.orientation),
-      };
-    }
-    if (movementAutomation.type === 'orbitalInsert') {
-      const result = advanceOrbitalInsert(pose.position, movementAutomation, dt);
-      if (result.enteredOrbit) {
-        const callback = movementAutomation.onInserted;
-        movementAutomation = {
-          type: 'orbit',
-          center: cloneVector3(movementAutomation.center),
-          radius: movementAutomation.radius,
-          angularSpeed: movementAutomation.angularSpeed,
-          angle: result.angle ?? 0,
-          orbitNormal: cloneVector3(movementAutomation.orbitNormal),
-        };
-        callback?.();
-      } else if (!result.active) {
-        movementAutomation = null;
-      }
-      return {
-        position: result.position,
         orientation: cloneQuaternion(pose.orientation),
       };
     }
@@ -736,33 +765,44 @@ export function createSpatialNavigationAutomation(options = {}) {
   function updateFlyPolyline(pose, dt, automation) {
     const remaining = Math.max(automation.route.totalLength - automation.distance, 0);
     const finalPoint = automation.route.points[automation.route.points.length - 1];
-    if (remaining <= automation.arrivalThreshold) {
+    if (automation.durationSecs == null && remaining <= automation.arrivalThreshold) {
       return finishMovementWithArrivalAction(
         finalPoint ? { position: finalPoint, orientation: cloneQuaternion(pose.orientation) } : pose,
         automation.arrivalAction,
         automation.onArrive,
       );
     }
+    let completedDuration = false;
+    let durationOverflowSecs = 0;
     if (automation.durationSecs != null) {
-      automation.elapsedSecs = Math.min(automation.durationSecs, automation.elapsedSecs + dt);
+      const nextElapsedSecs = automation.elapsedSecs + dt;
+      completedDuration = nextElapsedSecs >= automation.durationSecs;
+      durationOverflowSecs = completedDuration ? Math.max(0, nextElapsedSecs - automation.durationSecs) : 0;
+      automation.elapsedSecs = Math.min(automation.durationSecs, nextElapsedSecs);
       const linear = clamp(automation.elapsedSecs / automation.durationSecs, 0, 1);
-      automation.distance = automation.route.totalLength * routeDurationFraction({
-        linear,
-        durationSecs: automation.durationSecs,
-        totalLength: automation.route.totalLength,
-        departureSpeed: automation.currentSpeed,
-        arrivalSpeed: automation.arrivalSpeed,
-      });
+      automation.distance = completedDuration
+        ? automation.route.totalLength
+        : automation.route.totalLength * routeDurationFraction({
+            linear,
+            durationSecs: automation.durationSecs,
+            totalLength: automation.route.totalLength,
+            departureSpeed: automation.currentSpeed,
+            arrivalSpeed: automation.arrivalSpeed,
+          });
     } else {
       const { step } = resolveAutomationStep(automation, remaining, dt);
       automation.distance = Math.min(automation.route.totalLength, automation.distance + step);
     }
     const position = sampleSpatialPolylineRoutePosition(automation.route, automation.distance) ?? pose.position;
-    if ((automation.route.totalLength - automation.distance) <= automation.arrivalThreshold) {
+    const shouldFinish = automation.durationSecs != null
+      ? completedDuration
+      : (automation.route.totalLength - automation.distance) <= automation.arrivalThreshold;
+    if (shouldFinish) {
       return finishMovementWithArrivalAction(
         finalPoint ? { position: finalPoint, orientation: cloneQuaternion(pose.orientation) } : { position, orientation: cloneQuaternion(pose.orientation) },
         automation.arrivalAction,
         automation.onArrive,
+        durationOverflowSecs,
       );
     }
     return { position, orientation: cloneQuaternion(pose.orientation) };
@@ -772,9 +812,10 @@ export function createSpatialNavigationAutomation(options = {}) {
    * @param {SpatialPose} pose
    * @param {unknown} action
    * @param {(() => void) | null} callback
+   * @param {number} [advanceSeconds]
    * @returns {SpatialPose}
    */
-  function finishMovementWithArrivalAction(pose, action, callback) {
+  function finishMovementWithArrivalAction(pose, action, callback, advanceSeconds = 0) {
     if (!action || typeof action !== 'object') {
       movementAutomation = null;
       callback?.();
@@ -789,7 +830,9 @@ export function createSpatialNavigationAutomation(options = {}) {
       }, pose);
       if (!started) movementAutomation = null;
       callback?.();
-      return clonePose(pose);
+      return started && advanceSeconds > EPSILON
+        ? updateMovement(pose, advanceSeconds)
+        : clonePose(pose);
     }
     if (arrival.type === 'orbitalInsert') {
       const started = beginOrbitalInsert(arrival.center, {
@@ -904,151 +947,475 @@ function translateToward(from, to, step) {
 }
 
 /**
- * @param {SpatialVector3} start
- * @param {import('./index.d.ts').SpatialOrbitalInsertOptions} options
- * @returns {OrbitalInsertAutomation | null}
+ * @param {{
+ *   start: SpatialVector3;
+ *   sourceOrbit: NormalizedOrbitTransferOrbit | null;
+ *   destinationOrbit: NormalizedOrbitTransferOrbit;
+ *   approachVelocity: SpatialVector3 | null;
+ * }} options
+ * @returns {ResolvedOrbitTransferOrbit}
  */
-function createOrbitalInsertState(start, options) {
-  const center = normalizeOptionalVector3(options.center);
-  if (!center) return null;
-  const currentDistance = pointDistance(start, center);
-  const radius = positiveFinite(options.radius, currentDistance || 1);
-  const angularSpeed = finiteNumber(options.angularSpeed, 0.1);
-  const deceleration = positiveFinite(options.deceleration, 2);
-  const durationSecs = resolveDuration(options);
-  const approachSpeed = durationSecs == null ? positiveFinite(options.approachSpeed ?? options.speed, 12) : null;
-  const orbitalSpeed = Math.abs(angularSpeed) * radius;
-  const insertionRadius = positiveFinite(
-    options.insertionRadius,
-    durationSecs == null
-      ? Math.max(radius * 3, radius + Math.max(0, ((approachSpeed ?? 12) - orbitalSpeed) / deceleration) * 1.2)
-      : Math.max(currentDistance * 1.02, radius * 3),
-  );
-  const orbitNormal = resolveInsertionOrbitNormal(start, center, options);
-  return {
-    type: 'orbitalInsert',
-    center,
-    radius,
-    angularSpeed,
-    approachSpeed,
-    durationSecs,
-    elapsedSecs: 0,
-    deceleration,
-    insertionRadius,
-    orbitNormal,
-    onInserted: typeof options.onInserted === 'function' ? options.onInserted : null,
-  };
-}
-
-/**
- * @param {SpatialVector3} start
- * @param {SpatialVector3} center
- * @param {import('./index.d.ts').SpatialOrbitalInsertOptions} options
- */
-function resolveInsertionOrbitNormal(start, center, options) {
-  if (options.mode === 'specified-orbit') {
-    return normalizeDirectionOrFallback(options.orbitNormal, LOCAL_UP);
+function resolveTransferDestinationOrbit(options) {
+  const { start, sourceOrbit, destinationOrbit, approachVelocity } = options;
+  if (destinationOrbit.normalSpecified && destinationOrbit.normal) {
+    return {
+      ...destinationOrbit,
+      normal: cloneVector3(destinationOrbit.normal),
+      normalSpecified: true,
+    };
   }
-  const radial = normalizeDirectionOrFallback(subtractVectors(start, center), LOCAL_RIGHT);
-  const velocity = normalizeOptionalVector3(options.approachVelocity);
-  if (velocity && vectorLength(velocity) > EPSILON) {
-    let normal = cross(radial, velocity);
-    if (vectorLength(normal) > EPSILON) {
-      if (options.orbitNormal && options.matchApproachDirection !== false) {
-        const requested = normalizeDirectionOrFallback(options.orbitNormal, normal);
-        if (dot(normal, requested) < 0) normal = scaleVector(normal, -1);
+
+  const fallbackNormal = sourceOrbit?.normal ?? LOCAL_UP;
+  const approach = normalizeDirectionOrNull(approachVelocity);
+  const radial = normalizeDirectionOrNull(subtractVectors(start, destinationOrbit.center))
+    ?? normalizeDirectionOrFallback(projectOnPlane(LOCAL_RIGHT, fallbackNormal), LOCAL_RIGHT);
+  let normal = fallbackNormal;
+  if (approach) {
+    const candidate = normalizeDirectionOrNull(cross(radial, approach));
+    if (candidate) {
+      normal = candidate;
+      if (dot(orbitTangentDirection(radial, normal, 1), approach) < 0) {
+        normal = scaleVector(normal, -1);
       }
-      return normalizeDirectionOrFallback(normal, LOCAL_UP);
     }
   }
-  return normalizeDirectionOrFallback(options.orbitNormal, LOCAL_UP);
+
+  return {
+    ...destinationOrbit,
+    angularSpeedRadPerSec: Math.abs(destinationOrbit.angularSpeedRadPerSec),
+    normal: normalizeDirectionOrFallback(normal, LOCAL_UP),
+    normalSpecified: false,
+  };
 }
 
 /**
- * @param {SpatialVector3} currentPosition
- * @param {OrbitalInsertAutomation} automation
- * @param {number} dt
- * @returns {{ active: boolean; enteredOrbit: boolean; position: SpatialVector3; angle?: number }}
+ * @param {NormalizedOrbitTransferOrbit | null} sourceOrbit
+ * @param {NormalizedOrbitTransferOrbit} destinationOrbit
  */
-function advanceOrbitalInsert(currentPosition, automation, dt) {
-  if (!(dt > 0)) {
-    return { active: true, enteredOrbit: false, position: cloneVector3(currentPosition) };
-  }
-  const offset = subtractVectors(currentPosition, automation.center);
-  const distance = vectorLength(offset);
-  if (!(distance > EPSILON)) {
-    return { active: false, enteredOrbit: false, position: cloneVector3(currentPosition) };
-  }
-  const radial = scaleVector(offset, 1 / distance);
-  let tangent = cross(radial, automation.orbitNormal);
-  if (!(vectorLength(tangent) > EPSILON)) {
-    return { active: false, enteredOrbit: false, position: cloneVector3(currentPosition) };
-  }
-  tangent = normalizeDirectionOrFallback(tangent, LOCAL_FORWARD);
-  if (automation.angularSpeed < 0) {
-    tangent = scaleVector(tangent, -1);
-  }
+function shouldUseSameCenterOrbitTransfer(sourceOrbit, destinationOrbit) {
+  if (!destinationOrbit.normal) return false;
+  if (!sourceOrbit?.normal) return true;
+  return Math.abs(dot(sourceOrbit.normal, destinationOrbit.normal)) > 0.999;
+}
 
-  const tangentialBlend = 1 - smoothstep(automation.radius, automation.insertionRadius, distance);
-  const excessDistance = Math.max(0, distance - automation.radius);
-  let radialSpeed;
-  if (automation.durationSecs != null) {
-    automation.elapsedSecs += dt;
-    const remainingSecs = Math.max(automation.durationSecs - automation.elapsedSecs, 0.05);
-    radialSpeed = excessDistance / remainingSecs;
-  } else {
-    radialSpeed = Math.min(automation.approachSpeed ?? 12, excessDistance * automation.deceleration);
+/**
+ * @param {{
+ *   start: SpatialVector3;
+ *   sourceOrbit: NormalizedOrbitTransferOrbit | null;
+ *   destinationOrbit: ResolvedOrbitTransferOrbit;
+ *   durationSecs: number;
+ *   sampleStepSecs: number;
+ *   maxPoints: number;
+ *   approachVelocity?: SpatialVector3;
+ * }} options
+ * @returns {import('./index.d.ts').SpatialOrbitTransferRoute | null}
+ */
+function createPhysicsLiteOrbitInsertRoute(options) {
+  const startVelocity = resolveOrbitApproachVelocity(
+    options.start,
+    options.sourceOrbit,
+    options.destinationOrbit,
+    options.durationSecs,
+    options.approachVelocity,
+  );
+  const startAcceleration = options.sourceOrbit
+    ? orbitCentripetalAcceleration(options.start, options.sourceOrbit)
+    : nullVector3();
+  const candidates = createOrbitInsertionCandidates({
+    start: options.start,
+    sourceOrbit: options.sourceOrbit,
+    destinationOrbit: options.destinationOrbit,
+    approachVelocity: startVelocity,
+  });
+  if (candidates.length === 0) return null;
+
+  let best = null;
+  for (const candidate of candidates) {
+    const next = createQuinticOrbitRouteCandidate({
+      start: options.start,
+      startVelocity,
+      startAcceleration,
+      destinationOrbit: candidate.orbit,
+      radial: candidate.radial,
+      durationSecs: options.durationSecs,
+      sampleStepSecs: options.sampleStepSecs,
+      maxPoints: options.maxPoints,
+    });
+    if (!next) continue;
+    const cost = scoreOrbitRouteCandidate(next, candidate.orbit);
+    if (!best || cost < best.cost) {
+      best = { ...next, cost, orbit: candidate.orbit };
+    }
   }
-  const tangentialSpeed = Math.abs(automation.angularSpeed) * automation.radius * tangentialBlend;
-  let position = {
-    x: currentPosition.x + (-radial.x * radialSpeed + tangent.x * tangentialSpeed) * dt,
-    y: currentPosition.y + (-radial.y * radialSpeed + tangent.y * tangentialSpeed) * dt,
-    z: currentPosition.z + (-radial.z * radialSpeed + tangent.z * tangentialSpeed) * dt,
+  if (!best) return null;
+
+  return {
+    points: best.points.map(cloneVector3),
+    arrivalAction: createOrbitArrivalAction(best.orbit),
+    departureSpeed: vectorLength(startVelocity),
+    arrivalSpeed: orbitSpeed(best.orbit),
+  };
+}
+
+/**
+ * @param {{
+ *   start: SpatialVector3;
+ *   sourceOrbit: NormalizedOrbitTransferOrbit | null;
+ *   destinationOrbit: ResolvedOrbitTransferOrbit;
+ *   approachVelocity: SpatialVector3;
+ * }} options
+ */
+function createOrbitInsertionCandidates(options) {
+  const orbit = options.destinationOrbit;
+  if (orbit.normalSpecified) {
+    return createSpecifiedPlaneInsertionCandidates(options);
+  }
+  return createApproachPlaneInsertionCandidates(options);
+}
+
+/**
+ * @param {{
+ *   start: SpatialVector3;
+ *   destinationOrbit: ResolvedOrbitTransferOrbit;
+ *   approachVelocity: SpatialVector3;
+ * }} options
+ */
+function createSpecifiedPlaneInsertionCandidates(options) {
+  const orbit = options.destinationOrbit;
+  const normal = normalizeDirectionOrFallback(orbit.normal, LOCAL_UP);
+  const basis = createOrbitBasis({ orbitNormal: normal });
+  /** @type {OrbitInsertionCandidate[]} */
+  const candidates = [];
+  const seen = new Set();
+  /** @param {SpatialVector3} radial */
+  const addRadial = (radial) => {
+    const projected = normalizeDirectionOrNull(projectOnPlane(radial, normal));
+    if (!projected) return;
+    const key = `${projected.x.toFixed(5)},${projected.y.toFixed(5)},${projected.z.toFixed(5)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    candidates.push({
+      radial: projected,
+      orbit: {
+        ...orbit,
+        normal,
+        normalSpecified: true,
+      },
+    });
   };
 
-  if (tangentialBlend > 0) {
-    const planeOffset = subtractVectors(position, automation.center);
-    const normalDot = dot(planeOffset, automation.orbitNormal);
-    const planeAlpha = clamp(tangentialBlend * 4 * dt, 0, 1);
-    position = {
-      x: position.x - normalDot * automation.orbitNormal.x * planeAlpha,
-      y: position.y - normalDot * automation.orbitNormal.y * planeAlpha,
-      z: position.z - normalDot * automation.orbitNormal.z * planeAlpha,
-    };
+  addRadial(subtractVectors(options.start, orbit.center));
+  const approach = normalizeDirectionOrNull(projectOnPlane(options.approachVelocity, normal));
+  if (approach) {
+    addRadial(scaleVector(cross(normal, approach), Math.sign(orbit.angularSpeedRadPerSec || 1)));
   }
-
-  const nextOffset = subtractVectors(position, automation.center);
-  const nextDistance = vectorLength(nextOffset);
-  if (nextDistance <= automation.radius * 1.00005 && nextDistance > EPSILON) {
-    const angle = deriveSpatialOrbitAngle({
-      center: automation.center,
-      position,
-      orbitNormal: automation.orbitNormal,
+  for (let index = 0; index < ORBIT_INSERT_CANDIDATE_COUNT; index += 1) {
+    const angle = (Math.PI * 2 * index) / ORBIT_INSERT_CANDIDATE_COUNT;
+    addRadial({
+      x: basis.xAxis.x * Math.cos(angle) + basis.zAxis.x * Math.sin(angle),
+      y: basis.xAxis.y * Math.cos(angle) + basis.zAxis.y * Math.sin(angle),
+      z: basis.xAxis.z * Math.cos(angle) + basis.zAxis.z * Math.sin(angle),
     });
-    return {
-      active: false,
-      enteredOrbit: true,
-      angle,
-      position: orbitPosition(automation.center, automation.radius, angle, automation.orbitNormal),
-    };
   }
-  if (nextDistance < automation.radius && nextDistance > EPSILON) {
-    position = {
-      x: automation.center.x + nextOffset.x * (automation.radius / nextDistance),
-      y: automation.center.y + nextOffset.y * (automation.radius / nextDistance),
-      z: automation.center.z + nextOffset.z * (automation.radius / nextDistance),
-    };
+  return candidates;
+}
+
+/**
+ * @param {{
+ *   start: SpatialVector3;
+ *   sourceOrbit: NormalizedOrbitTransferOrbit | null;
+ *   destinationOrbit: ResolvedOrbitTransferOrbit;
+ *   approachVelocity: SpatialVector3;
+ * }} options
+ */
+function createApproachPlaneInsertionCandidates(options) {
+  const orbit = options.destinationOrbit;
+  const approach = normalizeDirectionOrNull(options.approachVelocity)
+    ?? normalizeDirectionOrFallback(subtractVectors(orbit.center, options.start), LOCAL_FORWARD);
+  const offset = subtractVectors(options.start, orbit.center);
+  let axis = normalizeDirectionOrNull(projectOnPlane(offset, approach));
+  if (!axis) {
+    axis = normalizeDirectionOrNull(projectOnPlane(options.sourceOrbit?.normal ?? LOCAL_RIGHT, approach));
   }
-  return { active: true, enteredOrbit: false, position };
+  if (!axis) {
+    axis = Math.abs(dot(approach, LOCAL_RIGHT)) < 0.95
+      ? normalizeDirectionOrFallback(projectOnPlane(LOCAL_RIGHT, approach), LOCAL_RIGHT)
+      : normalizeDirectionOrFallback(projectOnPlane(LOCAL_UP, approach), LOCAL_UP);
+  }
+  const side = normalizeDirectionOrFallback(cross(approach, axis), LOCAL_RIGHT);
+  /** @type {OrbitInsertionCandidate[]} */
+  const candidates = [];
+  const seen = new Set();
+  /** @param {SpatialVector3} radial */
+  const addRadial = (radial) => {
+    const normalized = normalizeDirectionOrNull(radial);
+    if (!normalized) return;
+    let normal = normalizeDirectionOrNull(cross(normalized, approach))
+      ?? options.sourceOrbit?.normal
+      ?? orbit.normal
+      ?? LOCAL_UP;
+    normal = normalizeDirectionOrFallback(normal, LOCAL_UP);
+    if (dot(orbitTangentDirection(normalized, normal, 1), approach) < 0) {
+      normal = scaleVector(normal, -1);
+    }
+    const key = `${normalized.x.toFixed(5)},${normalized.y.toFixed(5)},${normalized.z.toFixed(5)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    candidates.push({
+      radial: normalized,
+      orbit: {
+        ...orbit,
+        angularSpeedRadPerSec: Math.abs(orbit.angularSpeedRadPerSec),
+        normal,
+        normalSpecified: false,
+      },
+    });
+  };
+
+  for (let index = 0; index < ORBIT_INSERT_CANDIDATE_COUNT; index += 1) {
+    const angle = (Math.PI * 2 * index) / ORBIT_INSERT_CANDIDATE_COUNT;
+    addRadial({
+      x: axis.x * Math.cos(angle) + side.x * Math.sin(angle),
+      y: axis.y * Math.cos(angle) + side.y * Math.sin(angle),
+      z: axis.z * Math.cos(angle) + side.z * Math.sin(angle),
+    });
+  }
+  return candidates;
+}
+
+/**
+ * @param {{
+ *   start: SpatialVector3;
+ *   startVelocity: SpatialVector3;
+ *   startAcceleration: SpatialVector3;
+ *   destinationOrbit: ResolvedOrbitTransferOrbit;
+ *   radial: SpatialVector3;
+ *   durationSecs: number;
+ *   sampleStepSecs: number;
+ *   maxPoints: number;
+ * }} options
+ */
+function createQuinticOrbitRouteCandidate(options) {
+  const pointCount = Math.max(
+    2,
+    Math.min(options.maxPoints, Math.ceil(options.durationSecs / options.sampleStepSecs) + 1),
+  );
+  const endPosition = addVectors(
+    options.destinationOrbit.center,
+    scaleVector(options.radial, options.destinationOrbit.radius),
+  );
+  const endVelocity = orbitTangentVelocityFromRadial(
+    options.radial,
+    options.destinationOrbit,
+  );
+  const endAcceleration = scaleVector(
+    options.radial,
+    -(options.destinationOrbit.angularSpeedRadPerSec ** 2) * options.destinationOrbit.radius,
+  );
+  const coefficients = createQuinticVectorCoefficients({
+    p0: options.start,
+    v0: options.startVelocity,
+    a0: options.startAcceleration,
+    p1: endPosition,
+    v1: endVelocity,
+    a1: endAcceleration,
+    durationSecs: options.durationSecs,
+  });
+  const points = [];
+  for (let index = 0; index < pointCount; index += 1) {
+    const u = pointCount === 1 ? 1 : index / (pointCount - 1);
+    points.push(evaluateQuinticPosition(coefficients, u));
+  }
+  return {
+    points,
+    coefficients,
+    endVelocity,
+  };
+}
+
+/**
+ * @param {{
+ *   p0: SpatialVector3;
+ *   v0: SpatialVector3;
+ *   a0: SpatialVector3;
+ *   p1: SpatialVector3;
+ *   v1: SpatialVector3;
+ *   a1: SpatialVector3;
+ *   durationSecs: number;
+ * }} options
+ */
+function createQuinticVectorCoefficients(options) {
+  const T = options.durationSecs;
+  const T2 = T * T;
+  return {
+    x: createQuinticScalarCoefficients(options.p0.x, options.v0.x, options.a0.x, options.p1.x, options.v1.x, options.a1.x, T, T2),
+    y: createQuinticScalarCoefficients(options.p0.y, options.v0.y, options.a0.y, options.p1.y, options.v1.y, options.a1.y, T, T2),
+    z: createQuinticScalarCoefficients(options.p0.z, options.v0.z, options.a0.z, options.p1.z, options.v1.z, options.a1.z, T, T2),
+    durationSecs: T,
+  };
+}
+
+/**
+ * @param {number} p0
+ * @param {number} v0
+ * @param {number} a0
+ * @param {number} p1
+ * @param {number} v1
+ * @param {number} a1
+ * @param {number} T
+ * @param {number} T2
+ * @returns {number[]}
+ */
+function createQuinticScalarCoefficients(p0, v0, a0, p1, v1, a1, T, T2) {
+  const c0 = p0;
+  const c1 = v0 * T;
+  const c2 = 0.5 * a0 * T2;
+  const D = p1 - c0 - c1 - c2;
+  const V = v1 * T - c1 - 2 * c2;
+  const A = a1 * T2 - 2 * c2;
+  return [
+    c0,
+    c1,
+    c2,
+    10 * D - 4 * V + 0.5 * A,
+    -15 * D + 7 * V - A,
+    6 * D - 3 * V + 0.5 * A,
+  ];
+}
+
+/** @param {QuinticVectorCoefficients} coefficients @param {number} u */
+function evaluateQuinticPosition(coefficients, u) {
+  return {
+    x: evaluateQuinticScalar(coefficients.x, u),
+    y: evaluateQuinticScalar(coefficients.y, u),
+    z: evaluateQuinticScalar(coefficients.z, u),
+  };
+}
+
+/** @param {QuinticVectorCoefficients} coefficients @param {number} u */
+function evaluateQuinticVelocity(coefficients, u) {
+  const scale = 1 / coefficients.durationSecs;
+  return {
+    x: evaluateQuinticScalarDerivative(coefficients.x, u) * scale,
+    y: evaluateQuinticScalarDerivative(coefficients.y, u) * scale,
+    z: evaluateQuinticScalarDerivative(coefficients.z, u) * scale,
+  };
+}
+
+/** @param {QuinticVectorCoefficients} coefficients @param {number} u */
+function evaluateQuinticAcceleration(coefficients, u) {
+  const scale = 1 / (coefficients.durationSecs * coefficients.durationSecs);
+  return {
+    x: evaluateQuinticScalarSecondDerivative(coefficients.x, u) * scale,
+    y: evaluateQuinticScalarSecondDerivative(coefficients.y, u) * scale,
+    z: evaluateQuinticScalarSecondDerivative(coefficients.z, u) * scale,
+  };
+}
+
+/** @param {QuinticVectorCoefficients} coefficients @param {number} u */
+function evaluateQuinticJerk(coefficients, u) {
+  const scale = 1 / (coefficients.durationSecs ** 3);
+  return {
+    x: evaluateQuinticScalarThirdDerivative(coefficients.x, u) * scale,
+    y: evaluateQuinticScalarThirdDerivative(coefficients.y, u) * scale,
+    z: evaluateQuinticScalarThirdDerivative(coefficients.z, u) * scale,
+  };
+}
+
+/** @param {number[]} coefficients @param {number} u */
+function evaluateQuinticScalar(coefficients, u) {
+  return coefficients[0]
+    + coefficients[1] * u
+    + coefficients[2] * u ** 2
+    + coefficients[3] * u ** 3
+    + coefficients[4] * u ** 4
+    + coefficients[5] * u ** 5;
+}
+
+/** @param {number[]} coefficients @param {number} u */
+function evaluateQuinticScalarDerivative(coefficients, u) {
+  return coefficients[1]
+    + 2 * coefficients[2] * u
+    + 3 * coefficients[3] * u ** 2
+    + 4 * coefficients[4] * u ** 3
+    + 5 * coefficients[5] * u ** 4;
+}
+
+/** @param {number[]} coefficients @param {number} u */
+function evaluateQuinticScalarSecondDerivative(coefficients, u) {
+  return 2 * coefficients[2]
+    + 6 * coefficients[3] * u
+    + 12 * coefficients[4] * u ** 2
+    + 20 * coefficients[5] * u ** 3;
+}
+
+/** @param {number[]} coefficients @param {number} u */
+function evaluateQuinticScalarThirdDerivative(coefficients, u) {
+  return 6 * coefficients[3]
+    + 24 * coefficients[4] * u
+    + 60 * coefficients[5] * u ** 2;
+}
+
+/**
+ * @param {{
+ *   points: SpatialVector3[];
+ *   coefficients: {
+ *     x: number[];
+ *     y: number[];
+ *     z: number[];
+ *     durationSecs: number;
+ *   };
+ *   endVelocity: SpatialVector3;
+ * }} candidate
+ * @param {import('./index.d.ts').SpatialOrbitTransferOrbit & {
+ *   angularSpeedRadPerSec: number;
+ *   normal: SpatialVector3;
+ * }} orbit
+ */
+function scoreOrbitRouteCandidate(candidate, orbit) {
+  let length = 0;
+  let centerPenalty = 0;
+  let smoothnessCost = 0;
+  let curvaturePenalty = 0;
+  const clearanceRadius = Math.max(orbit.radius * 0.7, orbit.radius - Math.max(orbit.radius * 0.25, 1));
+  for (let index = 1; index < candidate.points.length; index += 1) {
+    const previous = candidate.points[index - 1];
+    const point = candidate.points[index];
+    length += pointDistance(previous, point);
+    const centerDistance = pointDistance(point, orbit.center);
+    if (centerDistance < clearanceRadius) {
+      centerPenalty += ((clearanceRadius - centerDistance) / Math.max(orbit.radius, 1)) ** 2 * 5000;
+    }
+    if (index > 1) {
+      const a = subtractVectors(previous, candidate.points[index - 2]);
+      const b = subtractVectors(point, previous);
+      if (vectorLength(a) > EPSILON && vectorLength(b) > EPSILON) {
+        const angle = Math.acos(clamp(dot(a, b) / (vectorLength(a) * vectorLength(b)), -1, 1));
+        curvaturePenalty += angle * angle * 200;
+      }
+    }
+  }
+  for (let index = 0; index <= ORBIT_INSERT_COST_SAMPLES; index += 1) {
+    const u = index / ORBIT_INSERT_COST_SAMPLES;
+    const acceleration = evaluateQuinticAcceleration(candidate.coefficients, u);
+    const jerk = evaluateQuinticJerk(candidate.coefficients, u);
+    smoothnessCost += dot(acceleration, acceleration) + dot(jerk, jerk) * 0.02;
+  }
+  const finalDirection = normalizeDirectionOrNull(subtractVectors(
+    candidate.points[candidate.points.length - 1],
+    candidate.points[candidate.points.length - 2],
+  ));
+  const targetDirection = normalizeDirectionOrNull(candidate.endVelocity);
+  const arrivalPenalty = finalDirection && targetDirection
+    ? (1 - clamp(dot(finalDirection, targetDirection), -1, 1)) * 2000
+    : 0;
+  return smoothnessCost + curvaturePenalty + centerPenalty + length * 0.05 + arrivalPenalty;
 }
 
 /**
  * @param {unknown} value
  * @param {boolean} [optional]
- * @returns {(import('./index.d.ts').SpatialOrbitTransferOrbit & {
- *   angularSpeedRadPerSec: number;
- *   normal: SpatialVector3;
- * }) | null}
+ * @returns {NormalizedOrbitTransferOrbit | null}
  */
 function normalizeOrbitTransferOrbit(value, optional = false) {
   if (!value || typeof value !== 'object') return optional ? null : null;
@@ -1057,25 +1424,21 @@ function normalizeOrbitTransferOrbit(value, optional = false) {
   if (!center) return null;
   const radius = positiveFinite(source.radius, Number.NaN);
   if (!(radius > 0)) return null;
+  const normal = normalizeDirectionOrNull(source.normal);
   return {
     center,
     radius,
     angularSpeedRadPerSec: finiteNumber(source.angularSpeedRadPerSec, 0.1),
-    normal: normalizeDirectionOrFallback(source.normal, LOCAL_UP),
+    normal,
+    normalSpecified: Boolean(normal),
   };
 }
 
 /**
  * @param {{
  *   start: SpatialVector3;
- *   sourceOrbit: (import('./index.d.ts').SpatialOrbitTransferOrbit & {
- *     angularSpeedRadPerSec: number;
- *     normal: SpatialVector3;
- *   }) | null;
- *   destinationOrbit: import('./index.d.ts').SpatialOrbitTransferOrbit & {
- *     angularSpeedRadPerSec: number;
- *     normal: SpatialVector3;
- *   };
+ *   sourceOrbit: NormalizedOrbitTransferOrbit | null;
+ *   destinationOrbit: ResolvedOrbitTransferOrbit;
  *   durationSecs: number;
  *   sampleStepSecs: number;
  *   maxPoints: number;
@@ -1126,15 +1489,15 @@ function routeDurationFraction(options) {
   if (!(options.totalLength > EPSILON) || !(options.durationSecs > EPSILON)) {
     return smoothstep(0, 1, linear);
   }
-  let departureSlope = clamp((Math.max(0, options.departureSpeed) * options.durationSecs) / options.totalLength, 0, 3);
-  let arrivalSlope = clamp((Math.max(0, options.arrivalSpeed) * options.durationSecs) / options.totalLength, 0, 3);
+  let departureSlope = clamp((Math.max(0, options.departureSpeed) * options.durationSecs) / options.totalLength, 0, 2.5);
+  let arrivalSlope = clamp((Math.max(0, options.arrivalSpeed) * options.durationSecs) / options.totalLength, 0, 2.5);
   const slopeMagnitude = Math.hypot(departureSlope, arrivalSlope);
-  if (slopeMagnitude > 3) {
-    const scale = 3 / slopeMagnitude;
+  if (slopeMagnitude > 2.5) {
+    const scale = 2.5 / slopeMagnitude;
     departureSlope *= scale;
     arrivalSlope *= scale;
   }
-  return clamp(cubicHermiteUnit(linear, departureSlope, arrivalSlope), 0, 1);
+  return clamp(quinticHermiteUnit(linear, departureSlope, arrivalSlope), 0, 1);
 }
 
 /**
@@ -1142,19 +1505,19 @@ function routeDurationFraction(options) {
  * @param {number} departureSlope
  * @param {number} arrivalSlope
  */
-function cubicHermiteUnit(linear, departureSlope, arrivalSlope) {
+function quinticHermiteUnit(linear, departureSlope, arrivalSlope) {
   const u2 = linear * linear;
   const u3 = u2 * linear;
-  return (u3 - 2 * u2 + linear) * departureSlope
-    + (-2 * u3 + 3 * u2)
-    + (u3 - u2) * arrivalSlope;
+  const u4 = u3 * linear;
+  const u5 = u4 * linear;
+  return departureSlope * linear
+    + (10 - 6 * departureSlope - 4 * arrivalSlope) * u3
+    + (-15 + 8 * departureSlope + 7 * arrivalSlope) * u4
+    + (6 - 3 * departureSlope - 3 * arrivalSlope) * u5;
 }
 
 /**
- * @param {import('./index.d.ts').SpatialOrbitTransferOrbit & {
- *   angularSpeedRadPerSec: number;
- *   normal: SpatialVector3;
- * }} orbit
+ * @param {ResolvedOrbitTransferOrbit} orbit
  * @returns {import('./index.d.ts').SpatialOrbitTransferRoute['arrivalAction']}
  */
 function createOrbitArrivalAction(orbit) {
@@ -1168,13 +1531,71 @@ function createOrbitArrivalAction(orbit) {
 }
 
 /**
+ * @param {SpatialVector3} start
+ * @param {NormalizedOrbitTransferOrbit | null} sourceOrbit
+ * @param {NormalizedOrbitTransferOrbit} destinationOrbit
+ * @param {number} durationSecs
+ * @param {SpatialVector3} [explicitVelocity]
+ */
+function resolveOrbitApproachVelocity(start, sourceOrbit, destinationOrbit, durationSecs, explicitVelocity) {
+  const explicit = normalizeOptionalVector3(explicitVelocity);
+  if (explicit && vectorLength(explicit) > EPSILON) return explicit;
+  if (sourceOrbit?.normal) {
+    const tangent = orbitTangentVelocity(start, /** @type {import('./index.d.ts').SpatialOrbitTransferOrbit & {
+      angularSpeedRadPerSec: number;
+      normal: SpatialVector3;
+    }} */ (sourceOrbit));
+    if (vectorLength(tangent) > EPSILON) return tangent;
+  }
+  const toCenter = subtractVectors(destinationOrbit.center, start);
+  const direction = normalizeDirectionOrNull(toCenter) ?? LOCAL_FORWARD;
+  const destinationSpeed = orbitSpeed(destinationOrbit);
+  const cruiseSpeed = positiveFinite(
+    pointDistance(start, destinationOrbit.center) / Math.max(durationSecs, EPSILON),
+    destinationSpeed,
+  );
+  return scaleVector(direction, Math.max(cruiseSpeed * 0.65, destinationSpeed));
+}
+
+/**
+ * @param {SpatialVector3} position
+ * @param {{ center: SpatialVector3; radius: number; angularSpeedRadPerSec: number }} orbit
+ */
+function orbitCentripetalAcceleration(position, orbit) {
+  const radial = normalizeDirectionOrNull(subtractVectors(position, orbit.center));
+  if (!radial) return nullVector3();
+  return scaleVector(radial, -(orbit.angularSpeedRadPerSec ** 2) * orbit.radius);
+}
+
+/**
+ * @param {{ radius: number; angularSpeedRadPerSec: number }} orbit
+ */
+function orbitSpeed(orbit) {
+  return Math.abs(orbit.angularSpeedRadPerSec) * orbit.radius;
+}
+
+/**
+ * @param {SpatialVector3} radial
  * @param {import('./index.d.ts').SpatialOrbitTransferOrbit & {
  *   angularSpeedRadPerSec: number;
  *   normal: SpatialVector3;
  * }} orbit
  */
-function orbitSpeed(orbit) {
-  return Math.abs(orbit.angularSpeedRadPerSec) * orbit.radius;
+function orbitTangentVelocityFromRadial(radial, orbit) {
+  return scaleVector(
+    orbitTangentDirection(radial, orbit.normal, orbit.angularSpeedRadPerSec),
+    orbitSpeed(orbit),
+  );
+}
+
+/**
+ * @param {SpatialVector3} radial
+ * @param {SpatialVector3} normal
+ * @param {number} angularSpeed
+ */
+function orbitTangentDirection(radial, normal, angularSpeed) {
+  const tangent = normalizeDirectionOrFallback(cross(radial, normal), LOCAL_FORWARD);
+  return angularSpeed < 0 ? scaleVector(tangent, -1) : tangent;
 }
 
 /**
@@ -1415,6 +1836,10 @@ function nullVector() {
   return { x: Number.NaN, y: Number.NaN, z: Number.NaN };
 }
 
+function nullVector3() {
+  return { x: 0, y: 0, z: 0 };
+}
+
 /**
  * @param {number} value
  * @param {number} min
@@ -1555,15 +1980,7 @@ function serializeMovement(automation) {
       radius: automation.radius,
       angularSpeed: automation.angularSpeed,
       angle: automation.angle,
-    };
-  }
-  if (automation.type === 'orbitalInsert') {
-    return {
-      type: automation.type,
-      center: cloneVector3(automation.center),
-      radius: automation.radius,
-      angularSpeed: automation.angularSpeed,
-      insertionRadius: automation.insertionRadius,
+      normal: cloneVector3(automation.orbitNormal),
     };
   }
   if (automation.type === 'pendingOrbit') {
@@ -1627,24 +2044,12 @@ function serializeOrientation(automation) {
  *   options: import('./index.d.ts').SpatialOrbitOptions;
  * }} PendingOrbitAutomation
  * @typedef {{
- *   type: 'orbitalInsert';
- *   center: SpatialVector3;
- *   radius: number;
- *   angularSpeed: number;
- *   approachSpeed: number | null;
- *   durationSecs: number | null;
- *   elapsedSecs: number;
- *   deceleration: number;
- *   insertionRadius: number;
- *   orbitNormal: SpatialVector3;
- *   onInserted: (() => void) | null;
- * }} OrbitalInsertAutomation
- * @typedef {{
  *   type: 'pendingOrbitalInsert';
  *   center: SpatialVector3;
  *   options: import('./index.d.ts').SpatialOrbitalInsertOptions;
+ *   sourceOrbit: import('./index.d.ts').SpatialOrbitTransferOrbit | null;
  * }} PendingOrbitalInsertAutomation
- * @typedef {FlyToAutomation | FlyPolylineAutomation | OrbitAutomation | PendingOrbitAutomation | OrbitalInsertAutomation | PendingOrbitalInsertAutomation} MovementAutomation
+ * @typedef {FlyToAutomation | FlyPolylineAutomation | OrbitAutomation | PendingOrbitAutomation | PendingOrbitalInsertAutomation} MovementAutomation
  * @typedef {{
  *   type: 'lookAt';
  *   target: SpatialVector3;

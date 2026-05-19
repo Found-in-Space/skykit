@@ -320,15 +320,11 @@ export interface SpatialOrbitalInsertOptions extends SpatialFlyToNavigationOptio
   center?: SpatialVector3;
   radius?: number;
   angularSpeed?: number;
-  insertionRadius?: number;
   orbitNormal?: SpatialVector3;
   approachSpeed?: number;
   sampleStepSecs?: number;
   maxPoints?: number;
-  mode?: 'current-trajectory' | 'specified-orbit';
   approachVelocity?: SpatialVector3;
-  matchApproachDirection?: boolean;
-  maxAcceleration?: number;
   onInserted?: () => void;
 }
 
@@ -364,7 +360,6 @@ export interface SpatialOrbitTransferOptions {
   sampleStepSecs?: number;
   maxPoints?: number;
   approachVelocity?: SpatialVector3;
-  mode?: 'current-trajectory' | 'specified-orbit';
 }
 
 export interface SpatialOrbitTransferRoute {
@@ -440,9 +435,9 @@ export interface SpatialAutomationSummary {
   radius?: number;
   angularSpeed?: number;
   angle?: number;
+  normal?: SpatialVector3;
   distance?: number;
   totalLength?: number;
-  insertionRadius?: number;
 }
 
 export interface SpatialNavigationAutomationSnapshot extends SpatialMotionSnapshot {

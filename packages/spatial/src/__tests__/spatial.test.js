@@ -175,6 +175,38 @@ test('direct, inertial, thrust, and fly-to motion models update poses', () => {
   const second = fly.update({ pose: first, deltaSeconds: 0.25 });
   assert.ok(first.position.x > 0);
   assert.ok(second.position.x > first.position.x);
+
+  const timedRoute = createSpatialNavigationAutomation();
+  timedRoute.flyPolyline([
+    { x: 0, y: 0, z: 0 },
+    { x: 10, y: 0, z: 0 },
+  ], { durationSecs: 1, arrivalThreshold: 9 });
+  const halfway = timedRoute.update({ pose, deltaSeconds: 0.5 });
+  assert.equal(timedRoute.getSnapshot().activeAutomation, 'flyPolyline');
+  assert.ok(halfway.position.x > 0);
+  assert.ok(halfway.position.x < 10);
+  const finished = timedRoute.update({ pose: halfway, deltaSeconds: 0.5 });
+  assert.equal(timedRoute.getSnapshot().activeAutomation, null);
+  assert.equal(finished.position.x, 10);
+
+  const overshootRoute = createSpatialNavigationAutomation();
+  overshootRoute.flyPolyline([
+    { x: 0, y: 0, z: 0 },
+    { x: 10, y: 0, z: 0 },
+  ], {
+    durationSecs: 1,
+    arrivalAction: {
+      type: 'orbit',
+      center: { x: 0, y: 0, z: 0 },
+      radius: 10,
+      angularSpeedRadPerSec: 1,
+      normal: { x: 0, y: 0, z: 1 },
+    },
+  });
+  const overshot = overshootRoute.update({ pose, deltaSeconds: 1.1 });
+  assert.equal(overshootRoute.getSnapshot().activeAutomation, 'orbit');
+  assert.ok(Math.abs(distance(overshot.position, { x: 0, y: 0, z: 0 }) - 10) < 1e-9);
+  assert.ok(overshot.position.y < -0.5);
 });
 
 test('spatial navigation automation smooths route, orbit, insert, and look-at', () => {
@@ -192,6 +224,27 @@ test('spatial navigation automation smooths route, orbit, insert, and look-at', 
   automation.orbit({ x: 10, y: 0, z: 0 }, { radius: 5, angularSpeed: 1 });
   pose = automation.update({ pose, deltaSeconds: 1 });
   assert.ok(Math.abs(distance(pose.position, { x: 10, y: 0, z: 0 }) - 5) < 1e-9);
+
+  const insert = createSpatialNavigationAutomation({ speed: 20, acceleration: 20, deceleration: 20 });
+  let insertPose = { position: { x: 40, y: -20, z: 5 }, orientation: IDENTITY_QUATERNION };
+  let inserted = false;
+  insert.orbitalInsert({ x: 5, y: 3, z: -2 }, {
+    radius: 6,
+    angularSpeed: 0.3,
+    durationSecs: 2,
+    orbitNormal: { x: 0, y: 1, z: 0 },
+    onInserted() {
+      inserted = true;
+    },
+  });
+  for (let index = 0; index < 150; index += 1) {
+    insertPose = insert.update({ pose: insertPose, deltaSeconds: 1 / 60 });
+  }
+  const insertSnapshot = insert.getSnapshot();
+  assert.equal(inserted, true);
+  assert.equal(insertSnapshot.activeAutomation, 'orbit');
+  assert.deepEqual(insertSnapshot.movementAutomation?.normal, { x: 0, y: 1, z: 0 });
+  assert.ok(Math.abs(distance(insertPose.position, { x: 5, y: 3, z: -2 }) - 6) < 1e-9);
 });
 
 test('orbit angle and orbit transfer derive smooth same-center and insertion routes', () => {
@@ -215,7 +268,7 @@ test('orbit angle and orbit transfer derive smooth same-center and insertion rou
       normal: { x: 0, y: 0, z: 1 },
     },
     durationSecs: 5,
-    sampleStepSecs: 0.25,
+    sampleStepSecs: 1 / 60,
   });
   assert.ok(sameCenter);
   assert.ok(sameCenter.points.length > 10);
@@ -225,6 +278,7 @@ test('orbit angle and orbit transfer derive smooth same-center and insertion rou
   assert.deepEqual(sameCenter.arrivalAction.normal, { x: 0, y: 0, z: 1 });
   assert.equal(sameCenter.departureSpeed, 8 * 0.26);
   assert.equal(sameCenter.arrivalSpeed, 175 * 0.06);
+  assert.ok(finalSegmentOrbitTangentAngle(sameCenter.points, sameCenter.arrivalAction) < 0.05);
 
   const inserted = createOrbitTransferRoute({
     start: { x: 175, y: 0, z: 0 },
@@ -241,15 +295,47 @@ test('orbit angle and orbit transfer derive smooth same-center and insertion rou
       normal: { x: 0, y: 0, z: 1 },
     },
     durationSecs: 5,
-    sampleStepSecs: 0.25,
+    sampleStepSecs: 1 / 60,
   });
   assert.ok(inserted);
   assert.ok(inserted.points.length > 10);
   assert.deepEqual(inserted.points[0], { x: 175, y: 0, z: 0 });
   assert.ok(Math.abs(distance(inserted.points.at(-1), inserted.arrivalAction.center) - 15) < 1e-9);
   assert.ok(Math.abs(orbitPlaneOffset(inserted.points.at(-1), inserted.arrivalAction)) < 1e-9);
+  assert.ok(finalSegmentOrbitTangentAngle(inserted.points, inserted.arrivalAction) < 0.05);
+  assert.ok(minDistanceToCenter(inserted.points, inserted.arrivalAction.center) >= inserted.arrivalAction.radius * 0.95);
+  assert.ok(pathTurnCost(inserted.points) < pathTurnCost([
+    inserted.points[0],
+    inserted.arrivalAction.center,
+    inserted.points.at(-1),
+  ]));
   assert.equal(inserted.departureSpeed, 175 * 0.06);
   assert.equal(inserted.arrivalSpeed, 15 * 0.2);
+
+  const inferred = createOrbitTransferRoute({
+    start: { x: 175, y: 0, z: 0 },
+    sourceOrbit: {
+      center: { x: 0, y: 0, z: 0 },
+      radius: 175,
+      angularSpeedRadPerSec: 0.06,
+      normal: { x: 0, y: 0, z: 1 },
+    },
+    destinationOrbit: {
+      center: { x: 17.574, y: 42.316, z: 13.963 },
+      radius: 15,
+      angularSpeedRadPerSec: -0.2,
+    },
+    durationSecs: 5,
+    sampleStepSecs: 1 / 60,
+  });
+  assert.ok(inferred);
+  assert.ok(Math.abs(inferred.arrivalAction.normal.z - 1) > 0.001);
+  assert.equal(inferred.arrivalAction.angularSpeedRadPerSec, 0.2);
+  assert.ok(finalSegmentOrbitTangentAngle(inferred.points, inferred.arrivalAction) < 0.05);
+  assert.ok(dot(
+    finalOrbitTangent(inferred.points, inferred.arrivalAction),
+    normalizeVector({ x: 0, y: -1, z: 0 }),
+  ) > 0.95);
 
   const automation = createSpatialNavigationAutomation();
   automation.flyPolyline(inserted.points, {
@@ -297,4 +383,63 @@ function orbitPlaneOffset(point, orbit) {
   return (point.x - orbit.center.x) * orbit.normal.x
     + (point.y - orbit.center.y) * orbit.normal.y
     + (point.z - orbit.center.z) * orbit.normal.z;
+}
+
+function finalSegmentOrbitTangentAngle(points, orbit) {
+  const end = points.at(-1);
+  const previous = points.at(-2);
+  return vectorAngle(normalizeVector(subtract(end, previous)), finalOrbitTangent(points, orbit));
+}
+
+function finalOrbitTangent(points, orbit) {
+  const end = points.at(-1);
+  const radial = normalizeVector(subtract(end, orbit.center));
+  const tangent = normalizeVector(cross(radial, orbit.normal));
+  return orbit.angularSpeedRadPerSec < 0
+    ? { x: -tangent.x, y: -tangent.y, z: -tangent.z }
+    : tangent;
+}
+
+function minDistanceToCenter(points, center) {
+  return points.reduce((min, point) => Math.min(min, distance(point, center)), Number.POSITIVE_INFINITY);
+}
+
+function pathTurnCost(points) {
+  let cost = 0;
+  for (let index = 2; index < points.length; index += 1) {
+    const a = subtract(points[index - 1], points[index - 2]);
+    const b = subtract(points[index], points[index - 1]);
+    cost += vectorAngle(a, b) ** 2;
+  }
+  return cost;
+}
+
+function subtract(a, b) {
+  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+}
+
+function normalizeVector(vector) {
+  const length = Math.hypot(vector.x, vector.y, vector.z);
+  return length > 0
+    ? { x: vector.x / length, y: vector.y / length, z: vector.z / length }
+    : { x: 0, y: 0, z: 0 };
+}
+
+function dot(a, b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function cross(a, b) {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
+}
+
+function vectorAngle(a, b) {
+  const aLength = Math.hypot(a.x, a.y, a.z);
+  const bLength = Math.hypot(b.x, b.y, b.z);
+  if (!(aLength > 0) || !(bLength > 0)) return 0;
+  return Math.acos(Math.max(-1, Math.min(1, dot(a, b) / (aLength * bLength))));
 }

@@ -880,10 +880,11 @@ test('journey plugin executes semantic orbit-transfer scenes without snapping', 
   const navigationPlugin = createSkykitNavigationPlugin({ speed: 20, acceleration: 20, deceleration: 20 });
   const journey = createJourney({
     initial: 'inside',
-    order: ['inside', 'outside', 'hyades'],
+    order: ['inside', 'outside', 'hyades', 'free'],
     targets: {
       sun: { positionPc: { x: 0, y: 0, z: 0 } },
       hyades: { positionPc: { x: 18, y: 42, z: 7 } },
+      free: { positionPc: { x: -20, y: 35, z: 12 } },
       orion: { positionPc: { x: 0, y: 0, z: -100 } },
     },
     scenes: {
@@ -915,6 +916,15 @@ test('journey plugin executes semantic orbit-transfer scenes without snapping', 
           angularSpeedRadPerSec: 0.3,
           lookAt: 'hyades',
           normal: { x: 0, y: 0, z: 1 },
+        },
+      },
+      free: {
+        camera: {
+          type: 'orbit',
+          center: 'free',
+          radiusPc: 5,
+          angularSpeedRadPerSec: 0.25,
+          lookAt: 'free',
         },
       },
     },
@@ -968,6 +978,18 @@ test('journey plugin executes semantic orbit-transfer scenes without snapping', 
   assert.ok(handoff);
   assert.ok(Math.abs(handoff.position.z - 7) < 1e-6);
   assert.ok(handoff.step < 0.5);
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.journey.goToChapter, 'free');
+  await flushMicrotasks();
+  for (let index = 0; index < 120; index += 1) {
+    viewer.update(1 / 30);
+    viewer.update(0);
+  }
+  const freeAutomation = navigationPlugin.getSnapshot().navigation.movementAutomation;
+  assert.equal(navigationPlugin.getSnapshot().navigation.activeAutomation, 'orbit');
+  assert.ok(freeAutomation?.normal);
+  assert.ok(Math.abs(freeAutomation.normal.z - 1) > 0.001);
+  assert.ok(Math.abs(distance(viewer.getViewState().observerPc, { x: -20, y: 35, z: 12 }) - 5) < 1e-9);
 
   await viewer.dispose();
 });
