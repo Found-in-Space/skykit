@@ -6,7 +6,7 @@ import {
 import {
   createStarCellKey,
   decodeTemperatureK,
-} from '@found-in-space/star-products';
+} from '@found-in-space/star-trees';
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
@@ -277,7 +277,7 @@ function disposeProvider() {
 }
 
 /**
- * @param {Array<import('@found-in-space/star-products').StarCellData>} cells
+ * @param {Array<import('@found-in-space/star-trees').StarCellData>} cells
  */
 function showProgress(cells) {
   renderSummary(summarizeCells(cells));
@@ -285,7 +285,7 @@ function showProgress(cells) {
 }
 
 /**
- * @param {Array<import('@found-in-space/star-products').StarCellData>} cells
+ * @param {Array<import('@found-in-space/star-trees').StarCellData>} cells
  */
 function summarizeCells(cells) {
   return {
@@ -314,14 +314,14 @@ function renderTable(rows) {
 }
 
 /**
- * @param {Array<import('@found-in-space/star-products').StarCellData>} cells
+ * @param {Array<import('@found-in-space/star-trees').StarCellData>} cells
  */
 function rowsFromCells(cells) {
   return cells.flatMap(rowsFromCell);
 }
 
 /**
- * @param {import('@found-in-space/star-products').StarCellData} cell
+ * @param {import('@found-in-space/star-trees').StarCellData} cell
  */
 function rowsFromCell(cell) {
   const positions = cell.coordinates.components;

@@ -4,13 +4,13 @@ Status: alpha package documentation for `@found-in-space/star-map-canvas`.
 
 `@found-in-space/star-map-canvas` is a reusable Canvas2D adapter for spatial
 star cells. It consumes `StarCellStore` data from
-`@found-in-space/star-products` and renders an observer-relative 2D sky map.
+`@found-in-space/star-trees` and renders an observer-relative 2D sky map.
 
 It sits in the package hierarchy as a renderer/representation adapter:
 
 ```txt
 star-octree-provider
-  -> star-products cell store
+  -> star-trees cell store
       -> star-map-canvas
       -> three-star-field
       -> hr-diagram
@@ -204,7 +204,7 @@ import {
 import {
   consumeStarCellDeltas,
   createStarCellStore,
-} from '@found-in-space/star-products';
+} from '@found-in-space/star-trees';
 import { createCanvasStarMap } from '@found-in-space/star-map-canvas';
 
 const provider = createStarOctreeProviderService({ url });

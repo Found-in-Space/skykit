@@ -34,7 +34,7 @@ rewriting it into the alpha package shape, never by importing old internals.
 - Prefer focused workspace packages under `packages/` for reusable capabilities.
   Use core `skykit` for composition helpers, teaching examples, and demo glue.
 - Keep package boundaries clear:
-  - generic product lifecycle belongs in `product-stream` style packages.
+  - shared star tree identity and cell interpretation belongs in `star-trees`.
   - star interpretation belongs in star-specific packages.
   - renderer adapters consume products/stores rather than owning data loading.
   - spatial owns shared coordinates, targets, poses, routes, and navigation.
@@ -57,7 +57,6 @@ rewriting it into the alpha package shape, never by importing old internals.
 
 ## Current Package Map
 
-- `@found-in-space/product-stream`: generic product lifecycle.
 - `@found-in-space/spatial`: dependency-free coordinates, poses, routes,
   target resolution, smooth paths, timed pose tracks, materialized preload
   hints, smooth navigation, orbit, look-at, and motion helpers.
@@ -65,12 +64,12 @@ rewriting it into the alpha package shape, never by importing old internals.
   cue/track evaluation, and retiming helpers built on spatial.
 - `@found-in-space/journey-video`: standalone alpha journey video editor,
   editor state/import/export helpers, and future deterministic export tooling.
-- `@found-in-space/star-products`: star products, stores, iteration, and math.
+- `@found-in-space/star-trees`: star tree identities, cell stores, iteration, and math.
 - `@found-in-space/star-octree-provider`: octree loading, strategies, streaming,
-  payload decode, and star product emission.
+  payload decode, and star cell emission.
 - `@found-in-space/meta-sidecar-provider`: metadata facts keyed by star refs.
 - `@found-in-space/star-map-canvas`: 2D starmap rendering.
-- `@found-in-space/three-star-field`: Three.js star product renderer and picking.
+- `@found-in-space/three-star-field`: Three.js star cell renderer and picking.
 - `@found-in-space/hr-diagram`: HR diagram model, Canvas fallback, WebGL renderer,
   and optional touch-os surface adapter.
 - `@found-in-space/anchored-image`: anchored image manifests, solving, and
@@ -143,6 +142,6 @@ rules:
 - Root demos are transition sandboxes. Prefer package examples for new learning
   material unless the user explicitly asks to work on a root demo.
 - New package examples and public package code should use
-  `CanonicalObjectRef` for star identity and `createStarCellKey()` for cell
+  `StarObjectRef` for star identity and `createStarCellKey()` for cell
   keys. Do not introduce public IDs based on octree storage details such as
   `nodeKey`, `shardOffset`, `nodeIndex`, `payloadOffset`, or `payloadLength`.

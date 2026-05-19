@@ -1,7 +1,7 @@
 {
-  "name": "@found-in-space/product-stream",
+  "name": "@found-in-space/star-trees",
   "version": "0.0.0-alpha.0",
-  "description": "Generic product delta and representation store helpers for Found in Space packages",
+  "description": "Star tree identities, cell stores, Morton helpers, and star math for Found in Space packages",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.js",

@@ -1,6 +1,6 @@
 /**
- * @typedef {import('@found-in-space/star-products').StarObjectRef} StarObjectRef
- * @typedef {import('@found-in-space/star-products').DecodedStarSegment} DecodedStarSegment
+ * @typedef {import('@found-in-space/star-trees').StarObjectRef} StarObjectRef
+ * @typedef {import('@found-in-space/star-trees').DecodedStarSegment} DecodedStarSegment
  * @typedef {import('./index.d.ts').StarOctreeRuntimeNode} StarOctreeRuntimeNode
  */
 

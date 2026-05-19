@@ -44,7 +44,7 @@ star-octree-provider -> streams star cells
 spatial              -> owns coordinates, targets, routes, and navigation math
 three-star-field     -> renders star cells in Three.js
 star-map-canvas      -> renders 2D starmaps
-star-products        -> stores and interprets star cells
+star-trees        -> stores and interprets star cells
 skykit/xr            -> owns WebXR rig/input/rays/session helpers
 touch-os             -> owns panels, HUDs, and visual surfaces
 ```
@@ -55,7 +55,7 @@ string names.
 
 When SkyKit code needs to pass star identity through selections, bookmarks, or
 app-owned payloads, it should use `StarObjectRef` from
-`@found-in-space/star-products`. Cell-level keys should come from
+`@found-in-space/star-trees`. Cell-level keys should come from
 `createStarCellKey()`. SkyKit must not invent another star ID shape or expose
 octree storage details such as `nodeKey`, `shardOffset`, `nodeIndex`,
 `payloadOffset`, or `payloadLength`.
@@ -205,7 +205,7 @@ keypresses.
 Keep the package responsibilities narrow:
 
 - `star-octree-provider` owns octree source, planning, sessions, and cell deltas.
-- `star-products` owns star identity, cell stores, iteration, and star math.
+- `star-trees` owns star identity, cell stores, iteration, and star math.
 - `three-star-field` owns the Three.js star renderer.
 - `star-map-canvas` owns projected Canvas2D sky maps.
 - `hr-diagram` owns temperature/magnitude projection and rendering.

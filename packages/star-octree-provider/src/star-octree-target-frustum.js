@@ -1,4 +1,4 @@
-import { createStarCellKey } from '@found-in-space/star-products';
+import { createStarCellKey } from '@found-in-space/star-trees';
 import {
   ERR_STAR_OCTREE_INVALID_VIEW,
   createStarOctreeError,

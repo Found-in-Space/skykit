@@ -5,7 +5,7 @@ import {
   createStarCellData,
   createStarCellStore,
   encodeMorton3D,
-} from '@found-in-space/star-products';
+} from '@found-in-space/star-trees';
 import {
   createRaDecEquirectangularProjection,
   drawProjectedStarMap,

@@ -1,7 +1,7 @@
 import type {
   StarCellStore,
   StarRow,
-} from '@found-in-space/star-products';
+} from '@found-in-space/star-trees';
 
 export interface RaDec {
   raDeg: number;

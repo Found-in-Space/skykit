@@ -1,4 +1,4 @@
-import { supportsTransferableBuffers } from '@found-in-space/star-products';
+import { supportsTransferableBuffers } from '@found-in-space/star-trees';
 import { createBlobRangeSource } from './star-octree-blob-source.js';
 import { createStarOctreeIndexSource } from './star-octree-index-source.js';
 import { createStarOctreePipeline } from './star-octree-pipeline.js';
@@ -17,7 +17,7 @@ import { createStarOctreeWorkTracker } from './star-octree-work-tracker.js';
  * @typedef {import('./index.d.ts').StarOctreeProviderSnapshot} StarOctreeProviderSnapshot
  * @typedef {import('./index.d.ts').StarOctreeSelectionContext} StarOctreeSelectionContext
  * @typedef {import('./index.d.ts').StarOctreeSessionOptions} StarOctreeSessionOptions
- * @typedef {import('@found-in-space/star-products').DecodedStarSegment} DecodedStarSegment
+ * @typedef {import('@found-in-space/star-trees').DecodedStarSegment} DecodedStarSegment
  */
 
 let nextProviderId = 1;

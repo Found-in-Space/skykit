@@ -1,4 +1,4 @@
-import { encodeMorton3D } from '@found-in-space/star-products';
+import { encodeMorton3D } from '@found-in-space/star-trees';
 
 /**
  * @typedef {import('./index.d.ts').StarOctreeRuntimeNode} StarOctreeRuntimeNode

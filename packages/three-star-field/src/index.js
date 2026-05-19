@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {
   apparentMagnitude,
   estimateStarCellBytes,
-} from '@found-in-space/star-products';
+} from '@found-in-space/star-trees';
 
 export const DEFAULT_THREE_STAR_FIELD_VIEW = Object.freeze({
   observerPosition: Object.freeze({ x: 0, y: 0, z: 0 }),
@@ -54,8 +54,8 @@ const RAD_TO_DEG = 180 / Math.PI;
  * @typedef {import('./index.d.ts').ThreeStarFieldPickResult} ThreeStarFieldPickResult
  * @typedef {import('./index.d.ts').ThreeStarFieldView} ThreeStarFieldView
  * @typedef {import('./index.d.ts').ThreeStarFieldVisualRadiusInput} ThreeStarFieldVisualRadiusInput
- * @typedef {import('@found-in-space/star-products').StarCellData} StarCellData
- * @typedef {import('@found-in-space/star-products').StarCellDelta} StarCellDelta
+ * @typedef {import('@found-in-space/star-trees').StarCellData} StarCellData
+ * @typedef {import('@found-in-space/star-trees').StarCellDelta} StarCellDelta
  */
 
 /**

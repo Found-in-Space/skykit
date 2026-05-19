@@ -22,7 +22,7 @@ The package owns:
 The package does not own:
 
 - skyculture image assets or cultural naming policy
-- guide-star catalogs, star products, or octree sessions
+- guide-star catalogs, star cell streams, or octree sessions
 - `star-map-canvas` star rendering
 - core SkyKit viewer lifecycle, layer fading, or controller behavior
 - advanced homography, thin-plate spline, volumetric texture, or depth
@@ -114,7 +114,7 @@ skykit ConstellationArtLayer
 
 ## Learning Architecture Fit
 
-`anchored-image` is a support/render-preparation package, not a star product.
+`anchored-image` is a support/render-preparation package, not a star data package.
 It sits beside renderer adapters such as `star-map-canvas` and future
 `three-star-field` work. It consumes image manifests and projection callbacks;
-it does not emit product-stream deltas or own star representation stores.
+it does not emit star cell deltas or own star representation stores.

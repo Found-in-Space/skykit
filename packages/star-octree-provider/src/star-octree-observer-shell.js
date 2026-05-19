@@ -1,4 +1,4 @@
-import { createStarCellKey } from '@found-in-space/star-products';
+import { createStarCellKey } from '@found-in-space/star-trees';
 import { distanceToNodeAabbPc } from './star-octree-traversal.js';
 
 /**

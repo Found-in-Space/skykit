@@ -36,7 +36,7 @@ and `OCTREE_DEFAULT` as the teaching-friendly alias used by examples.
   `observer-shell` provider session, streams cell deltas, and keeps a
   nearest-visible table as application-owned logic.
 - `examples/canvas-star-map/` shows the alpha package ladder from provider
-  session to star-products cell store to `@found-in-space/star-map-canvas`.
+  session to star-trees cell store to `@found-in-space/star-map-canvas`.
 - `examples/volume-query/` shows sphere-volume streaming through the same
   provider strategy surface as observer-shell and target-frustum.
 - `examples/strategy-diagnostics/` uses `inspectDemand()` and `streamPayloads()`

@@ -8,7 +8,7 @@ star cells, own star shaders, manage touch surfaces, or contain journey/chapter
 logic.
 
 SkyKit examples and plugins should preserve the star identity boundary from
-`@found-in-space/star-products`: use `StarObjectRef` for stars and
+`@found-in-space/star-trees`: use `StarObjectRef` for stars and
 `createStarCellKey()` for cell-level maps or display. Do not introduce
 SkyKit-specific star IDs or expose octree storage details such as `nodeKey`,
 `shardOffset`, `nodeIndex`, `payloadOffset`, or `payloadLength`.
@@ -232,7 +232,7 @@ skykitDebug.setObserverPc(10, 0, 0);
 SkyKit composes reusable modules:
 
 - `star-octree-provider` streams star cells.
-- `star-products` interprets star cell columns.
+- `star-trees` interprets star cell columns.
 - `three-star-field` renders streamed star cells.
 - `touch-os` owns richer panels, HUDs, and surfaces.
 

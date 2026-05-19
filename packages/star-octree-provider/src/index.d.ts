@@ -3,7 +3,7 @@ import type {
   StarCellDelta,
   StarCellKey,
   StarCoordinateOutput,
-} from '@found-in-space/star-products';
+} from '@found-in-space/star-trees';
 
 export declare const OCTREE_c56103: string;
 export declare const OCTREE_DEFAULT: string;

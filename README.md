@@ -27,15 +27,14 @@ demo shell; new architecture should be package-owned.
 
 Current package direction:
 
-- `@found-in-space/product-stream`: generic product delta/store lifecycle
 - `@found-in-space/spatial`: dependency-free coordinates, poses, smooth paths, timed pose tracks, preload hints, routes, targets, and smooth navigation helpers
 - `@found-in-space/journey`: authored scene graphs, timed journeys, cues, tracks, and retiming helpers
 - `@found-in-space/journey-video`: placeholder boundary for future deterministic journey video/export tooling
-- `@found-in-space/star-products`: star product stores, iteration, star math, and display helpers
-- `@found-in-space/star-octree-provider`: star octree loading, provider-owned strategies, streaming sessions, and product emission
-- `@found-in-space/meta-sidecar-provider`: metadata sidecar facts keyed by star product refs
+- `@found-in-space/star-trees`: star tree identities, cell stores, iteration, star math, and display helpers
+- `@found-in-space/star-octree-provider`: star octree loading, provider-owned strategies, streaming sessions, and cell emission
+- `@found-in-space/meta-sidecar-provider`: metadata sidecar facts keyed by star refs
 - `@found-in-space/star-map-canvas`: lightweight 2D starmap rendering
-- `@found-in-space/three-star-field`: Three.js renderer for streamed star products
+- `@found-in-space/three-star-field`: Three.js renderer for streamed star cells
 - `@found-in-space/hr-diagram`: HR diagram data, Canvas fallback, and WebGL renderer
 - `@found-in-space/anchored-image`: renderer-neutral anchored image manifests, solving, and Canvas2D/Three.js image adapters
 - `@found-in-space/experimental-structure-layers`: preserved experimental H-alpha/dust helpers, not stable core

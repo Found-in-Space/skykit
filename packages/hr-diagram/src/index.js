@@ -3,7 +3,7 @@ import {
   apparentMagnitude,
   decodeTemperatureK,
   temperatureToRgb,
-} from '@found-in-space/star-products';
+} from '@found-in-space/star-trees';
 
 export const HR_DIAGRAM_MODE_MAGNITUDE = 'magnitude-limited';
 export const HR_DIAGRAM_MODE_VOLUME = 'volume-complete';
@@ -28,9 +28,9 @@ const DEFAULT_OBSERVER_PC = Object.freeze({ x: 0, y: 0, z: 0 });
  * @typedef {import('./index.d.ts').HrDiagramView} HrDiagramView
  * @typedef {import('./index.d.ts').ProjectHrDiagramOptions} ProjectHrDiagramOptions
  * @typedef {import('./index.d.ts').ProjectHrDiagramResult} ProjectHrDiagramResult
- * @typedef {import('@found-in-space/star-products').StarCellData} StarCellData
- * @typedef {import('@found-in-space/star-products').StarCellDelta} StarCellDelta
- * @typedef {import('@found-in-space/star-products').StarRow} StarRow
+ * @typedef {import('@found-in-space/star-trees').StarCellData} StarCellData
+ * @typedef {import('@found-in-space/star-trees').StarCellDelta} StarCellDelta
+ * @typedef {import('@found-in-space/star-trees').StarRow} StarRow
  */
 
 /**

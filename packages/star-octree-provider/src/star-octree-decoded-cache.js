@@ -5,7 +5,7 @@ const PERSISTENT_DECODED_CACHE_NAME =
 
 /**
  * @typedef {import('./index.d.ts').StarOctreeRuntimeNode} StarOctreeRuntimeNode
- * @typedef {import('@found-in-space/star-products').DecodedStarSegment} DecodedStarSegment
+ * @typedef {import('@found-in-space/star-trees').DecodedStarSegment} DecodedStarSegment
  */
 
 /**

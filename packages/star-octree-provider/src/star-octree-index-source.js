@@ -8,7 +8,7 @@ import {
   STAR_HEADER_BLOCK_BYTES,
   STAR_HEADER_SIZE,
 } from './star-octree-format.js';
-import { createStarCellKey } from '@found-in-space/star-products';
+import { createStarCellKey } from '@found-in-space/star-trees';
 import {
   DEFAULT_MAX_INFLIGHT_PAYLOAD_BATCHES,
   DEFAULT_PAYLOAD_MAX_BATCH_BYTES,

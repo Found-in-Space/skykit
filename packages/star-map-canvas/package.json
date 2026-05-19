@@ -1,7 +1,7 @@
 {
   "name": "@found-in-space/star-map-canvas",
   "version": "0.0.0-alpha.0",
-  "description": "2D canvas star map adapter for Found in Space star products",
+  "description": "2D canvas star map adapter for Found in Space star cells",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.js",
@@ -24,6 +24,6 @@
   },
   "dependencies": {
     "@found-in-space/spatial": "0.0.0-alpha.0",
-    "@found-in-space/star-products": "0.0.0-alpha.0"
+    "@found-in-space/star-trees": "0.0.0-alpha.0"
   }
 }

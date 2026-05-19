@@ -5,7 +5,7 @@ import {
 import {
   apparentMagnitude,
   temperatureToRgb,
-} from '@found-in-space/star-products';
+} from '@found-in-space/star-trees';
 
 export const DEFAULT_LIMITING_MAGNITUDE = 6.5;
 
@@ -41,8 +41,8 @@ const DEFAULT_STYLE = Object.freeze({
  * @typedef {import('./index.d.ts').StarMapProjectionContext} StarMapProjectionContext
  * @typedef {import('./index.d.ts').StarMapProjectionResult} StarMapProjectionResult
  * @typedef {import('./index.d.ts').StarMapStyle} StarMapStyle
- * @typedef {import('@found-in-space/star-products').StarCellStore} StarCellStore
- * @typedef {import('@found-in-space/star-products').StarRow} StarRow
+ * @typedef {import('@found-in-space/star-trees').StarCellStore} StarCellStore
+ * @typedef {import('@found-in-space/star-trees').StarRow} StarRow
  */
 
 /**

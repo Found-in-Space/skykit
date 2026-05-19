@@ -2,7 +2,7 @@ import { createDecodedPayloadCache } from './star-octree-decoded-cache.js';
 import {
   createStarCellData,
   createStarCellKey,
-} from '@found-in-space/star-products';
+} from '@found-in-space/star-trees';
 import { toDeltaError } from './star-octree-errors.js';
 import { decodeStarPayload } from './star-octree-payloads.js';
 import { createAsyncQueue } from './star-octree-queue.js';
@@ -14,8 +14,8 @@ import {
 import { traverseOctree } from './star-octree-traversal.js';
 
 /**
- * @typedef {import('@found-in-space/star-products').DecodedStarSegment} DecodedStarSegment
- * @typedef {import('@found-in-space/star-products').StarCellData} StarCellData
+ * @typedef {import('@found-in-space/star-trees').DecodedStarSegment} DecodedStarSegment
+ * @typedef {import('@found-in-space/star-trees').StarCellData} StarCellData
  * @typedef {import('./index.js').StarOctreeCellDelta} StarOctreeCellDelta
  * @typedef {import('./index.js').StarOctreeCellStreamOptions} StarOctreeCellStreamOptions
  * @typedef {import('./index.js').StarOctreeCoordinateOutput} StarOctreeCoordinateOutput
@@ -233,7 +233,7 @@ export function createStarOctreePipeline(options) {
    */
   function streamCells(streamOptions = {}) {
     const queue = createAsyncQueue();
-    /** @type {Set<import('@found-in-space/star-products').StarCellKey>} */
+    /** @type {Set<import('@found-in-space/star-trees').StarCellKey>} */
     const cellKeys = new Set();
     let starCount = 0;
 

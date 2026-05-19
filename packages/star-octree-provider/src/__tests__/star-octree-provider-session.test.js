@@ -5,7 +5,7 @@ import {
   createStarCellData,
   createStarCellKey,
   encodeMorton3D,
-} from '@found-in-space/star-products';
+} from '@found-in-space/star-trees';
 import { createStarOctreeProviderServiceForTest } from '../star-octree-provider-service.js';
 import { createStarOctreeProviderSession } from '../star-octree-provider-session.js';
 

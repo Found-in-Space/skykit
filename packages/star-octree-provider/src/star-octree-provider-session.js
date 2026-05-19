@@ -2,7 +2,7 @@ import {
   createStarCellData,
   createStarCellKey,
   estimateStarCellBytes,
-} from '@found-in-space/star-products';
+} from '@found-in-space/star-trees';
 import { createAsyncQueue } from './star-octree-queue.js';
 import {
   evaluateDemandGate,
@@ -10,9 +10,9 @@ import {
 } from './star-octree-demand-gate.js';
 
 /**
- * @typedef {import('@found-in-space/star-products').DecodedStarSegment} DecodedStarSegment
- * @typedef {import('@found-in-space/star-products').StarCellData} StarCellData
- * @typedef {import('@found-in-space/star-products').StarCellKey} StarCellKey
+ * @typedef {import('@found-in-space/star-trees').DecodedStarSegment} DecodedStarSegment
+ * @typedef {import('@found-in-space/star-trees').StarCellData} StarCellData
+ * @typedef {import('@found-in-space/star-trees').StarCellKey} StarCellKey
  * @typedef {import('./index.d.ts').StarOctreeCellDelta} StarOctreeCellDelta
  * @typedef {import('./index.d.ts').StarOctreeCoordinateOutput} StarOctreeCoordinateOutput
  * @typedef {import('./index.d.ts').StarOctreeDemandEntry} StarOctreeDemandEntry

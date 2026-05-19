@@ -3,7 +3,7 @@ import type {
   StarCellDelta,
   StarObjectRef,
   StarPickMeta,
-} from '@found-in-space/star-products';
+} from '@found-in-space/star-trees';
 import type * as THREE from 'three';
 
 export interface ThreeStarFieldVector {

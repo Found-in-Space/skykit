@@ -21,7 +21,7 @@ import type {
   TimedJourneyEvaluator,
   TimedJourneyFrame,
 } from '@found-in-space/journey';
-import type { StarCellDelta } from '@found-in-space/star-products';
+import type { StarCellDelta } from '@found-in-space/star-trees';
 import type {
   StarOctreeCoordinateOutput,
   StarOctreeFetchStrategy,

@@ -1,5 +1,5 @@
 import { planObserverShellDemand, normalizeObserverShellView } from './star-octree-observer-shell.js';
-import { createStarCellKey } from '@found-in-space/star-products';
+import { createStarCellKey } from '@found-in-space/star-trees';
 import {
   normalizeTargetFrustumView,
   planTargetFrustumDemand,

@@ -1,4 +1,4 @@
-# @found-in-space/star-products
+# @found-in-space/star-trees
 
 Status: current alpha package.
 

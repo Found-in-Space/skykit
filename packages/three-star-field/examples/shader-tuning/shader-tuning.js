@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-import { createStarCellData } from '@found-in-space/star-products';
+import { createStarCellData } from '@found-in-space/star-trees';
 import { createThreeStarField } from '@found-in-space/three-star-field';
 
 const host = document.querySelector('[data-viewer]');

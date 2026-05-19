@@ -7,7 +7,7 @@ import {
   consumeStarCellDeltas,
   createStarCellKey,
   createStarCellStore,
-} from '@found-in-space/star-products';
+} from '@found-in-space/star-trees';
 import { createCanvasStarMap } from '@found-in-space/star-map-canvas';
 
 const elements = {

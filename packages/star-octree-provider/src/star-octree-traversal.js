@@ -2,7 +2,7 @@ import {
   STAR_HAS_PAYLOAD,
   STAR_IS_FRONTIER,
 } from './star-octree-format.js';
-import { createStarCellKey } from '@found-in-space/star-products';
+import { createStarCellKey } from '@found-in-space/star-trees';
 
 /**
  * @typedef {import('./index.d.ts').StarOctreeBootstrapIndex} StarOctreeBootstrapIndex

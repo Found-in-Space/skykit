@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createStarCellKey } from '@found-in-space/star-products';
+import { createStarCellKey } from '@found-in-space/star-trees';
 import { STAR_HAS_PAYLOAD, STAR_IS_FRONTIER } from '../star-octree-format.js';
 import { createStarOctreeIndexSource } from '../star-octree-index-source.js';
 import {

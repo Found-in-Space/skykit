@@ -1,7 +1,7 @@
-import { createStarCellKey } from '@found-in-space/star-products';
+import { createStarCellKey } from '@found-in-space/star-trees';
 
 /**
- * @typedef {import('@found-in-space/star-products').CanonicalObjectRef} CanonicalObjectRef
+ * @typedef {import('@found-in-space/star-trees').StarObjectRef} StarObjectRef
  * @typedef {import('./index.d.ts').MetaSidecarEntry} MetaSidecarEntry
  * @typedef {import('./index.d.ts').MetaSidecarFactProduct} MetaSidecarFactProduct
  * @typedef {import('./index.d.ts').MetaSidecarProviderDescriptor} MetaSidecarProviderDescriptor
@@ -113,7 +113,7 @@ export function createMetaSidecarProviderService(options) {
   }
 
   /**
-   * @param {CanonicalObjectRef} ref
+   * @param {StarObjectRef} ref
    */
   function assertParentDataset(ref) {
     if (!ref.datasetId || ref.datasetId === parentDatasetId) {
@@ -139,14 +139,14 @@ function validateOptions(options) {
 
 /**
  * @param {unknown} ref
- * @returns {CanonicalObjectRef}
+ * @returns {StarObjectRef}
  */
 function normalizeRef(ref) {
   if (!ref || typeof ref !== 'object') {
     throw new TypeError('Meta sidecar facts require an object reference.');
   }
 
-  const candidate = /** @type {Partial<CanonicalObjectRef>} */ (ref);
+  const candidate = /** @type {Partial<StarObjectRef>} */ (ref);
   const level = Number(candidate.level);
   const ordinal = Number(candidate.ordinal);
   if (

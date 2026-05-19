@@ -144,7 +144,7 @@ not remove, stale, or replace current cells.
 
 ## Coordinates And Identity
 
-Cell helpers live in `@found-in-space/star-products`:
+Cell helpers live in `@found-in-space/star-trees`:
 
 ```ts
 createStarCellKey({ level, mortonCode });
@@ -173,7 +173,7 @@ The provider emits decoded star cells. It does not own:
 - sidecar metadata lookup
 - persistent app IDs outside the semantic star identity
 
-`@found-in-space/star-products` owns star cell data shapes, stores, Morton
+`@found-in-space/star-trees` owns star cell data shapes, stores, Morton
 helpers, object refs, pick metadata, and star math helpers.
 
 `@found-in-space/three-star-field`, `@found-in-space/star-map-canvas`, and

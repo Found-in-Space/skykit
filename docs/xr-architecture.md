@@ -37,7 +37,7 @@ Node diagnostics
 WebXR viewers
 ```
 
-Those helpers must not force Three.js, DOM, WebXR, star products, or SkyKit
+Those helpers must not force Three.js, DOM, WebXR, star cell streams, or SkyKit
 viewer composition into code that only wants math and route planning. The
 spatial package owns this dependency-free layer.
 
@@ -61,7 +61,7 @@ Spatial does not own:
 - WebXR sessions, reference spaces, controller input, or headset poses.
 - Three.js objects, cameras, renderers, shaders, or scene roots.
 - SkyKit actions, plugins, debug globals, or lesson composition.
-- star products, octree loading, catalogs, sidecars, or journey content.
+- star cell streams, octree loading, catalogs, sidecars, or journey content.
 
 ---
 

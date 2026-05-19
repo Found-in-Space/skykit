@@ -1,4 +1,4 @@
-import type { StarCellData, StarCellDelta } from '@found-in-space/star-products';
+import type { StarCellData, StarCellDelta } from '@found-in-space/star-trees';
 import type * as THREE from 'three';
 import type {
   HrDiagramRenderer,

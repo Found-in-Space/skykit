@@ -69,7 +69,7 @@ star-octree-provider
   -> stream cell deltas
   -> inspect cells
 
-star-products
+star-trees
   -> keep a coherent cell store
   -> iterate stars
   -> compute apparent magnitude, temperature, color
@@ -137,7 +137,7 @@ packages/skykit/examples/
   JavaScript sky-frame capture, cached overlay block rendering, ffmpeg composite
   helpers, and the journey-video-render CLI
 
-@found-in-space/star-products
+@found-in-space/star-trees
   implemented: StarCellData types, StarCellStore, StarObjectRef identity,
   Morton helpers, star math, star iteration, and color helpers
 
@@ -180,7 +180,7 @@ packages/skykit/examples/
 Dependency direction should stay clean:
 
 ```txt
-star-products
+star-trees
   <- star-octree-provider
   <- meta-sidecar-provider
   <- star-map-canvas
@@ -200,8 +200,8 @@ skykit
   composes focused packages into teachable viewers and lessons
 ```
 
-The generic `@found-in-space/product-stream` package may continue to exist for
-non-star experiments, but the star streaming stack no longer depends on it.
+Star streaming uses `@found-in-space/star-trees` cell deltas directly. There is
+no generic product stream layer in the alpha package map.
 
 ## Lesson Design Checklist
 

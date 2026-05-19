@@ -5,7 +5,7 @@ Status: alpha package.
 Reusable Canvas2D star-map adapter for spatial star cells.
 
 This package consumes `StarCellStore` data from
-`@found-in-space/star-products` and draws observer-relative 2D sky maps. It does
+`@found-in-space/star-trees` and draws observer-relative 2D sky maps. It does
 not create octree sessions, load catalogs, own sidecars, import
 `anchored-image`, or render Three.js objects.
 
@@ -16,7 +16,7 @@ composition and planning are defined by `@found-in-space/star-octree-provider`.
 The intended package path is:
 
 ```txt
-star-octree-provider -> star-products cell store -> star-map-canvas
+star-octree-provider -> star-trees cell store -> star-map-canvas
 ```
 
 The built-in RA/Dec all-sky and FoV projections use sky-chart orientation:
@@ -32,7 +32,7 @@ import {
 import {
   consumeStarCellDeltas,
   createStarCellStore,
-} from '@found-in-space/star-products';
+} from '@found-in-space/star-trees';
 import { createCanvasStarMap } from '@found-in-space/star-map-canvas';
 
 const provider = createStarOctreeProviderService({ url });

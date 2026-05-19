@@ -7,7 +7,7 @@ import {
   apparentMagnitude as computeApparentMagnitude,
   createStarCellKey,
   decodeTemperatureK,
-} from '@found-in-space/star-products';
+} from '@found-in-space/star-trees';
 
 const RESULT_LIMIT = 100;
 
@@ -34,7 +34,7 @@ const elements = {
  *   url: string;
  *   token: number;
  *   query: { observerPc: { x: number; y: number; z: number }; limitingMagnitude: number };
- *   cells: Map<string, import('@found-in-space/star-products').StarCellData>;
+ *   cells: Map<string, import('@found-in-space/star-trees').StarCellData>;
  *   rowsByCellKey: Map<string, Array<NearestStarRow>>;
  *   nearest: Array<NearestStarRow>;
  *   deltas: { upsert: number; stale: number; remove: number; current: number; error: number };
@@ -231,7 +231,7 @@ function recomputeNearest() {
 }
 
 /**
- * @param {import('@found-in-space/star-products').StarCellData} cell
+ * @param {import('@found-in-space/star-trees').StarCellData} cell
  * @param {{ observerPc: { x: number; y: number; z: number }; limitingMagnitude: number }} query
  * @returns {Array<NearestStarRow>}
  */

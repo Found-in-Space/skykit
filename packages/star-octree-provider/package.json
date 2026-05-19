@@ -23,6 +23,6 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@found-in-space/star-products": "0.0.0-alpha.0"
+    "@found-in-space/star-trees": "0.0.0-alpha.0"
   }
 }

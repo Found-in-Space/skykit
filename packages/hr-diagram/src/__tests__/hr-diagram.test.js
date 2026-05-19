@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
 
-import { createStarCellData, encodeMorton3D } from '@found-in-space/star-products';
+import { createStarCellData, encodeMorton3D } from '@found-in-space/star-trees';
 import {
   HR_DIAGRAM_MODE_MAGNITUDE,
   createHrDiagramGeometryFromCells,

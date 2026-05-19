@@ -1,8 +1,8 @@
-import type { CanonicalObjectRef } from '@found-in-space/star-products';
+import type { StarObjectRef } from '@found-in-space/star-trees';
 
-export type { CanonicalObjectRef } from '@found-in-space/star-products';
+export type { StarObjectRef } from '@found-in-space/star-trees';
 
-export interface PickMetaRef extends CanonicalObjectRef {
+export interface PickMetaRef extends StarObjectRef {
   gridX?: number;
   gridY?: number;
   gridZ?: number;
@@ -36,7 +36,7 @@ export interface MetaSidecarFactProduct {
   providerId: string;
   parentDatasetId: string;
   sidecarId?: string | null;
-  objectRef: CanonicalObjectRef;
+  objectRef: StarObjectRef;
   facts: {
     properName: string;
     bayer: string;
@@ -76,8 +76,8 @@ export interface MetaSidecarProviderService {
   readonly id: string;
   describe(): MetaSidecarProviderDescriptor;
   getSnapshot(): MetaSidecarProviderSnapshot;
-  resolveFacts(ref: CanonicalObjectRef | PickMetaRef): Promise<MetaSidecarFactProduct | null>;
-  resolvePrimaryLabel(ref: CanonicalObjectRef | PickMetaRef): Promise<string>;
+  resolveFacts(ref: StarObjectRef | PickMetaRef): Promise<MetaSidecarFactProduct | null>;
+  resolvePrimaryLabel(ref: StarObjectRef | PickMetaRef): Promise<string>;
   dispose(): void;
 }
 
