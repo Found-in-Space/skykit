@@ -31,6 +31,11 @@
     "build": "vite build",
     "diag:observer-shell": "node ./scripts/observer-shell-diagnostic.js",
     "lookup:bookmark-star": "node ./scripts/bookmark-star-lookup.js",
+    "bench:planner": "node ./benchmarks/star-planner/src/run-planner-benchmark.js",
+    "bench:browser": "node ./benchmarks/star-planner/src/run-browser-benchmark.js",
+    "bench:baseline": "node ./benchmarks/star-planner/src/run-baseline.js",
+    "bench:compare": "node ./benchmarks/star-planner/src/compare-baseline.js",
+    "bench:smoke": "node ./benchmarks/star-planner/src/run-smoke.js",
     "test": "node --test",
     "test:watch": "node --test --watch",
     "typecheck": "npm run typecheck --workspaces --if-present"
