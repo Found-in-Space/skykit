@@ -1,51 +1,27 @@
-import type { StarObjectRef } from '@found-in-space/star-trees';
+import type { StarCellRef, StarObjectRef } from '@found-in-space/star-trees';
 
-export type { StarObjectRef } from '@found-in-space/star-trees';
+export type { StarCellRef, StarObjectRef } from '@found-in-space/star-trees';
 
-export interface PickMetaRef extends StarObjectRef {
-  gridX?: number;
-  gridY?: number;
-  gridZ?: number;
-  centerX?: number;
-  centerY?: number;
-  centerZ?: number;
+export declare const META_SIDECAR_c56103: string;
+export declare const META_SIDECAR_DEFAULT: string;
+export declare const ERR_META_SIDECAR_PARENT_MISMATCH: string;
+export declare const ERR_META_SIDECAR_INVALID_ARTIFACT: string;
+export declare const ERR_META_SIDECAR_INVALID_KIND: string;
+
+export interface MetaSidecarCellRef extends StarCellRef {
+  datasetId?: string | null;
 }
 
-export interface MetaSidecarEntry {
-  proper_name?: string | number | null;
-  bayer?: string | number | null;
-  constellation?: string | number | null;
-  hd?: string | number | null;
-  hip_id?: string | number | null;
-  gaia_source_id?: string | number | null;
-  source?: string | number | null;
-  source_id?: string | number | null;
-  [key: string]: unknown;
-}
+export type MetaSidecarEntry = Record<string, unknown>;
 
 export interface MetaSidecarProviderServiceOptions {
   id?: string;
+  url: string;
   parentDatasetId: string;
-  sidecarId?: string | null;
-  sidecarKind?: string;
-  entries?: Record<string, MetaSidecarEntry[]>;
-}
-
-export interface MetaSidecarFactProduct {
-  productType: 'fact-batch';
-  providerId: string;
-  parentDatasetId: string;
-  sidecarId?: string | null;
-  objectRef: StarObjectRef;
-  facts: {
-    properName: string;
-    bayer: string;
-    hd: string;
-    hip: string;
-    gaia: string;
-    primaryLabel: string;
+  persistentCache?: 'on' | 'off';
+  limits?: {
+    shardPrefetchBytes?: number;
   };
-  raw?: MetaSidecarEntry;
 }
 
 export interface MetaSidecarProviderDescriptor {
@@ -53,8 +29,13 @@ export interface MetaSidecarProviderDescriptor {
   providerType: 'meta-sidecar';
   parentDatasetId: string;
   sidecarId?: string | null;
-  sidecarKind: string;
-  produces: ['fact-batch'];
+  sidecarKind: 'meta';
+  url: string;
+  produces: ['meta-entry', 'meta-cell'];
+  capabilities: {
+    rangeRequestable: boolean;
+    persistentCache: boolean;
+  };
 }
 
 export interface MetaSidecarProviderSnapshot {
@@ -62,13 +43,31 @@ export interface MetaSidecarProviderSnapshot {
   providerType: 'meta-sidecar';
   parentDatasetId: string;
   sidecarId?: string | null;
+  sidecarKind: 'meta';
+  url: string;
+  ready: boolean;
   cache: {
     cells: number;
+    payloads: number;
+    shards: number;
   };
   stats: {
-    resolvedFacts: number;
-    missingFacts: number;
+    headerFetches: number;
+    headerCacheHits: number;
+    shardFetches: number;
+    shardCacheHits: number;
+    payloadFetches: number;
+    payloadCacheHits: number;
+    cellCacheHits: number;
+    resolvedEntries: number;
+    missingEntries: number;
+    resolvedCells: number;
+    missingCells: number;
     parentMismatches: number;
+    rangeRequests: number;
+    bytesRequested: number;
+    persistentCacheHits: number;
+    fetchTimeMs: number;
   };
 }
 
@@ -76,10 +75,14 @@ export interface MetaSidecarProviderService {
   readonly id: string;
   describe(): MetaSidecarProviderDescriptor;
   getSnapshot(): MetaSidecarProviderSnapshot;
-  resolveFacts(ref: StarObjectRef | PickMetaRef): Promise<MetaSidecarFactProduct | null>;
-  resolvePrimaryLabel(ref: StarObjectRef | PickMetaRef): Promise<string>;
+  getMeta(ref: StarObjectRef): Promise<MetaSidecarEntry | null>;
+  getMetaCell(ref: MetaSidecarCellRef): Promise<MetaSidecarEntry[] | null>;
   dispose(): void;
 }
+
+export declare function deriveMetaSidecarUrlFromRenderUrl(
+  renderUrl?: string | null
+): string;
 
 export declare function createMetaSidecarProviderService(
   options: MetaSidecarProviderServiceOptions
