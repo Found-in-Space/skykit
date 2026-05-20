@@ -117,6 +117,9 @@ public/volumes/
 # Docusaurus cache and generated files
 .docusaurus
 
+# Benchmark raw run artifacts
+benchmarks/star-planner/.runs/
+
 # Serverless directories
 .serverless/
 
