@@ -100,12 +100,24 @@ export interface SkykitFrameBase {
   view: SkykitViewState;
 }
 
+export interface SkykitXrFrameState {
+  presenting: boolean;
+  frame?: unknown;
+  session?: unknown;
+  referenceSpace?: unknown;
+}
+
+export interface SkykitFrameOptions {
+  xr?: SkykitXrFrameState | null;
+}
+
 export interface SkykitThreeFrame extends SkykitFrameBase {
   renderer: THREE.WebGLRenderer | SkykitRendererLike;
   scene: THREE.Scene;
   camera: THREE.Camera;
   roots: SkykitSceneRoots;
   observerRig: SkykitObserverRig;
+  xr?: SkykitXrFrameState | null;
 }
 
 export interface SkykitDisposable {
@@ -341,6 +353,7 @@ export interface SkykitRendererLike {
   domElement?: unknown;
   setSize?(width: number, height: number, updateStyle?: boolean): void;
   setPixelRatio?(ratio: number): void;
+  setAnimationLoop?(callback: ((timeMs: number, xrFrame?: unknown) => void) | null): void;
   render?(scene: THREE.Scene, camera: THREE.Camera): void;
   dispose?(): void;
 }
@@ -351,6 +364,7 @@ export interface SkykitViewerOptions {
   scene?: THREE.Scene;
   renderer?: THREE.WebGLRenderer | SkykitRendererLike;
   camera?: THREE.Camera;
+  cameraRoot?: THREE.Object3D | false;
   roots?: Partial<SkykitSceneRoots>;
   observerRig?: SkykitObserverRig;
   parts?: Iterable<SkykitThreePart>;
@@ -400,9 +414,9 @@ export interface SkykitViewer {
   addPart(part: SkykitThreePart): SkykitPluginTeardown;
   getViewState(): SkykitViewState;
   requestViewState(patch: Partial<SkykitViewState>, reason?: string): void;
-  update(deltaSeconds?: number): void;
-  render(): void;
-  frame(deltaSeconds?: number): void;
+  update(deltaSeconds?: number, frameOptions?: SkykitFrameOptions): void;
+  render(frameOptions?: SkykitFrameOptions): void;
+  frame(deltaSeconds?: number, frameOptions?: SkykitFrameOptions): void;
   resize(size?: Partial<SkykitViewportSize>): void;
   on<TEvent extends SkykitEvent>(type: TEvent['type'], listener: (event: TEvent) => void): SkykitPluginTeardown;
   emit(event: SkykitEvent): void;
@@ -917,6 +931,7 @@ export interface SkykitStarPreloadRequest {
 export interface SkykitAnimationLoopOptions {
   autoStart?: boolean;
   render?: boolean;
+  scheduler?: 'window' | 'renderer';
   maxFramesPerSecond?: number;
   maxDeltaSeconds?: number;
   requestAnimationFrame?: (callback: (timeMs: number) => void) => number | ReturnType<typeof setTimeout>;
@@ -1078,6 +1093,11 @@ export declare const SKYKIT_ACTIONS: {
     readonly seek: 'skykit:journey.seek';
     readonly play: 'skykit:journey.play';
     readonly pause: 'skykit:journey.pause';
+  };
+  readonly xr: {
+    readonly enter: 'skykit:xr.enter';
+    readonly exit: 'skykit:xr.exit';
+    readonly toggle: 'skykit:xr.toggle';
   };
 };
 export declare const SKYKIT_CONTROLS: {

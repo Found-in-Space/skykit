@@ -190,6 +190,8 @@ Browser lessons:
   sky-grab look controls, status, and debug.
 - `examples/hr-diagram-free-roam/` embeds the reusable HR diagram as a
   touch-os panel inside a free-roam SkyKit viewer.
+- `examples/xr-free-roam/` composes alpha XR session/navigation helpers with a
+  pose-anchored touch-os panel.
 - `examples/custom-object-layer/` shows that app-owned Three.js visuals can be
   small plugins instead of core SkyKit features.
 - `examples/navigation-automation/` uses spatial navigation helpers to drive a

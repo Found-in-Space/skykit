@@ -13,6 +13,12 @@ export {
 } from './xr/controls.js';
 export { createSkykitXrRaySource } from './xr/rays.js';
 export { createSkykitXrPickRouter } from './xr/pick-router.js';
+export {
+  createSkykitXrNavigationPlugin,
+  createSkykitXrObserverRig,
+  createSkykitXrSessionPlugin,
+  createSkykitXrStarPickingPlugin,
+} from './xr/plugins.js';
 export { computeSkykitXrDepthRange } from './xr/depth.js';
 export { applySkykitXrDepthRange } from './xr/render-state.js';
 export {

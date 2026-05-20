@@ -4,7 +4,18 @@ import type {
   SpatialScaleProfile,
   SpatialVector3,
 } from '@found-in-space/spatial';
+import type {
+  ThreeStarField,
+  ThreeStarFieldPickOptions,
+  ThreeStarFieldPickResult,
+} from '@found-in-space/three-star-field';
 import type * as THREE from 'three';
+import type {
+  SkykitEvent,
+  SkykitPlugin,
+  SkykitStarCellSource,
+  SkykitViewState,
+} from './index.js';
 
 export type SkykitXrVector3 = SpatialVector3;
 export type SkykitXrQuaternion = SpatialQuaternion;
@@ -333,6 +344,84 @@ export interface SkykitXrSessionHandle {
   };
 }
 
+export interface CreateSkykitXrObserverRigOptions {
+  rig: SkykitXrRig;
+  coordinateUnitsPerParsec?: number;
+}
+
+export interface SkykitXrSessionPluginOptions {
+  id?: string;
+  renderer?: THREE.WebGLRenderer | { xr?: unknown } | null;
+  mode?: string;
+  referenceSpaceType?: string;
+  sessionInit?: unknown;
+  navigator?: unknown;
+  priority?: number;
+  onSessionStarted?: (handle: SkykitXrSessionHandle) => void;
+}
+
+export interface SkykitXrSessionPlugin extends SkykitPlugin {
+  readonly id: string;
+  enter(): Promise<SkykitXrSessionHandle>;
+  exit(): Promise<void>;
+  getSnapshot(): unknown;
+}
+
+export interface SkykitXrNavigationPluginOptions {
+  id?: string;
+  priority?: number;
+  rig?: SkykitXrRig;
+  controls?: SkykitXrControlBindingsHandle;
+  moveAxis?: SkykitXrAxisBinding;
+  attitudeAxis?: SkykitXrAxisBinding;
+  rollModifierButton?: SkykitXrButtonBinding;
+  boostButton?: SkykitXrButtonBinding;
+  deadzone?: number;
+  moveSpeedPcPerSec?: number;
+  boostMultiplier?: number;
+  yawRateRadPerSec?: number;
+  pitchRateRadPerSec?: number;
+  rollRateRadPerSec?: number;
+}
+
+export interface SkykitXrNavigationPlugin extends SkykitPlugin {
+  readonly id: string;
+  getSnapshot(): unknown;
+}
+
+export interface SkykitXrStarPickEvent extends SkykitEvent {
+  type: 'stars/xr-pick';
+  id: string;
+  pick: ThreeStarFieldPickResult;
+  label: string;
+  ray: SkykitXrRay;
+  view: SkykitViewState;
+}
+
+export interface SkykitXrStarPickMissEvent extends SkykitEvent {
+  type: 'stars/xr-pick-miss';
+  id: string;
+  ray: SkykitXrRay;
+  view: SkykitViewState;
+}
+
+export interface SkykitXrStarPickingPluginOptions {
+  id?: string;
+  priority?: number;
+  renderer: ThreeStarField;
+  source?: SkykitStarCellSource | null;
+  rig?: SkykitXrRig;
+  raySource?: SkykitXrRaySource;
+  blockers?: Iterable<SkykitXrPickBlocker>;
+  controls?: SkykitXrControlBindingsHandle;
+  handedness?: 'left' | 'right' | string;
+  selectButton?: SkykitXrButtonBinding;
+  attributes?: readonly string[];
+  pickOptions?: ThreeStarFieldPickOptions;
+  onPick?: (event: SkykitXrStarPickEvent) => void | Promise<void>;
+  onMiss?: (event: SkykitXrStarPickMissEvent) => void | Promise<void>;
+}
+
 export declare function createSkykitXrRig(options?: CreateSkykitXrRigOptions): SkykitXrRig;
 export declare function createSkykitXrBodyTracker(options?: CreateSkykitXrBodyTrackerOptions): SkykitXrBodyTracker;
 export declare function createSkykitXrControlBindings(options?: SkykitXrControlBindingsOptions): SkykitXrControlBindingsHandle;
@@ -340,6 +429,12 @@ export declare function readSkykitXrAxis(inputSources: Iterable<any>, binding?: 
 export declare function readSkykitXrButton(inputSources: Iterable<any>, binding?: SkykitXrButtonBinding, previous?: SkykitXrButtonState | null): SkykitXrButtonState;
 export declare function createSkykitXrRaySource(options?: SkykitXrRaySourceOptions): SkykitXrRaySource;
 export declare function createSkykitXrPickRouter(options?: SkykitXrPickRouterOptions): SkykitXrPickRouter;
+export declare function createSkykitXrObserverRig(options: CreateSkykitXrObserverRigOptions): import('./index.js').SkykitObserverRig;
+export declare function createSkykitXrSessionPlugin(options?: SkykitXrSessionPluginOptions): SkykitXrSessionPlugin;
+export declare function createSkykitXrNavigationPlugin(options?: SkykitXrNavigationPluginOptions): SkykitXrNavigationPlugin;
+export declare function createSkykitXrStarPickingPlugin(options: SkykitXrStarPickingPluginOptions): SkykitPlugin & {
+  getSnapshot(): unknown;
+};
 export declare function computeSkykitXrDepthRange(options?: SkykitXrDepthRangeOptions): SkykitXrDepthRange;
 export declare function applySkykitXrDepthRange(
   target: SkykitXrDepthRangeApplyTarget,

@@ -64,6 +64,10 @@ export default defineConfig({
           __dirname,
           'packages/skykit/examples/hr-diagram-free-roam/index.html',
         ),
+        skykitXrFreeRoam: path.resolve(
+          __dirname,
+          'packages/skykit/examples/xr-free-roam/index.html',
+        ),
         skykitNavigationAutomation: path.resolve(
           __dirname,
           'packages/skykit/examples/navigation-automation/index.html',

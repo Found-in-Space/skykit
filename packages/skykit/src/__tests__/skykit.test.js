@@ -131,6 +131,32 @@ test('createSkykitViewer creates roots, mounts renderer, runs lifecycle, and dis
   assert.equal(viewer.getSnapshot().disposed, true);
 });
 
+test('createSkykitViewer respects custom camera roots for XR rigs', async () => {
+  const renderer = createRenderer();
+  const camera = new THREE.PerspectiveCamera();
+  const headRoot = new THREE.Group();
+  const viewer = await createSkykitViewer({
+    renderer,
+    camera,
+    cameraRoot: headRoot,
+  });
+
+  assert.equal(headRoot.children.includes(camera), true);
+  assert.equal(viewer.roots.navigationRoot.children.includes(camera), false);
+
+  await viewer.dispose();
+
+  const looseCamera = new THREE.PerspectiveCamera();
+  const detachedViewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    camera: looseCamera,
+    cameraRoot: false,
+  });
+
+  assert.equal(detachedViewer.roots.navigationRoot.children.includes(looseCamera), false);
+  await detachedViewer.dispose();
+});
+
 test('plugins register ordered parts, events, stores, resources, disposables, and scheduled tasks', async () => {
   const calls = [];
   const disposableCalls = [];
@@ -820,6 +846,57 @@ test('animation loop can throttle rendered frames', async () => {
   assert.ok(loop.getSnapshot().lastDeltaSeconds >= 0.033);
 
   loop.dispose();
+  await viewer.dispose();
+});
+
+test('renderer-scheduled animation loop passes WebXR frame data to viewer frames', async () => {
+  let animationCallback = null;
+  const xrFrame = { marker: 'xr-frame' };
+  const session = { id: 'session' };
+  const referenceSpace = { type: 'local-floor' };
+  const frameXrStates = [];
+  const renderer = {
+    ...createRenderer(),
+    xr: {
+      isPresenting: true,
+      getSession() {
+        return session;
+      },
+      getReferenceSpace() {
+        return referenceSpace;
+      },
+    },
+    setAnimationLoop(callback) {
+      animationCallback = callback;
+    },
+  };
+  const viewer = await createSkykitViewer({
+    renderer,
+    parts: [{
+      update(frame) {
+        frameXrStates.push(frame.xr);
+      },
+    }],
+  });
+  const loop = createSkykitAnimationLoop(viewer, {
+    scheduler: 'renderer',
+    now: () => 1000,
+  });
+
+  loop.start();
+  assert.equal(typeof animationCallback, 'function');
+  animationCallback(1016, xrFrame);
+
+  assert.equal(renderer.renderCalls, 1);
+  assert.deepEqual(frameXrStates[0], {
+    presenting: true,
+    frame: xrFrame,
+    session,
+    referenceSpace,
+  });
+
+  loop.stop();
+  assert.equal(animationCallback, null);
   await viewer.dispose();
 });
 

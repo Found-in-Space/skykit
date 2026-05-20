@@ -46,6 +46,11 @@ export const SKYKIT_ACTIONS = Object.freeze({
     flyToSelected: 'skykit:selection.flyToSelected',
     openExternal: 'skykit:selection.openExternal',
   }),
+  xr: Object.freeze({
+    enter: 'skykit:xr.enter',
+    exit: 'skykit:xr.exit',
+    toggle: 'skykit:xr.toggle',
+  }),
   journey: Object.freeze({
     goToChapter: 'skykit:journey.goToChapter',
     next: 'skykit:journey.next',

@@ -30,6 +30,7 @@ import {
  * @typedef {import('./index.d.ts').SkykitViewState} SkykitViewState
  * @typedef {import('./index.d.ts').SkykitViewportSize} SkykitViewportSize
  * @typedef {import('./index.d.ts').SkykitPluginTeardown} SkykitPluginTeardown
+ * @typedef {import('./index.d.ts').SkykitFrameOptions} SkykitFrameOptions
  */
 
 /**
@@ -91,7 +92,10 @@ export async function createSkykitViewer(options = {}) {
   for (const root of roots.scaleBandedContentRoots.values()) {
     addRootToScene(scene, root);
   }
-  roots.navigationRoot.add(camera);
+  const cameraRoot = resolveCameraRoot(options.cameraRoot, roots);
+  if (cameraRoot) {
+    cameraRoot.add(camera);
+  }
   syncRootsFromView(roots, view);
   mountRenderer(host, renderer, options.autoMountRenderer !== false);
 
@@ -215,12 +219,12 @@ export async function createSkykitViewer(options = {}) {
   /**
    * @param {number} [deltaSeconds]
    */
-  function update(deltaSeconds = 0) {
+  function update(deltaSeconds = 0, frameOptions = {}) {
     assertActive();
     const dt = Math.max(0, finiteNumber(deltaSeconds, 0));
     elapsedSeconds += dt;
     const viewChanged = flushViewPatch(false);
-    observerRig.update?.(createFrame(dt));
+    observerRig.update?.(createFrame(dt, frameOptions));
     view = normalizeViewState({
       ...view,
       motion: observerRig.getMotion?.() ?? view.motion ?? null,
@@ -232,16 +236,16 @@ export async function createSkykitViewer(options = {}) {
       }
       emit({ type: 'view/change', view: cloneViewState(view) });
     }
-    const frameData = createFrame(dt);
+    const frameData = createFrame(dt, frameOptions);
     emit({ type: 'viewer/update', frame: frameData });
     for (const part of orderedParts()) {
       part.update?.(frameData);
     }
   }
 
-  function render() {
+  function render(frameOptions = {}) {
     assertActive();
-    const frameData = createFrame(0);
+    const frameData = createFrame(0, frameOptions);
     for (const part of orderedParts()) {
       part.beforeRender?.(frameData);
     }
@@ -255,9 +259,9 @@ export async function createSkykitViewer(options = {}) {
   /**
    * @param {number} [deltaSeconds]
    */
-  function frame(deltaSeconds = 0) {
-    update(deltaSeconds);
-    render();
+  function frame(deltaSeconds = 0, frameOptions = {}) {
+    update(deltaSeconds, frameOptions);
+    render(frameOptions);
   }
 
   /**
@@ -427,9 +431,11 @@ export async function createSkykitViewer(options = {}) {
 
   /**
    * @param {number} deltaSeconds
+   * @param {SkykitFrameOptions} [options]
    * @returns {SkykitThreeFrame}
    */
-  function createFrame(deltaSeconds) {
+  function createFrame(deltaSeconds, options = {}) {
+    const frameOptions = /** @type {SkykitFrameOptions} */ (options ?? {});
     return {
       viewer,
       deltaSeconds,
@@ -440,6 +446,7 @@ export async function createSkykitViewer(options = {}) {
       camera,
       roots,
       observerRig,
+      ...(frameOptions.xr ? { xr: frameOptions.xr } : {}),
     };
   }
 
@@ -534,11 +541,24 @@ export async function createSkykitViewer(options = {}) {
     };
   }
 
-  function assertActive() {
+function assertActive() {
     if (disposed) {
       throw new Error('SkykitViewer has been disposed.');
     }
   }
+}
+
+/**
+ * @param {SkykitViewerOptions['cameraRoot']} cameraRoot
+ * @param {import('./index.d.ts').SkykitSceneRoots} roots
+ * @returns {THREE.Object3D | null}
+ */
+function resolveCameraRoot(cameraRoot, roots) {
+  if (cameraRoot === false) return null;
+  if (cameraRoot && typeof cameraRoot === 'object' && /** @type {{ isObject3D?: unknown }} */ (cameraRoot).isObject3D) {
+    return /** @type {THREE.Object3D} */ (cameraRoot);
+  }
+  return roots.navigationRoot;
 }
 
 /**

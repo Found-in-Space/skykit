@@ -12,6 +12,8 @@ import { finiteNumber, positiveFinite } from './utils.js';
  * @returns {SkykitAnimationLoop}
  */
 export function createSkykitAnimationLoop(viewer, options = {}) {
+  const rendererScheduler = options.scheduler === 'renderer'
+    && typeof /** @type {{ setAnimationLoop?: unknown }} */ (viewer.renderer).setAnimationLoop === 'function';
   const requestFrame = options.requestAnimationFrame
     ?? globalThis.requestAnimationFrame?.bind(globalThis)
     ?? ((callback) => setTimeout(() => callback(now()), 16));
@@ -54,13 +56,22 @@ export function createSkykitAnimationLoop(viewer, options = {}) {
     if (running) return;
     running = true;
     lastTimeMs = finiteNumber(now(), 0);
-    frameHandle = requestFrame(tick);
+    if (rendererScheduler) {
+      /** @type {{ setAnimationLoop: (callback: ((timeMs: number, xrFrame?: unknown) => void) | null) => void }} */ (viewer.renderer)
+        .setAnimationLoop(tick);
+    } else {
+      frameHandle = requestFrame(tick);
+    }
   }
 
   function stop() {
     if (!running) return;
     running = false;
-    if (frameHandle != null) {
+    if (rendererScheduler) {
+      /** @type {{ setAnimationLoop: (callback: ((timeMs: number, xrFrame?: unknown) => void) | null) => void }} */ (viewer.renderer)
+        .setAnimationLoop(null);
+      frameHandle = null;
+    } else if (frameHandle != null) {
       cancelFrame(frameHandle);
       frameHandle = null;
     }
@@ -72,8 +83,11 @@ export function createSkykitAnimationLoop(viewer, options = {}) {
     disposed = true;
   }
 
-  /** @param {number} timeMs */
-  function tick(timeMs) {
+  /**
+   * @param {number} timeMs
+   * @param {unknown} [xrFrame]
+   */
+  function tick(timeMs, xrFrame) {
     if (!running || disposed) return;
     const currentTimeMs = finiteNumber(timeMs, now());
     if (
@@ -90,10 +104,11 @@ export function createSkykitAnimationLoop(viewer, options = {}) {
     elapsedSeconds += lastDeltaSeconds;
     frameCount += 1;
     try {
+      const frameOptions = createFrameOptions(xrFrame);
       if (options.render === false) {
-        viewer.update(lastDeltaSeconds);
+        viewer.update(lastDeltaSeconds, frameOptions);
       } else {
-        viewer.frame(lastDeltaSeconds);
+        viewer.frame(lastDeltaSeconds, frameOptions);
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
@@ -101,7 +116,9 @@ export function createSkykitAnimationLoop(viewer, options = {}) {
       frameHandle = null;
       return;
     }
-    frameHandle = requestFrame(tick);
+    if (!rendererScheduler) {
+      frameHandle = requestFrame(tick);
+    }
   }
 
   function getSnapshot() {
@@ -119,5 +136,25 @@ export function createSkykitAnimationLoop(viewer, options = {}) {
     if (disposed) {
       throw new Error('SkykitAnimationLoop has been disposed.');
     }
+  }
+
+  /** @param {unknown} xrFrame */
+  function createFrameOptions(xrFrame) {
+    const xr = /** @type {{ isPresenting?: boolean; getSession?: () => unknown; getReferenceSpace?: () => unknown }} */ (
+      /** @type {{ xr?: unknown }} */ (viewer.renderer).xr ?? {}
+    );
+    const session = xr.getSession?.() ?? null;
+    const referenceSpace = xr.getReferenceSpace?.() ?? null;
+    const presenting = Boolean(xr.isPresenting || session || xrFrame);
+    return presenting
+      ? {
+          xr: {
+            presenting,
+            ...(xrFrame !== undefined ? { frame: xrFrame } : {}),
+            ...(session !== null ? { session } : {}),
+            ...(referenceSpace !== null ? { referenceSpace } : {}),
+          },
+        }
+      : {};
   }
 }

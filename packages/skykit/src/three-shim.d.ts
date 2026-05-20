@@ -36,7 +36,10 @@ declare module 'three' {
     z: number;
     constructor(x?: number, y?: number, z?: number);
     add(vector: Vector3): this;
+    addScaledVector(vector: Vector3, scale: number): this;
     sub(vector: Vector3): this;
+    lengthSq(): number;
+    normalize(): this;
     applyQuaternion(quaternion: Quaternion): this;
   }
 
@@ -52,6 +55,10 @@ declare module 'three' {
     z: number;
     w: number;
     constructor(x?: number, y?: number, z?: number, w?: number);
+    setFromAxisAngle(axis: Vector3, angle: number): this;
+    multiply(quaternion: Quaternion): this;
+    premultiply(quaternion: Quaternion): this;
+    normalize(): this;
   }
 
   export class Matrix4 {
@@ -110,8 +117,17 @@ declare module 'three' {
 
   export interface WebGLRenderer {
     domElement?: unknown;
+    xr?: {
+    enabled?: boolean;
+    isPresenting?: boolean;
+    getSession?(): unknown;
+    getReferenceSpace?(): unknown;
+    setSession?(session: unknown): Promise<void> | void;
+    updateCamera?(camera: Camera): void;
+  };
     setSize?(width: number, height: number, updateStyle?: boolean): void;
     setPixelRatio?(ratio: number): void;
+    setAnimationLoop?(callback: ((timeMs: number, xrFrame?: unknown) => void) | null): void;
     render?(scene: Scene, camera: Camera): void;
     dispose?(): void;
   }

@@ -9,6 +9,7 @@ import {
 import {
   createSkykitShipControlsRoot,
   createTouchOsHudPlugin,
+  createTouchOsPanelPlugin,
   dispatchTouchOsActionOutputs,
   pointerEventToTouchOs,
   resolveTouchOsSurfaceMetrics,
@@ -332,6 +333,136 @@ test('createTouchOsHudPlugin skips unclaimed touch pointer moves before HUD work
   assert.equal(mouseMove.defaultPrevented, false);
 
   addedPart.dispose();
+});
+
+test('createTouchOsPanelPlugin mounts pose-anchored panels, forwards outputs, and blocks XR picks', () => {
+  const actions = createSkykitActionRegistry();
+  const queuedOutputs = [];
+  const observedOutputs = [];
+  const driverFrames = [];
+  let addedPart = null;
+  let latestHit = null;
+  let createdDriverOptions = null;
+  const pointerSource = {
+    sample() {
+      return [];
+    },
+  };
+  const runtime = {
+    setRoot(root) {
+      this.root = root;
+    },
+    render() {
+      return { commands: [], sharedSurfaceRevision: 0 };
+    },
+    dispatchInput() {
+      return { handled: false, componentId: undefined, targetId: undefined, outputs: [] };
+    },
+    resize() {},
+    tick() {},
+    takeOutputs() {
+      return queuedOutputs.splice(0);
+    },
+    getServices() {
+      return {};
+    },
+    getInteraction() {
+      return {};
+    },
+    getBounds() {
+      return undefined;
+    },
+    isLayoutDirty() {
+      return false;
+    },
+    isRenderDirty() {
+      return false;
+    },
+    dispose() {
+      this.disposed = true;
+    },
+  };
+  const driver = {
+    attach() {
+      this.attached = true;
+    },
+    update(frame) {
+      driverFrames.push(frame);
+      latestHit = {
+        blocked: true,
+        length: 0.42,
+        componentId: 'rendering',
+        targetId: 'rendering:face',
+        pointerId: 'right-trigger',
+        source: 'ray',
+      };
+    },
+    detach() {
+      this.attached = false;
+    },
+    render() {
+      return { commands: [], sharedSurfaceRevision: 0 };
+    },
+    getHit() {
+      return latestHit;
+    },
+    getCompositeSurfaces() {
+      return [];
+    },
+    getPointerState() {
+      return undefined;
+    },
+    clearPointer() {},
+  };
+
+  const plugin = createTouchOsPanelPlugin({
+    id: 'test-touch-panel',
+    driver: 'pose-anchored',
+    runtime,
+    createDriver(options) {
+      createdDriverOptions = options;
+      return driver;
+    },
+    pointerSources: [pointerSource],
+    root: createSkykitShipControlsRoot({ id: 'test-panel-root' }),
+    surfaceMetrics: { width: 320, height: 240 },
+    anchorPose: () => ({
+      position: { x: 1, y: 2, z: 3 },
+      orientation: { x: 0, y: 0, z: 0, w: 1 },
+    }),
+    onOutput(output, outputContext) {
+      observedOutputs.push({
+        output,
+        frameElapsedSeconds: outputContext.frame?.elapsedSeconds ?? null,
+      });
+    },
+  });
+  plugin.setup(createContext(actions, (part) => {
+    addedPart = part;
+  }));
+
+  assert.ok(addedPart);
+  addedPart.attach();
+  queuedOutputs.push({ type: 'change-request', componentId: 'rendering', field: 'exposure', value: 4 });
+  addedPart.update(createFrame(1.25));
+
+  assert.equal(driver.attached, true);
+  assert.equal(createdDriverOptions.pointerSources[0], pointerSource);
+  assert.equal(driverFrames[0].surfaceMetrics.width, 320);
+  assert.deepEqual(driverFrames[0].anchorPose.position, { x: 1, y: 2, z: 3 });
+  assert.equal(observedOutputs[0].output.type, 'change-request');
+  assert.equal(observedOutputs[0].frameElapsedSeconds, 1.25);
+  assert.deepEqual(plugin.getHit(), latestHit);
+  assert.deepEqual(plugin.blockRay({}), {
+    blocked: true,
+    consumed: true,
+    distance: 0.42,
+    hit: latestHit,
+  });
+
+  addedPart.dispose();
+  assert.equal(driver.attached, false);
+  assert.equal(runtime.disposed, true);
 });
 
 function createContext(actions, addPart) {
