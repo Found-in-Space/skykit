@@ -139,17 +139,6 @@ function createProviderService(options, internals, sourceConfig = {}) {
     planDemand:
       internals.planDemand ??
       ((context) => pipeline.planDemandForContext(context)),
-    ...(usePipelineSource
-      ? {
-          /**
-           * @param {StarOctreeSelectionContext} context
-           * @param {StarOctreeDemandEntry[]} currentEntries
-           */
-          planPrefetch(context, currentEntries) {
-            return pipeline.planPrefetchForContext(context, currentEntries);
-          },
-        }
-      : {}),
     decodeNode:
       internals.decodeNode ??
       ((entry) => createDefaultDecodedStarSegment(entry.node)),

@@ -1,19 +1,19 @@
 import {
-  evaluateStarTreeDemandGate,
+  evaluateStarCellStrategyChange,
   normalizeStarTreeDemandThresholds,
 } from '@found-in-space/star-trees';
 
 /**
  * @param {{
- *   strategy: import('@found-in-space/star-trees').StarTreeStrategy;
+ *   strategy: import('@found-in-space/star-trees').StarCellStrategy;
  *   thresholds?: import('@found-in-space/star-trees').StarTreeDemandThresholds;
- *   previousDemandView: import('@found-in-space/star-trees').StarTreeViewState | null;
- *   nextView: import('@found-in-space/star-trees').StarTreeViewState;
+ *   previousAnchor: import('@found-in-space/star-trees').StarStrategyAnchor | null;
+ *   nextAnchor: import('@found-in-space/star-trees').StarStrategyAnchor;
  *   reason?: string;
  * }} options
  */
 export function evaluateDemandGate(options) {
-  return evaluateStarTreeDemandGate(options);
+  return evaluateStarCellStrategyChange(options);
 }
 
 /**

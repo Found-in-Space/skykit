@@ -2,10 +2,11 @@ import type {
   StarCellData,
   StarCellDelta,
   StarCellKey,
+  StarCellStrategy,
   StarCoordinateOutput,
+  StarStrategyAnchor,
   StarTreeDemandThresholds,
   StarTreePointPc,
-  StarTreeStrategy,
   StarTreeVolumeRequest,
 } from '@found-in-space/star-trees';
 
@@ -86,7 +87,8 @@ export interface StarOctreeTraversalSelectionResult {
 export interface StarOctreeSelectionContext {
   providerId: string;
   sessionId?: string;
-  strategy: StarTreeStrategy;
+  strategy: StarCellStrategy;
+  strategyAnchor?: StarStrategyAnchor;
   view: StarOctreeViewState;
   viewRevision: number;
   demandRevision: number;
@@ -96,7 +98,6 @@ export interface StarOctreeSelectionContext {
     progressive?: boolean;
     emitCachedFirst?: boolean;
     coarseFirst?: boolean;
-    prefetchMode?: 'inline' | 'defer' | 'off';
   };
   plannerCache?: unknown;
   traversalLane?: 'current' | 'replacement' | 'prefetch';
@@ -120,7 +121,7 @@ export interface StarOctreeSelectionContext {
 
 export interface StarOctreeSessionOptions {
   id?: string;
-  strategy?: StarTreeStrategy;
+  strategy?: StarCellStrategy;
   demandThresholds?: StarTreeDemandThresholds;
   attributes?: Array<
     | 'position'
@@ -316,7 +317,7 @@ export type StarOctreeCellDelta = StarCellDelta;
 
 export interface StarOctreeSessionSnapshot {
   id: string;
-  strategy: StarTreeStrategy;
+  strategy: StarCellStrategy;
   view: StarOctreeViewState;
   demand: {
     revision: number;
@@ -456,7 +457,7 @@ export interface StarOctreeSchedulerSnapshot {
 export interface StarOctreeCellStreamOptions {
   id?: string;
   sessionId?: string;
-  strategy?: StarTreeStrategy;
+  strategy?: StarCellStrategy;
   view?: StarOctreeViewPatch;
   viewRevision?: number;
   demandRevision?: number;
@@ -478,7 +479,7 @@ export interface StarOctreeCellStreamOptions {
 export interface StarOctreeDemandInspection {
   providerId: string;
   streamId?: string;
-  strategy: StarTreeStrategy;
+  strategy: StarCellStrategy;
   view: StarOctreeViewState;
   reasons: string[];
   signature?: string;
@@ -508,7 +509,7 @@ export interface StarOctreeDemandInspection {
 
 export interface StarOctreePayloadStreamOptions {
   id?: string;
-  strategy?: StarTreeStrategy;
+  strategy?: StarCellStrategy;
   view?: StarOctreeViewPatch;
   streaming?: {
     progressive?: boolean;

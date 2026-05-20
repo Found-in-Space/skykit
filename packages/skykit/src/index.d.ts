@@ -27,7 +27,7 @@ import type {
   StarCellStore,
   StarObjectRef,
   StarPickMeta,
-  StarTreeStrategy,
+  StarCellStrategy,
 } from '@found-in-space/star-trees';
 import type {
   StarOctreeCoordinateOutput,
@@ -593,7 +593,7 @@ export interface StreamingStarLayerOptions {
   source?: SkykitStarCellSource;
   renderer: ThreeStarField;
   session?: StarOctreeSessionOptions | StarOctreeProviderSession;
-  strategy?: StarTreeStrategy | ((view: SkykitViewState) => StarTreeStrategy | null);
+  strategy?: StarCellStrategy | ((view: SkykitViewState) => StarCellStrategy | null);
   attributes?: readonly string[];
   coordinates?: StarOctreeCoordinateOutput;
   updateOptions?: ViewUpdateOptions;
@@ -622,7 +622,7 @@ export interface SkykitStreamingStarsPlugin extends SkykitPlugin {
 
 export interface SkykitStarCellDemand {
   id?: string;
-  strategy?: StarTreeStrategy | ((view: SkykitViewState) => StarTreeStrategy | null) | null;
+  strategy?: StarCellStrategy | ((view: SkykitViewState) => StarCellStrategy | null) | null;
   view?: Partial<StarOctreeViewPatch> | ((view: SkykitViewState) => Partial<StarOctreeViewPatch> | null | undefined);
   attributes?: readonly string[];
 }
@@ -660,7 +660,7 @@ export interface SkykitStarSourcePluginOptions {
   priority?: number;
   provider?: StarOctreeProviderService;
   session?: StarOctreeSessionOptions | StarOctreeProviderSession;
-  strategy?: StarTreeStrategy | ((view: SkykitViewState) => StarTreeStrategy | null);
+  strategy?: StarCellStrategy | ((view: SkykitViewState) => StarCellStrategy | null);
   attributes?: readonly string[];
   coordinates?: StarOctreeCoordinateOutput;
   updateOptions?: ViewUpdateOptions;
@@ -919,11 +919,11 @@ export interface SkykitJourneyPluginOptions {
 
 export interface SkykitSpatialPreloadStrategyOptions {
   combine?: boolean;
-  baseStrategy?: StarTreeStrategy;
+  baseStrategy?: StarCellStrategy;
 }
 
 export interface SkykitStarPreloadRequest {
-  strategy: StarTreeStrategy;
+  strategy: StarCellStrategy;
   view?: StarOctreeViewPatch;
   sourceHint: SpatialPreloadHint;
 }
@@ -1157,14 +1157,13 @@ export declare function createSkykitStarPreloadRequestsFromSpatialHints(
   options?: SkykitSpatialPreloadStrategyOptions
 ): SkykitStarPreloadRequest[];
 /**
- * Strategy-only convenience helper. It intentionally skips view-lookahead hints
- * because those require a matching authored view state; use
- * createSkykitStarPreloadRequestsFromSpatialHints() when warming providers.
+ * Strategy-only convenience helper. View-bound lookahead hints stay in preload
+ * requests so their authored view can travel with the warm-lane strategy.
  */
 export declare function createSkykitStarStrategiesFromSpatialHints(
   hints: Iterable<SpatialPreloadHint>,
   options?: SkykitSpatialPreloadStrategyOptions
-): StarTreeStrategy | StarTreeStrategy[] | null;
+): StarCellStrategy | StarCellStrategy[] | null;
 export declare function createSkyGrabPlugin(options?: SkykitDragLookOptions): SkykitPlugin & {
   getSnapshot(): unknown;
 };

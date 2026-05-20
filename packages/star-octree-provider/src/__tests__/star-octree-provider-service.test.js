@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { createTargetFrustumStrategy } from '@found-in-space/star-trees';
 import {
   OCTREE_DEFAULT,
   OCTREE_c56103,
@@ -89,7 +90,7 @@ test('target-frustum streams validate required view state clearly', async () => 
   });
 
   const result = await provider.streamCells({
-    strategy: { kind: 'target-frustum' },
+    strategy: createTargetFrustumStrategy(),
   })[Symbol.asyncIterator]().next();
 
   assert.equal(result.done, false);

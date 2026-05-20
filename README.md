@@ -29,9 +29,9 @@ Current package direction:
 
 - `@found-in-space/spatial`: dependency-free coordinates, poses, smooth paths, timed pose tracks, preload hints, routes, targets, and smooth navigation helpers
 - `@found-in-space/journey`: authored scene graphs, timed journeys, cues, tracks, and retiming helpers
-- `@found-in-space/journey-video`: placeholder boundary for future deterministic journey video/export tooling
+- `@found-in-space/journey-video`: standalone alpha journey video editor and deterministic export tooling
 - `@found-in-space/star-trees`: star tree identities, cell stores, iteration, star math, and display helpers
-- `@found-in-space/star-octree-provider`: star octree loading, provider-owned strategies, streaming sessions, and cell emission
+- `@found-in-space/star-octree-provider`: star octree loading, provider-owned planning, streaming sessions, and cell emission against shared strategy objects
 - `@found-in-space/meta-sidecar-provider`: metadata sidecar facts keyed by star refs
 - `@found-in-space/star-map-canvas`: lightweight 2D starmap rendering
 - `@found-in-space/three-star-field`: Three.js renderer for streamed star cells
@@ -57,8 +57,10 @@ node --test --watch  # watch mode
 ```
 
 Package lessons live under `packages/*/examples/`. The root `index.html` is a
-lesson directory and keeps old root demos in a legacy section during the alpha
-transition.
+local lesson directory for this repository: it highlights alpha package
+examples first and keeps the old root `demos/` proof-of-concept sandboxes in a
+legacy section for reference. That note is about this repository's local demo
+shell, not the public website lessons.
 
 Constellation art defaults to Western art from:
 

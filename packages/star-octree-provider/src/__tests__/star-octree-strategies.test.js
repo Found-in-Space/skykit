@@ -3,14 +3,14 @@ import test from 'node:test';
 
 import {
   buildTravelVolumeRequests,
+  combineStrategies,
+  createLookaheadStrategy,
   createObserverShellStrategy,
   createPathVolumeStrategy,
   createSphereVolumeStrategy,
   createTargetFrustumStrategy,
   distancePointToPathPc,
   createStarCellKey,
-  combineStarTreeStrategies,
-  withMotionLookahead,
 } from '@found-in-space/star-trees';
 import {
   planStarOctreeStrategyDemand,
@@ -18,22 +18,31 @@ import {
   warmVolumeRequests,
 } from '../star-octree-strategies.js';
 
-test('star-tree strategy factories create first-class strategy values', () => {
-  assert.deepEqual(createObserverShellStrategy(), { kind: 'observer-shell' });
-  assert.deepEqual(createTargetFrustumStrategy({ verticalFovDeg: 50 }), {
-    kind: 'target-frustum',
-    verticalFovDeg: 50,
-  });
-  assert.deepEqual(createSphereVolumeStrategy({
-    centerPc: { x: 1, y: 2, z: 3 },
-    radiusPc: 4,
-  }), {
-    kind: 'sphere-volume',
-    centerPc: { x: 1, y: 2, z: 3 },
-    radiusPc: 4,
-  });
-  assert.equal(withMotionLookahead({ kind: 'observer-shell' }).kind, 'motion-lookahead');
-  assert.equal(combineStarTreeStrategies([{ kind: 'observer-shell' }]).kind, 'composite');
+test('star-tree strategy factories create first-class behavior values', () => {
+  const strategies = [
+    createObserverShellStrategy(),
+    createTargetFrustumStrategy({ verticalFovDeg: 50 }),
+    createSphereVolumeStrategy({ centerPc: { x: 1, y: 2, z: 3 }, radiusPc: 4 }),
+    createPathVolumeStrategy({
+      pointsPc: [{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }],
+      radiusPc: 1,
+    }),
+    createLookaheadStrategy({
+      base: createObserverShellStrategy(),
+      horizonSecs: 1,
+      tickSecs: 1,
+    }),
+    combineStrategies([createObserverShellStrategy()]),
+  ];
+
+  for (const strategy of strategies) {
+    assert.equal(typeof strategy.createAnchor, 'function');
+    assert.equal(typeof strategy.createEvaluator, 'function');
+    assert.equal(typeof strategy.diff, 'function');
+    for (const key of ['kind', 'id', 'name', 'label', 'debugLabel']) {
+      assert.equal(Object.hasOwn(strategy, key), false, key);
+    }
+  }
 });
 
 test('sphere strategy selects nodes whose AABB overlaps the sphere', async () => {
@@ -51,8 +60,7 @@ test('sphere strategy selects nodes whose AABB overlaps the sphere', async () =>
     ], selected),
   });
 
-  assert.deepEqual(plan.entries.map((entry) => entry.node.nodeKey), ['edge', 'inside']);
-  assert.equal(plan.metadata.strategy, 'sphere-volume');
+  assert.deepEqual(plan.entries.map((entry) => entry.node.nodeKey), ['inside', 'edge']);
   assert.equal(plan.metadata.selectedNodeCount, 2);
   assert.deepEqual(selected, [
     { nodeKey: 'inside', include: true, descend: true },
@@ -82,6 +90,44 @@ test('path strategy uses node-center capsule overlap with half-size padding', as
     { x: 0, y: 0, z: 0 },
     { x: 10, y: 0, z: 0 },
   ]), 4);
+});
+
+test('custom strategy streams cells without registration', async () => {
+  const strategy = {
+    createAnchor(view = {}) {
+      return { view };
+    },
+    createEvaluator() {
+      return {
+        evaluateCell(cell) {
+          const include = cell.nodeKey === 'custom';
+          return {
+            include,
+            descend: include,
+            emit: include,
+            priority: { lane: 'live', band: 0, score: 10 },
+            reasons: ['custom-test'],
+          };
+        },
+      };
+    },
+    diff(previous, _next, context = {}) {
+      return previous
+        ? { kind: 'none', reasons: ['custom-unchanged'] }
+        : { kind: 'reset', reason: context.reason ?? 'initial' };
+    },
+  };
+
+  const plan = await planStarOctreeStrategyDemand({
+    indexSource: {},
+    context: createSelectionContext(strategy, [
+      createNode({ nodeKey: 'ignored', mortonCode: 1 }),
+      createNode({ nodeKey: 'custom', mortonCode: 2 }),
+    ]),
+  });
+
+  assert.deepEqual(plan.entries.map((entry) => entry.node.nodeKey), ['custom']);
+  assert.equal(plan.entries[0].reasons.includes('custom-test'), true);
 });
 
 test('travel volume requests split by radius profile and merge adjacent same-radius slices', () => {
@@ -121,11 +167,11 @@ test('travel volume requests fall back to a single full-path request', () => {
   assert.equal(requests[0].radiusPc, 4);
 });
 
-test('composite union selects cells matched by any child strategy', async () => {
+test('combined strategies merge contributors and choose best priority', async () => {
   const nodeA = createNode({ nodeKey: 'node-a', centerX: 0, halfSize: 1, level: 2 });
   const nodeB = createNode({ nodeKey: 'node-b', centerX: 10, halfSize: 1, level: 1 });
   const nodeC = createNode({ nodeKey: 'node-c', centerX: 50, halfSize: 1, level: 3 });
-  const strategy = combineStarTreeStrategies([
+  const strategy = combineStrategies([
     createSphereVolumeStrategy({ centerPc: { x: 0, y: 0, z: 0 }, radiusPc: 2 }),
     createPathVolumeStrategy({
       pointsPc: [{ x: 10, y: -1, z: 0 }, { x: 10, y: 1, z: 0 }],
@@ -143,15 +189,22 @@ test('composite union selects cells matched by any child strategy', async () => 
     [['node-b', 'current'], ['node-a', 'current']],
   );
   assert.equal(plan.signature, [nodeA, nodeB].map(createStarCellKey).sort().join('|'));
-  assert.equal(plan.metadata.strategy, 'composite');
   assert.equal(plan.entries[0].metadata.strategyContributors.length, 2);
+  assert.equal(plan.entries[0].metadata.semanticPriority.lane, 'live');
 });
 
-test('motion-lookahead decorator adds future-only prefetch demand', async () => {
+test('warm lookahead demand never replaces live demand', async () => {
   const nodeA = createNode({ nodeKey: 'current-node', centerX: 0, halfSize: 10 });
   const nodeB = createNode({ nodeKey: 'future-node', centerX: 100, halfSize: 10 });
   const baseStrategy = createObserverShellStrategy();
-  const strategy = withMotionLookahead(baseStrategy);
+  const strategy = combineStrategies([
+    baseStrategy,
+    createLookaheadStrategy({
+      base: createObserverShellStrategy(),
+      horizonSecs: 1,
+      tickSecs: 1,
+    }),
+  ]);
   const plan = await planStarOctreeStrategyDemand({
     indexSource: {},
     context: {
@@ -172,8 +225,8 @@ test('motion-lookahead decorator adds future-only prefetch demand', async () => 
     [['current-node', 'current'], ['future-node', 'prefetch']],
   );
   assert.equal(plan.signature, createStarCellKey(nodeA));
-  assert.equal(plan.metadata.motionLookahead.enabled, true);
-  assert.equal(plan.metadata.motionLookahead.prefetchNodeCount, 1);
+  assert.equal(plan.entries[0].metadata.semanticPriority.lane, 'live');
+  assert.equal(plan.entries[1].metadata.semanticPriority.lane, 'warm');
 });
 
 test('streamVolumeCells passes a built-in volume strategy to the provider', async () => {
@@ -194,7 +247,8 @@ test('streamVolumeCells passes a built-in volume strategy to the provider', asyn
     deltas.push(delta);
   }
 
-  assert.equal(receivedStrategy.kind, 'sphere-volume');
+  assert.equal(typeof receivedStrategy.createEvaluator, 'function');
+  assert.equal(Object.hasOwn(receivedStrategy, 'kind'), false);
   assert.equal(deltas[0].type, 'stars/current');
 });
 
@@ -279,6 +333,7 @@ function createSelectionContext(strategy, nodes, visits = []) {
               entries.push({
                 node,
                 priority: decision.priority,
+                relevance: decision.relevance,
                 role: decision.role,
                 reasons: decision.reasons,
                 metadata: decision.metadata,

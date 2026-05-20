@@ -60,12 +60,7 @@ export interface StarTreeCellGeometry extends StarCellRef {
   gridZ?: number;
 }
 
-export interface StarTreeObserverShellStrategy {
-  kind: 'observer-shell';
-}
-
-export interface StarTreeTargetFrustumStrategy {
-  kind: 'target-frustum';
+export interface TargetFrustumStrategyOptions {
   verticalFovDeg?: number;
   overscanDeg?: number;
   targetRadiusPc?: number;
@@ -73,36 +68,22 @@ export interface StarTreeTargetFrustumStrategy {
   farPc?: number;
 }
 
-export interface StarTreeSphereVolumeStrategy {
-  kind: 'sphere-volume';
+export interface SphereVolumeStrategyOptions {
   centerPc: StarTreePointPc;
   radiusPc: number;
 }
 
-export interface StarTreePathVolumeStrategy {
-  kind: 'path-volume';
+export interface PathVolumeStrategyOptions {
   pointsPc: StarTreePointPc[];
   radiusPc: number;
 }
 
-export interface StarTreeMotionLookaheadStrategy {
-  kind: 'motion-lookahead';
-  strategy: StarTreeStrategy;
+export interface LookaheadStrategyOptions {
+  base: StarCellStrategy;
+  horizonSecs: number;
+  tickSecs: number;
+  blackoutSecs?: number;
 }
-
-export interface StarTreeCompositeStrategy {
-  kind: 'composite';
-  mode: 'union';
-  strategies: StarTreeStrategy[];
-}
-
-export type StarTreeStrategy =
-  | StarTreeObserverShellStrategy
-  | StarTreeTargetFrustumStrategy
-  | StarTreeSphereVolumeStrategy
-  | StarTreePathVolumeStrategy
-  | StarTreeMotionLookaheadStrategy
-  | StarTreeCompositeStrategy;
 
 export interface StarTreeSphereVolumeRequest {
   type: 'sphere';
@@ -157,34 +138,84 @@ export interface StarTreeViewState extends StarTreeViewPatch {
   revision: number;
 }
 
-export interface StarTreeStrategyEvaluation {
-  relevant: boolean;
-  descend?: boolean;
-  emit?: boolean;
+export type StarCellPriorityLane = 'live' | 'warm' | string;
+
+export interface StarCellPriority {
+  lane: StarCellPriorityLane;
+  band: number;
+  score?: number;
+}
+
+export interface StrategyContribution {
   role?: 'current' | 'prefetch';
+  priority?: StarCellPriority;
   relevance?: number;
-  priority?: number;
-  distancePc?: number;
   reasons?: string[];
   metadata?: Record<string, unknown>;
 }
 
-export interface StarTreeStrategyContext {
-  strategy: StarTreeStrategy;
+export interface StarCellDecision {
+  include: boolean;
+  descend?: boolean;
+  emit?: boolean;
+  priority?: StarCellPriority;
+  relevance?: number;
+  distancePc?: number;
+  reasons?: string[];
+  metadata?: Record<string, unknown>;
+  contributors?: StrategyContribution[];
+}
+
+export interface StarStrategyAnchor {
   view: StarTreeViewPatch;
+  params?: Record<string, unknown>;
+}
+
+export interface StarStrategyEvaluationContext {
   role?: 'current' | 'prefetch';
   indexMagnitude?: number;
   currentObserverPc?: StarTreePointPc;
 }
 
-export interface StarTreeStrategyEvaluator {
-  kind: StarTreeStrategy['kind'];
+export interface StarCellEvaluator {
   view: StarTreeViewPatch;
-  distanceToCell(cell: StarTreeCellGeometry): number;
+  distanceToCell?(cell: StarTreeCellGeometry): number;
   evaluateCell(
     cell: StarTreeCellGeometry,
     helpers?: { queuedDistancePc?: number }
-  ): StarTreeStrategyEvaluation;
+  ): StarCellDecision;
+}
+
+export interface CellRegion {
+  centerPc?: StarTreePointPc;
+  radiusPc?: number;
+  minPc?: StarTreePointPc;
+  maxPc?: StarTreePointPc;
+}
+
+export type StarStrategyChange =
+  | { kind: 'none'; reasons?: string[] }
+  | { kind: 'priority-only'; regions?: CellRegion[]; priorityFloor?: StarCellPriority; reasons?: string[] }
+  | { kind: 'tail-changed'; regions?: CellRegion[]; belowPriority: StarCellPriority; reasons?: string[] }
+  | { kind: 'regions-changed'; regions: CellRegion[]; priorityFloor?: StarCellPriority; reasons?: string[] }
+  | { kind: 'reset'; reason: string; reasons?: string[] };
+
+export interface StarStrategyDiffContext {
+  thresholds?: StarTreeDemandThresholds;
+  reason?: string;
+}
+
+export interface StarCellStrategy<TView = StarTreeViewPatch> {
+  createAnchor(view?: TView): StarStrategyAnchor;
+  createEvaluator(
+    anchor: StarStrategyAnchor,
+    context?: StarStrategyEvaluationContext
+  ): StarCellEvaluator;
+  diff(
+    previous: StarStrategyAnchor | null,
+    next: StarStrategyAnchor,
+    context?: StarStrategyDiffContext
+  ): StarStrategyChange;
 }
 
 export interface StarTreeDemandThresholds {
@@ -335,37 +366,37 @@ export interface ApparentMagnitudeInput {
 export declare const ERR_STAR_CELLS_TRANSFER_UNAVAILABLE: 'ERR_STAR_CELLS_TRANSFER_UNAVAILABLE';
 export declare const ERR_STAR_TREE_INVALID_VIEW: 'ERR_STAR_TREE_INVALID_VIEW';
 
-export declare function createObserverShellStrategy(): StarTreeObserverShellStrategy;
+export declare function createObserverShellStrategy(): StarCellStrategy;
 
 export declare function createTargetFrustumStrategy(
-  options?: Omit<StarTreeTargetFrustumStrategy, 'kind'>
-): StarTreeTargetFrustumStrategy;
+  options?: TargetFrustumStrategyOptions
+): StarCellStrategy;
 
 export declare function createSphereVolumeStrategy(
-  options: Omit<StarTreeSphereVolumeStrategy, 'kind'>
-): StarTreeSphereVolumeStrategy;
+  options: SphereVolumeStrategyOptions
+): StarCellStrategy;
 
 export declare function createPathVolumeStrategy(
-  options: Omit<StarTreePathVolumeStrategy, 'kind'>
-): StarTreePathVolumeStrategy;
+  options: PathVolumeStrategyOptions
+): StarCellStrategy;
 
-export declare function withMotionLookahead(
-  strategy: StarTreeStrategy
-): StarTreeMotionLookaheadStrategy;
+export declare function createLookaheadStrategy(
+  options: LookaheadStrategyOptions
+): StarCellStrategy;
 
-export declare function combineStarTreeStrategies(
-  strategies: StarTreeStrategy[],
-  options?: { mode?: 'union' }
-): StarTreeCompositeStrategy;
+export declare function combineStrategies(
+  strategies: StarCellStrategy[]
+): StarCellStrategy;
 
-export declare function normalizeStarTreeStrategyView(
-  strategy: StarTreeStrategy,
+export declare function compareStarCellPriority(
+  left?: StarCellPriority,
+  right?: StarCellPriority
+): number;
+
+export declare function normalizeStarCellStrategyView(
+  strategy: StarCellStrategy,
   view?: StarTreeViewPatch
 ): StarTreeViewPatch;
-
-export declare function createStarTreeStrategyEvaluator(
-  options: StarTreeStrategyContext
-): StarTreeStrategyEvaluator;
 
 export declare function normalizeObserverShellView(
   view?: StarTreeViewPatch
@@ -376,7 +407,7 @@ export declare function normalizeObserverShellView(
 
 export declare function normalizeTargetFrustumView(
   view?: StarTreeViewPatch,
-  strategy?: StarTreeTargetFrustumStrategy
+  strategy?: TargetFrustumStrategyOptions
 ): StarTreeViewPatch & {
   observerPc: StarTreePointPc;
   limitingMagnitude: number;
@@ -416,7 +447,7 @@ export declare function buildTravelVolumeRequests(
 
 export declare function createStrategyForVolumeRequest(
   request: StarTreeVolumeRequest
-): StarTreeSphereVolumeStrategy | StarTreePathVolumeStrategy;
+): StarCellStrategy;
 
 export declare function resolveMotionLookahead(
   motion: StarTreeViewPatch['motion'],
@@ -429,11 +460,11 @@ export declare function resolveMotionLookahead(
   futureObserverPc: StarTreePointPc | null;
 };
 
-export declare function evaluateStarTreeDemandGate(options: {
-  strategy: StarTreeStrategy;
+export declare function evaluateStarCellStrategyChange(options: {
+  strategy: StarCellStrategy;
   thresholds?: StarTreeDemandThresholds;
-  previousDemandView: StarTreeViewState | null;
-  nextView: StarTreeViewState;
+  previousAnchor: StarStrategyAnchor | null;
+  nextAnchor: StarStrategyAnchor;
   reason?: string;
 }): { replan: boolean; reasons: string[] };
 

@@ -3,10 +3,10 @@
 Headless planner and scheduler benchmarks for the SkyKit alpha star-loading
 contract.
 
-The suite records the current implementation as a compact baseline while the
-Strategy/Planner API is being separated. It intentionally avoids real data
-network loading: planner runs use synthetic semantic octree cells, and browser
-runs use a fake bandwidth/decode model around the real scheduler.
+The suite records the current implementation as a compact baseline for the open
+Strategy/Planner API. It intentionally avoids real data network loading:
+planner runs use synthetic semantic octree cells, and browser runs use a fake
+bandwidth/decode model around the real scheduler.
 
 ## Commands
 

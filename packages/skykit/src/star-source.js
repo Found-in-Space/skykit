@@ -1,5 +1,5 @@
 import {
-  combineStarTreeStrategies,
+  combineStrategies,
   createStarCellStore,
 } from '@found-in-space/star-trees';
 
@@ -12,7 +12,7 @@ import { isProviderSession, toStarOctreeViewPatch } from './utils.js';
  * @typedef {import('./index.d.ts').SkykitViewState} SkykitViewState
  * @typedef {import('@found-in-space/star-octree-provider').StarOctreeProviderSession} StarOctreeProviderSession
  * @typedef {import('@found-in-space/star-trees').StarCellDelta} StarCellDelta
- * @typedef {import('@found-in-space/star-trees').StarTreeStrategy} StarTreeStrategy
+ * @typedef {import('@found-in-space/star-trees').StarCellStrategy} StarCellStrategy
  * @typedef {SkykitStarCellDemand & {
  *   id: string;
  *   strategy: SkykitStarCellDemand['strategy'] | null;
@@ -320,12 +320,13 @@ export function createSkykitStarSourcePlugin(options) {
 
   /**
    * @param {SkykitViewState} view
-   * @param {StarTreeStrategy | undefined} baseStrategy
+   * @param {SkykitStarCellDemand['strategy'] | undefined} baseStrategy
    */
   function resolveCompositeStrategy(view, baseStrategy) {
     const strategies = [];
-    if (baseStrategy) {
-      strategies.push(baseStrategy);
+    const resolvedBaseStrategy = resolveDemandStrategy(baseStrategy, view);
+    if (resolvedBaseStrategy) {
+      strategies.push(resolvedBaseStrategy);
     }
     for (const demand of demands.values()) {
       const strategy = resolveDemandStrategy(demand.strategy, view);
@@ -339,7 +340,7 @@ export function createSkykitStarSourcePlugin(options) {
     if (strategies.length === 1) {
       return strategies[0];
     }
-    return combineStarTreeStrategies(strategies);
+    return combineStrategies(strategies);
   }
 
   /**
@@ -387,7 +388,7 @@ function normalizeDemand(demand, id) {
 /**
  * @param {SkykitStarCellDemand['strategy']} strategy
  * @param {SkykitViewState} view
- * @returns {StarTreeStrategy | null}
+ * @returns {StarCellStrategy | null}
  */
 function resolveDemandStrategy(strategy, view) {
   if (!strategy) {

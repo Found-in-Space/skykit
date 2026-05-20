@@ -52,7 +52,7 @@ ${browserRows.map((row) => `| ${row.profile} | ${row.workload} | ${formatMetric(
 
 - Custom strategy supported: ${customStrategy?.supported === true ? 'yes' : 'no'}
 - Custom strategy probe failure: ${customStrategy?.failureReason ?? 'none'}
-- This baseline intentionally records the current closed-strategy alpha behavior before the Strategy/Planner API is separated.
+- This baseline records the open Strategy/Planner contract: benchmark scenarios are labels, while planner inputs are first-class strategy objects.
 `;
 }
 

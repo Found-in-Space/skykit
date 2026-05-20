@@ -19,7 +19,7 @@ test('target-frustum view validation requires orientation, target, or direction'
   assert.throws(
     () => normalizeTargetFrustumView(
       { verticalFovDeg: 70, aspectRatio: 1 },
-      { kind: 'target-frustum' },
+      {},
     ),
     /orientationIcrs, targetPc, or directionIcrs/,
   );
@@ -30,7 +30,7 @@ test('target-frustum view validation requires orientation, target, or direction'
         orientationIcrs: { x: 0, y: 0, z: 0, w: 1 },
         verticalFovDeg: 70,
       },
-      { kind: 'target-frustum' },
+      {},
     ),
     /aspectRatio/,
   );
@@ -42,7 +42,7 @@ test('target-frustum derives a POC-parity target frustum with defaults', () => {
       observerPc: { x: 0, y: 0, z: 0 },
       targetPc: { x: 0, y: 0, z: -10 },
     },
-    { kind: 'target-frustum' },
+    {},
   );
   const frustum = createFrustumTester(view);
 
@@ -64,7 +64,7 @@ test('target-frustum can derive from directionIcrs without a target distance', (
       directionIcrs: { x: 1, y: 0, z: 0 },
       verticalFovDeg: 60,
     },
-    { kind: 'target-frustum' },
+    {},
   );
   const frustum = createFrustumTester(view);
 
@@ -85,7 +85,7 @@ test('frustum tester intersects axis-aligned octree nodes exactly enough for pru
       nearPc: 0,
       farPc: 100,
     },
-    { kind: 'target-frustum' },
+    {},
   );
   const frustum = createFrustumTester(view);
 
@@ -104,7 +104,7 @@ test('frustum tester measures the closest visible witness instead of raw box dis
       aspectRatio: 1,
       nearPc: 0,
     },
-    { kind: 'target-frustum', overscanDeg: 0 },
+    { overscanDeg: 0 },
   );
   const frustum = createFrustumTester(view);
   const witness = frustum.nearestVisiblePointToCell(createNode({

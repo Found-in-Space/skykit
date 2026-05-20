@@ -1,16 +1,9 @@
 import {
+  compareStarCellPriority,
   createStarCellKey,
-  createStarTreeStrategyEvaluator,
   createStrategyForVolumeRequest,
-  normalizeStarTreeStrategyView,
-  resolveMotionLookahead,
+  normalizeStarCellStrategyView,
 } from '@found-in-space/star-trees';
-import { planObserverShellDemand } from './star-octree-observer-shell.js';
-import { planTargetFrustumDemand } from './star-octree-target-frustum.js';
-import {
-  ERR_STAR_OCTREE_UNSUPPORTED_STRATEGY,
-  createStarOctreeError,
-} from './star-octree-errors.js';
 
 /**
  * @typedef {import('./index.d.ts').StarOctreeDemandEntry} StarOctreeDemandEntry
@@ -19,155 +12,60 @@ import {
  * @typedef {import('./index.d.ts').StarOctreeCellDelta} StarOctreeCellDelta
  * @typedef {import('./index.d.ts').StarOctreeProviderService} StarOctreeProviderService
  * @typedef {import('./index.d.ts').StarOctreeSelectionContext} StarOctreeSelectionContext
+ * @typedef {import('@found-in-space/star-trees').StarCellDecision} StarCellDecision
+ * @typedef {import('@found-in-space/star-trees').StarCellPriority} StarCellPriority
+ * @typedef {import('@found-in-space/star-trees').StarCellStrategy} StarCellStrategy
  * @typedef {import('@found-in-space/star-trees').StarTreeVolumeRequest} StarTreeVolumeRequest
  * @typedef {import('./index.d.ts').WarmVolumeResult} WarmVolumeResult
- * @typedef {import('@found-in-space/star-trees').StarTreeStrategy} StarTreeStrategy
- * @typedef {import('@found-in-space/star-trees').StarTreeStrategyEvaluation} StarTreeStrategyEvaluation
- * @typedef {ReturnType<typeof import('./star-octree-index-source.js').createStarOctreeIndexSource>} StarOctreeIndexSource
  */
 
 const DEFAULT_LIMITING_MAGNITUDE = 6.5;
 
 /**
  * @param {{
- *   indexSource: StarOctreeIndexSource;
+ *   indexSource?: unknown;
  *   context: StarOctreeSelectionContext;
  * }} options
  * @returns {Promise<StarOctreeDemandPlan>}
  */
 export async function planStarOctreeStrategyDemand(options) {
-  const strategy = options.context.strategy;
-
-  if (strategy.kind === 'observer-shell') {
-    return planObserverShellDemand(options);
-  }
-
-  if (strategy.kind === 'target-frustum') {
-    return planTargetFrustumDemand(options);
-  }
-
-  if (
-    strategy.kind === 'sphere-volume' ||
-    strategy.kind === 'path-volume' ||
-    strategy.kind === 'composite'
-  ) {
-    return planEvaluatorDemand(options.context, strategy);
-  }
-
-  if (strategy.kind === 'motion-lookahead') {
-    return planMotionLookaheadDemand(options.indexSource, options.context, strategy);
-  }
-
-  throw createUnsupportedStrategyError('unknown');
+  return planEvaluatorDemand(options.context);
 }
 
 /**
- * @param {{
- *   indexSource: StarOctreeIndexSource;
- *   context: StarOctreeSelectionContext;
- *   currentEntries: StarOctreeDemandEntry[];
- * }} options
- * @returns {Promise<StarOctreeDemandPlan>}
- */
-export async function planStarOctreePrefetchDemand(options) {
-  const strategy = options.context.strategy;
-  if (strategy.kind !== 'motion-lookahead') {
-    return createEmptyPrefetchPlan(strategy.kind);
-  }
-  if (strategy.strategy.kind === 'motion-lookahead') {
-    throw createUnsupportedStrategyError('nested motion-lookahead');
-  }
-
-  const observerPc = normalizePoint(options.context.view.observerPc);
-  const lookahead = resolveMotionLookahead(options.context.view.motion, observerPc);
-  if (!lookahead.enabled || !lookahead.futureObserverPc) {
-    return {
-      entries: [],
-      signature: '',
-      reasons: ['motion-lookahead'],
-      metadata: {
-        motionLookahead: {
-          enabled: false,
-          baseStrategy: strategy.strategy.kind,
-          lookaheadSecs: lookahead.lookaheadSecs,
-          lookaheadDistancePc: lookahead.lookaheadDistancePc,
-          futureObserverPc: lookahead.futureObserverPc,
-          prefetchNodeCount: 0,
-          prefetchOverlapCount: 0,
-          prefetchDeferred: true,
-          prefetchPlanned: false,
-        },
-        prefetchNodeCount: 0,
-        prefetchOverlapCount: 0,
-      },
-    };
-  }
-
-  const prefetch = await planMotionLookaheadPrefetchEntries(
-    options.indexSource,
-    options.context,
-    strategy,
-    options.currentEntries,
-    lookahead,
-  );
-
-  return {
-    entries: prefetch.entries,
-    signature: prefetch.entries
-      .map((entry) => createStarCellKey(entry.node))
-      .sort()
-      .join('|'),
-    reasons: ['motion-lookahead'],
-    metadata: {
-      motionLookahead: createMotionLookaheadMetadata(strategy, lookahead, {
-        prefetchNodeCount: prefetch.entries.length,
-        prefetchOverlapCount: prefetch.overlapCount,
-        deferred: true,
-        planned: true,
-      }),
-      prefetchNodeCount: prefetch.entries.length,
-      prefetchOverlapCount: prefetch.overlapCount,
-    },
-  };
-}
-
-/**
- * @param {StarTreeStrategy} strategy
+ * @param {StarCellStrategy} strategy
  * @param {import('./index.d.ts').StarOctreeViewPatch | undefined} view
  */
 export function normalizeStrategyView(strategy, view) {
-  return normalizeStarTreeStrategyView(strategy, view);
+  return normalizeStarCellStrategyView(strategy, view);
 }
 
 /**
  * @param {StarOctreeSelectionContext} context
- * @param {StarTreeStrategy} strategy
  * @returns {Promise<StarOctreeDemandPlan>}
  */
-async function planEvaluatorDemand(context, strategy) {
-  const view = normalizeStrategyView(strategy, context.view);
+async function planEvaluatorDemand(context) {
+  const strategy = context.strategy;
+  const anchor = context.strategyAnchor ?? strategy.createAnchor(context.view);
+  const view = anchor.view;
   let indexMagnitude = DEFAULT_LIMITING_MAGNITUDE;
-  let evaluator = createStarTreeStrategyEvaluator({
-    strategy,
-    view,
+  let evaluator = strategy.createEvaluator(anchor, {
     indexMagnitude,
-    role: 'current',
+    role: context.traversalLane === 'prefetch' ? 'prefetch' : 'current',
   });
 
   const result = await context.traversal.select({
-    distanceToNode: (node) => evaluator.distanceToCell(node),
+    distanceToNode: (node) => evaluator.distanceToCell?.(node) ?? 0,
     visit(node, { bootstrap, queuedDistancePc }) {
       if (indexMagnitude !== bootstrap.header.magLimit) {
         indexMagnitude = bootstrap.header.magLimit;
-        evaluator = createStarTreeStrategyEvaluator({
-          strategy,
-          view,
+        evaluator = strategy.createEvaluator(anchor, {
           indexMagnitude,
-          role: 'current',
+          role: context.traversalLane === 'prefetch' ? 'prefetch' : 'current',
         });
       }
 
-      return evaluationToTraversalDecision(
+      return decisionToTraversalDecision(
         evaluator.evaluateCell(node, { queuedDistancePc }),
       );
     },
@@ -180,224 +78,56 @@ async function planEvaluatorDemand(context, strategy) {
   return {
     entries,
     signature: createCurrentNodeSetSignature(entries),
-    reasons: [strategy.kind],
+    reasons: collectReasons(entries),
     metadata: {
-      strategy: strategy.kind,
       selectedNodeCount: entries.length,
       inspectedNodeCount: result.stats.inspectedNodeCount,
       payloadNodeCount: result.stats.payloadNodeCount,
       prunedNodeCount: result.stats.prunedNodeCount,
       frontierShardCount: result.stats.frontierShardCount,
       maxLevelInspected: result.stats.maxLevelInspected,
+      prefetchNodeCount: entries.filter((entry) => entry.role === 'prefetch').length,
+      view,
     },
   };
 }
 
 /**
- * @param {StarTreeStrategyEvaluation} evaluation
+ * @param {StarCellDecision} decision
  */
-function evaluationToTraversalDecision(evaluation) {
-  return {
-    include: evaluation.relevant,
-    emit: evaluation.emit,
-    descend: evaluation.descend ?? evaluation.relevant,
-    distancePc: evaluation.distancePc,
-    priority: evaluation.priority,
-    relevance: evaluation.relevance,
-    role: evaluation.role,
-    reasons: evaluation.reasons,
-    metadata: evaluation.metadata,
-  };
-}
-
-/**
- * @param {StarOctreeIndexSource} indexSource
- * @param {StarOctreeSelectionContext} context
- * @param {Extract<StarTreeStrategy, { kind: 'motion-lookahead' }>} strategy
- */
-async function planMotionLookaheadDemand(indexSource, context, strategy) {
-  if (strategy.strategy.kind === 'motion-lookahead') {
-    throw createUnsupportedStrategyError('nested motion-lookahead');
-  }
-
-  const currentContext = {
-    ...context,
-    strategy: strategy.strategy,
-    view: {
-      ...normalizeStrategyView(strategy.strategy, context.view),
-      revision: context.viewRevision,
-    },
-  };
-  const currentPlan = await planStarOctreeStrategyDemand({
-    indexSource,
-    context: currentContext,
-  });
-  const observerPc = normalizePoint(context.view.observerPc);
-  const lookahead = resolveMotionLookahead(context.view.motion, observerPc);
-
-  if (!lookahead.enabled || !lookahead.futureObserverPc) {
-    return {
-      ...currentPlan,
-      metadata: {
-        ...(currentPlan.metadata ?? {}),
-        motionLookahead: {
-          enabled: false,
-          lookaheadSecs: lookahead.lookaheadSecs,
-          lookaheadDistancePc: lookahead.lookaheadDistancePc,
-          futureObserverPc: lookahead.futureObserverPc,
-          prefetchNodeCount: 0,
-          prefetchOverlapCount: 0,
-        },
-      },
-    };
-  }
-
-  if (context.streaming?.prefetchMode === 'defer') {
-    return {
-      ...currentPlan,
-      metadata: {
-        ...(currentPlan.metadata ?? {}),
-        motionLookahead: createMotionLookaheadMetadata(strategy, lookahead, {
-          prefetchNodeCount: 0,
-          prefetchOverlapCount: 0,
-          deferred: true,
-          planned: false,
-        }),
-        prefetchNodeCount: 0,
-        prefetchOverlapCount: 0,
-      },
-    };
-  }
-
-  const prefetch = await planMotionLookaheadPrefetchEntries(
-    indexSource,
-    context,
-    strategy,
-    currentPlan.entries,
-    lookahead,
+function decisionToTraversalDecision(decision) {
+  const priority = decision.priority;
+  const role = /** @type {'current' | 'prefetch'} */ (
+    priority?.lane === 'warm' ? 'prefetch' : 'current'
   );
-  const prefetchEntries = prefetch.entries;
-
-  const entries = sortDemandEntries(
-    mergeDemandEntries([...currentPlan.entries, ...prefetchEntries]),
-    { coarseFirst: context.streaming?.coarseFirst !== false },
-  );
-
   return {
-    entries,
-    signature: createCurrentNodeSetSignature(entries),
-    reasons: dedupe([...(currentPlan.reasons ?? []), 'motion-lookahead']),
+    include: decision.include,
+    emit: decision.emit,
+    descend: decision.descend ?? decision.include,
+    distancePc: decision.distancePc,
+    priority: numericPriority(priority),
+    relevance: decision.relevance,
+    role,
+    reasons: decision.reasons,
     metadata: {
-      ...(currentPlan.metadata ?? {}),
-      motionLookahead: createMotionLookaheadMetadata(strategy, lookahead, {
-        prefetchNodeCount: prefetchEntries.length,
-        prefetchOverlapCount: prefetch.overlapCount,
-        deferred: false,
-        planned: true,
-      }),
-      prefetchNodeCount: prefetchEntries.length,
-      prefetchOverlapCount: prefetch.overlapCount,
+      ...(decision.metadata ?? {}),
+      semanticPriority: priority,
+      ...(decision.contributors ? { strategyContributors: decision.contributors } : {}),
     },
   };
 }
 
 /**
- * @param {StarOctreeIndexSource} indexSource
- * @param {StarOctreeSelectionContext} context
- * @param {Extract<StarTreeStrategy, { kind: 'motion-lookahead' }>} strategy
- * @param {StarOctreeDemandEntry[]} currentEntries
- * @param {ReturnType<typeof resolveMotionLookahead>} lookahead
+ * @param {StarCellPriority | undefined} priority
  */
-async function planMotionLookaheadPrefetchEntries(
-  indexSource,
-  context,
-  strategy,
-  currentEntries,
-  lookahead,
-) {
-  const futureObserverPc = /** @type {import('@found-in-space/star-trees').StarTreePointPc} */ (
-    lookahead.futureObserverPc
-  );
-  const futureView = {
-    ...context.view,
-    observerPc: futureObserverPc,
-    motion: undefined,
-  };
-  const futureContext = {
-    ...context,
-    strategy: strategy.strategy,
-    view: {
-      ...normalizeStrategyView(strategy.strategy, futureView),
-      revision: context.viewRevision,
-    },
-    streaming: {
-      ...(context.streaming ?? {}),
-      prefetchMode: /** @type {const} */ ('off'),
-    },
-  };
-  const futurePlan = await planStarOctreeStrategyDemand({
-    indexSource,
-    context: futureContext,
-  });
-  const currentCellKeys = new Set(
-    currentEntries
-      .filter((entry) => (entry.role ?? 'current') === 'current')
-      .map((entry) => createStarCellKey(entry.node)),
-  );
-  let overlapCount = 0;
-  /** @type {StarOctreeDemandEntry[]} */
-  const entries = [];
-
-  for (const entry of futurePlan.entries) {
-    if (currentCellKeys.has(createStarCellKey(entry.node))) {
-      overlapCount += 1;
-      continue;
-    }
-
-    entries.push({
-      ...entry,
-      role: /** @type {const} */ ('prefetch'),
-      reasons: dedupe(['motion-lookahead', ...(entry.reasons ?? [])]),
-      metadata: {
-        ...(entry.metadata ?? {}),
-        prefetchKind: 'motion-lookahead',
-        baseStrategy: strategy.strategy.kind,
-        futureObserverPc,
-        originalRole: entry.role ?? 'current',
-      },
-    });
-  }
-
-  return {
-    entries: sortDemandEntries(entries, {
-      coarseFirst: context.streaming?.coarseFirst !== false,
-    }),
-    overlapCount,
-  };
-}
-
-/**
- * @param {Extract<StarTreeStrategy, { kind: 'motion-lookahead' }>} strategy
- * @param {ReturnType<typeof resolveMotionLookahead>} lookahead
- * @param {{
- *   prefetchNodeCount: number;
- *   prefetchOverlapCount: number;
- *   deferred: boolean;
- *   planned: boolean;
- * }} prefetch
- */
-function createMotionLookaheadMetadata(strategy, lookahead, prefetch) {
-  return {
-    enabled: true,
-    baseStrategy: strategy.strategy.kind,
-    lookaheadSecs: lookahead.lookaheadSecs,
-    lookaheadDistancePc: lookahead.lookaheadDistancePc,
-    futureObserverPc: lookahead.futureObserverPc,
-    prefetchNodeCount: prefetch.prefetchNodeCount,
-    prefetchOverlapCount: prefetch.prefetchOverlapCount,
-    prefetchDeferred: prefetch.deferred,
-    prefetchPlanned: prefetch.planned,
-  };
+function numericPriority(priority) {
+  if (!priority) return 0;
+  const laneBase = priority.lane === 'live'
+    ? 1e12
+    : priority.lane === 'warm'
+      ? 0
+      : -1e12;
+  return laneBase - (priority.band ?? 0) * 1e9 + (priority.score ?? 0);
 }
 
 /**
@@ -462,6 +192,14 @@ export async function warmVolumeRequests(provider, requests, options = {}) {
 /**
  * @param {StarOctreeDemandEntry[]} entries
  */
+function collectReasons(entries) {
+  const reasons = dedupe(entries.flatMap((entry) => entry.reasons ?? []));
+  return reasons.length > 0 ? reasons : ['strategy'];
+}
+
+/**
+ * @param {StarOctreeDemandEntry[]} entries
+ */
 function mergeDemandEntries(entries) {
   /** @type {Map<string, StarOctreeDemandEntry>} */
   const byCellKey = new Map();
@@ -510,7 +248,7 @@ function withContributor(entry) {
     ...entry,
     metadata: {
       ...(entry.metadata ?? {}),
-      strategyContributors: [createContributor(entry)],
+      strategyContributors: metadataContributors(entry),
     },
   };
 }
@@ -520,11 +258,12 @@ function withContributor(entry) {
  */
 function createContributor(entry) {
   return {
-    strategy: String(entry.metadata?.strategy ?? entry.reasons?.[0] ?? 'unknown'),
     role: entry.role ?? 'current',
-    priority: entry.priority,
+    priority: entry.metadata?.semanticPriority,
+    schedulerPriority: entry.priority,
     relevance: entry.relevance,
     reasons: entry.reasons ?? [],
+    metadata: entry.metadata,
   };
 }
 
@@ -545,7 +284,7 @@ function metadataContributors(entry) {
 function compareEntryPrecedence(left, right) {
   const roleDelta = roleOrder(left) - roleOrder(right);
   if (roleDelta !== 0) return roleDelta;
-  const priorityDelta = (right.priority ?? 0) - (left.priority ?? 0);
+  const priorityDelta = compareEntryPriority(left, right);
   if (priorityDelta !== 0) return priorityDelta;
   return createStarCellKey(left.node).localeCompare(createStarCellKey(right.node));
 }
@@ -556,9 +295,12 @@ function compareEntryPrecedence(left, right) {
  */
 function sortDemandEntries(entries, options) {
   const cellKeyForEntry = createEntryCellKeyCache();
-  return [...entries].sort((left, right) => {
+  return mergeDemandEntries(entries).sort((left, right) => {
     const roleDelta = roleOrder(left) - roleOrder(right);
     if (roleDelta !== 0) return roleDelta;
+
+    const priorityDelta = compareEntryPriority(left, right);
+    if (priorityDelta !== 0) return priorityDelta;
 
     if (options.coarseFirst) {
       const levelDelta = left.node.level - right.node.level;
@@ -574,10 +316,21 @@ function sortDemandEntries(entries, options) {
       if (distanceDelta !== 0) return distanceDelta;
     }
 
-    const priorityDelta = (right.priority ?? 0) - (left.priority ?? 0);
-    if (priorityDelta !== 0) return priorityDelta;
     return cellKeyForEntry(left).localeCompare(cellKeyForEntry(right));
   });
+}
+
+/**
+ * @param {StarOctreeDemandEntry} left
+ * @param {StarOctreeDemandEntry} right
+ */
+function compareEntryPriority(left, right) {
+  const semanticDelta = compareStarCellPriority(
+    /** @type {StarCellPriority | undefined} */ (left.metadata?.semanticPriority),
+    /** @type {StarCellPriority | undefined} */ (right.metadata?.semanticPriority),
+  );
+  if (semanticDelta !== 0) return semanticDelta;
+  return (right.priority ?? 0) - (left.priority ?? 0);
 }
 
 /**
@@ -585,22 +338,6 @@ function sortDemandEntries(entries, options) {
  */
 function roleOrder(entry) {
   return (entry.role ?? 'current') === 'current' ? 0 : 1;
-}
-
-/**
- * @param {string} strategyKind
- * @returns {StarOctreeDemandPlan}
- */
-function createEmptyPrefetchPlan(strategyKind) {
-  return {
-    entries: [],
-    signature: '',
-    reasons: [strategyKind],
-    metadata: {
-      prefetchNodeCount: 0,
-      prefetchOverlapCount: 0,
-    },
-  };
 }
 
 function createEntryCellKeyCache() {
@@ -634,23 +371,6 @@ function createCurrentNodeSetSignature(entries) {
     .map((entry) => createStarCellKey(entry.node))
     .sort()
     .join('|');
-}
-
-/**
- * @param {unknown} value
- */
-function normalizePoint(value) {
-  if (!value || typeof value !== 'object') {
-    return { x: 0, y: 0, z: 0 };
-  }
-
-  const point = /** @type {{ x?: unknown; y?: unknown; z?: unknown }} */ (value);
-  const x = Number(point.x);
-  const y = Number(point.y);
-  const z = Number(point.z);
-  return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)
-    ? { x, y, z }
-    : { x: 0, y: 0, z: 0 };
 }
 
 /**
@@ -694,15 +414,4 @@ function metadataNumber(entry, key) {
 function optionalMetadataNumber(entry, key) {
   const value = Number(entry.metadata?.[key]);
   return Number.isFinite(value) ? value : null;
-}
-
-/**
- * @param {string} kind
- * @returns {Error & { code: string }}
- */
-function createUnsupportedStrategyError(kind) {
-  return createStarOctreeError(
-    ERR_STAR_OCTREE_UNSUPPORTED_STRATEGY,
-    `Star octree strategy "${kind}" is not supported yet.`,
-  );
 }

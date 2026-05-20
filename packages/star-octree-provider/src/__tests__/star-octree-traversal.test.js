@@ -2,17 +2,18 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  combineStrategies,
+  createLookaheadStrategy,
+  createObserverShellStrategy,
+  createTargetFrustumStrategy,
   createStarCellKey,
   loadRadiusForMagnitudeShell,
-  withMotionLookahead,
 } from '@found-in-space/star-trees';
 import { STAR_HAS_PAYLOAD, STAR_IS_FRONTIER } from '../star-octree-format.js';
 import { createStarOctreeIndexSource } from '../star-octree-index-source.js';
-import { planObserverShellDemand } from '../star-octree-observer-shell.js';
 import {
   planStarOctreeStrategyDemand,
 } from '../star-octree-strategies.js';
-import { planTargetFrustumDemand } from '../star-octree-target-frustum.js';
 import { traverseOctree } from '../star-octree-traversal.js';
 import {
   concatBytes,
@@ -231,7 +232,7 @@ test('observer-shell demand uses header magLimit for pruning', async () => {
   ]));
   const baseContext = {
     providerId: 'provider-a',
-    strategy: { kind: 'observer-shell' },
+    strategy: createObserverShellStrategy(),
     viewRevision: 1,
     demandRevision: 0,
     attributes: ['position'],
@@ -239,7 +240,7 @@ test('observer-shell demand uses header magLimit for pruning', async () => {
   };
 
   try {
-    const narrow = await planObserverShellDemand({
+    const narrow = await planStarOctreeStrategyDemand({
       indexSource,
       context: withTraversalContext(indexSource, {
         ...baseContext,
@@ -250,7 +251,7 @@ test('observer-shell demand uses header magLimit for pruning', async () => {
         },
       }),
     });
-    const wide = await planObserverShellDemand({
+    const wide = await planStarOctreeStrategyDemand({
       indexSource,
       context: withTraversalContext(indexSource, {
         ...baseContext,
@@ -299,7 +300,7 @@ test('observer-shell demand matches the legacy half-size magnitude shell', async
   ]));
   const baseContext = {
     providerId: 'provider-a',
-    strategy: { kind: 'observer-shell' },
+    strategy: createObserverShellStrategy(),
     viewRevision: 1,
     demandRevision: 0,
     attributes: ['position'],
@@ -309,7 +310,7 @@ test('observer-shell demand matches the legacy half-size magnitude shell', async
   try {
     assert.equal(loadRadiusForMagnitudeShell(50, 6.5, 6.5), 50);
 
-    const included = await planObserverShellDemand({
+    const included = await planStarOctreeStrategyDemand({
       indexSource,
       context: withTraversalContext(indexSource, {
         ...baseContext,
@@ -320,7 +321,7 @@ test('observer-shell demand matches the legacy half-size magnitude shell', async
         },
       }),
     });
-    const pruned = await planObserverShellDemand({
+    const pruned = await planStarOctreeStrategyDemand({
       indexSource,
       context: withTraversalContext(indexSource, {
         ...baseContext,
@@ -379,7 +380,7 @@ test('observer-shell motion hints do not cap visible demand', async () => {
   ]));
   const baseContext = {
     providerId: 'provider-a',
-    strategy: { kind: 'observer-shell' },
+    strategy: createObserverShellStrategy(),
     viewRevision: 1,
     demandRevision: 0,
     attributes: ['position'],
@@ -388,7 +389,7 @@ test('observer-shell motion hints do not cap visible demand', async () => {
   };
 
   try {
-    const staticPlan = await planObserverShellDemand({
+    const staticPlan = await planStarOctreeStrategyDemand({
       indexSource,
       context: withTraversalContext(indexSource, {
         ...baseContext,
@@ -399,7 +400,7 @@ test('observer-shell motion hints do not cap visible demand', async () => {
         },
       }),
     });
-    const motionPlan = await planObserverShellDemand({
+    const motionPlan = await planStarOctreeStrategyDemand({
       indexSource,
       context: withTraversalContext(indexSource, {
         ...baseContext,
@@ -424,12 +425,8 @@ test('observer-shell motion hints do not cap visible demand', async () => {
       ['2:0'],
     );
     assert.equal(motionPlan.signature, staticPlan.signature);
-    assert.equal(motionPlan.metadata.motion.enabled, true);
-    assert.equal(motionPlan.metadata.motion.lookaheadDistancePc, 200);
-    assert.equal(motionPlan.metadata.motionAdaptive, undefined);
-    assert.equal(motionPlan.metadata.motionCappedNodeCount, undefined);
+    assert.equal(motionPlan.metadata.selectedNodeCount, staticPlan.metadata.selectedNodeCount);
     assert.equal(motionPlan.entries[0].metadata.motionAdaptiveMaxLevel, undefined);
-    assert.equal(motionPlan.entries[0].metadata.motionPriorityBias, 0);
   } finally {
     restoreFetch();
   }
@@ -470,7 +467,7 @@ test('observer-shell motion lookahead decorator adds future-only prefetch demand
   ]));
   const baseContext = {
     providerId: 'provider-a',
-    strategy: { kind: 'observer-shell' },
+    strategy: createObserverShellStrategy(),
     viewRevision: 1,
     demandRevision: 0,
     attributes: ['position'],
@@ -479,7 +476,7 @@ test('observer-shell motion lookahead decorator adds future-only prefetch demand
   };
 
   try {
-    const staticPlan = await planObserverShellDemand({
+    const staticPlan = await planStarOctreeStrategyDemand({
       indexSource,
       context: withTraversalContext(indexSource, {
         ...baseContext,
@@ -494,7 +491,14 @@ test('observer-shell motion lookahead decorator adds future-only prefetch demand
       indexSource,
       context: withTraversalContext(indexSource, {
         ...baseContext,
-        strategy: withMotionLookahead({ kind: 'observer-shell' }),
+        strategy: combineStrategies([
+          createObserverShellStrategy(),
+          createLookaheadStrategy({
+            base: createObserverShellStrategy(),
+            horizonSecs: 1,
+            tickSecs: 1,
+          }),
+        ]),
         view: {
           revision: 2,
           observerPc: { x: -125, y: -75, z: -75 },
@@ -510,7 +514,14 @@ test('observer-shell motion lookahead decorator adds future-only prefetch demand
       indexSource,
       context: withTraversalContext(indexSource, {
         ...baseContext,
-        strategy: withMotionLookahead({ kind: 'observer-shell' }),
+        strategy: combineStrategies([
+          createObserverShellStrategy(),
+          createLookaheadStrategy({
+            base: createObserverShellStrategy(),
+            horizonSecs: 1,
+            tickSecs: 1,
+          }),
+        ]),
         view: {
           revision: 3,
           observerPc: { x: -125, y: -75, z: -75 },
@@ -540,15 +551,13 @@ test('observer-shell motion lookahead decorator adds future-only prefetch demand
       ['1:1'],
     );
     assert.equal(motionPlan.signature, staticPlan.signature);
-    assert.equal(motionPlan.metadata.motionLookahead.enabled, true);
-    assert.deepEqual(motionPlan.metadata.motionLookahead.futureObserverPc, {
-      x: 25,
-      y: -75,
-      z: -75,
-    });
-    assert.equal(motionPlan.metadata.motionLookahead.prefetchNodeCount, 1);
-    assert.equal(motionPlan.metadata.motionLookahead.prefetchOverlapCount, 1);
-    assert.equal(noVelocityPlan.metadata.motionLookahead.enabled, false);
+    assert.equal(
+      motionPlan.entries.find((entry) => entry.role === 'prefetch')
+        .metadata.semanticPriority.lane,
+      'warm',
+    );
+    assert.equal(motionPlan.metadata.prefetchNodeCount, 1);
+    assert.equal(noVelocityPlan.metadata.prefetchNodeCount, 0);
     assert.equal(
       noVelocityPlan.entries.some((entry) => entry.role === 'prefetch'),
       false,
@@ -593,7 +602,7 @@ test('observer-shell motion hints prioritize same-level nodes without changing d
   ]));
   const baseContext = {
     providerId: 'provider-a',
-    strategy: { kind: 'observer-shell' },
+    strategy: createObserverShellStrategy(),
     viewRevision: 1,
     demandRevision: 0,
     attributes: ['position'],
@@ -602,7 +611,7 @@ test('observer-shell motion hints prioritize same-level nodes without changing d
   };
 
   try {
-    const staticPlan = await planObserverShellDemand({
+    const staticPlan = await planStarOctreeStrategyDemand({
       indexSource,
       context: withTraversalContext(indexSource, {
         ...baseContext,
@@ -613,7 +622,7 @@ test('observer-shell motion hints prioritize same-level nodes without changing d
         },
       }),
     });
-    const motionPlan = await planObserverShellDemand({
+    const motionPlan = await planStarOctreeStrategyDemand({
       indexSource,
       context: withTraversalContext(indexSource, {
         ...baseContext,
@@ -642,8 +651,6 @@ test('observer-shell motion hints prioritize same-level nodes without changing d
       new Set(staticPlan.entries.map((entry) => createStarCellKey(entry.node))),
     );
     assert.equal(motionPlan.signature, staticPlan.signature);
-    assert.equal(motionPlan.metadata.motion.enabled, true);
-    assert.equal(motionPlan.metadata.motion.lookaheadDistancePc, 50);
     assert.equal(motionPlan.entries[0].metadata.motionForwardDistancePc, 50);
     assert.ok(
       motionPlan.entries[0].metadata.motionPriorityBias >
@@ -689,7 +696,7 @@ test('target-frustum motion lookahead decorator adds future-only prefetch demand
   ]));
   const baseContext = {
     providerId: 'provider-a',
-    strategy: { kind: 'target-frustum' },
+    strategy: createTargetFrustumStrategy(),
     viewRevision: 1,
     demandRevision: 0,
     attributes: ['position'],
@@ -698,7 +705,7 @@ test('target-frustum motion lookahead decorator adds future-only prefetch demand
   };
 
   try {
-    const staticPlan = await planTargetFrustumDemand({
+    const staticPlan = await planStarOctreeStrategyDemand({
       indexSource,
       context: withTraversalContext(indexSource, {
         ...baseContext,
@@ -716,7 +723,14 @@ test('target-frustum motion lookahead decorator adds future-only prefetch demand
       indexSource,
       context: withTraversalContext(indexSource, {
         ...baseContext,
-        strategy: withMotionLookahead({ kind: 'target-frustum' }),
+        strategy: combineStrategies([
+          createTargetFrustumStrategy(),
+          createLookaheadStrategy({
+            base: createTargetFrustumStrategy(),
+            horizonSecs: 1,
+            tickSecs: 1,
+          }),
+        ]),
         view: {
           revision: 2,
           observerPc: { x: -125, y: -75, z: -75 },
@@ -745,8 +759,7 @@ test('target-frustum motion lookahead decorator adds future-only prefetch demand
       ['1:1'],
     );
     assert.equal(motionPlan.signature, staticPlan.signature);
-    assert.equal(motionPlan.metadata.motionLookahead.enabled, true);
-    assert.equal(motionPlan.metadata.motionLookahead.prefetchNodeCount, 1);
+    assert.equal(motionPlan.metadata.prefetchNodeCount, 1);
   } finally {
     restoreFetch();
   }

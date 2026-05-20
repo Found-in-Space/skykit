@@ -2,7 +2,8 @@
 
 Status: alpha implementation note.
 
-Found in Space has two useful journey patterns in the website today:
+Found in Space has two useful journey patterns, both now represented in alpha
+package APIs and exercised by website pages:
 
 ```txt
 interactive, event-driven journeys
@@ -13,11 +14,11 @@ interactive, event-driven journeys
 timed, automatic journeys
   a clock chooses camera/cue state
   useful for autoplay, video recording, and deterministic exports
-  examples: radio bubble video renderer and journey editor
+  examples: journey-video render example and editor
 ```
 
-These should become shared package infrastructure rather than website-only
-scripts, but they should not be folded into core `@found-in-space/skykit`.
+These belong in shared package infrastructure rather than website-only scripts,
+but they should not be folded into core `@found-in-space/skykit`.
 
 ---
 
@@ -60,7 +61,7 @@ Optional packages can sit on top:
 @found-in-space/journey-video
   standalone alpha editor for timed journey JSON, projection/perspective/SkyKit
   preview tiles, guide/timeline editing, retiming tools, draft storage, and
-  future deterministic render/export orchestration
+  deterministic render/export orchestration
 ```
 
 The editor is available outside the website through `@found-in-space/journey-video`.
@@ -269,29 +270,36 @@ status/debug output
 
 ---
 
-## 5. What The Website Already Proves
+## 5. What The Website Exercises Now
 
-Useful website references:
+The public website is a consuming application. It should import public
+`@found-in-space/*` package names and may use local workspace aliases during
+development, but it should not import SkyKit repository internals.
+
+Current useful website references:
 
 ```txt
 src/scripts/narrated-tour.js
   DOM scroll/nav adapter for chapter activation
 
-src/scripts/journey-evaluator.js
-  timed journey normalization and camera/path evaluation
+src/scripts/hr-diagram-viewer.js
+  SkyKit journey plugin, HR diagram plugin, touch surface, streamed stars
 
-src/scripts/journey-retiming.js
-  authoring helpers for speed/ease cleanup
+src/scripts/cluster-tour-viewer.js
+src/scripts/radio-bubble-viewer.js
+src/scripts/astrophage-viewer.js
+  authored journey graphs consumed through SkyKit alpha viewer composition
 
-src/pages/video/journey-editor.astro
-  standalone editor direction
-
-src/pages/video/radio-bubble-full.astro
-  deterministic video/export use case
+src/scripts/free-roam-viewer.js
+src/scripts/parallax-viewer.js
+  alpha package imports for viewer, provider, strategies, renderer, controls,
+  and skyculture artwork
 ```
 
-These are reference implementations. New alpha packages should rewrite the
-useful behavior into package-shaped APIs rather than importing website scripts.
+Earlier evaluator/editor experiments that lived in the website have either been
+ported into `@found-in-space/journey` and `@found-in-space/journey-video` or
+removed from the website. New alpha package work should continue to extract
+durable behavior into package-shaped APIs rather than importing website scripts.
 
 ---
 
@@ -337,7 +345,6 @@ Still deferred:
 rich video export UI
 alternate codecs/containers
 editor-side overlay block authoring beyond cue text
-legacy website export route removal
 no-code static-page journey helper
 ```
 

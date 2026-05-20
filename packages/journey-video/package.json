@@ -1,7 +1,7 @@
 {
   "name": "@found-in-space/journey-video",
   "version": "0.0.0-alpha.0",
-  "description": "Standalone journey video editor and future deterministic export tooling",
+  "description": "Standalone journey video editor and deterministic export tooling",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.js",

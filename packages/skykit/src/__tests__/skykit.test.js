@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
 import { createJourney } from '@found-in-space/journey';
-import { createStarCellData, encodeMorton3D } from '@found-in-space/star-trees';
+import {
+  createObserverShellStrategy,
+  createStarCellData,
+  encodeMorton3D,
+} from '@found-in-space/star-trees';
 
 import {
   SKYKIT_ACTION_NAMESPACE,
@@ -76,6 +80,15 @@ function createRenderer() {
 async function flushMicrotasks(count = 10) {
   for (let index = 0; index < count; index += 1) {
     await Promise.resolve();
+  }
+}
+
+function assertStrategyBehavior(strategy) {
+  assert.equal(typeof strategy.createAnchor, 'function');
+  assert.equal(typeof strategy.createEvaluator, 'function');
+  assert.equal(typeof strategy.diff, 'function');
+  for (const key of ['kind', 'id', 'name', 'label', 'debugLabel']) {
+    assert.equal(Object.hasOwn(strategy, key), false, key);
   }
 }
 
@@ -413,7 +426,7 @@ test('streaming stars plugin owns a streaming layer and exposes its snapshot', a
     id: 'stars-plugin',
     provider,
     renderer,
-    session: { strategy: { kind: 'observer-shell' } },
+    session: { strategy: createObserverShellStrategy() },
   });
 
   const viewer = await createSkykitViewer({
@@ -473,11 +486,7 @@ test('shared star source feeds starfield and HR consumers from one provider sess
   });
 
   assert.equal(provider.sessions.length, 1);
-  assert.equal(provider.sessions[0].strategy.kind, 'composite');
-  assert.deepEqual(
-    provider.sessions[0].strategy.strategies.map((strategy) => strategy.kind),
-    ['observer-shell', 'sphere-volume'],
-  );
+  assertStrategyBehavior(provider.sessions[0].strategy);
   assert.deepEqual(provider.sessions[0].attributes, ['position', 'teffLog8', 'magAbs']);
   assert.equal(session.updateCalls[0].patch.limitingMagnitude, 4);
   assert.equal(source.getSnapshot().demandCount, 2);
@@ -558,7 +567,7 @@ test('HR diagram mode changes refresh shared demand and update the renderer view
   });
 
   assert.equal(sessions.length, 1);
-  assert.equal(sessions[0].options.strategy.kind, 'observer-shell');
+  assertStrategyBehavior(sessions[0].options.strategy);
   assert.equal(hr.getMode(), 'frustum');
 
   await hr.setMode('magnitude-limited');
@@ -572,10 +581,7 @@ test('HR diagram mode changes refresh shared demand and update the renderer view
   assert.equal(hr.getSource().getSnapshot().view.mode, 'volume-complete');
   assert.equal(sessions.length, 2);
   assert.equal(sessions[0].session.disposed, true);
-  assert.deepEqual(
-    sessions[1].options.strategy.strategies.map((strategy) => strategy.kind),
-    ['observer-shell', 'sphere-volume'],
-  );
+  assertStrategyBehavior(sessions[1].options.strategy);
 
   await viewer.dispose();
 });
@@ -724,7 +730,7 @@ test('star picking demand adds attributes but no extra cell strategy', async () 
   });
 
   assert.equal(sessions.length, 1);
-  assert.equal(sessions[0].options.strategy.kind, 'observer-shell');
+  assertStrategyBehavior(sessions[0].options.strategy);
   assert.deepEqual(sessions[0].options.attributes, [
     'position',
     'teffLog8',
@@ -1635,24 +1641,32 @@ test('spatial preload hints map to star-octree requests without exposing provide
   ];
   const requests = createSkykitStarPreloadRequestsFromSpatialHints(hints);
 
-  assert.deepEqual(requests.map((request) => request.strategy.kind), [
-    'path-volume',
-    'sphere-volume',
-    'motion-lookahead',
-  ]);
+  assert.equal(requests.length, 3);
+  for (const request of requests) {
+    assertStrategyBehavior(request.strategy);
+  }
   assert.equal(requests[0].view, undefined);
   assert.equal(requests[2].view.observerPc.x, 0);
   assert.deepEqual(requests[2].view.motion.velocityPcPerSec, { x: 1, y: 0, z: 0 });
   assert.equal(requests[2].view.motion.speedPcPerSec, 1);
   assert.equal(requests[2].view.motion.lookaheadSecs, 5);
+  assert.equal(
+    requests[2].strategy
+      .createEvaluator(requests[2].strategy.createAnchor(requests[2].view), { indexMagnitude: 6.5 })
+      .evaluateCell({
+        centerX: 5,
+        centerY: 0,
+        centerZ: 0,
+        halfSize: 1,
+        level: 1,
+        mortonCode: '0',
+      }).priority.lane,
+    'warm',
+  );
 
   const combined = createSkykitStarStrategiesFromSpatialHints(hints);
 
-  assert.equal(combined?.kind, 'composite');
-  assert.deepEqual(combined.strategies.map((strategy) => strategy.kind), [
-    'path-volume',
-    'sphere-volume',
-  ]);
+  assertStrategyBehavior(combined);
   assert.equal(createSkykitStarStrategiesFromSpatialHints([hints[2]]), null);
 
   const separate = createSkykitStarStrategiesFromSpatialHints([], { combine: false });
@@ -1808,7 +1822,7 @@ test('streaming star layer creates a session, maps view updates, applies deltas,
   const layer = createStreamingStarLayer({
     provider,
     renderer,
-    session: { strategy: { kind: 'observer-shell' } },
+    session: { strategy: createObserverShellStrategy() },
     attributes: ['position', 'magAbs'],
   });
   const viewer = await createSkykitViewer({

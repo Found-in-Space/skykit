@@ -74,5 +74,5 @@ test('planner benchmark smoke suite produces records', async () => {
 
   assert.equal(result.records.length, 2);
   assert.equal(result.totals.scenarioCount, 1);
-  assert.equal(result.capabilities.customStrategy.supported, false);
+  assert.equal(result.capabilities.customStrategy.supported, true);
 });

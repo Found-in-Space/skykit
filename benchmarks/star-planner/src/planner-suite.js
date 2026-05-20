@@ -164,9 +164,6 @@ function createSyntheticSelectionContext(options) {
     coordinates: { units: ['pc', 'pc', 'pc'] },
     streaming: {
       coarseFirst: true,
-      prefetchMode: /** @type {{ kind?: string }} */ (options.strategy)?.kind === 'motion-lookahead'
-        ? 'defer'
-        : 'inline',
     },
     traversal: {
       async select(selectionOptions) {

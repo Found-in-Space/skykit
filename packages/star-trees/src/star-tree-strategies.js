@@ -30,299 +30,594 @@ const AABB_EDGE_INDICES = Object.freeze([
 ]);
 
 export function createObserverShellStrategy() {
-  return /** @type {const} */ ({ kind: 'observer-shell' });
-}
-
-/**
- * @param {Omit<import('./index.d.ts').StarTreeTargetFrustumStrategy, 'kind'>} [options]
- */
-export function createTargetFrustumStrategy(options = {}) {
   return {
-    kind: /** @type {const} */ ('target-frustum'),
-    ...definedFields(options),
-  };
-}
-
-/**
- * @param {Omit<import('./index.d.ts').StarTreeSphereVolumeStrategy, 'kind'>} options
- */
-export function createSphereVolumeStrategy(options) {
-  return {
-    kind: /** @type {const} */ ('sphere-volume'),
-    centerPc: normalizeRequiredPoint(options.centerPc, 'centerPc'),
-    radiusPc: normalizePositiveNumber(options.radiusPc, 'radiusPc'),
-  };
-}
-
-/**
- * @param {Omit<import('./index.d.ts').StarTreePathVolumeStrategy, 'kind'>} options
- */
-export function createPathVolumeStrategy(options) {
-  return {
-    kind: /** @type {const} */ ('path-volume'),
-    pointsPc: normalizePathPoints(options.pointsPc),
-    radiusPc: normalizePositiveNumber(options.radiusPc, 'radiusPc'),
-  };
-}
-
-/**
- * @param {import('./index.d.ts').StarTreeStrategy} strategy
- */
-export function withMotionLookahead(strategy) {
-  if (strategy.kind === 'motion-lookahead') {
-    throw new TypeError('withMotionLookahead() cannot wrap another motion-lookahead strategy.');
-  }
-
-  return {
-    kind: /** @type {const} */ ('motion-lookahead'),
-    strategy,
-  };
-}
-
-/**
- * @param {import('./index.d.ts').StarTreeStrategy[]} strategies
- * @param {{ mode?: 'union' }} [options]
- */
-export function combineStarTreeStrategies(strategies, options = {}) {
-  if (!Array.isArray(strategies) || strategies.length === 0) {
-    throw new TypeError('combineStarTreeStrategies() requires at least one strategy.');
-  }
-
-  if (options.mode !== undefined && options.mode !== 'union') {
-    throw new TypeError('Only union star tree strategy composition is supported.');
-  }
-
-  return {
-    kind: /** @type {const} */ ('composite'),
-    mode: /** @type {const} */ ('union'),
-    strategies: [...strategies],
-  };
-}
-
-/**
- * @param {import('./index.d.ts').StarTreeStrategy} strategy
- * @param {import('./index.d.ts').StarTreeViewPatch | undefined} view
- */
-export function normalizeStarTreeStrategyView(strategy, view) {
-  if (strategy.kind === 'observer-shell') {
-    return normalizeObserverShellView(view);
-  }
-
-  if (strategy.kind === 'target-frustum') {
-    return normalizeTargetFrustumView(view, strategy);
-  }
-
-  if (strategy.kind === 'motion-lookahead') {
-    return normalizeStarTreeStrategyView(strategy.strategy, view);
-  }
-
-  return view ?? {};
-}
-
-/**
- * @param {{
- *   strategy: import('./index.d.ts').StarTreeStrategy;
- *   view?: import('./index.d.ts').StarTreeViewPatch;
- *   role?: 'current' | 'prefetch';
- *   indexMagnitude?: number;
- *   currentObserverPc?: import('./index.d.ts').StarTreePointPc;
- * }} options
- */
-export function createStarTreeStrategyEvaluator(options) {
-  const strategy = options.strategy;
-  const role = options.role ?? 'current';
-  const indexMagnitude = normalizeFiniteNumber(options.indexMagnitude, DEFAULT_LIMITING_MAGNITUDE);
-
-  if (strategy.kind === 'observer-shell') {
-    const view = normalizeObserverShellView(options.view);
-    const motion = resolveMotionPriorityContext(view.motion);
-    return {
-      kind: strategy.kind,
-      view,
-      distanceToCell: (cell) => distanceToCellAabbPc(view.observerPc, cell),
-      evaluateCell(cell, helpers = {}) {
-        return evaluateObserverShellCell({
-          cell,
-          view,
-          indexMagnitude,
-          motion,
-          role,
-          queuedDistancePc: helpers.queuedDistancePc,
-          currentObserverPc: options.currentObserverPc,
-        });
-      },
-    };
-  }
-
-  if (strategy.kind === 'target-frustum') {
-    const view = normalizeTargetFrustumView(options.view, strategy);
-    const frustum = createFrustumTester(view);
-    return {
-      kind: strategy.kind,
-      view,
-      distanceToCell: (cell) => distanceToCellAabbPc(view.observerPc, cell),
-      evaluateCell(cell, helpers = {}) {
-        return evaluateTargetFrustumCell({
-          cell,
-          view,
-          frustum,
-          indexMagnitude,
-          role,
-          queuedDistancePc: helpers.queuedDistancePc,
-        });
-      },
-    };
-  }
-
-  if (strategy.kind === 'sphere-volume') {
-    return {
-      kind: strategy.kind,
-      view: options.view ?? {},
-      distanceToCell: (cell) => distanceToCellAabbPc(strategy.centerPc, cell),
-      evaluateCell(cell, helpers = {}) {
-        const distancePc = helpers.queuedDistancePc ?? distanceToCellAabbPc(strategy.centerPc, cell);
-        const relevant = distancePc <= strategy.radiusPc;
-        const remainingRadiusPc = strategy.radiusPc - distancePc;
-        return {
-          relevant,
-          descend: relevant,
-          emit: relevant,
-          distancePc,
-          relevance: relevant ? Math.max(0, remainingRadiusPc / strategy.radiusPc) : 0,
-          priority: remainingRadiusPc,
-          reasons: ['sphere-volume'],
-          metadata: {
-            strategy: 'sphere-volume',
-            centerPc: strategy.centerPc,
-            radiusPc: strategy.radiusPc,
-            distancePc,
-          },
-        };
-      },
-    };
-  }
-
-  if (strategy.kind === 'path-volume') {
-    const pathDistance = createPathDistanceEvaluator(strategy.pointsPc);
-    return {
-      kind: strategy.kind,
-      view: options.view ?? {},
-      distanceToCell(cell) {
-        return pathDistance.distanceToCoordinates(cell.centerX, cell.centerY, cell.centerZ);
-      },
-      evaluateCell(cell, helpers = {}) {
-        const centerDistancePc = helpers.queuedDistancePc !== undefined
-          ? helpers.queuedDistancePc
-          : pathDistance.distanceToCoordinates(cell.centerX, cell.centerY, cell.centerZ);
-        const capsuleRadiusPc = strategy.radiusPc + cell.halfSize * SQRT_3;
-        const relevant = centerDistancePc <= capsuleRadiusPc;
-        const remainingRadiusPc = capsuleRadiusPc - centerDistancePc;
-        return {
-          relevant,
-          descend: relevant,
-          emit: relevant,
-          distancePc: centerDistancePc,
-          relevance: relevant ? Math.max(0, remainingRadiusPc / capsuleRadiusPc) : 0,
-          priority: remainingRadiusPc,
-          reasons: ['path-volume'],
-          metadata: {
-            strategy: 'path-volume',
-            radiusPc: strategy.radiusPc,
-            centerDistancePc,
-            capsuleRadiusPc,
-            pointCount: strategy.pointsPc.length,
-          },
-        };
-      },
-    };
-  }
-
-  if (strategy.kind === 'composite') {
-    if (strategy.mode !== 'union') {
-      throw new TypeError(`Star tree composite mode "${strategy.mode}" is not supported.`);
-    }
-
-    const evaluators = strategy.strategies.map((childStrategy) =>
-      createStarTreeStrategyEvaluator({
-        ...options,
-        strategy: childStrategy,
-      }));
-
-    return {
-      kind: strategy.kind,
-      view: options.view ?? {},
-      distanceToCell(cell) {
-        let distancePc = Number.POSITIVE_INFINITY;
-        for (const evaluator of evaluators) {
-          distancePc = Math.min(distancePc, evaluator.distanceToCell(cell));
-        }
-        return distancePc;
-      },
-      evaluateCell(cell) {
-        return mergeCompositeEvaluations(
-          evaluators.map((evaluator) => evaluator.evaluateCell(cell)),
-        );
-      },
-    };
-  }
-
-  throw new TypeError(`Star tree strategy "${strategy.kind}" cannot be evaluated as a single-cell strategy.`);
-}
-
-/**
- * @param {import('./index.d.ts').StarTreeStrategyEvaluation[]} evaluations
- * @returns {import('./index.d.ts').StarTreeStrategyEvaluation}
- */
-function mergeCompositeEvaluations(evaluations) {
-  const relevantEvaluations = evaluations.filter((evaluation) => evaluation.relevant);
-  if (relevantEvaluations.length === 0) {
-    return {
-      relevant: false,
-      descend: false,
-      emit: false,
-      reasons: dedupe(evaluations.flatMap((evaluation) => evaluation.reasons ?? [])),
-      metadata: {
-        strategy: 'composite',
-        strategyContributors: evaluations.map(createEvaluationContributor),
-      },
-    };
-  }
-
-  const role = relevantEvaluations.some((evaluation) => (evaluation.role ?? 'current') === 'current')
-    ? 'current'
-    : 'prefetch';
-  const priority = Math.max(...relevantEvaluations.map((evaluation) => evaluation.priority ?? 0));
-  const relevance = Math.max(...relevantEvaluations.map((evaluation) => evaluation.relevance ?? 0));
-  const distancePc = Math.min(...relevantEvaluations.map((evaluation) =>
-    Number.isFinite(evaluation.distancePc) ? Number(evaluation.distancePc) : Number.POSITIVE_INFINITY));
-
-  return {
-    relevant: true,
-    descend: relevantEvaluations.some((evaluation) => evaluation.descend !== false),
-    emit: relevantEvaluations.some((evaluation) => evaluation.emit !== false),
-    role,
-    relevance,
-    priority,
-    ...(Number.isFinite(distancePc) ? { distancePc } : {}),
-    reasons: dedupe(relevantEvaluations.flatMap((evaluation) => evaluation.reasons ?? [])),
-    metadata: {
-      strategy: 'composite',
-      strategyContributors: evaluations.map(createEvaluationContributor),
+    createAnchor(view = {}) {
+      return { view: normalizeObserverShellView(view) };
+    },
+    createEvaluator(anchor, context = {}) {
+      const view = normalizeObserverShellView(anchor.view);
+      const role = context.role ?? 'current';
+      const indexMagnitude = normalizeFiniteNumber(context.indexMagnitude, DEFAULT_LIMITING_MAGNITUDE);
+      const motion = resolveMotionPriorityContext(view.motion);
+      return {
+        view,
+        distanceToCell: (cell) => distanceToCellAabbPc(view.observerPc, cell),
+        evaluateCell(cell, helpers = {}) {
+          return toDecision(evaluateObserverShellCell({
+            cell,
+            view,
+            indexMagnitude,
+            motion,
+            role,
+            queuedDistancePc: helpers.queuedDistancePc,
+            currentObserverPc: context.currentObserverPc,
+          }));
+        },
+      };
+    },
+    diff(previous, next, context = {}) {
+      return observerShellChange(previous, next, context);
     },
   };
 }
 
 /**
- * @param {import('./index.d.ts').StarTreeStrategyEvaluation} evaluation
+ * @param {import('./index.d.ts').TargetFrustumStrategyOptions} [options]
  */
-function createEvaluationContributor(evaluation) {
+export function createTargetFrustumStrategy(options = {}) {
   return {
-    strategy: String(evaluation.metadata?.strategy ?? evaluation.reasons?.[0] ?? 'unknown'),
-    role: evaluation.role ?? 'current',
-    priority: evaluation.priority,
-    relevance: evaluation.relevance,
-    reasons: evaluation.reasons ?? [],
+    createAnchor(view = {}) {
+      return { view: normalizeTargetFrustumView(view, options) };
+    },
+    createEvaluator(anchor, context = {}) {
+      const view = normalizeTargetFrustumView(anchor.view, options);
+      const frustum = createFrustumTester(view);
+      const role = context.role ?? 'current';
+      const indexMagnitude = normalizeFiniteNumber(context.indexMagnitude, DEFAULT_LIMITING_MAGNITUDE);
+      return {
+        view,
+        distanceToCell: (cell) => distanceToCellAabbPc(view.observerPc, cell),
+        evaluateCell(cell, helpers = {}) {
+          return toDecision(evaluateTargetFrustumCell({
+            cell,
+            view,
+            frustum,
+            indexMagnitude,
+            role,
+            queuedDistancePc: helpers.queuedDistancePc,
+          }));
+        },
+      };
+    },
+    diff(previous, next, context = {}) {
+      return targetFrustumChange(previous, next, context);
+    },
   };
+}
+
+/**
+ * @param {import('./index.d.ts').SphereVolumeStrategyOptions} options
+ */
+export function createSphereVolumeStrategy(options) {
+  const centerPc = normalizeRequiredPoint(options.centerPc, 'centerPc');
+  const radiusPc = normalizePositiveNumber(options.radiusPc, 'radiusPc');
+  return {
+    createAnchor(view = {}) {
+      return { view: view ?? {} };
+    },
+    createEvaluator(anchor) {
+      return {
+        view: anchor.view ?? {},
+        distanceToCell: (cell) => distanceToCellAabbPc(centerPc, cell),
+        evaluateCell(cell, helpers = {}) {
+          const distancePc = helpers.queuedDistancePc ?? distanceToCellAabbPc(centerPc, cell);
+          const relevant = distancePc <= radiusPc;
+          const remainingRadiusPc = radiusPc - distancePc;
+          return {
+            include: relevant,
+            descend: relevant,
+            emit: relevant,
+            distancePc,
+            relevance: relevant ? Math.max(0, remainingRadiusPc / radiusPc) : 0,
+            priority: livePriority(1, remainingRadiusPc),
+            reasons: ['sphere-volume'],
+            metadata: {
+              centerPc,
+              radiusPc,
+              distancePc,
+            },
+          };
+        },
+      };
+    },
+    diff(previous, next, context = {}) {
+      return fixedStrategyChange(previous, context, 'sphere-volume-unchanged');
+    },
+  };
+}
+
+/**
+ * @param {import('./index.d.ts').PathVolumeStrategyOptions} options
+ */
+export function createPathVolumeStrategy(options) {
+  const pointsPc = normalizePathPoints(options.pointsPc);
+  const radiusPc = normalizePositiveNumber(options.radiusPc, 'radiusPc');
+  return {
+    createAnchor(view = {}) {
+      return { view: view ?? {} };
+    },
+    createEvaluator(anchor) {
+      const pathDistance = createPathDistanceEvaluator(pointsPc);
+      return {
+        view: anchor.view ?? {},
+        distanceToCell(cell) {
+          return pathDistance.distanceToCoordinates(cell.centerX, cell.centerY, cell.centerZ);
+        },
+        evaluateCell(cell, helpers = {}) {
+          const centerDistancePc = helpers.queuedDistancePc !== undefined
+            ? helpers.queuedDistancePc
+            : pathDistance.distanceToCoordinates(cell.centerX, cell.centerY, cell.centerZ);
+          const capsuleRadiusPc = radiusPc + cell.halfSize * SQRT_3;
+          const relevant = centerDistancePc <= capsuleRadiusPc;
+          const remainingRadiusPc = capsuleRadiusPc - centerDistancePc;
+          return {
+            include: relevant,
+            descend: relevant,
+            emit: relevant,
+            distancePc: centerDistancePc,
+            relevance: relevant ? Math.max(0, remainingRadiusPc / capsuleRadiusPc) : 0,
+            priority: livePriority(1, remainingRadiusPc),
+            reasons: ['path-volume'],
+            metadata: {
+              radiusPc,
+              centerDistancePc,
+              capsuleRadiusPc,
+              pointCount: pointsPc.length,
+            },
+          };
+        },
+      };
+    },
+    diff(previous, next, context = {}) {
+      return fixedStrategyChange(previous, context, 'path-volume-unchanged');
+    },
+  };
+}
+
+/**
+ * @param {import('./index.d.ts').LookaheadStrategyOptions} options
+ */
+export function createLookaheadStrategy(options) {
+  const base = options.base;
+  const horizonSecs = normalizePositiveNumber(options.horizonSecs, 'horizonSecs');
+  const tickSecs = normalizePositiveNumber(options.tickSecs, 'tickSecs');
+  const blackoutSecs = Math.max(0, normalizeFiniteNumber(options.blackoutSecs, 0));
+  return {
+    createAnchor(view = {}) {
+      const baseView = view ?? {};
+      return {
+        view: baseView,
+        params: {
+          samples: createLookaheadSampleAnchors(base, baseView, {
+            horizonSecs,
+            tickSecs,
+            blackoutSecs,
+          }),
+        },
+      };
+    },
+    createEvaluator(anchor, context = {}) {
+      const samples = Array.isArray(anchor.params?.samples)
+        ? anchor.params.samples
+        : [];
+      const evaluators = samples.map((sample, index) => ({
+        index,
+        seconds: sample.seconds,
+        evaluator: base.createEvaluator(sample.anchor, {
+          ...context,
+          role: 'prefetch',
+        }),
+      }));
+      return {
+        view: anchor.view ?? {},
+        distanceToCell(cell) {
+          let distancePc = Number.POSITIVE_INFINITY;
+          for (const sample of evaluators) {
+            const distanceToCell = sample.evaluator.distanceToCell;
+            if (distanceToCell) {
+              distancePc = Math.min(distancePc, distanceToCell(cell));
+            }
+          }
+          return Number.isFinite(distancePc) ? distancePc : 0;
+        },
+        evaluateCell(cell, helpers = {}) {
+          return evaluateLookaheadCell(cell, helpers, evaluators);
+        },
+      };
+    },
+    diff(previous, next, context = {}) {
+      if (!previous) return resetChange(context.reason ?? 'initial');
+      const previousSignature = lookaheadAnchorSignature(previous);
+      const nextSignature = lookaheadAnchorSignature(next);
+      return previousSignature === nextSignature
+        ? unchanged(['lookahead-unchanged'])
+        : resetChange(context.reason ?? 'lookahead');
+    },
+  };
+}
+
+/**
+ * @param {import('./index.d.ts').StarCellStrategy[]} strategies
+ */
+export function combineStrategies(strategies) {
+  if (!Array.isArray(strategies) || strategies.length === 0) {
+    throw new TypeError('combineStrategies() requires at least one strategy.');
+  }
+
+  return {
+    createAnchor(view = {}) {
+      return {
+        view: view ?? {},
+        params: {
+          anchors: strategies.map((strategy) => strategy.createAnchor(view)),
+        },
+      };
+    },
+    createEvaluator(anchor, context = {}) {
+      const anchors = Array.isArray(anchor.params?.anchors)
+        ? anchor.params.anchors
+        : strategies.map((strategy) => strategy.createAnchor(anchor.view));
+      const evaluators = strategies.map((strategy, index) =>
+        strategy.createEvaluator(anchors[index], context));
+      return {
+        view: anchor.view ?? {},
+        distanceToCell(cell) {
+          let distancePc = Number.POSITIVE_INFINITY;
+          for (const evaluator of evaluators) {
+            if (evaluator.distanceToCell) {
+              distancePc = Math.min(distancePc, evaluator.distanceToCell(cell));
+            }
+          }
+          return Number.isFinite(distancePc) ? distancePc : 0;
+        },
+        evaluateCell(cell, helpers = {}) {
+          return mergeDecisions(evaluators.map((evaluator) => {
+            const queuedDistancePc = evaluator.distanceToCell
+              ? evaluator.distanceToCell(cell)
+              : helpers.queuedDistancePc;
+            return evaluator.evaluateCell(cell, {
+              ...helpers,
+              queuedDistancePc,
+            });
+          }));
+        },
+      };
+    },
+    diff(previous, next, context = {}) {
+      const previousAnchors = Array.isArray(previous?.params?.anchors)
+        ? previous.params.anchors
+        : [];
+      const nextAnchors = Array.isArray(next.params?.anchors)
+        ? next.params.anchors
+        : strategies.map((strategy) => strategy.createAnchor(next.view));
+      const changes = strategies.map((strategy, index) =>
+        strategy.diff(previousAnchors[index] ?? null, nextAnchors[index], context));
+      return mergeStrategyChanges(changes, context);
+    },
+  };
+}
+
+/**
+ * @param {import('./index.d.ts').StarCellStrategy} strategy
+ * @param {import('./index.d.ts').StarTreeViewPatch | undefined} view
+ */
+export function normalizeStarCellStrategyView(strategy, view) {
+  return strategy.createAnchor(view).view;
+}
+
+/**
+ * @param {import('./index.d.ts').StarCellDecision[]} decisions
+ * @returns {import('./index.d.ts').StarCellDecision}
+ */
+function mergeDecisions(decisions) {
+  const includedDecisions = decisions.filter((decision) => decision.include);
+  if (includedDecisions.length === 0) {
+    return {
+      include: false,
+      descend: false,
+      emit: false,
+      contributors: decisions.map(createDecisionContributor),
+      reasons: dedupe(decisions.flatMap((decision) => decision.reasons ?? [])),
+      metadata: {
+        strategyContributors: decisions.map(createDecisionContributor),
+      },
+    };
+  }
+
+  const winner = includedDecisions.reduce((best, next) =>
+    comparePriority(next.priority, best.priority) < 0 ? next : best);
+  const relevance = Math.max(...includedDecisions.map((decision) => decision.relevance ?? 0));
+  const distancePc = Math.min(...includedDecisions.map((decision) =>
+    Number.isFinite(decision.distancePc) ? Number(decision.distancePc) : Number.POSITIVE_INFINITY));
+
+  return {
+    include: true,
+    descend: includedDecisions.some((decision) => decision.descend !== false),
+    emit: includedDecisions.some((decision) => decision.emit !== false),
+    relevance,
+    priority: winner.priority,
+    ...(Number.isFinite(distancePc) ? { distancePc } : {}),
+    reasons: dedupe(includedDecisions.flatMap((decision) => decision.reasons ?? [])),
+    contributors: decisions.map(createDecisionContributor),
+    metadata: {
+      ...(winner.metadata ?? {}),
+      strategyContributors: decisions.map(createDecisionContributor),
+    },
+  };
+}
+
+/**
+ * @param {import('./index.d.ts').StarCellDecision} decision
+ */
+function createDecisionContributor(decision) {
+  return {
+    priority: decision.priority,
+    relevance: decision.relevance,
+    reasons: decision.reasons ?? [],
+    metadata: decision.metadata,
+  };
+}
+
+/**
+ * @param {import('./index.d.ts').StarCellPriority | undefined} priority
+ */
+function priorityLaneRank(priority) {
+  if (!priority || priority.lane === 'live') return 0;
+  if (priority.lane === 'warm') return 1;
+  return 2;
+}
+
+/**
+ * Returns a negative number when left outranks right.
+ *
+ * @param {import('./index.d.ts').StarCellPriority | undefined} left
+ * @param {import('./index.d.ts').StarCellPriority | undefined} right
+ */
+export function compareStarCellPriority(left, right) {
+  const laneDelta = priorityLaneRank(left) - priorityLaneRank(right);
+  if (laneDelta !== 0) return laneDelta;
+  const bandDelta = (left?.band ?? 0) - (right?.band ?? 0);
+  if (bandDelta !== 0) return bandDelta;
+  return (right?.score ?? 0) - (left?.score ?? 0);
+}
+
+const comparePriority = compareStarCellPriority;
+
+/**
+ * @param {number} band
+ * @param {number} score
+ * @returns {import('./index.d.ts').StarCellPriority}
+ */
+function livePriority(band, score) {
+  return {
+    lane: 'live',
+    band,
+    score: Number.isFinite(score) ? score : 0,
+  };
+}
+
+/**
+ * @param {number} band
+ * @param {number} score
+ * @returns {import('./index.d.ts').StarCellPriority}
+ */
+function warmPriority(band, score) {
+  return {
+    lane: 'warm',
+    band,
+    score: Number.isFinite(score) ? score : 0,
+  };
+}
+
+/**
+ * @param {{
+ *   relevant: boolean;
+ *   descend?: boolean;
+ *   emit?: boolean;
+ *   role?: 'current' | 'prefetch';
+ *   relevance?: number;
+ *   priority?: number;
+ *   distancePc?: number;
+ *   reasons?: string[];
+ *   metadata?: Record<string, unknown>;
+ * }} evaluation
+ * @returns {import('./index.d.ts').StarCellDecision}
+ */
+function toDecision(evaluation) {
+  const lane = evaluation.role === 'prefetch' ? 'warm' : 'live';
+  return {
+    include: evaluation.relevant,
+    descend: evaluation.descend,
+    emit: evaluation.emit,
+    relevance: evaluation.relevance,
+    distancePc: evaluation.distancePc,
+    priority: lane === 'warm'
+      ? warmPriority(0, evaluation.priority ?? 0)
+      : livePriority(0, evaluation.priority ?? 0),
+    reasons: evaluation.reasons,
+    metadata: evaluation.metadata,
+  };
+}
+
+function resetChange(reason) {
+  return { kind: 'reset', reason, reasons: [reason] };
+}
+
+function unchanged(reasons = ['strategy-unchanged']) {
+  return { kind: 'none', reasons };
+}
+
+function replan(reasons) {
+  return { kind: 'regions-changed', regions: [], reasons };
+}
+
+/**
+ * @param {import('./index.d.ts').StarStrategyChange[]} changes
+ * @param {import('./index.d.ts').StarStrategyDiffContext} context
+ */
+function mergeStrategyChanges(changes, context) {
+  const reasons = dedupe(changes.flatMap((change) => change.reasons ?? []));
+  const reset = changes.find((change) => change.kind === 'reset');
+  if (reset) {
+    return resetChange(context.reason ?? reset.reason);
+  }
+  if (changes.every((change) => change.kind === 'none')) {
+    return unchanged(reasons.length > 0 ? reasons : ['strategy-unchanged']);
+  }
+  return replan(withExplicitReason(context.reason, reasons.length > 0 ? reasons : ['strategy']));
+}
+
+/**
+ * @param {import('./index.d.ts').StarStrategyAnchor | null | undefined} previous
+ * @param {import('./index.d.ts').StarStrategyDiffContext} context
+ * @param {string} unchangedReason
+ */
+function fixedStrategyChange(previous, context, unchangedReason) {
+  return previous
+    ? unchanged([unchangedReason])
+    : resetChange(context.reason ?? 'initial');
+}
+
+/**
+ * @param {import('./index.d.ts').StarStrategyAnchor | null | undefined} previous
+ * @param {import('./index.d.ts').StarStrategyAnchor} next
+ * @param {import('./index.d.ts').StarStrategyDiffContext} context
+ */
+function observerShellChange(previous, next, context) {
+  if (!previous) return resetChange(context.reason ?? 'initial');
+  return evaluateObserverShellGate({
+    thresholds: context.thresholds,
+    previousDemandView: previous.view,
+    nextView: next.view,
+    reason: context.reason,
+  });
+}
+
+/**
+ * @param {import('./index.d.ts').StarStrategyAnchor | null | undefined} previous
+ * @param {import('./index.d.ts').StarStrategyAnchor} next
+ * @param {import('./index.d.ts').StarStrategyDiffContext} context
+ */
+function targetFrustumChange(previous, next, context) {
+  if (!previous) return resetChange(context.reason ?? 'initial');
+  return evaluateTargetFrustumGate({
+    thresholds: context.thresholds,
+    previousDemandView: previous.view,
+    nextView: next.view,
+    reason: context.reason,
+  });
+}
+
+/**
+ * @param {import('./index.d.ts').StarCellStrategy} base
+ * @param {import('./index.d.ts').StarTreeViewPatch} view
+ * @param {{ horizonSecs: number; tickSecs: number; blackoutSecs: number }} options
+ */
+function createLookaheadSampleAnchors(base, view, options) {
+  const observerPc = normalizePoint(view.observerPc, DEFAULT_OBSERVER_PC);
+  const velocity = normalizeVelocity(view.motion?.velocityPcPerSec);
+  if (!velocity) return [];
+
+  const startSecs = Math.max(
+    options.tickSecs,
+    options.blackoutSecs > 0 ? options.blackoutSecs : options.tickSecs,
+  );
+  const samples = [];
+  for (let seconds = startSecs; seconds <= options.horizonSecs + GATE_EPSILON; seconds += options.tickSecs) {
+    const futureView = {
+      ...view,
+      observerPc: {
+        x: observerPc.x + velocity.x * seconds,
+        y: observerPc.y + velocity.y * seconds,
+        z: observerPc.z + velocity.z * seconds,
+      },
+      motion: undefined,
+    };
+    samples.push({
+      seconds,
+      anchor: base.createAnchor(futureView),
+    });
+  }
+  return samples;
+}
+
+/**
+ * @param {import('./index.d.ts').StarTreeCellGeometry} cell
+ * @param {{ queuedDistancePc?: number }} helpers
+ * @param {{ index: number; seconds: number; evaluator: import('./index.d.ts').StarCellEvaluator }[]} samples
+ * @returns {import('./index.d.ts').StarCellDecision}
+ */
+function evaluateLookaheadCell(cell, helpers, samples) {
+  const included = [];
+  for (const sample of samples) {
+    const distancePc = sample.evaluator.distanceToCell
+      ? sample.evaluator.distanceToCell(cell)
+      : helpers.queuedDistancePc;
+    const decision = sample.evaluator.evaluateCell(cell, {
+      queuedDistancePc: distancePc,
+    });
+    if (decision.include) {
+      included.push({ sample, decision });
+    }
+  }
+
+  if (included.length === 0) {
+    return {
+      include: false,
+      descend: false,
+      emit: false,
+      reasons: ['lookahead'],
+    };
+  }
+
+  const best = included.reduce((winner, next) =>
+    comparePriority(next.decision.priority, winner.decision.priority) < 0 ? next : winner);
+  const sharedCount = included.length;
+  const earliestIndex = Math.min(...included.map((entry) => entry.sample.index));
+  const bestScore = best.decision.priority?.score ?? 0;
+  const distancePc = Math.min(...included.map((entry) =>
+    Number.isFinite(entry.decision.distancePc)
+      ? Number(entry.decision.distancePc)
+      : Number.POSITIVE_INFINITY));
+
+  return {
+    include: true,
+    descend: included.some((entry) => entry.decision.descend !== false),
+    emit: included.some((entry) => entry.decision.emit !== false),
+    priority: warmPriority(0, sharedCount * 1e9 - earliestIndex * 1e6 + bestScore),
+    relevance: Math.max(...included.map((entry) => entry.decision.relevance ?? 0)),
+    ...(Number.isFinite(distancePc) ? { distancePc } : {}),
+    reasons: dedupe(['lookahead', ...included.flatMap((entry) => entry.decision.reasons ?? [])]),
+    contributors: included.map((entry) => createDecisionContributor(entry.decision)),
+    metadata: {
+      lookaheadSharedCount: sharedCount,
+      lookaheadEarliestSecs: Math.min(...included.map((entry) => entry.sample.seconds)),
+      strategyContributors: included.map((entry) => createDecisionContributor(entry.decision)),
+    },
+  };
+}
+
+/**
+ * @param {import('./index.d.ts').StarStrategyAnchor} anchor
+ */
+function lookaheadAnchorSignature(anchor) {
+  const samples = Array.isArray(anchor.params?.samples)
+    ? anchor.params.samples
+    : [];
+  return JSON.stringify(samples.map((sample) => ({
+    seconds: roundSignatureNumber(sample.seconds),
+    view: sample.anchor?.view ?? {},
+  })));
 }
 
 /**
@@ -366,17 +661,15 @@ function evaluateObserverShellCell(options) {
     reasons: [
       options.role === 'current'
         ? 'observer-shell'
-        : 'motion-lookahead',
+        : 'lookahead',
     ],
     metadata: {
-      strategy: 'observer-shell',
       distancePc,
       loadRadiusPc,
       limitingMagnitude: options.view.limitingMagnitude,
       indexMagnitude: options.indexMagnitude,
       ...(options.role === 'prefetch'
         ? {
-            prefetchKind: 'motion-lookahead',
             futureObserverPc: options.view.observerPc,
           }
         : {}),
@@ -410,7 +703,6 @@ function evaluateTargetFrustumCell(options) {
       descend: false,
       distancePc: minimumDistancePc,
       metadata: {
-        strategy: 'target-frustum',
         shellRejected: true,
         distancePc: minimumDistancePc,
         loadRadiusPc,
@@ -426,7 +718,6 @@ function evaluateTargetFrustumCell(options) {
       descend: false,
       distancePc: minimumDistancePc,
       metadata: {
-        strategy: 'target-frustum',
         frustumRejected: true,
       },
     };
@@ -441,7 +732,6 @@ function evaluateTargetFrustumCell(options) {
       descend: false,
       distancePc,
       metadata: {
-        strategy: 'target-frustum',
         shellRejected: true,
         distancePc,
         loadRadiusPc,
@@ -460,10 +750,9 @@ function evaluateTargetFrustumCell(options) {
     reasons: [
       options.role === 'current'
         ? 'target-frustum'
-        : 'motion-lookahead',
+        : 'lookahead',
     ],
     metadata: {
-      strategy: 'target-frustum',
       distancePc,
       forwardDistancePc: visiblePoint.forwardDistancePc,
       nearestVisiblePc: visiblePoint.point,
@@ -473,7 +762,6 @@ function evaluateTargetFrustumCell(options) {
       frustumMode: options.view.frustumMode,
       ...(options.role === 'prefetch'
         ? {
-            prefetchKind: 'motion-lookahead',
             futureObserverPc: options.view.observerPc,
           }
         : {}),
@@ -500,13 +788,9 @@ export function normalizeObserverShellView(view = {}) {
 
 /**
  * @param {import('./index.d.ts').StarTreeViewPatch | import('./index.d.ts').StarTreeViewState | undefined} view
- * @param {import('./index.d.ts').StarTreeStrategy} strategy
+ * @param {import('./index.d.ts').TargetFrustumStrategyOptions} options
  */
-export function normalizeTargetFrustumView(view = {}, strategy = { kind: 'target-frustum' }) {
-  if (strategy.kind !== 'target-frustum') {
-    throw createInvalidViewError('target-frustum strategy configuration is required.');
-  }
-
+export function normalizeTargetFrustumView(view = {}, options = {}) {
   const observerPc = normalizePoint(view.observerPc, DEFAULT_OBSERVER_PC);
   const limitingMagnitude = normalizeFiniteNumber(
     view.limitingMagnitude ?? view.mDesired,
@@ -527,15 +811,15 @@ export function normalizeTargetFrustumView(view = {}, strategy = { kind: 'target
 
   if (orientationIcrs) {
     const verticalFovDeg = normalizePositiveNumber(
-      view.verticalFovDeg ?? strategy.verticalFovDeg,
+      view.verticalFovDeg ?? options.verticalFovDeg,
       'verticalFovDeg',
     );
     const aspectRatio = normalizePositiveNumber(view.aspectRatio, 'aspectRatio');
     const nearPc = normalizeNonNegativeNumber(
-      view.nearPc ?? strategy.nearPc ?? DEFAULT_TARGET_NEAR_PC,
+      view.nearPc ?? options.nearPc ?? DEFAULT_TARGET_NEAR_PC,
       'nearPc',
     );
-    const farPc = view.farPc ?? strategy.farPc;
+    const farPc = view.farPc ?? options.farPc;
 
     if (farPc !== undefined && (!Number.isFinite(Number(farPc)) || Number(farPc) <= nearPc)) {
       throw createInvalidViewError('target-frustum farPc must be greater than nearPc.');
@@ -552,8 +836,8 @@ export function normalizeTargetFrustumView(view = {}, strategy = { kind: 'target
       frustumMode: 'orientation',
       ...(targetPc ? { targetPc } : {}),
       ...(farPc !== undefined ? { farPc: Number(farPc) } : {}),
-      ...(strategy.overscanDeg !== undefined
-        ? { overscanDeg: Number(strategy.overscanDeg) }
+      ...(options.overscanDeg !== undefined
+        ? { overscanDeg: Number(options.overscanDeg) }
         : {}),
     };
   }
@@ -565,7 +849,7 @@ export function normalizeTargetFrustumView(view = {}, strategy = { kind: 'target
   }
 
   const verticalFovDeg = normalizeFinitePositiveNumber(
-    view.verticalFovDeg ?? strategy.verticalFovDeg,
+    view.verticalFovDeg ?? options.verticalFovDeg,
     DEFAULT_TARGET_VERTICAL_FOV_DEG,
     'verticalFovDeg',
   );
@@ -575,12 +859,12 @@ export function normalizeTargetFrustumView(view = {}, strategy = { kind: 'target
     'aspectRatio',
   );
   const nearPc = normalizeNonNegativeNumber(
-    view.nearPc ?? strategy.nearPc ?? DEFAULT_TARGET_NEAR_PC,
+    view.nearPc ?? options.nearPc ?? DEFAULT_TARGET_NEAR_PC,
     'nearPc',
   );
-  const explicitFarPc = view.farPc ?? strategy.farPc;
+  const explicitFarPc = view.farPc ?? options.farPc;
   const targetRadiusPc = normalizeFinitePositiveNumber(
-    strategy.targetRadiusPc,
+    options.targetRadiusPc,
     DEFAULT_TARGET_RADIUS_PC,
     'targetRadiusPc',
   );
@@ -607,7 +891,7 @@ export function normalizeTargetFrustumView(view = {}, strategy = { kind: 'target
     aspectRatio,
     nearPc,
     overscanDeg: normalizeFiniteNumber(
-      strategy.overscanDeg,
+      options.overscanDeg,
       DEFAULT_TARGET_OVERSCAN_DEG,
     ),
     ...(targetPc ? { targetPc } : {}),
@@ -809,47 +1093,26 @@ export function resolveMotionLookahead(motion, observerPc) {
 
 /**
  * @param {{
- *   strategy: import('./index.d.ts').StarTreeStrategy;
+ *   strategy: import('./index.d.ts').StarCellStrategy;
  *   thresholds?: import('./index.d.ts').StarTreeDemandThresholds;
- *   previousDemandView: import('./index.d.ts').StarTreeViewState | null;
- *   nextView: import('./index.d.ts').StarTreeViewState;
+ *   previousAnchor: import('./index.d.ts').StarStrategyAnchor | null;
+ *   nextAnchor: import('./index.d.ts').StarStrategyAnchor;
  *   reason?: string;
  * }} options
  * @returns {{ replan: boolean; reasons: string[] }}
  */
-export function evaluateStarTreeDemandGate(options) {
-  if (options.strategy.kind === 'motion-lookahead') {
-    return evaluateMotionLookaheadGate(options);
-  }
-
-  if (options.strategy.kind === 'composite') {
-    return evaluateCompositeGate(options);
-  }
-
-  if (
-    options.strategy.kind === 'sphere-volume' ||
-    options.strategy.kind === 'path-volume'
-  ) {
-    return evaluateFixedVolumeGate(options);
-  }
-
-  if (!options.previousDemandView) {
-    return replan(defaultQueuedReasons(options.reason, 'initial'));
-  }
-
-  if (!options.thresholds) {
-    return replan(defaultQueuedReasons(options.reason, 'demand-changed'));
-  }
-
-  if (options.strategy.kind === 'observer-shell') {
-    return evaluateObserverShellGate(options);
-  }
-
-  if (options.strategy.kind === 'target-frustum') {
-    return evaluateTargetFrustumGate(options);
-  }
-
-  return replan(defaultQueuedReasons(options.reason, 'strategy'));
+export function evaluateStarCellStrategyChange(options) {
+  const change = options.strategy.diff(options.previousAnchor, options.nextAnchor, {
+    thresholds: options.thresholds,
+    reason: options.reason,
+  });
+  const reasons = change.reasons?.length
+    ? change.reasons
+    : defaultQueuedReasons(options.reason, change.kind === 'none' ? 'strategy-unchanged' : 'strategy');
+  return {
+    replan: change.kind !== 'none',
+    reasons,
+  };
 }
 
 /**
@@ -1193,49 +1456,6 @@ function createInvalidViewError(message) {
   return error;
 }
 
-function evaluateMotionLookaheadGate(options) {
-  const baseGate = evaluateStarTreeDemandGate({
-    ...options,
-    strategy: options.strategy.strategy,
-  });
-  const motionChanged = motionLookaheadSignature(options.previousDemandView) !==
-    motionLookaheadSignature(options.nextView);
-
-  if (baseGate.replan || motionChanged) {
-    return replan(withExplicitReason(
-      options.reason,
-      dedupe([
-        ...baseGate.reasons,
-        ...(motionChanged ? ['motion-lookahead'] : []),
-      ]),
-    ));
-  }
-
-  return unchanged(dedupe([...baseGate.reasons, 'motion-lookahead-unchanged']));
-}
-
-function evaluateCompositeGate(options) {
-  const results = options.strategy.strategies.map((childStrategy) =>
-    evaluateStarTreeDemandGate({
-      ...options,
-      strategy: childStrategy,
-    }),
-  );
-  const reasons = dedupe(results.flatMap((result) => result.reasons));
-
-  return results.some((result) => result.replan)
-    ? replan(withExplicitReason(options.reason, reasons))
-    : unchanged(reasons.length > 0 ? reasons : ['composite-unchanged']);
-}
-
-function evaluateFixedVolumeGate(options) {
-  if (!options.previousDemandView) {
-    return replan(defaultQueuedReasons(options.reason, 'initial'));
-  }
-
-  return unchanged([`${options.strategy.kind}-unchanged`]);
-}
-
 function evaluateObserverShellGate(options) {
   const thresholds = normalizeStarTreeDemandThresholds(options.thresholds);
   const reasons = [];
@@ -1316,7 +1536,7 @@ function evaluateTargetFrustumGate(options) {
   }
 
   for (const field of ['verticalFovDeg', 'aspectRatio', 'nearPc', 'farPc', 'preloadDistancePc']) {
-    if (targetScalarChanged(field, previousView, nextView, options.strategy)) {
+    if (targetScalarChanged(field, previousView, nextView)) {
       reasons.push('view-volume');
       break;
     }
@@ -1426,16 +1646,16 @@ function orientationForwardChanged(previous, next, thresholdDeg) {
   ) > (thresholdDeg ?? 0);
 }
 
-function targetScalarChanged(field, previousView, nextView, strategy) {
+function targetScalarChanged(field, previousView, nextView, options = {}) {
   return scalarChanged(
-    targetScalar(field, previousView, strategy),
-    targetScalar(field, nextView, strategy),
+    targetScalar(field, previousView, options),
+    targetScalar(field, nextView, options),
   );
 }
 
-function targetScalar(field, view, strategy) {
+function targetScalar(field, view, options = {}) {
   if (field === 'verticalFovDeg') {
-    return view.verticalFovDeg ?? strategy.verticalFovDeg ??
+    return view.verticalFovDeg ?? options.verticalFovDeg ??
       (view.orientationIcrs ? undefined : DEFAULT_TARGET_VERTICAL_FOV_DEG);
   }
 
@@ -1445,11 +1665,11 @@ function targetScalar(field, view, strategy) {
   }
 
   if (field === 'nearPc') {
-    return view.nearPc ?? strategy.nearPc ?? 0;
+    return view.nearPc ?? options.nearPc ?? 0;
   }
 
   if (field === 'farPc') {
-    return view.farPc ?? strategy.farPc ?? implicitTargetFarPc(view, strategy);
+    return view.farPc ?? options.farPc ?? implicitTargetFarPc(view, options);
   }
 
   if (field === 'preloadDistancePc') {
@@ -1459,7 +1679,7 @@ function targetScalar(field, view, strategy) {
   return undefined;
 }
 
-function implicitTargetFarPc(view, strategy) {
+function implicitTargetFarPc(view, options = {}) {
   if (view.orientationIcrs || !view.targetPc) {
     return undefined;
   }
@@ -1476,7 +1696,7 @@ function implicitTargetFarPc(view, strategy) {
     target.z - observer.z,
   );
   const targetRadiusPc = normalizeFiniteNumber(
-    strategy.targetRadiusPc,
+    options.targetRadiusPc,
     DEFAULT_TARGET_RADIUS_PC,
   );
   const preloadDistancePc = Math.max(
@@ -1514,14 +1734,6 @@ function withExplicitReason(explicitReason, reasons) {
 
 function dedupe(reasons) {
   return Array.from(new Set(reasons));
-}
-
-function replan(reasons) {
-  return { replan: true, reasons };
-}
-
-function unchanged(reasons) {
-  return { replan: false, reasons };
 }
 
 function createFrustumPlane(normal, offset) {

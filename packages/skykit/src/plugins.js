@@ -6,11 +6,11 @@ import {
 } from '@found-in-space/journey';
 
 import {
-  combineStarTreeStrategies,
+  combineStrategies,
+  createLookaheadStrategy,
   createObserverShellStrategy,
   createPathVolumeStrategy,
   createSphereVolumeStrategy,
-  withMotionLookahead,
 } from '@found-in-space/star-trees';
 
 import {
@@ -836,9 +836,8 @@ export function createSkykitJourneyPlugin(options = {}) {
 }
 
 /**
- * Strategy-only convenience helper. view-lookahead hints are skipped because
- * they need a matching authored view state; use
- * createSkykitStarPreloadRequestsFromSpatialHints() for provider warming.
+ * Strategy-only convenience helper. View-bound lookahead hints stay in preload
+ * requests so their authored view can travel with the warm-lane strategy.
  *
  * @param {Iterable<import('@found-in-space/spatial').SpatialPreloadHint>} hints
  * @param {import('./index.d.ts').SkykitSpatialPreloadStrategyOptions} [options]
@@ -850,7 +849,7 @@ export function createSkykitStarStrategiesFromSpatialHints(hints, options = {}) 
     .map((request) => request.strategy);
   if (options.combine === false) return strategies;
   if (strategies.length === 0) return null;
-  return strategies.length === 1 ? strategies[0] : combineStarTreeStrategies(strategies);
+  return strategies.length === 1 ? strategies[0] : combineStrategies(strategies);
 }
 
 /**
@@ -886,7 +885,11 @@ export function createSkykitStarPreloadRequestsFromSpatialHints(hints, options =
     if (hint.kind === 'view-lookahead' && hint.lookaheadSecs > 0) {
       const velocity = cloneVector3(hint.velocity);
       requests.push({
-        strategy: withMotionLookahead(options.baseStrategy ?? createObserverShellStrategy()),
+        strategy: createLookaheadStrategy({
+          base: options.baseStrategy ?? createObserverShellStrategy(),
+          horizonSecs: hint.lookaheadSecs,
+          tickSecs: hint.lookaheadSecs,
+        }),
         view: {
           observerPc: cloneVector3(hint.pose.position),
           orientationIcrs: normalizeQuaternion(hint.pose.orientation, IDENTITY_QUATERNION),
