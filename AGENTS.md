@@ -44,9 +44,10 @@ rewriting it into the alpha package shape, never by importing old internals.
 - Do not fold sidecars, ephemerides, kinematics, H-alpha maps, galaxy models, or
   renderer-specific logic into the star octree provider. Those remain separate
   product/provider lanes that applications compose.
-- Star-octree strategies live in `@found-in-space/star-octree-provider`,
-  including observer-shell, target-frustum, sphere/path volume,
-  motion-lookahead, custom strategies, and union composition.
+- Shared star strategy interfaces and bundled strategy implementations live in
+  `@found-in-space/star-trees`; the star-octree provider consumes ordinary
+  `StarCellStrategy` objects without string registries or strategy-name
+  dispatch.
 - Do not create wrapper packages or string registries unless a new boundary is
   clearly justified by the learning path.
 - Follow `docs/alpha-rules.md`: alpha work is a clean rewrite into the package

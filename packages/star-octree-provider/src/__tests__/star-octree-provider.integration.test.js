@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { createObserverShellStrategy } from '@found-in-space/star-trees';
 import {
   OCTREE_DEFAULT,
   createStarOctreeProviderService,
@@ -26,7 +27,7 @@ test('streamCells supports nearest visible stars against the public octree', {
   let sawCurrent = false;
 
   for await (const delta of provider.streamCells({
-    strategy: { kind: 'observer-shell' },
+    strategy: createObserverShellStrategy(),
     view: {
       observerPc: pointPc,
       limitingMagnitude,

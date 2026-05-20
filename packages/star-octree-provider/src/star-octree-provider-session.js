@@ -1,4 +1,5 @@
 import {
+  createObserverShellStrategy,
   createStarCellData,
   createStarCellKey,
   estimateStarCellBytes,
@@ -18,7 +19,8 @@ import {
  * @typedef {import('./index.d.ts').StarOctreeDemandEntry} StarOctreeDemandEntry
  * @typedef {import('./index.d.ts').StarOctreeDemandPlan} StarOctreeDemandPlan
  * @typedef {import('@found-in-space/star-trees').StarTreeDemandThresholds} StarTreeDemandThresholds
- * @typedef {import('@found-in-space/star-trees').StarTreeStrategy} StarTreeStrategy
+ * @typedef {import('@found-in-space/star-trees').StarCellStrategy} StarCellStrategy
+ * @typedef {import('@found-in-space/star-trees').StarStrategyAnchor} StarStrategyAnchor
  * @typedef {import('./index.d.ts').StarOctreeProviderSession} StarOctreeProviderSession
  * @typedef {import('./index.d.ts').StarOctreeRuntimeNode} StarOctreeRuntimeNode
  * @typedef {import('./index.d.ts').StarOctreeSelectionContext} StarOctreeSelectionContext
@@ -30,7 +32,7 @@ import {
  * @typedef {import('./index.d.ts').ViewUpdateOptions} ViewUpdateOptions
  */
 
-const DEFAULT_STRATEGY = /** @type {const} */ ({ kind: 'observer-shell' });
+const DEFAULT_STRATEGY = createObserverShellStrategy();
 const DEFAULT_ATTRIBUTES = ['position', 'teffLog8', 'magAbs'];
 const DEFAULT_COORDINATES = {
   name: 'position',
@@ -41,10 +43,6 @@ const DEFAULT_COORDINATES = {
 /**
  * @typedef {{
  *   planDemand(context: StarOctreeSelectionContext): Promise<StarOctreeDemandPlan> | StarOctreeDemandPlan;
- *   planPrefetch?: (
- *     context: StarOctreeSelectionContext,
- *     currentEntries: StarOctreeDemandEntry[]
- *   ) => Promise<StarOctreeDemandPlan> | StarOctreeDemandPlan;
  *   decodeNode(entry: StarOctreeDemandEntry, context: StarOctreeSelectionContext): DecodedStarSegment;
  *   streamCells?: (
  *     entries: StarOctreeDemandEntry[],
@@ -111,14 +109,15 @@ export function createStarOctreeProviderSession(createOptions) {
 
   /** @type {StarOctreeViewPatch} */
   let currentView = {};
-  /** @type {StarOctreeViewState | null} */
-  let demandAnchorView = null;
+  /** @type {StarStrategyAnchor | null} */
+  let demandAnchor = null;
   /** @type {AbortController | null} */
   let activePlanningAbortController = null;
   /** @type {{
    *   force: boolean;
    *   reasons: string[];
    *   view: StarOctreeViewPatch;
+   *   anchor: StarStrategyAnchor;
    *   viewRevision: number;
    * } | null} */
   let queuedPlanOptions = null;
@@ -154,6 +153,7 @@ export function createStarOctreeProviderSession(createOptions) {
       viewRevision += 1;
       currentView = normalizeViewPatch(currentView, patch);
       const nextViewState = createViewState(currentView, viewRevision);
+      const nextAnchor = options.strategy.createAnchor(nextViewState);
 
       if (updateOptions.demand === 'suppress') {
         lastReasons = [];
@@ -164,8 +164,8 @@ export function createStarOctreeProviderSession(createOptions) {
         const gate = evaluateDemandGate({
           strategy: options.strategy,
           thresholds: options.demandThresholds,
-          previousDemandView: demandAnchorView,
-          nextView: nextViewState,
+          previousAnchor: demandAnchor,
+          nextAnchor,
           reason: updateOptions.reason,
         });
 
@@ -174,12 +174,13 @@ export function createStarOctreeProviderSession(createOptions) {
           return createReceipt('unchanged', gate.reasons);
         }
 
-        demandAnchorView = nextViewState;
+        demandAnchor = nextAnchor;
         lastReasons = gate.reasons;
         scheduleDemandPlanning({
           force: false,
           reasons: gate.reasons,
-          view: nextViewState,
+          view: nextAnchor.view,
+          anchor: nextAnchor,
           viewRevision,
         });
 
@@ -190,12 +191,13 @@ export function createStarOctreeProviderSession(createOptions) {
         updateOptions.reason ??
           (viewRevision === 1 ? 'initial' : 'demand-changed'),
       ];
-      demandAnchorView = nextViewState;
+      demandAnchor = nextAnchor;
       lastReasons = reasons;
       scheduleDemandPlanning({
         force: true,
         reasons,
-        view: nextViewState,
+        view: nextAnchor.view,
+        anchor: nextAnchor,
         viewRevision,
       });
 
@@ -252,6 +254,7 @@ export function createStarOctreeProviderSession(createOptions) {
    *   force: boolean;
    *   reasons: string[];
    *   view: StarOctreeViewPatch;
+   *   anchor: StarStrategyAnchor;
    *   viewRevision: number;
    * }} planOptions
    */
@@ -270,6 +273,7 @@ export function createStarOctreeProviderSession(createOptions) {
    *   force: boolean;
    *   reasons: string[];
    *   view: StarOctreeViewPatch;
+   *   anchor: StarStrategyAnchor;
    *   viewRevision: number;
    * }} planOptions
    */
@@ -285,6 +289,7 @@ export function createStarOctreeProviderSession(createOptions) {
       .then(async () => {
         const context = createSelectionContext(
           planOptions.view,
+          planOptions.anchor,
           planOptions.viewRevision,
           abortController.signal,
         );
@@ -396,8 +401,6 @@ export function createStarOctreeProviderSession(createOptions) {
     }
     schedulePrefetch(
       prefetchEntries,
-      applyOptions.context,
-      currentEntries,
       applyOptions.token,
       applyOptions.signal,
     );
@@ -437,12 +440,14 @@ export function createStarOctreeProviderSession(createOptions) {
         handleCurrentLoadError(error, loadingEntriesByCellKey);
       } finally {
         activeCurrentLoadControllers.delete(controller);
-        activeCurrentLoads.delete(load);
         clearInFlightEntries(loadingEntriesByCellKey);
         finishCurrentDemandIfReady();
       }
     })();
     activeCurrentLoads.add(load);
+    void load.finally(() => {
+      activeCurrentLoads.delete(load);
+    });
   }
 
   /**
@@ -604,21 +609,15 @@ export function createStarOctreeProviderSession(createOptions) {
 
   /**
    * @param {StarOctreeDemandEntry[]} prefetchEntries
-   * @param {StarOctreeSelectionContext} context
-   * @param {StarOctreeDemandEntry[]} currentEntries
    * @param {number} token
    * @param {AbortSignal} signal
    */
-  function schedulePrefetch(prefetchEntries, context, currentEntries, token, signal) {
-    const shouldPlanDeferredPrefetch =
-      Boolean(createOptions.source.planPrefetch) &&
-      context.strategy.kind === 'motion-lookahead' &&
-      context.streaming?.prefetchMode === 'defer';
+  function schedulePrefetch(prefetchEntries, token, signal) {
     if (
       disposed ||
       token !== latestPlanToken ||
       signal.aborted ||
-      (prefetchEntries.length === 0 && !shouldPlanDeferredPrefetch)
+      prefetchEntries.length === 0
     ) {
       return;
     }
@@ -631,34 +630,6 @@ export function createStarOctreeProviderSession(createOptions) {
       }
 
       startPrefetch(prefetchEntries, token, signal);
-
-      if (!shouldPlanDeferredPrefetch || !createOptions.source.planPrefetch) {
-        return;
-      }
-
-      const planning = Promise.resolve()
-        .then(() => createOptions.source.planPrefetch?.(context, currentEntries))
-        .then((plan) => {
-          if (!plan || !isActivePrefetch(token, signal)) {
-            return;
-          }
-
-          const plannedEntries = normalizeDemandEntries(plan.entries, {
-            coarseFirst: options.streaming.coarseFirst !== false,
-          }).filter(
-            (entry) =>
-              entry.role === 'prefetch' &&
-              !liveCellsByKey.has(createStarCellKey(entry.node)),
-          );
-          startPrefetch(plannedEntries, token, signal);
-        })
-        .catch(() => {
-          // Prefetch is best-effort; foreground demand must not fail because warming did.
-        })
-        .finally(() => {
-          activePrefetches.delete(planning);
-        });
-      activePrefetches.add(planning);
     });
     activePrefetchCancels.add(cancel);
   }
@@ -698,15 +669,17 @@ export function createStarOctreeProviderSession(createOptions) {
 
   /**
    * @param {StarOctreeViewPatch | StarOctreeViewState} view
+   * @param {StarStrategyAnchor} anchor
    * @param {number} nextViewRevision
    * @param {AbortSignal} [signal]
    * @returns {StarOctreeSelectionContext}
    */
-  function createSelectionContext(view, nextViewRevision, signal) {
+  function createSelectionContext(view, anchor, nextViewRevision, signal) {
     return {
       providerId,
       sessionId,
       strategy: options.strategy,
+      strategyAnchor: anchor,
       view: {
         revision: nextViewRevision,
         ...view,
@@ -717,7 +690,6 @@ export function createStarOctreeProviderSession(createOptions) {
       coordinates: options.coordinates,
       streaming: {
         ...options.streaming,
-        prefetchMode: options.strategy.kind === 'motion-lookahead' ? 'defer' : 'inline',
       },
       plannerCache,
       traversalLane: 'current',
@@ -900,7 +872,7 @@ export function createStarOctreeProviderSession(createOptions) {
  * @param {StarOctreeSessionOptions | undefined} options
  * @returns {{
  *   id?: string;
- *   strategy: StarTreeStrategy;
+ *   strategy: StarCellStrategy;
  *   demandThresholds?: StarTreeDemandThresholds;
  *   attributes: string[];
  *   coordinates: StarOctreeCoordinateOutput;

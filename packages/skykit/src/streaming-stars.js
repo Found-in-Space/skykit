@@ -84,8 +84,13 @@ export function createStreamingStarLayer(options) {
         isProviderSession(options.session) ? undefined : options.session
       );
       const initialView = context.getViewState();
+      const strategy = resolveStreamingStrategy(
+        options.strategy ?? sessionOptions?.strategy ?? createObserverShellStrategy(),
+        initialView,
+      );
       session = options.provider.createSession({
         ...(sessionOptions ?? {}),
+        ...(strategy ? { strategy } : {}),
         ...(options.attributes ? { attributes: Array.from(options.attributes) } : {}),
         coordinates: options.coordinates ?? createSkykitRenderCoordinateOutput(initialView.coordinateUnitsPerParsec),
       });
@@ -166,4 +171,16 @@ export function createStreamingStarLayer(options) {
       attributes: options.attributes ?? sessionOptions?.attributes,
     });
   }
+}
+
+/**
+ * @param {StreamingStarLayerOptions['strategy']} strategy
+ * @param {SkykitViewState} view
+ */
+function resolveStreamingStrategy(strategy, view) {
+  if (!strategy) return null;
+  if (typeof strategy === 'function') {
+    return strategy(view);
+  }
+  return strategy;
 }

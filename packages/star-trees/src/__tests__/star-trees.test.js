@@ -4,12 +4,13 @@ import test from 'node:test';
 import {
   apparentMagnitude,
   consumeStarCellDeltas,
-  combineStarTreeStrategies,
+  combineStrategies,
+  compareStarCellPriority,
   createFrustumTester,
+  createLookaheadStrategy,
   createObserverShellStrategy,
   createPathDistanceEvaluator,
   createPathVolumeStrategy,
-  createStarTreeStrategyEvaluator,
   createSphereVolumeStrategy,
   createStarCellData,
   createStarCellKey,
@@ -18,7 +19,7 @@ import {
   decodeMorton3D,
   decodeTemperatureK,
   encodeMorton3D,
-  evaluateStarTreeDemandGate,
+  evaluateStarCellStrategyChange,
   estimateStarCellBytes,
   normalizeTargetFrustumView,
   parseStarCellKey,
@@ -250,28 +251,55 @@ test('star math helpers compute apparent magnitude, temperatures, and colors', (
   assert.ok(rgb.every((channel) => channel >= 0 && channel <= 255));
 });
 
+test('bundled strategy values expose behavior, not identity fields', () => {
+  const strategies = [
+    createObserverShellStrategy(),
+    createTargetFrustumStrategy({ overscanDeg: 0 }),
+    createSphereVolumeStrategy({ centerPc: { x: 0, y: 0, z: 0 }, radiusPc: 1 }),
+    createPathVolumeStrategy({
+      pointsPc: [{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }],
+      radiusPc: 1,
+    }),
+    createLookaheadStrategy({
+      base: createObserverShellStrategy(),
+      horizonSecs: 1,
+      tickSecs: 1,
+    }),
+    combineStrategies([createObserverShellStrategy()]),
+  ];
+
+  for (const strategy of strategies) {
+    assert.equal(typeof strategy.createAnchor, 'function');
+    assert.equal(typeof strategy.createEvaluator, 'function');
+    assert.equal(typeof strategy.diff, 'function');
+    for (const key of ['kind', 'id', 'name', 'label', 'debugLabel']) {
+      assert.equal(Object.hasOwn(strategy, key), false, key);
+    }
+  }
+});
+
 test('observer-shell strategy evaluates magnitude-limited cell relevance', () => {
-  const evaluator = createStarTreeStrategyEvaluator({
-    strategy: createObserverShellStrategy(),
-    view: { observerPc: { x: 0, y: 0, z: 0 }, limitingMagnitude: 6.5 },
-    indexMagnitude: 3,
-  });
+  const evaluator = createEvaluator(
+    createObserverShellStrategy(),
+    { observerPc: { x: 0, y: 0, z: 0 }, limitingMagnitude: 6.5 },
+    { indexMagnitude: 3 },
+  );
 
   const near = evaluator.evaluateCell(createNode({ centerX: 1, halfSize: 1 }));
   const far = evaluator.evaluateCell(createNode({ centerX: 20, halfSize: 1 }));
 
-  assert.equal(near.relevant, true);
+  assert.equal(near.include, true);
   assert.equal(near.descend, true);
   assert.equal(near.emit, true);
-  assert.ok(near.priority > far.priority);
-  assert.equal(far.relevant, false);
+  assert.ok(compareStarCellPriority(near.priority, far.priority) < 0);
+  assert.equal(far.include, false);
   assert.equal(far.descend, false);
 });
 
 test('target-frustum strategy uses the nearest visible witness', () => {
-  const evaluator = createStarTreeStrategyEvaluator({
-    strategy: createTargetFrustumStrategy({ overscanDeg: 0 }),
-    view: {
+  const evaluator = createEvaluator(
+    createTargetFrustumStrategy({ overscanDeg: 0 }),
+    {
       observerPc: { x: 0, y: 0, z: 0 },
       directionIcrs: { x: 0, y: 1, z: 0 },
       verticalFovDeg: 60,
@@ -279,8 +307,8 @@ test('target-frustum strategy uses the nearest visible witness', () => {
       nearPc: 0,
       limitingMagnitude: 6.5,
     },
-    indexMagnitude: 3,
-  });
+    { indexMagnitude: 3 },
+  );
   const evaluation = evaluator.evaluateCell(createNode({
     centerX: 75,
     centerY: 75,
@@ -288,7 +316,7 @@ test('target-frustum strategy uses the nearest visible witness', () => {
     halfSize: 25,
   }));
 
-  assert.equal(evaluation.relevant, true);
+  assert.equal(evaluation.include, true);
   assert.equal(Math.round(evaluation.distancePc * 1e6) / 1e6, 100);
   assert.deepEqual(roundVector(evaluation.metadata.nearestVisiblePc), { x: 50, y: 86.60254, z: 0 });
 });
@@ -301,7 +329,7 @@ test('target-frustum radial bounds keep far-plane corners visible', () => {
     aspectRatio: 1,
     nearPc: 0,
     farPc: 100,
-  }, createTargetFrustumStrategy({ overscanDeg: 0 }));
+  }, { overscanDeg: 0 });
   const frustum = createFrustumTester(view);
 
   assert.equal(frustum.intersectsCell(createNode({
@@ -324,56 +352,60 @@ test('sphere, path, and composite strategies provide semantic priorities', () =>
     pointsPc: [{ x: 20, y: -10, z: 0 }, { x: 20, y: 10, z: 0 }],
     radiusPc: 5,
   });
-  const composite = createStarTreeStrategyEvaluator({
-    strategy: combineStarTreeStrategies([sphere, path]),
-  });
+  const composite = createEvaluator(combineStrategies([sphere, path]));
 
   const sphereCell = composite.evaluateCell(createNode({ centerX: 0, halfSize: 1 }));
   const pathCell = composite.evaluateCell(createNode({ centerX: 20, centerY: 2, halfSize: 1 }));
   const farCell = composite.evaluateCell(createNode({ centerX: 100, halfSize: 1 }));
 
-  assert.equal(sphereCell.relevant, true);
-  assert.equal(pathCell.relevant, true);
-  assert.equal(farCell.relevant, false);
-  assert.ok(sphereCell.priority > (farCell.priority ?? Number.NEGATIVE_INFINITY));
+  assert.equal(sphereCell.include, true);
+  assert.equal(pathCell.include, true);
+  assert.equal(farCell.include, false);
+  assert.ok(sphereCell.priority.score > 0);
   assert.equal(sphereCell.metadata.strategyContributors.length, 2);
 });
 
 test('path strategy normalizes path points once per prepared evaluator', () => {
-  const evaluator = createStarTreeStrategyEvaluator({
-    strategy: createPathVolumeStrategy({
+  const evaluator = createEvaluator(
+    createPathVolumeStrategy({
       pointsPc: [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }],
       radiusPc: 2,
     }),
-  });
+  );
   const distance = createPathDistanceEvaluator([
     { x: 0, y: 0, z: 0 },
     { x: 10, y: 0, z: 0 },
   ]);
 
   assert.equal(distance.distanceToCoordinates(5, 4, 0), 4);
-  assert.equal(evaluator.evaluateCell(createNode({ centerX: 5, centerY: 2, centerZ: 0, halfSize: 0.5 })).relevant, true);
-  assert.equal(evaluator.evaluateCell(createNode({ centerX: 5, centerY: 4, centerZ: 0, halfSize: 0.5 })).relevant, false);
+  assert.equal(evaluator.evaluateCell(createNode({ centerX: 5, centerY: 2, centerZ: 0, halfSize: 0.5 })).include, true);
+  assert.equal(evaluator.evaluateCell(createNode({ centerX: 5, centerY: 4, centerZ: 0, halfSize: 0.5 })).include, false);
 });
 
 test('demand gate helpers apply movement and direction thresholds', () => {
-  const unchanged = evaluateStarTreeDemandGate({
-    strategy: createObserverShellStrategy(),
+  const strategy = createObserverShellStrategy();
+  const unchanged = evaluateStarCellStrategyChange({
+    strategy,
     thresholds: { observerMoveThresholdPc: 1 },
-    previousDemandView: { revision: 1, observerPc: { x: 0, y: 0, z: 0 } },
-    nextView: { revision: 2, observerPc: { x: 0.5, y: 0, z: 0 } },
+    previousAnchor: strategy.createAnchor({ revision: 1, observerPc: { x: 0, y: 0, z: 0 } }),
+    nextAnchor: strategy.createAnchor({ revision: 2, observerPc: { x: 0.5, y: 0, z: 0 } }),
   });
-  const changed = evaluateStarTreeDemandGate({
-    strategy: createObserverShellStrategy(),
+  const changed = evaluateStarCellStrategyChange({
+    strategy,
     thresholds: { observerMoveThresholdPc: 1 },
-    previousDemandView: { revision: 1, observerPc: { x: 0, y: 0, z: 0 } },
-    nextView: { revision: 2, observerPc: { x: 2, y: 0, z: 0 } },
+    previousAnchor: strategy.createAnchor({ revision: 1, observerPc: { x: 0, y: 0, z: 0 } }),
+    nextAnchor: strategy.createAnchor({ revision: 2, observerPc: { x: 2, y: 0, z: 0 } }),
   });
 
   assert.equal(unchanged.replan, false);
   assert.equal(changed.replan, true);
   assert.ok(changed.reasons.includes('observer-move-threshold'));
 });
+
+function createEvaluator(strategy, view = {}, context = {}) {
+  const anchor = strategy.createAnchor(view);
+  return strategy.createEvaluator(anchor, context);
+}
 
 function createNode(overrides = {}) {
   const node = {

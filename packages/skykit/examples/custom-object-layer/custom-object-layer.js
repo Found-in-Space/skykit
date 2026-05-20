@@ -18,7 +18,7 @@ import {
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
 import {
-  combineStarTreeStrategies,
+  combineStrategies,
   createObserverShellStrategy,
   createSphereVolumeStrategy,
 } from '@found-in-space/star-trees';
@@ -61,7 +61,7 @@ async function main() {
         provider,
         renderer: starField,
         session: {
-          strategy: combineStarTreeStrategies([
+          strategy: combineStrategies([
             createObserverShellStrategy(),
             createSphereVolumeStrategy({
               centerPc: HYADES_CENTER_PC,

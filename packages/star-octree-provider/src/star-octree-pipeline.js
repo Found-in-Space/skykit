@@ -1,5 +1,6 @@
 import { createDecodedPayloadCache } from './star-octree-decoded-cache.js';
 import {
+  createObserverShellStrategy,
   createStarCellData,
   createStarCellKey,
 } from '@found-in-space/star-trees';
@@ -14,7 +15,6 @@ import { createAsyncQueue } from './star-octree-queue.js';
 import { STAR_HAS_PAYLOAD } from './star-octree-format.js';
 import {
   normalizeStrategyView,
-  planStarOctreePrefetchDemand,
   planStarOctreeStrategyDemand,
 } from './star-octree-strategies.js';
 import { traverseOctree } from './star-octree-traversal.js';
@@ -28,7 +28,7 @@ import { traverseOctree } from './star-octree-traversal.js';
  * @typedef {import('./index.js').StarOctreeDemandEntry} StarOctreeDemandEntry
  * @typedef {import('./index.js').StarOctreeDemandInspection} StarOctreeDemandInspection
  * @typedef {import('./index.js').StarOctreeDemandPlan} StarOctreeDemandPlan
- * @typedef {import('@found-in-space/star-trees').StarTreeStrategy} StarTreeStrategy
+ * @typedef {import('@found-in-space/star-trees').StarCellStrategy} StarCellStrategy
  * @typedef {import('./index.js').StarOctreePayloadDelta} StarOctreePayloadDelta
  * @typedef {import('./index.js').StarOctreePayloadStreamOptions} StarOctreePayloadStreamOptions
  * @typedef {import('./index.js').StarOctreeRuntimeNode} StarOctreeRuntimeNode
@@ -37,7 +37,7 @@ import { traverseOctree } from './star-octree-traversal.js';
  * @typedef {ReturnType<typeof import('./star-octree-index-source.js').createStarOctreeIndexSource>} StarOctreeIndexSource
  */
 
-const DEFAULT_STRATEGY = /** @type {const} */ ({ kind: 'observer-shell' });
+const DEFAULT_STRATEGY = createObserverShellStrategy();
 const DEFAULT_ATTRIBUTES = ['position', 'teffLog8', 'magAbs'];
 const DEFAULT_COORDINATES = {
   name: 'position',
@@ -67,7 +67,6 @@ export function createStarOctreePipeline(options) {
   return {
     getDecodedCacheSnapshot,
     planDemandForContext,
-    planPrefetchForContext,
     planDemandForStreamOptions,
     streamPayloads,
     streamCells,
@@ -100,24 +99,6 @@ export function createStarOctreePipeline(options) {
     }, () => planStarOctreeStrategyDemand({
       indexSource: options.indexSource,
       context: enrichedContext,
-    }));
-  }
-
-  /**
-   * @param {StarOctreeSelectionContext} context
-   * @param {StarOctreeDemandEntry[]} currentEntries
-   * @returns {Promise<StarOctreeDemandPlan>}
-   */
-  async function planPrefetchForContext(context, currentEntries) {
-    const enrichedContext = withTraversalContext(context, 'prefetch');
-    return scheduleWork({
-      kind: 'traversal',
-      lane: 'prefetch',
-      signal: context.signal,
-    }, () => planStarOctreePrefetchDemand({
-      indexSource: options.indexSource,
-      context: enrichedContext,
-      currentEntries,
     }));
   }
 
@@ -803,13 +784,15 @@ function createPriorityByNode(entries) {
 function createSelectionContext(providerId, options, extras = {}) {
   const cellOptions = /** @type {Partial<StarOctreeCellStreamOptions>} */ (options);
   const strategy = options.strategy ?? DEFAULT_STRATEGY;
-  const view = normalizeContextView(strategy, options.view);
+  const strategyAnchor = strategy.createAnchor(options.view ?? {});
+  const view = normalizeContextView(strategy, strategyAnchor.view);
   const viewRevision = extras.viewRevision ?? cellOptions.viewRevision ?? 0;
 
   return {
     providerId,
     ...(extras.sessionId ? { sessionId: extras.sessionId } : {}),
     strategy,
+    strategyAnchor,
     view: {
       revision: viewRevision,
       ...view,
@@ -842,7 +825,7 @@ function createUnavailableTraversal() {
 }
 
 /**
- * @param {StarTreeStrategy} strategy
+ * @param {StarCellStrategy} strategy
  * @param {StarOctreeViewPatch | undefined} view
  */
 function normalizeContextView(strategy, view) {

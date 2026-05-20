@@ -145,20 +145,19 @@ selection, lookahead warming, and composition are ordinary strategy
 implementations. Custom strategies are first-class strategy objects, not
 registry entries or new provider enum cases.
 
-Current alpha gap: the implementation still contains closed `StarTreeStrategy`
-unions and `strategy.kind` planner dispatch in places. That is temporary
-non-compliance with this contract and should be removed before adding new
-application-specific strategies.
+The alpha implementation follows this open strategy contract in `star-trees`,
+`star-octree-provider`, and SkyKit composition. Provider planning code should
+remain guarded against closed `strategy.kind` dispatch as additional strategies
+are added.
 
 Interface sketch:
 
 ```ts
 interface StarCellStrategy<TView = StarViewState> {
-  id: string;
   createAnchor(view: TView): StarStrategyAnchor;
   createEvaluator(anchor: StarStrategyAnchor): StarCellEvaluator;
   diff(
-    previous: StarStrategyAnchor,
+    previous: StarStrategyAnchor | null,
     next: StarStrategyAnchor,
     context: StarStrategyDiffContext
   ): StarStrategyChange;
