@@ -53,6 +53,12 @@ SkyKit should not inspect individual stars during normal streaming, rebuild
 cumulative render arrays, or hide hardcoded loader/renderer registries behind
 string names.
 
+Star loading strategies are part of the shared star-data contract, not SkyKit
+registries. SkyKit may pass strategy objects or strategy-producing functions to
+provider sessions, but it must not redefine provider planning, inspect a closed
+set of strategy kinds, or require SkyKit/core changes for application-specific
+strategy behavior.
+
 When SkyKit code needs to pass star identity through selections, bookmarks, or
 app-owned payloads, it should use `StarObjectRef` from
 `@found-in-space/star-trees`. Cell-level keys should come from

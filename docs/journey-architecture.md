@@ -147,8 +147,9 @@ subscribe(listener)
 ```
 
 Scene payloads stay app-owned. A star lesson might store camera targets and
-volume preload hints; a game might store spawn rules or UI state. The journey
-package should not try to understand those fields.
+warm/preload intent; a game might store spawn rules or UI state. The journey
+package should not try to understand those fields or encode star-octree
+strategy kinds.
 
 Journeys do not own star IDs. If a scene payload points at a streamed star, it
 should carry the star cell's `StarObjectRef` and resolve that reference
@@ -180,6 +181,11 @@ centripetal Catmull-Rom path interpolation
 arc-length sampling so segment speed is stable between timestamps
 speed / velocity metadata for streaming lookahead
 ```
+
+Lookahead is strategy demand in a lower-priority warm lane. Timed journey data
+may provide predicted poses, velocities, and preload hints, but SkyKit/provider
+adapters should map that intent into ordinary strategy objects rather than a
+separate preload request registry.
 
 Camera evaluation should preserve:
 
@@ -257,7 +263,7 @@ journey state into:
 viewer.requestViewState(...)
 navigation automation
 layer visibility
-preload requests
+warm strategy demand
 status/debug output
 ```
 
@@ -296,7 +302,7 @@ Implemented first slice:
 ```txt
 @found-in-space/spatial
   smooth paths, timed position/orientation tracks, pose transitions, and
-  provider-neutral preload hint materialization
+  provider-neutral warm/preload hint materialization
 
 @found-in-space/journey
   createJourney()
@@ -311,7 +317,7 @@ Implemented first slice:
   createSkykitJourneyPlugin()
   skykit:journey.* action registration
   semantic orbit-transfer execution for authored scenes
-  spatial preload hint to star-octree preload request mapping
+  spatial preload hint to warm-lane strategy demand mapping
 
 @found-in-space/journey-video
   JOURNEY_VIDEO_PACKAGE_STATUS = 'alpha-editor'

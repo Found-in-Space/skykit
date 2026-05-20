@@ -13,11 +13,12 @@ SkyKit examples and plugins should preserve the star identity boundary from
 SkyKit-specific star IDs or expose octree storage details such as `nodeKey`,
 `shardOffset`, `nodeIndex`, `payloadOffset`, or `payloadLength`.
 
-Star loading strategies such as `observer-shell`, `target-frustum`,
-sphere/path volume, explicit motion-lookahead, custom strategies, composition,
-and prefetch semantics are defined by `@found-in-space/star-octree-provider`.
-SkyKit passes strategy objects through to provider sessions; it does not
-redefine provider demand planning.
+Star loading strategies are shared strategy objects/functions. Bundled
+observer-shell, target-frustum, sphere/path volume, lookahead, and composition
+helpers are conveniences over the same public contract used by application
+strategies. SkyKit passes strategies through to provider sessions; it does not
+redefine planning, inspect strategy kinds, or hide loader registries behind
+string names.
 
 ## Create A Viewer
 

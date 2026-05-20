@@ -2,13 +2,21 @@
 
 Status: current alpha package.
 
-Cell-keyed star data types, stores, Morton helpers, viewer-space strategy
-helpers, and star math helpers for Found in Space packages.
+Cell-keyed star data types, stores, Morton helpers, shared strategy interfaces,
+semantic cell evaluation helpers, and star math helpers for Found in Space
+packages.
 
-This package understands `StarCellData`, tree-cell strategy evaluation, and
-star-specific interpretation such as magnitude, temperature, object refs, pick
-metadata, and sky projections. It does not load octree bytes or own provider
-sessions.
+This package understands `StarCellData`, shared strategy evaluation semantics,
+and star-specific interpretation such as magnitude, temperature, object refs,
+pick metadata, and sky projections. It does not load octree bytes, plan
+provider demand, or own provider sessions.
+
+Strategies are shared, loader-agnostic objects. They decide which semantic
+cells matter, assign priority, and report demand changes between view states.
+Provider planners consume strategies and own traversal, batching, cache reuse,
+fetch, decode, and cell-delta emission. Bundled strategies should use the same
+public interface as application strategies; they are not registry names that
+planners special-case.
 
 ## Public Star Identity
 

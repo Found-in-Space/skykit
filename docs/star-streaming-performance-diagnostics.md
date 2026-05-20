@@ -128,6 +128,7 @@ heuristic:
 loadRadiusPc = halfSizePc * 10 ** ((limitingMagnitude - indexMagnitude) / 5)
 ```
 
-Do not add broad fixed padding to compensate for streaming churn. Future refresh
-throttling should be expressed as demand policy such as magnitude-banded shell
-cadence, not by weakening cell identity.
+Do not add broad fixed padding to compensate for streaming churn. Refresh
+throttling should be expressed through strategy change/diff policy, such as
+magnitude-banded shell cadence or low-priority tail invalidation, not by
+weakening cell identity.

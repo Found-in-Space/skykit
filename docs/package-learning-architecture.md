@@ -51,6 +51,9 @@ stars/error
 The "50-line lesson" target is design pressure, not a literal rule. A learner
 should not need to rewrite stream lifecycle handling, star math, provider
 strategies, renderer glue, or viewer lifecycle code just to try an idea.
+Trying an idea may still mean providing a new strategy object. That should be an
+application-level extension over the shared strategy contract, not a request to
+add another strategy kind to SkyKit or a provider planner.
 
 Lesson controls should use semantic actions rather than fake keypresses. SkyKit
 reserves the `skykit:` namespace for built-in meanings such as
@@ -122,13 +125,14 @@ packages/skykit/examples/
 ```txt
 @found-in-space/spatial
   implemented: dependency-free coordinate conversion, target resolution, poses,
-  routes, smooth paths, timed pose tracks, materialized preload hints, smooth
+  routes, smooth paths, timed pose tracks, materialized warm/preload hints, smooth
   fly-to/route-follow, orbit, orbital insertion, look-at, lock-at, and motion
   models
 
 @found-in-space/journey
   implemented: authored interactive scene graphs, timed journey normalization
-  and evaluation, cues, generic tracks, preload hints, and retiming helpers
+  and evaluation, cues, generic tracks, preload hints that adapt into warm
+  strategy demand, and retiming helpers
 
 @found-in-space/journey-video
   implemented: standalone alpha journey video editor, editor document/state
@@ -142,9 +146,9 @@ packages/skykit/examples/
   Morton helpers, star math, star iteration, and color helpers
 
 @found-in-space/star-octree-provider
-  implemented: octree loading/session/streaming, provider-owned demand
-  strategies, volume/path helpers, demand inspection, and cell delta emission;
-  physical node/storage IDs stay inside provider loader/planner code
+  implemented: octree loading/session/streaming, provider-owned planning against
+  shared strategies, volume/path helpers, demand inspection, and cell delta
+  emission; physical node/storage IDs stay inside provider loader/planner code
 
 @found-in-space/meta-sidecar-provider
   implemented: metadata sidecar provider keyed by star object refs

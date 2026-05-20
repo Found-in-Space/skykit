@@ -3,8 +3,9 @@
 Status: current alpha package contract for
 `@found-in-space/star-octree-provider`.
 
-The provider owns octree loading, traversal, demand strategies, range fetching,
-payload decode, cache warming, and cell-delta emission. Viewers, renderers,
+The provider owns octree loading, traversal, demand planning, range fetching,
+payload decode, cache warming, and cell-delta emission. Strategies are a shared
+semantic contract consumed by loaders and planners. Viewers, renderers,
 sidecars, controls, lessons, and journeys live in separate packages.
 
 ## Core Contract
@@ -123,24 +124,113 @@ Superseded demand revisions abort outstanding fetch/decode work. Late obsolete
 work is not merely ignored; it receives abort cancellation so decode and range
 fetches stop promptly.
 
-## Strategies
+## Strategies And Planners
 
-Strategies decide which semantic octree cells matter. They do not fetch byte
-ranges, decode payloads, build render data, merge cells, or own application
-logic.
+Strategies decide which semantic cells matter for a view. A strategy evaluates
+semantic cell geometry, assigns priority, and reports how its demand changes as
+the view changes. It does not fetch byte ranges, decode payloads, build render
+data, merge cells, or own application logic.
 
-Built-in strategies include:
+Planners are loader/provider internals. A planner consumes a strategy,
+materializes prioritized demand for a concrete storage format, and owns
+traversal, batching, cache reuse, byte-range fetches, decode, retention, and
+cell-delta emission. Planners may optimize tied or equivalent-priority cells
+for batching, cache locality, and transport cost, but they must not require core
+changes for application strategies and must not switch on a closed list of
+strategy names.
 
-- observer-shell visibility
-- target-frustum visibility
-- sphere-volume selection
-- path-volume selection
-- explicit motion-lookahead cache warming
-- custom strategies
-- union composition
+The public strategy contract is object/function based. Bundled strategies such
+as observer-shell visibility, target-frustum visibility, sphere/path volume
+selection, lookahead warming, and composition are ordinary strategy
+implementations. Custom strategies are first-class strategy objects, not
+registry entries or new provider enum cases.
 
-`current` demand entries emit cells. `prefetch` entries warm caches only and must
-not remove, stale, or replace current cells.
+Current alpha gap: the implementation still contains closed `StarTreeStrategy`
+unions and `strategy.kind` planner dispatch in places. That is temporary
+non-compliance with this contract and should be removed before adding new
+application-specific strategies.
+
+Interface sketch:
+
+```ts
+interface StarCellStrategy<TView = StarViewState> {
+  id: string;
+  createAnchor(view: TView): StarStrategyAnchor;
+  createEvaluator(anchor: StarStrategyAnchor): StarCellEvaluator;
+  diff(
+    previous: StarStrategyAnchor,
+    next: StarStrategyAnchor,
+    context: StarStrategyDiffContext
+  ): StarStrategyChange;
+}
+
+interface StarCellEvaluator {
+  evaluateCell(cell: StarCellGeometry): StarCellDecision;
+}
+
+interface StarCellPriority {
+  lane: 'live' | 'warm' | string;
+  band: number;
+  score?: number;
+}
+
+interface StarCellDecision {
+  include: boolean;
+  descend?: boolean;
+  emit?: boolean;
+  priority: StarCellPriority;
+  contributors?: StrategyContribution[];
+  reasons?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+type StarStrategyChange =
+  | { kind: 'none' }
+  | {
+      kind: 'priority-only';
+      regions?: CellRegion[];
+      priorityFloor?: StarCellPriority;
+    }
+  | {
+      kind: 'tail-changed';
+      regions?: CellRegion[];
+      belowPriority: StarCellPriority;
+    }
+  | {
+      kind: 'regions-changed';
+      regions: CellRegion[];
+      priorityFloor?: StarCellPriority;
+    }
+  | { kind: 'reset'; reason: string };
+```
+
+`StarCellGeometry` is semantic geometry only: cell key, level, Morton code,
+center parsecs, half-size parsecs, and logical grid coordinates. Strategy-visible
+cells must not expose storage fields such as `payloadOffset`, `payloadLength`,
+`nodeIndex`, `shardOffset`, byte ranges, or loader-specific node keys.
+
+Priority is a partial order. Cells may draw/tie in priority, and the planner may
+load tied cells in whichever order is most efficient for batching, cache reuse,
+or traversal locality. `live` demand always outranks `warm` demand. Warm cells
+may prefetch or prewarm caches, but they must not remove, stale, or replace live
+cells. If a warm cell later becomes live, the planner should reuse it.
+
+Strategies must support incremental planning. They create stable anchors for
+view states and report changes between anchors so planners can re-evaluate
+affected regions, priority bands, or tail ranges instead of rebuilding the full
+priority list every animation tick. Low-priority faint-cell churn is expected;
+it must not force high-priority live cells to churn.
+
+`combineStrategies()` returns an ordinary strategy. A combined cell takes the
+best semantic priority from its contributors, keeps contributor metadata, and
+still presents the same interface to the planner. Composition is not a
+privileged planner mode.
+
+Preload, prewarm, and lookahead are lower-priority strategy demand, not a
+separate loading subsystem. A forward-lookahead strategy may evaluate a base
+strategy against predicted view states, optionally skipping a near-future
+blackout period to account for roundtrip and decode delay, then emit those cells
+in the `warm` lane.
 
 ## Coordinates And Identity
 
@@ -251,7 +341,8 @@ Implemented:
 - abort cancellation for superseded demand revisions
 - internal range batching split back into cell records
 - persistent source/cache reuse across sessions
-- observer-shell, frustum, sphere, path, lookahead, custom, and union strategies
+- current bundled observer-shell, frustum, sphere, path, lookahead, and
+  composition helpers, with open strategy/planner separation still pending
 
 Non-goals:
 

@@ -5,23 +5,24 @@ Status: current alpha package.
 Alpha package for the clean Star Octree Provider rewrite.
 
 This package is intentionally self-contained. Octree loading, traversal,
-strategies, payload decode, and star cell emission live here; viewers,
-renderers, sidecars, controls, and lessons live in separate packages.
+planning, payload decode, and star cell emission live here; viewers, renderers,
+sidecars, controls, and lessons live in separate packages.
 
 Do not add viewer, renderer, UI, sidecar, kinematics, or ephemeris behavior to
 this package. Those belong in separate `@found-in-space/*` packages that compose
 with emitted star cells.
 
-The provider is also the single home for star-octree demand strategies. Built-in
-strategy helpers include observer-shell visibility, target-frustum visibility,
-sphere/path volume selection, explicit motion-lookahead cache warming, custom
-strategies, and union composition. Strategies decide which octree cells matter;
-the provider planner/scheduler still owns payload batching, cache warming,
-decode, and cell emission.
+The provider consumes the shared strategy contract and owns the octree-specific
+planner. Strategies decide which semantic cells matter, their priority, and how
+demand changes between view states; the provider planner/scheduler owns
+materialization, payload batching, cache warming, decode, and cell emission.
+Bundled strategy helpers are ordinary implementations of the same public
+strategy interface as application strategies.
 
 See [`../../docs/star-octree-provider.md`](../../docs/star-octree-provider.md)
 for the package contract, strategy/planner/scheduler semantics, API semantics,
-and current implementation status.
+and the current alpha gap where some implementation paths still use closed
+strategy-kind dispatch.
 
 ## Examples
 
