@@ -1,10 +1,10 @@
 import {
-  combineStarTreeStrategies,
+  combineStrategies,
+  createLookaheadStrategy,
   createObserverShellStrategy,
   createPathVolumeStrategy,
   createSphereVolumeStrategy,
   createTargetFrustumStrategy,
-  withMotionLookahead,
 } from '@found-in-space/star-trees';
 
 export const STRATEGY_SCENARIOS = Object.freeze([
@@ -13,7 +13,7 @@ export const STRATEGY_SCENARIOS = Object.freeze([
   'sphere-volume',
   'path-volume',
   'composite-volume',
-  'motion-lookahead',
+  'lookahead-warm',
 ]);
 
 /**
@@ -46,7 +46,7 @@ export function createStrategyForFrame(name, frame) {
         radiusPc: 42,
       });
     case 'composite-volume':
-      return combineStarTreeStrategies([
+      return combineStrategies([
         createSphereVolumeStrategy({
           centerPc: frame.observerPc,
           radiusPc: 96,
@@ -56,8 +56,15 @@ export function createStrategyForFrame(name, frame) {
           radiusPc: 36,
         }),
       ]);
-    case 'motion-lookahead':
-      return withMotionLookahead(createObserverShellStrategy());
+    case 'lookahead-warm':
+      return combineStrategies([
+        createObserverShellStrategy(),
+        createLookaheadStrategy({
+          base: createObserverShellStrategy(),
+          horizonSecs: 2,
+          tickSecs: 2,
+        }),
+      ]);
     default:
       throw new TypeError(`Unknown star planner strategy scenario: ${name}`);
   }
@@ -97,7 +104,6 @@ export function createViewForFrame(frame) {
 
 export function createCustomStrategyProbeValue() {
   return {
-    id: 'benchmark-custom-strategy-probe',
     createAnchor(view) {
       return { view };
     },
