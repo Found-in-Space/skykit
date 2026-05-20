@@ -148,6 +148,8 @@ export function createSkykitNavigationPlugin(options = {}) {
   let disposed = false;
   /** @type {import('@found-in-space/spatial').SpatialPoseTransition | null} */
   let activeTransition = null;
+  /** @type {(() => void) | null} */
+  let activeTransitionOnArrive = null;
   let transitionElapsedSeconds = 0;
 
   /** @type {SkykitThreePart} */
@@ -167,8 +169,11 @@ export function createSkykitNavigationPlugin(options = {}) {
           }, id);
         }
         if (sample.complete) {
+          const onArrive = activeTransitionOnArrive;
           activeTransition = null;
+          activeTransitionOnArrive = null;
           transitionElapsedSeconds = 0;
+          onArrive?.();
         }
         return;
       }
@@ -236,6 +241,7 @@ export function createSkykitNavigationPlugin(options = {}) {
       }, { label: 'Fly polyline' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.transitionTo, async ({ payload }) => {
         activeTransition = await createTransition(payload, context);
+        activeTransitionOnArrive = resolveOnArrive(payload);
         transitionElapsedSeconds = 0;
         navigation.cancel();
         return activeTransition;
@@ -265,16 +271,19 @@ export function createSkykitNavigationPlugin(options = {}) {
       }, { label: 'Unlock look target' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancelMovement, () => {
         activeTransition = null;
+        activeTransitionOnArrive = null;
         transitionElapsedSeconds = 0;
         navigation.cancelMovement();
       }, { label: 'Cancel movement' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancelOrientation, () => {
         activeTransition = null;
+        activeTransitionOnArrive = null;
         transitionElapsedSeconds = 0;
         navigation.cancelOrientation();
       }, { label: 'Cancel orientation' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancel, () => {
         activeTransition = null;
+        activeTransitionOnArrive = null;
         transitionElapsedSeconds = 0;
         navigation.cancel();
       }, { label: 'Cancel navigation' }),
@@ -531,7 +540,13 @@ export function createSkykitJourneyPlugin(options = {}) {
    */
   function queueSceneApplication(spec, context, event) {
     pendingSceneApplication = Promise.resolve(applySceneSpec(spec, context, event)).catch((error) => {
-      console.error?.(`[skykit:${id}] failed to apply journey scene`, error);
+      context.emit?.({
+        type: 'journey/scene/error',
+        pluginId: id,
+        message: 'Failed to apply journey scene.',
+        error,
+        event,
+      });
       return null;
     });
     return pendingSceneApplication;
@@ -565,32 +580,45 @@ export function createSkykitJourneyPlugin(options = {}) {
     const scene = /** @type {Record<string, unknown> | null} */ (spec && typeof spec === 'object' ? spec : null);
     options.onScene?.(scene, context, event);
     if (!scene) return;
+    const onArrive = () => {
+      void notifySceneArrive(scene, context, event);
+    };
+    let arrivalDeferred = false;
     if (scene.view && typeof scene.view === 'object') {
       context.requestViewState(/** @type {Partial<import('./index.d.ts').SkykitViewState>} */ (scene.view), id);
     }
     const navigation = /** @type {Record<string, unknown> | null} */ (scene.navigation && typeof scene.navigation === 'object' ? scene.navigation : null);
     if (isOrbitCameraScene(scene)) {
-      await applyOrbitCameraScene(scene, context, event);
+      arrivalDeferred = await applyOrbitCameraScene(scene, context, event, onArrive);
     } else if (navigation?.transitionTo) {
-      await context.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, navigation.transitionTo, {
+      const results = await context.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+        .../** @type {Record<string, unknown>} */ (navigation.transitionTo),
+        onArrive,
+      }, {
         source: id,
       });
+      arrivalDeferred = hasActionResult(results);
     }
     if (Array.isArray(scene.preloadHints)) {
       options.onPreloadHints?.(scene.preloadHints, scene, context);
     }
     options.onLayerState?.(scene, context);
+    if (!arrivalDeferred) {
+      onArrive();
+    }
   }
 
   /**
    * @param {Record<string, unknown>} scene
    * @param {import('./index.d.ts').SkykitThreePluginContext} context
    * @param {unknown} event
+   * @param {() => void} onArrive
+   * @returns {Promise<boolean>} true when arrival will be reported asynchronously
    */
-  async function applyOrbitCameraScene(scene, context, event) {
+  async function applyOrbitCameraScene(scene, context, event, onArrive) {
     const camera = /** @type {Record<string, unknown>} */ (scene.camera);
     const destinationOrbit = await resolveJourneyOrbit(camera, context);
-    if (!destinationOrbit) return;
+    if (!destinationOrbit) return false;
     const lookTarget = await resolveJourneyTarget(camera.lookAt ?? camera.center, context)
       ?? destinationOrbit.center;
     const source = { source: id };
@@ -621,7 +649,7 @@ export function createSkykitJourneyPlugin(options = {}) {
         angularSpeedRadPerSec: destinationOrbit.angularSpeedRadPerSec,
         normal: initialNormal,
       }, source);
-      return;
+      return false;
     }
 
     const travel = normalizeJourneySceneTravel(scene.travel);
@@ -634,15 +662,16 @@ export function createSkykitJourneyPlugin(options = {}) {
     });
     if (route && Array.isArray(route.points) && route.points.length >= 2) {
       rememberResolvedJourneyOrbit(scene, route.arrivalAction);
-      await context.actions.invoke(SKYKIT_ACTIONS.navigation.flyPolyline, {
+      const results = await context.actions.invoke(SKYKIT_ACTIONS.navigation.flyPolyline, {
         points: route.points,
         durationSecs: travel.durationSecs,
         currentSpeed: route.departureSpeed,
         arrivalSpeed: route.arrivalSpeed,
         arrivalThreshold: travel.arrivalThreshold,
         arrivalAction: route.arrivalAction,
+        onArrive,
       }, source);
-      return;
+      return hasActionResult(results);
     }
     const fallbackNormal = destinationOrbit.normal ?? { x: 0, y: 1, z: 0 };
     rememberResolvedJourneyOrbit(scene, {
@@ -655,6 +684,7 @@ export function createSkykitJourneyPlugin(options = {}) {
       angularSpeedRadPerSec: destinationOrbit.angularSpeedRadPerSec,
       normal: fallbackNormal,
     }, source);
+    return false;
   }
 
   /**
@@ -670,6 +700,25 @@ export function createSkykitJourneyPlugin(options = {}) {
       angularSpeedRadPerSec: finiteNumber(camera.angularSpeedRadPerSec, 0.1),
       ...(camera.normal != null ? { normal: normalizeDirectionVector(camera.normal, { x: 0, y: 1, z: 0 }) } : {}),
     };
+  }
+
+  /**
+   * @param {Record<string, unknown>} scene
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   * @param {unknown} event
+   */
+  async function notifySceneArrive(scene, context, event) {
+    try {
+      await options.onSceneArrive?.(scene, context, event);
+    } catch (error) {
+      context.emit?.({
+        type: 'journey/scene-arrive/error',
+        pluginId: id,
+        message: 'Failed to handle journey scene arrival.',
+        error,
+        event,
+      });
+    }
   }
 
   /**
@@ -1495,6 +1544,18 @@ function payloadOptions(payload) {
   delete options.points;
   delete options.bookmarkId;
   return options;
+}
+
+/** @param {unknown} payload */
+function resolveOnArrive(payload) {
+  return payload && typeof payload === 'object' && typeof /** @type {{ onArrive?: unknown }} */ (payload).onArrive === 'function'
+    ? /** @type {() => void} */ (/** @type {{ onArrive: unknown }} */ (payload).onArrive)
+    : null;
+}
+
+/** @param {PromiseSettledResult<unknown>[]} results */
+function hasActionResult(results) {
+  return results.some((result) => result.status === 'fulfilled' && result.value != null);
 }
 
 /** @param {Record<string, unknown>} targetSource */

@@ -27,15 +27,34 @@ export interface HrDiagramHighlightRegion {
   label?: string;
 }
 
+export interface HrDiagramSelectedStar {
+  temperatureK?: number;
+  teffLog8?: number;
+  magAbs: number;
+  color?: string | [number, number, number];
+  label?: string;
+}
+
+export type HrDiagramMatrixLike = THREE.Matrix4 | Float32Array | number[] | {
+  elements: Float32Array | number[];
+};
+
 export interface HrDiagramView extends HrDiagramBounds {
-  mode?: HrDiagramMode | 0 | 1 | 2;
+  mode?: HrDiagramMode;
   observerPc?: { x: number; y: number; z: number };
+  observerPosition?: { x: number; y: number; z: number };
+  coordinateUnitsPerParsec?: number;
   limitingMagnitude?: number;
   volumeRadiusPc?: number;
-  viewProjection?: THREE.Matrix4 | Float32Array | number[];
+  viewProjection?: HrDiagramMatrixLike | null;
   highlightRegion?: HrDiagramHighlightRegion | null;
+  selectedStars?: Iterable<HrDiagramSelectedStar>;
   width?: number;
   height?: number;
+  showAxes?: boolean;
+  showCount?: boolean;
+  background?: string | null;
+  alpha?: number;
 }
 
 export interface HrDiagramPoint {
@@ -53,9 +72,12 @@ export interface ProjectHrDiagramOptions extends HrDiagramBounds {
   cells?: Iterable<StarCellData>;
   store?: StarCellStore;
   observerPc?: { x: number; y: number; z: number };
+  observerPosition?: { x: number; y: number; z: number };
+  coordinateUnitsPerParsec?: number;
   limitingMagnitude?: number;
-  mode?: HrDiagramMode | 0 | 1 | 2;
+  mode?: HrDiagramMode;
   volumeRadiusPc?: number;
+  viewProjection?: HrDiagramMatrixLike | null;
 }
 
 export interface ProjectHrDiagramResult {
@@ -69,6 +91,10 @@ export interface ProjectHrDiagramResult {
 export interface DrawHrDiagramCanvasOptions extends ProjectHrDiagramOptions {
   background?: string | null;
   alpha?: number;
+  highlightRegion?: HrDiagramHighlightRegion | null;
+  selectedStars?: Iterable<HrDiagramSelectedStar>;
+  showAxes?: boolean;
+  showCount?: boolean;
 }
 
 export interface HrDiagramRendererOptions extends HrDiagramView {
@@ -79,6 +105,11 @@ export interface HrDiagramRendererOptions extends HrDiagramView {
 export interface HrDiagramRendererSnapshot {
   cellCount: number;
   starCount: number;
+  visibleCount: number;
+  axesRevision: number;
+  axesAvailable: boolean;
+  geometryDirty: boolean;
+  geometryRevision: number;
   disposed: boolean;
   view: HrDiagramView;
 }
@@ -101,7 +132,7 @@ export declare const HR_DIAGRAM_MODE_VOLUME: 'volume-complete';
 export declare const HR_DIAGRAM_MODE_FRUSTUM: 'frustum';
 
 export declare function normalizeHrDiagramMode(
-  mode?: HrDiagramMode | 0 | 1 | 2
+  mode?: HrDiagramMode
 ): HrDiagramMode;
 
 export declare function temperatureToHrX(

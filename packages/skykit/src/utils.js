@@ -97,7 +97,7 @@ export function normalizeViewState(input = {}, revision = 0) {
     directionIcrs: input.directionIcrs == null ? null : normalizeVector3(input.directionIcrs, { x: 0, y: 0, z: -1 }),
     orientationIcrs: input.orientationIcrs == null ? null : normalizeQuaternion(input.orientationIcrs, IDENTITY_QUATERNION),
     limitingMagnitude: finiteNumber(input.limitingMagnitude, DEFAULT_MAG_LIMIT),
-    ...(input.verticalFovDeg !== undefined ? { verticalFovDeg: finiteNumber(input.verticalFovDeg, 40) } : {}),
+    ...(input.verticalFovDeg !== undefined ? { verticalFovDeg: positiveFinite(input.verticalFovDeg, 40) } : {}),
     ...(input.aspectRatio !== undefined ? { aspectRatio: positiveFinite(input.aspectRatio, 1) } : {}),
     motion: input.motion ?? null,
     coordinateUnitsPerParsec,

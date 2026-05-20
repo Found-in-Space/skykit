@@ -220,6 +220,9 @@ function createEmbeddedSurfaceConfig(props) {
  */
 function renderIntoTarget(renderer, target, width, height, callback) {
   const previousTarget = renderer.getRenderTarget?.() ?? null;
+  const previousTargetViewport = previousTarget?.viewport?.clone?.() ?? null;
+  const previousTargetScissor = previousTarget?.scissor?.clone?.() ?? null;
+  const previousTargetScissorTest = previousTarget?.scissorTest;
   const previousViewport = renderer.getViewport?.(new THREE.Vector4());
   const previousScissor = renderer.getScissor?.(new THREE.Vector4());
   const previousScissorTest = renderer.getScissorTest?.() ?? false;
@@ -228,17 +231,26 @@ function renderIntoTarget(renderer, target, width, height, callback) {
   if (renderer.xr) {
     renderer.xr.enabled = false;
   }
+  target.viewport.set(0, 0, width, height);
+  target.scissor.set(0, 0, width, height);
+  target.scissorTest = false;
   renderer.setRenderTarget(target);
-  renderer.setViewport(0, 0, width, height);
-  renderer.setScissor(0, 0, width, height);
-  renderer.setScissorTest(false);
   try {
     callback();
   } finally {
+    if (previousTarget && previousTargetViewport && previousTargetScissor) {
+      previousTarget.viewport.copy(previousTargetViewport);
+      previousTarget.scissor.copy(previousTargetScissor);
+      if (previousTargetScissorTest !== undefined) {
+        previousTarget.scissorTest = previousTargetScissorTest;
+      }
+    }
     renderer.setRenderTarget(previousTarget);
-    if (previousViewport) renderer.setViewport(previousViewport);
-    if (previousScissor) renderer.setScissor(previousScissor);
-    renderer.setScissorTest(previousScissorTest);
+    if (!previousTarget) {
+      if (previousViewport) renderer.setViewport(previousViewport);
+      if (previousScissor) renderer.setScissor(previousScissor);
+      renderer.setScissorTest(previousScissorTest);
+    }
     if (renderer.xr && previousXrEnabled !== undefined) {
       renderer.xr.enabled = previousXrEnabled;
     }

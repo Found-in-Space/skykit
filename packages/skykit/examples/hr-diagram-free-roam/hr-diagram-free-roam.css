@@ -1,0 +1,27 @@
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #020712;
+}
+
+.hr-free-roam-shell,
+.viewer-shell {
+  position: fixed;
+  inset: 0;
+}
+
+.viewer-shell canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.viewer-shell canvas:active {
+  cursor: grabbing;
+}

@@ -91,9 +91,7 @@ export function createTouchOsHudPlugin(options) {
             surfaceMetrics: rootContext.surfaceMetrics,
             parent: options.parent,
           }));
-          dispatchTouchOsActionOutputs(runtime.takeOutputs(), context.actions, {
-            sourcePrefix: options.sourcePrefix,
-          });
+          handleRuntimeOutputs(runtime.takeOutputs(), frame);
         },
         dispose() {
           if (disposed) return;
@@ -149,14 +147,36 @@ export function createTouchOsHudPlugin(options) {
         if (event.type === 'pointerdown' && claimed) activePointers.add(pointerId);
         if (event.type === 'pointerup' || event.type === 'pointercancel') activePointers.delete(pointerId);
 
-        dispatchTouchOsActionOutputs(runtime.takeOutputs(), context.actions, {
-          sourcePrefix: options.sourcePrefix,
-        });
+        handleRuntimeOutputs(runtime.takeOutputs(), latestFrame);
 
         if (claimed || wasActive) {
           event.preventDefault();
           event.stopImmediatePropagation();
         }
+      }
+
+      /**
+       * @param {Iterable<unknown>} outputs
+       * @param {import('./index.d.ts').SkykitThreeFrame | null} frame
+       */
+      function handleRuntimeOutputs(outputs, frame) {
+        const outputList = Array.from(outputs ?? []);
+        if (typeof options.onOutput === 'function') {
+          for (const output of outputList) {
+            options.onOutput(output, {
+              context,
+              viewer: context.viewer,
+              actions: context.actions,
+              runtime,
+              driver,
+              frame,
+              target,
+            });
+          }
+        }
+        dispatchTouchOsActionOutputs(outputList, context.actions, {
+          sourcePrefix: options.sourcePrefix,
+        });
       }
     },
   };

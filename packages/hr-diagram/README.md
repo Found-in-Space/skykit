@@ -16,3 +16,6 @@ The package has two rendering paths:
 The optional `@found-in-space/hr-diagram/touch-os` subpath publishes the WebGL
 renderer as a composite embedded surface, matching the high-performance surface
 pattern used by `touch-os`.
+
+For the composed SkyKit example, see
+`../skykit/examples/hr-diagram-free-roam/`.

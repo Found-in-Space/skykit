@@ -24,6 +24,9 @@ import type {
 } from '@found-in-space/journey';
 import type {
   StarCellDelta,
+  StarCellStore,
+  StarObjectRef,
+  StarPickMeta,
   StarTreeStrategy,
 } from '@found-in-space/star-trees';
 import type {
@@ -34,7 +37,21 @@ import type {
   StarOctreeViewPatch,
   ViewUpdateOptions,
 } from '@found-in-space/star-octree-provider';
-import type { ThreeStarField } from '@found-in-space/three-star-field';
+import type {
+  ThreeStarField,
+  ThreeStarFieldPickOptions,
+  ThreeStarFieldPickResult,
+} from '@found-in-space/three-star-field';
+import type {
+  HrDiagramHighlightRegion,
+  HrDiagramMode,
+  HrDiagramSelectedStar,
+} from '@found-in-space/hr-diagram';
+import type { HrDiagramSurfaceSource } from '@found-in-space/hr-diagram/touch-os';
+import type {
+  DisplayNode,
+  EmbeddedSurfaceService,
+} from '@found-in-space/touch-os';
 import type * as THREE from 'three';
 
 export interface Vector3Like {
@@ -558,9 +575,11 @@ export interface SkykitObject3dPlugin extends SkykitPlugin {
 export interface StreamingStarLayerOptions {
   id?: string;
   priority?: number;
-  provider: StarOctreeProviderService;
+  provider?: StarOctreeProviderService;
+  source?: SkykitStarCellSource;
   renderer: ThreeStarField;
   session?: StarOctreeSessionOptions | StarOctreeProviderSession;
+  strategy?: StarTreeStrategy | ((view: SkykitViewState) => StarTreeStrategy | null);
   attributes?: readonly string[];
   coordinates?: StarOctreeCoordinateOutput;
   updateOptions?: ViewUpdateOptions;
@@ -585,6 +604,175 @@ export interface StreamingStarLayer extends SkykitThreePart {
 export interface SkykitStreamingStarsPlugin extends SkykitPlugin {
   getLayer(): StreamingStarLayer | null;
   getSnapshot(): unknown;
+}
+
+export interface SkykitStarCellDemand {
+  id?: string;
+  strategy?: StarTreeStrategy | ((view: SkykitViewState) => StarTreeStrategy | null) | null;
+  view?: Partial<StarOctreeViewPatch> | ((view: SkykitViewState) => Partial<StarOctreeViewPatch> | null | undefined);
+  attributes?: readonly string[];
+}
+
+export interface SkykitStarCellSourceSnapshot {
+  id: string;
+  status: 'idle' | 'streaming' | 'current' | 'failed' | 'disposed';
+  deltaCount: number;
+  sessionId: string | null;
+  demandCount: number;
+  demands: Array<{ id: string; attributes: string[] }>;
+  store: unknown;
+  session: unknown;
+  lastError?: string | null;
+  disposed: boolean;
+}
+
+export interface SkykitStarCellSource extends SkykitPlugin, SkykitThreePart {
+  readonly id: string;
+  addDemand(demand: SkykitStarCellDemand): SkykitPluginTeardown;
+  registerDemand(demand: SkykitStarCellDemand): SkykitPluginTeardown;
+  removeDemand(id: string): void;
+  refreshDemand(reason?: string): void | Promise<void>;
+  subscribe(
+    listener: (delta: StarCellDelta) => void,
+    options?: { replay?: boolean }
+  ): SkykitPluginTeardown;
+  apply(delta: StarCellDelta): void;
+  getStore(): StarCellStore;
+  getSnapshot(): SkykitStarCellSourceSnapshot;
+}
+
+export interface SkykitStarSourcePluginOptions {
+  id?: string;
+  priority?: number;
+  provider?: StarOctreeProviderService;
+  session?: StarOctreeSessionOptions | StarOctreeProviderSession;
+  strategy?: StarTreeStrategy | ((view: SkykitViewState) => StarTreeStrategy | null);
+  attributes?: readonly string[];
+  coordinates?: StarOctreeCoordinateOutput;
+  updateOptions?: ViewUpdateOptions;
+}
+
+export interface SkykitHrDiagramTouchOsOptions {
+  surfaces?: EmbeddedSurfaceService;
+  sourceId?: string;
+  componentId?: string;
+  width?: number;
+  height?: number;
+  root?: DisplayNode | null;
+}
+
+export interface SkykitHrDiagramPluginOptions {
+  id?: string;
+  priority?: number;
+  source: SkykitStarCellSource;
+  mode?: HrDiagramMode;
+  volumeRadiusPc?: number;
+  limitingMagnitude?: number;
+  width?: number;
+  height?: number;
+  highlightRegion?: HrDiagramHighlightRegion | null;
+  selectedStars?: Iterable<HrDiagramSelectedStar>;
+  touchOs?: SkykitHrDiagramTouchOsOptions;
+}
+
+export type SkykitHrDiagramPluginRuntimeOptions = Partial<Omit<SkykitHrDiagramPluginOptions, 'id' | 'priority' | 'source' | 'touchOs'>>;
+
+export interface SkykitHrDiagramPlugin extends SkykitPlugin {
+  readonly id: string;
+  getSource(): HrDiagramSurfaceSource;
+  getNode(): DisplayNode;
+  getMode(): HrDiagramMode;
+  setMode(mode: HrDiagramMode): Promise<void>;
+  setOptions(options: SkykitHrDiagramPluginRuntimeOptions): Promise<void>;
+  getSnapshot(): unknown;
+}
+
+export interface SkykitStarPickingTarget extends EventTarget {
+  clientWidth?: number;
+  clientHeight?: number;
+  getBoundingClientRect?(): {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
+}
+
+export interface SkykitStarPickPointer {
+  pointerId: string;
+  pointerType: string;
+  button: number;
+  clientX: number;
+  clientY: number;
+  ndcX: number;
+  ndcY: number;
+}
+
+export interface SkykitStarPickMetadataProvider {
+  resolvePrimaryLabel(ref: StarObjectRef | StarPickMeta): string | Promise<string>;
+  resolveFacts?(ref: StarObjectRef | StarPickMeta): unknown | Promise<unknown>;
+}
+
+export interface SkykitStarPickMetadataResolverContext {
+  context: SkykitThreePluginContext;
+  viewer: SkykitViewer;
+  view: SkykitViewState;
+}
+
+export type SkykitStarPickMetadata =
+  | string
+  | {
+      label?: string;
+      primaryLabel?: string;
+      ref?: StarObjectRef | StarPickMeta | null;
+      facts?: unknown;
+      [key: string]: unknown;
+    }
+  | null;
+
+export type SkykitStarPickMetadataResolver = (
+  pick: ThreeStarFieldPickResult,
+  context: SkykitStarPickMetadataResolverContext
+) => SkykitStarPickMetadata | Promise<SkykitStarPickMetadata>;
+
+export interface SkykitStarPickMetadataResolverOptions {
+  provider?: SkykitStarPickMetadataProvider | null;
+  fallbackLabel?: string | ((pick: ThreeStarFieldPickResult) => string);
+}
+
+export interface SkykitStarPickEvent extends SkykitEvent {
+  type: 'stars/pick';
+  id: string;
+  pick: ThreeStarFieldPickResult;
+  label: string;
+  metadata: SkykitStarPickMetadata;
+  pointer: SkykitStarPickPointer;
+  ray: THREE.Ray;
+  view: SkykitViewState;
+}
+
+export interface SkykitStarPickMissEvent extends SkykitEvent {
+  type: 'stars/pick-miss';
+  id: string;
+  pointer: SkykitStarPickPointer;
+  ray: THREE.Ray;
+  view: SkykitViewState;
+}
+
+export interface SkykitStarPickingPluginOptions {
+  id?: string;
+  target?: SkykitStarPickingTarget | null;
+  renderer: ThreeStarField;
+  source?: SkykitStarCellSource | null;
+  button?: number;
+  enabled?: boolean;
+  clickMaxMovementPx?: number;
+  pickOptions?: ThreeStarFieldPickOptions;
+  attributes?: readonly string[];
+  metadata?: SkykitStarPickMetadataResolver | SkykitStarPickMetadataProvider | null;
+  metadataAttributes?: readonly string[];
+  onPick?: (event: SkykitStarPickEvent) => void | Promise<void>;
+  onMiss?: (event: SkykitStarPickMissEvent) => void | Promise<void>;
 }
 
 export type SkykitKeyboardNavigationAction = SkykitActionId;
@@ -694,6 +882,11 @@ export interface SkykitJourneyPluginOptions {
     context: SkykitThreePluginContext,
     event: unknown
   ) => void;
+  onSceneArrive?: (
+    scene: JourneySceneSpec | Record<string, unknown>,
+    context: SkykitThreePluginContext,
+    event: unknown
+  ) => void | Promise<void>;
   onCue?: (
     cue: TimedJourneyCue,
     frame: TimedJourneyFrame,
@@ -752,6 +945,9 @@ export interface SkykitDebugBridge {
   useViewer(target: string | number | SkykitViewer): SkykitDebugViewer | null;
   getViewer(target?: string | number | SkykitViewer): SkykitDebugViewer | null;
   snapshot(target?: string | number | SkykitViewer): unknown;
+  recordDiagnostic(diagnostic: SkykitDebugDiagnosticInput): SkykitDebugDiagnostic;
+  listDiagnostics(query?: SkykitDebugDiagnosticQuery): SkykitDebugDiagnostic[];
+  clearDiagnostics(): void;
   registerViewer(viewer: SkykitViewer, options?: SkykitDebugRegisterOptions): SkykitDebugViewer;
   unregisterViewer(target: string | number | SkykitViewer): boolean;
   getObserverPc(target?: string | number | SkykitViewer): Vector3Like | null;
@@ -769,6 +965,36 @@ export interface SkykitDebugBridge {
 export interface SkykitDebugRegisterOptions {
   id?: string;
   label?: string;
+}
+
+export type SkykitDebugDiagnosticLevel = 'debug' | 'info' | 'warn' | 'error';
+
+export interface SkykitDebugDiagnosticInput {
+  level?: SkykitDebugDiagnosticLevel;
+  type?: string;
+  message?: string;
+  viewerId?: string;
+  timestampMs?: number;
+  data?: unknown;
+  error?: unknown;
+}
+
+export interface SkykitDebugDiagnostic {
+  id: number;
+  timestampMs: number;
+  level: SkykitDebugDiagnosticLevel;
+  type: string;
+  viewerId?: string;
+  message?: string;
+  data?: unknown;
+  error?: unknown;
+}
+
+export interface SkykitDebugDiagnosticQuery {
+  level?: SkykitDebugDiagnosticLevel;
+  type?: string;
+  viewerId?: string;
+  limit?: number;
 }
 
 export interface SkykitDebugViewerSummary {
@@ -880,8 +1106,19 @@ export declare function createSkykitViewer(options?: SkykitViewerOptions): Promi
 export declare function createDesktopSkykitObserverRig(options?: DesktopSkykitObserverRigOptions): SkykitObserverRig;
 export declare function createObject3dLayer(options: Object3dLayerOptions): SkykitThreePart;
 export declare function createObject3dPlugin(options: Object3dLayerOptions): SkykitObject3dPlugin;
+export declare function createSkykitStarSourcePlugin(options: SkykitStarSourcePluginOptions): SkykitStarCellSource;
 export declare function createStreamingStarLayer(options: StreamingStarLayerOptions): StreamingStarLayer;
 export declare function createStreamingStarsPlugin(options: StreamingStarLayerOptions): SkykitStreamingStarsPlugin;
+export declare function createSkykitHrDiagramPlugin(options: SkykitHrDiagramPluginOptions): SkykitHrDiagramPlugin;
+export declare function createSkykitStarPickingPlugin(options: SkykitStarPickingPluginOptions): SkykitPlugin & {
+  getSnapshot(): unknown;
+};
+export declare function createSkykitStarPickMetadataResolver(
+  options?: SkykitStarPickMetadataResolverOptions
+): SkykitStarPickMetadataResolver;
+export declare function createSkykitRenderCoordinateOutput(
+  coordinateUnitsPerParsec: number
+): StarOctreeCoordinateOutput;
 export declare const SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS: SkykitKeyboardNavigationBindings;
 export declare function createSkykitDefaultKeyboardNavigationBindings(
   overrides?: Partial<Record<string, SkykitKeyboardNavigationBinding>>

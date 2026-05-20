@@ -9,14 +9,21 @@ import { normalizeVector3, parsePointArgs } from './utils.js';
 export function createSkykitDebugBridge() {
   /** @type {Map<string, import('./index.d.ts').SkykitDebugViewer>} */
   const viewers = new Map();
+  /** @type {import('./index.d.ts').SkykitDebugDiagnostic[]} */
+  const diagnostics = [];
   /** @type {string | null} */
   let activeId = null;
+  let diagnosticOrdinal = 0;
+  const maxDiagnostics = 100;
 
   return {
     listViewers,
     useViewer,
     getViewer,
     snapshot,
+    recordDiagnostic,
+    listDiagnostics,
+    clearDiagnostics,
     registerViewer,
     unregisterViewer,
     getObserverPc,
@@ -55,22 +62,77 @@ export function createSkykitDebugBridge() {
     return getViewer(target)?.getSnapshotState() ?? null;
   }
 
+  /** @param {import('./index.d.ts').SkykitDebugDiagnosticInput} diagnostic */
+  function recordDiagnostic(diagnostic) {
+    const message = resolveDiagnosticMessage(diagnostic);
+    /** @type {import('./index.d.ts').SkykitDebugDiagnostic} */
+    const record = {
+      id: ++diagnosticOrdinal,
+      timestampMs: finiteTimestamp(diagnostic.timestampMs),
+      level: normalizeDiagnosticLevel(diagnostic.level),
+      type: typeof diagnostic.type === 'string' && diagnostic.type
+        ? diagnostic.type
+        : 'debug/diagnostic',
+      ...(typeof diagnostic.viewerId === 'string' && diagnostic.viewerId
+        ? { viewerId: diagnostic.viewerId }
+        : {}),
+      ...(message ? { message } : {}),
+      ...('data' in diagnostic ? { data: sanitizeDebugData(diagnostic.data) } : {}),
+      ...('error' in diagnostic ? { error: sanitizeError(diagnostic.error) } : {}),
+    };
+    diagnostics.push(record);
+    if (diagnostics.length > maxDiagnostics) {
+      diagnostics.splice(0, diagnostics.length - maxDiagnostics);
+    }
+    return record;
+  }
+
+  /**
+   * @param {import('./index.d.ts').SkykitDebugDiagnosticQuery} [query]
+   */
+  function listDiagnostics(query = {}) {
+    const limit = Number.isFinite(Number(query.limit)) && Number(query.limit) > 0
+      ? Math.floor(Number(query.limit))
+      : diagnostics.length;
+    return diagnostics
+      .filter((diagnostic) => {
+        if (query.level && diagnostic.level !== query.level) return false;
+        if (query.type && diagnostic.type !== query.type) return false;
+        if (query.viewerId && diagnostic.viewerId !== query.viewerId) return false;
+        return true;
+      })
+      .slice(-limit)
+      .map((diagnostic) => ({ ...diagnostic }));
+  }
+
+  function clearDiagnostics() {
+    diagnostics.length = 0;
+  }
+
   /**
    * @param {SkykitViewer} viewer
    * @param {import('./index.d.ts').SkykitDebugRegisterOptions} [options]
    */
   function registerViewer(viewer, options = {}) {
     const debugId = options.id ?? viewer.id;
-    const debugViewer = createDebugViewer(viewer, debugId, options.label ?? debugId);
-    viewers.set(debugId, debugViewer);
-    activeId ??= debugId;
-    const off = viewer.on('viewer/dispose', () => {
-      off();
+    /** @type {Array<() => void>} */
+    const teardowns = [];
+    const unregister = () => {
+      for (const teardown of teardowns.splice(0)) {
+        teardown();
+      }
       viewers.delete(debugId);
       if (activeId === debugId) {
         activeId = viewers.keys().next().value ?? null;
       }
-    });
+    };
+    const debugViewer = createDebugViewer(viewer, debugId, options.label ?? debugId, unregister);
+    viewers.set(debugId, debugViewer);
+    activeId ??= debugId;
+    teardowns.push(
+      viewer.on('viewer/dispose', unregister),
+      viewer.on('*', (event) => recordViewerDiagnostic(debugId, event)),
+    );
     return debugViewer;
   }
 
@@ -187,9 +249,10 @@ export function createSkykitDebugBridge() {
    * @param {SkykitViewer} viewer
    * @param {string} debugId
    * @param {string} label
+   * @param {() => void} unregister
    * @returns {import('./index.d.ts').SkykitDebugViewer}
    */
-  function createDebugViewer(viewer, debugId, label) {
+  function createDebugViewer(viewer, debugId, label, unregister) {
     return /** @type {import('./index.d.ts').SkykitDebugViewer} */ ({
       id: debugId,
       label,
@@ -248,12 +311,22 @@ export function createSkykitDebugBridge() {
       releaseAction(id) {
         viewer.actions.release(id, { source: 'debug' });
       },
-      unregister() {
-        viewers.delete(debugId);
-        if (activeId === debugId) {
-          activeId = viewers.keys().next().value ?? null;
-        }
-      },
+      unregister,
+    });
+  }
+
+  /**
+   * @param {string} debugId
+   * @param {import('./index.d.ts').SkykitEvent} event
+   */
+  function recordViewerDiagnostic(debugId, event) {
+    if (!isDiagnosticEvent(event)) return;
+    recordDiagnostic({
+      level: 'error',
+      type: event.type,
+      viewerId: debugId,
+      data: sanitizeDebugData(event),
+      ...(event.error ? { error: event.error } : {}),
     });
   }
 }
@@ -273,5 +346,127 @@ export function installSkykitDebugGlobal(debugBridge, options = {}) {
     } else {
       target[name] = previous;
     }
+  };
+}
+
+/** @param {import('./index.d.ts').SkykitEvent} event */
+function isDiagnosticEvent(event) {
+  return event.type === 'task/error' ||
+    event.type.endsWith('/error') ||
+    Boolean(event.error);
+}
+
+/**
+ * @param {unknown} value
+ * @returns {import('./index.d.ts').SkykitDebugDiagnosticLevel}
+ */
+function normalizeDiagnosticLevel(value) {
+  return value === 'debug' || value === 'info' || value === 'warn' || value === 'error'
+    ? value
+    : 'info';
+}
+
+/** @param {unknown} value */
+function finiteTimestamp(value) {
+  const timestamp = Number(value);
+  if (Number.isFinite(timestamp)) return timestamp;
+  return globalThis.performance?.now?.() ?? Date.now();
+}
+
+/** @param {import('./index.d.ts').SkykitDebugDiagnosticInput} diagnostic */
+function resolveDiagnosticMessage(diagnostic) {
+  if (typeof diagnostic.message === 'string' && diagnostic.message) {
+    return diagnostic.message;
+  }
+  return resolveErrorMessage(diagnostic.error);
+}
+
+/** @param {unknown} error */
+function resolveErrorMessage(error) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object' && typeof /** @type {{ message?: unknown }} */ (error).message === 'string') {
+    return /** @type {{ message: string }} */ (error).message;
+  }
+  if (typeof error === 'string') return error;
+  return null;
+}
+
+/** @param {unknown} error */
+function sanitizeError(error) {
+  if (!error) return error;
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      ...(error.stack ? { stack: error.stack } : {}),
+    };
+  }
+  if (typeof error === 'object') {
+    const message = resolveErrorMessage(error);
+    const sanitized = sanitizeDebugData(error, 1);
+    return {
+      ...(message ? { message } : {}),
+      ...(sanitized && typeof sanitized === 'object' ? sanitized : {}),
+    };
+  }
+  return error;
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} [depth]
+ * @returns {unknown}
+ */
+function sanitizeDebugData(value, depth = 0) {
+  if (value == null || typeof value !== 'object') return value;
+  if (value instanceof Error) return sanitizeError(value);
+  if (ArrayBuffer.isView(value)) {
+    return {
+      type: value.constructor.name,
+      byteLength: value.byteLength,
+      length: 'length' in value ? value.length : undefined,
+    };
+  }
+  if (depth >= 3) {
+    return summarizeObject(value);
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, 12).map((entry) => sanitizeDebugData(entry, depth + 1));
+  }
+
+  /** @type {Record<string, unknown>} */
+  const output = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (isHeavyDebugKey(key)) {
+      output[key] = summarizeObject(entry);
+      continue;
+    }
+    output[key] = sanitizeDebugData(entry, depth + 1);
+  }
+  return output;
+}
+
+/** @param {string} key */
+function isHeavyDebugKey(key) {
+  return key === 'viewer' ||
+    key === 'frame' ||
+    key === 'renderer' ||
+    key === 'scene' ||
+    key === 'camera' ||
+    key === 'roots' ||
+    key === 'source' ||
+    key === 'session' ||
+    key === 'part' ||
+    key === 'object3d';
+}
+
+/** @param {unknown} value */
+function summarizeObject(value) {
+  if (value == null || typeof value !== 'object') return value;
+  const object = /** @type {{ id?: unknown; type?: unknown; name?: unknown; constructor?: { name?: string } }} */ (value);
+  return {
+    type: object.constructor?.name ?? 'Object',
+    ...(typeof object.id === 'string' ? { id: object.id } : {}),
+    ...(typeof object.name === 'string' ? { name: object.name } : {}),
   };
 }

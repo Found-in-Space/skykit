@@ -69,8 +69,15 @@ export async function createSkykitViewer(options = {}) {
   let disposed = false;
   let started = false;
   let elapsedSeconds = 0;
+  const initialProjectionView = resolveCameraProjectionView(camera);
   let view = normalizeViewState({
     ...options.view,
+    ...(options.view?.verticalFovDeg === undefined && initialProjectionView.verticalFovDeg !== undefined
+      ? { verticalFovDeg: initialProjectionView.verticalFovDeg }
+      : {}),
+    ...(options.view?.aspectRatio === undefined && initialProjectionView.aspectRatio !== undefined
+      ? { aspectRatio: initialProjectionView.aspectRatio }
+      : {}),
     observerPc: options.view?.observerPc ?? observerRig.getObserverPc(),
     renderObserverPosition: options.view?.renderObserverPosition ?? observerRig.getRenderObserverPosition(),
     orientationIcrs: options.view?.orientationIcrs ?? observerRig.getOrientationIcrs?.() ?? null,
@@ -263,10 +270,17 @@ export async function createSkykitViewer(options = {}) {
       height: positiveFinite(size.height, host?.clientHeight ?? 1),
       devicePixelRatio: positiveFinite(size.devicePixelRatio, globalThis.devicePixelRatio ?? 1),
     };
+    const projectionChanged = syncCameraProjectionFromViewport(nextSize);
     renderer.setPixelRatio?.(nextSize.devicePixelRatio);
     renderer.setSize?.(nextSize.width, nextSize.height, true);
     for (const part of orderedParts()) {
       part.resize?.(nextSize);
+    }
+    if (projectionChanged) {
+      for (const part of orderedParts()) {
+        part.setView?.(cloneViewState(view));
+      }
+      emit({ type: 'view/change', view: cloneViewState(view) });
     }
     emit({ type: 'viewer/resize', size: nextSize });
   }
@@ -379,6 +393,35 @@ export async function createSkykitViewer(options = {}) {
       }
       emit({ type: 'view/change', view: cloneViewState(view) });
     }
+    return true;
+  }
+
+  /**
+   * @param {SkykitViewportSize} size
+   */
+  function syncCameraProjectionFromViewport(size) {
+    const perspectiveCamera = getPerspectiveCamera(camera);
+    if (!perspectiveCamera) return false;
+
+    const aspectRatio = size.width / size.height;
+    if (Number.isFinite(aspectRatio) && aspectRatio > 0 && perspectiveCamera.aspect !== aspectRatio) {
+      perspectiveCamera.aspect = aspectRatio;
+      perspectiveCamera.updateProjectionMatrix?.();
+    }
+
+    const projectionView = resolveCameraProjectionView(perspectiveCamera);
+    const patch = {
+      ...(projectionView.verticalFovDeg !== undefined && projectionView.verticalFovDeg !== view.verticalFovDeg
+        ? { verticalFovDeg: projectionView.verticalFovDeg }
+        : {}),
+      ...(projectionView.aspectRatio !== undefined && projectionView.aspectRatio !== view.aspectRatio
+        ? { aspectRatio: projectionView.aspectRatio }
+        : {}),
+    };
+    if (Object.keys(patch).length === 0) return false;
+
+    view = normalizeViewState({ ...view, ...patch }, view.revision + 1);
+    syncRootsFromView(roots, view);
     return true;
   }
 
@@ -496,4 +539,31 @@ export async function createSkykitViewer(options = {}) {
       throw new Error('SkykitViewer has been disposed.');
     }
   }
+}
+
+/**
+ * @param {THREE.Camera} camera
+ * @returns {{ verticalFovDeg?: number; aspectRatio?: number }}
+ */
+function resolveCameraProjectionView(camera) {
+  const perspectiveCamera = getPerspectiveCamera(camera);
+  if (!perspectiveCamera) return {};
+
+  const verticalFovDeg = Number(perspectiveCamera.fov);
+  const aspectRatio = Number(perspectiveCamera.aspect);
+  return {
+    ...(Number.isFinite(verticalFovDeg) && verticalFovDeg > 0 ? { verticalFovDeg } : {}),
+    ...(Number.isFinite(aspectRatio) && aspectRatio > 0 ? { aspectRatio } : {}),
+  };
+}
+
+/**
+ * @param {THREE.Camera} camera
+ * @returns {(THREE.PerspectiveCamera & { isPerspectiveCamera?: boolean }) | null}
+ */
+function getPerspectiveCamera(camera) {
+  return camera instanceof THREE.PerspectiveCamera ||
+    /** @type {{ isPerspectiveCamera?: unknown }} */ (camera).isPerspectiveCamera === true
+    ? /** @type {THREE.PerspectiveCamera & { isPerspectiveCamera?: boolean }} */ (camera)
+    : null;
 }

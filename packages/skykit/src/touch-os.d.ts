@@ -1,6 +1,7 @@
 import type {
   DisplayNode,
   DisplayRuntime,
+  RuntimeOutput,
   RuntimeOptions,
   SurfaceMetrics,
 } from '@found-in-space/touch-os';
@@ -56,6 +57,16 @@ export type TouchOsHudRootFactory = (
   context: TouchOsHudRootContext
 ) => DisplayNode | null | undefined;
 
+export interface TouchOsHudOutputContext {
+  context: SkykitPluginContext;
+  viewer: SkykitViewer;
+  actions: SkykitActionRegistry;
+  runtime: DisplayRuntime;
+  driver: ThreePanelDriver;
+  frame: SkykitThreeFrame | null;
+  target: TouchOsHudTarget;
+}
+
 export interface TouchOsHudPluginOptions {
   id?: string;
   target: TouchOsHudTarget;
@@ -73,6 +84,7 @@ export interface TouchOsHudPluginOptions {
   driverOptions?: Omit<HudPanelDriverOptions, 'runtime'>;
   createDriver?: (options: HudPanelDriverOptions) => ThreePanelDriver;
   disposeRuntime?: boolean;
+  onOutput?: (output: RuntimeOutput, context: TouchOsHudOutputContext) => void;
 }
 
 export interface TouchOsHudPlugin extends SkykitPlugin {

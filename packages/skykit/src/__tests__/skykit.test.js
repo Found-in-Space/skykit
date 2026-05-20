@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
 import { createJourney } from '@found-in-space/journey';
+import { createStarCellData, encodeMorton3D } from '@found-in-space/star-trees';
 
 import {
   SKYKIT_ACTION_NAMESPACE,
@@ -23,6 +24,10 @@ import {
   createSkykitStarPreloadRequestsFromSpatialHints,
   createSkykitStarStrategiesFromSpatialHints,
   createSkykitStatusPlugin,
+  createSkykitHrDiagramPlugin,
+  createSkykitStarPickMetadataResolver,
+  createSkykitStarPickingPlugin,
+  createSkykitStarSourcePlugin,
   createSkykitViewer,
   createStreamingStarLayer,
   createStreamingStarsPlugin,
@@ -228,6 +233,26 @@ test('requestViewState batches patches and observer-centric root follows transla
   await viewer.dispose();
 });
 
+test('viewer keeps perspective camera projection metadata in view state during resize', async () => {
+  const camera = new THREE.PerspectiveCamera(72, 1, 0.01, 1000);
+  const renderer = createRenderer();
+  const viewer = await createSkykitViewer({ camera, renderer });
+  const viewChanges = [];
+  viewer.on('view/change', (event) => viewChanges.push(event.view));
+
+  assert.equal(viewer.getViewState().verticalFovDeg, 72);
+  assert.equal(viewer.getViewState().aspectRatio, 1);
+
+  viewer.resize({ width: 800, height: 400, devicePixelRatio: 1 });
+
+  assert.equal(camera.aspect, 2);
+  assert.equal(viewer.getViewState().verticalFovDeg, 72);
+  assert.equal(viewer.getViewState().aspectRatio, 2);
+  assert.equal(viewChanges.at(-1).aspectRatio, 2);
+
+  await viewer.dispose();
+});
+
 test('desktop observer rig reports render observer position in configured scene units', () => {
   const rig = createDesktopSkykitObserverRig({
     observerPc: { x: 10, y: -2, z: 5 },
@@ -378,6 +403,355 @@ test('streaming stars plugin owns a streaming layer and exposes its snapshot', a
   await viewer.dispose();
   assert.equal(session.disposed, true);
   assert.ok(rendererCalls.includes('dispose'));
+});
+
+test('shared star source feeds starfield and HR consumers from one provider session', async () => {
+  const session = createFakeSession();
+  const provider = {
+    id: 'provider',
+    sessions: [],
+    createSession(options) {
+      provider.sessions.push(options);
+      return session;
+    },
+  };
+  const source = createSkykitStarSourcePlugin({ provider });
+  const rendererCalls = [];
+  const starRenderer = {
+    object3d: new THREE.Group(),
+    apply(delta) { rendererCalls.push(delta.type); },
+    setView(view) { rendererCalls.push(`view:${view.coordinateUnitsPerParsec}`); },
+    getSnapshot() { return { renderer: 'stars' }; },
+    dispose() { rendererCalls.push('dispose'); },
+  };
+  const stars = createStreamingStarsPlugin({
+    id: 'stars',
+    source,
+    renderer: starRenderer,
+    attributes: ['position'],
+  });
+  const hr = createSkykitHrDiagramPlugin({
+    id: 'hr',
+    source,
+    mode: 'volume-complete',
+    volumeRadiusPc: 12,
+  });
+
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [source, stars, hr],
+    view: {
+      limitingMagnitude: 4,
+      coordinateUnitsPerParsec: 0.01,
+    },
+  });
+
+  assert.equal(provider.sessions.length, 1);
+  assert.equal(provider.sessions[0].strategy.kind, 'composite');
+  assert.deepEqual(
+    provider.sessions[0].strategy.strategies.map((strategy) => strategy.kind),
+    ['observer-shell', 'sphere-volume'],
+  );
+  assert.deepEqual(provider.sessions[0].attributes, ['position', 'teffLog8', 'magAbs']);
+  assert.equal(session.updateCalls[0].patch.limitingMagnitude, 4);
+  assert.equal(source.getSnapshot().demandCount, 2);
+
+  const cell = createTestCell({ keyOrdinal: 1 });
+  session.emit({ type: 'stars/cells-upsert', providerId: 'provider', cells: [cell] });
+
+  assert.ok(rendererCalls.includes('stars/cells-upsert'));
+  assert.equal(source.getStore().getSnapshot().starCount, 1);
+  assert.equal(hr.getSource().getSnapshot().starCount, 1);
+
+  await viewer.dispose();
+  assert.equal(session.disposed, true);
+  assert.ok(rendererCalls.includes('dispose'));
+});
+
+test('shared star source reports provider errors through the debug bridge', async () => {
+  const session = createFakeSession();
+  const source = createSkykitStarSourcePlugin({ session });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [source],
+  });
+  const debug = createSkykitDebugBridge();
+  debug.registerViewer(viewer, { id: 'debug-source' });
+
+  session.emit({
+    type: 'stars/error',
+    providerId: 'provider',
+    sessionId: session.id,
+    demandRevision: 3,
+    error: new Error('verticalFovDeg must be a positive finite number.'),
+  });
+
+  const diagnostics = debug.listDiagnostics();
+  assert.equal(diagnostics.length, 1);
+  assert.equal(diagnostics[0].type, 'stars/source/error');
+  assert.equal(diagnostics[0].viewerId, 'debug-source');
+  assert.equal(diagnostics[0].message, 'verticalFovDeg must be a positive finite number.');
+  assert.equal(diagnostics[0].data.sessionId, session.id);
+
+  await viewer.dispose();
+});
+
+test('HR diagram mode changes refresh shared demand and update the renderer view', async () => {
+  const sessions = [];
+  const provider = {
+    id: 'provider',
+    createSession(options) {
+      const session = createFakeSession({ id: `session-${sessions.length + 1}` });
+      sessions.push({ options, session });
+      return session;
+    },
+  };
+  const source = createSkykitStarSourcePlugin({ provider });
+  const starRenderer = {
+    object3d: new THREE.Group(),
+    apply() {},
+    setView() {},
+    getSnapshot() { return { renderer: 'stars' }; },
+    dispose() {},
+  };
+  const stars = createStreamingStarsPlugin({
+    id: 'stars',
+    source,
+    renderer: starRenderer,
+    attributes: ['position'],
+  });
+  const hr = createSkykitHrDiagramPlugin({
+    id: 'hr',
+    source,
+    mode: 'frustum',
+  });
+
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [source, stars, hr],
+  });
+
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].options.strategy.kind, 'observer-shell');
+  assert.equal(hr.getMode(), 'frustum');
+
+  await hr.setMode('magnitude-limited');
+
+  assert.equal(hr.getMode(), 'magnitude-limited');
+  assert.equal(sessions.length, 1);
+
+  await hr.setMode('volume-complete');
+
+  assert.equal(hr.getMode(), 'volume-complete');
+  assert.equal(hr.getSource().getSnapshot().view.mode, 'volume-complete');
+  assert.equal(sessions.length, 2);
+  assert.equal(sessions[0].session.disposed, true);
+  assert.deepEqual(
+    sessions[1].options.strategy.strategies.map((strategy) => strategy.kind),
+    ['observer-shell', 'sphere-volume'],
+  );
+
+  await viewer.dispose();
+});
+
+test('star picking plugin emits selected stars from click gestures', async () => {
+  const target = createPointerTarget();
+  const pickResult = createPickResult();
+  const picks = [];
+  const emitted = [];
+  const renderer = {
+    pick(ray, options) {
+      picks.push({ ray, options });
+      return pickResult;
+    },
+  };
+  const plugin = createSkykitStarPickingPlugin({
+    target,
+    renderer,
+    onPick(event) {
+      emitted.push(event);
+    },
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    camera: new THREE.PerspectiveCamera(60, 4 / 3, 0.1, 100),
+    plugins: [plugin],
+    view: {
+      limitingMagnitude: 6,
+      coordinateUnitsPerParsec: 0.001,
+    },
+  });
+  const viewerEvents = [];
+  viewer.on('stars/pick', (event) => viewerEvents.push(event));
+
+  target.dispatch('pointerdown', { button: 0, pointerId: 1, pointerType: 'mouse', clientX: 400, clientY: 300 });
+  target.dispatch('pointerup', { pointerId: 1, pointerType: 'mouse', clientX: 400, clientY: 300 });
+  await flushMicrotasks();
+
+  assert.equal(picks.length, 1);
+  assert.equal(picks[0].options.limitingMagnitude, 6);
+  assert.equal(picks[0].options.coordinateUnitsPerParsec, 0.001);
+  assert.equal(picks[0].options.viewportHeight, 600);
+  assert.equal(emitted.length, 1);
+  assert.equal(emitted[0].pick, pickResult);
+  assert.equal(emitted[0].label, `${pickResult.cellKey}:${pickResult.objectIndex}`);
+  assert.equal(viewerEvents.length, 1);
+
+  await viewer.dispose();
+  assert.equal(target.listenerCount('pointerdown'), 0);
+  assert.equal(target.listenerCount('pointerup'), 0);
+});
+
+test('star picking plugin ignores drag gestures and reports misses without clearing selection', async () => {
+  const dragTarget = createPointerTarget();
+  let pickCalls = 0;
+  const dragPicker = createSkykitStarPickingPlugin({
+    target: dragTarget,
+    renderer: {
+      pick() {
+        pickCalls += 1;
+        return createPickResult();
+      },
+    },
+  });
+  const dragViewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [dragPicker],
+  });
+
+  dragTarget.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 100, clientY: 100 });
+  dragTarget.dispatch('pointermove', { pointerId: 1, clientX: 112, clientY: 100 });
+  dragTarget.dispatch('pointerup', { pointerId: 1, clientX: 112, clientY: 100 });
+  await flushMicrotasks();
+
+  assert.equal(pickCalls, 0);
+  assert.equal(dragPicker.getSnapshot().ignoredDragCount, 1);
+  await dragViewer.dispose();
+
+  const missTarget = createPointerTarget();
+  let selected = createPickResult({ cellKey: 'existing-cell', objectIndex: 2 });
+  const misses = [];
+  const missPicker = createSkykitStarPickingPlugin({
+    target: missTarget,
+    renderer: {
+      pick() {
+        return null;
+      },
+    },
+    onMiss(event) {
+      misses.push(event);
+    },
+  });
+  const missViewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [missPicker],
+  });
+
+  missTarget.dispatch('pointerdown', { button: 0, pointerId: 2, clientX: 200, clientY: 200 });
+  missTarget.dispatch('pointerup', { pointerId: 2, clientX: 200, clientY: 200 });
+  await flushMicrotasks();
+
+  assert.equal(misses.length, 1);
+  assert.equal(missPicker.getSnapshot().missCount, 1);
+  assert.equal(selected.cellKey, 'existing-cell');
+
+  await missViewer.dispose();
+});
+
+test('star picking demand adds attributes but no extra cell strategy', async () => {
+  const sessions = [];
+  const provider = {
+    id: 'provider',
+    createSession(options) {
+      const session = createFakeSession({ id: `session-${sessions.length + 1}` });
+      sessions.push({ options, session });
+      return session;
+    },
+  };
+  const source = createSkykitStarSourcePlugin({ provider });
+  const starRenderer = {
+    object3d: new THREE.Group(),
+    apply() {},
+    setView() {},
+    pick() { return null; },
+    getSnapshot() { return { renderer: 'stars' }; },
+    dispose() {},
+  };
+  const stars = createStreamingStarsPlugin({
+    id: 'stars',
+    source,
+    renderer: starRenderer,
+    attributes: ['position'],
+  });
+  const picker = createSkykitStarPickingPlugin({
+    target: createPointerTarget(),
+    source,
+    renderer: starRenderer,
+    metadata: createSkykitStarPickMetadataResolver({
+      fallbackLabel: 'Selected star',
+    }),
+  });
+
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [source, stars, picker],
+  });
+
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].options.strategy.kind, 'observer-shell');
+  assert.deepEqual(sessions[0].options.attributes, [
+    'position',
+    'teffLog8',
+    'magAbs',
+    'objectRef',
+    'pickMeta',
+  ]);
+  const pickerDemand = source.getSnapshot().demands.find((demand) => demand.id === 'skykit-star-picking:attributes');
+  assert.deepEqual(pickerDemand.attributes, [
+    'position',
+    'teffLog8',
+    'magAbs',
+    'objectRef',
+    'pickMeta',
+  ]);
+
+  await viewer.dispose();
+});
+
+test('star pick metadata resolver uses structural providers and fallback labels', async () => {
+  const providerCalls = [];
+  const resolver = createSkykitStarPickMetadataResolver({
+    provider: {
+      resolvePrimaryLabel(ref) {
+        providerCalls.push(ref);
+        return 'Vega';
+      },
+    },
+    fallbackLabel: (pick) => `fallback:${pick.cellKey}:${pick.objectIndex}`,
+  });
+  const pick = createPickResult({
+    objectRef: {
+      datasetId: 'dataset-a',
+      level: 2,
+      mortonCode: '7',
+      ordinal: 4,
+    },
+  });
+
+  const metadata = await resolver(pick, /** @type {any} */ ({}));
+
+  assert.equal(metadata.label, 'Vega');
+  assert.equal(providerCalls.length, 1);
+
+  const fallbackResolver = createSkykitStarPickMetadataResolver({
+    fallbackLabel: (nextPick) => `fallback:${nextPick.cellKey}:${nextPick.objectIndex}`,
+  });
+  const fallback = await fallbackResolver(
+    createPickResult({ cellKey: 'cell-b', objectIndex: 3 }),
+    /** @type {any} */ ({}),
+  );
+
+  assert.equal(fallback.label, 'fallback:cell-b:3');
 });
 
 test('animation loop drives viewer frames with an injected scheduler and clock', async () => {
@@ -1034,6 +1408,132 @@ test('journey plugin emits timed preload hints once and not on every frame', asy
   await viewer.dispose();
 });
 
+test('journey plugin reports scene arrival immediately for static scenes', async () => {
+  const arrivals = [];
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [
+      createSkykitJourneyPlugin({
+        scenes: {
+          intro: { view: { limitingMagnitude: 5 } },
+        },
+        initialSceneId: 'intro',
+        onSceneArrive(scene) {
+          arrivals.push(scene.sceneId);
+        },
+      }),
+    ],
+  });
+
+  await flushMicrotasks();
+  viewer.update(0);
+  assert.deepEqual(arrivals, ['intro']);
+
+  await viewer.dispose();
+});
+
+test('journey plugin reports scene arrival after transitionTo completes', async () => {
+  const arrivals = [];
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [
+      createSkykitNavigationPlugin(),
+      createSkykitJourneyPlugin({
+        scenes: {
+          intro: {},
+          away: {
+            navigation: {
+              transitionTo: {
+                observerPc: { x: 10, y: 0, z: 0 },
+                durationSecs: 1,
+              },
+            },
+          },
+        },
+        initialSceneId: 'intro',
+        onSceneArrive(scene) {
+          arrivals.push(scene.sceneId);
+        },
+      }),
+    ],
+  });
+
+  await flushMicrotasks();
+  arrivals.length = 0;
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.journey.goToChapter, 'away');
+  await flushMicrotasks();
+  viewer.update(0.5);
+  viewer.update(0);
+  assert.deepEqual(arrivals, []);
+
+  viewer.update(0.5);
+  viewer.update(0);
+  assert.deepEqual(arrivals, ['away']);
+
+  await viewer.dispose();
+});
+
+test('journey plugin reports scene arrival after orbit-transfer travel completes', async () => {
+  const arrivals = [];
+  const journey = createJourney({
+    initial: 'sun',
+    order: ['sun', 'cluster'],
+    targets: {
+      sun: { positionPc: { x: 0, y: 0, z: 0 } },
+      cluster: { positionPc: { x: 20, y: 0, z: 0 } },
+    },
+    scenes: {
+      sun: {
+        camera: {
+          type: 'orbit',
+          center: 'sun',
+          radiusPc: 4,
+          angularSpeedRadPerSec: 0.2,
+          normal: { x: 0, y: 0, z: 1 },
+        },
+      },
+      cluster: {
+        camera: {
+          type: 'orbit',
+          center: 'cluster',
+          radiusPc: 5,
+          angularSpeedRadPerSec: 0.2,
+          normal: { x: 0, y: 0, z: 1 },
+        },
+      },
+    },
+    travel: { type: 'orbit-transfer', durationSecs: 1, sampleStepSecs: 0.25 },
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [
+      createSkykitNavigationPlugin(),
+      createSkykitJourneyPlugin({
+        journey,
+        onSceneArrive(scene) {
+          arrivals.push(scene.sceneId);
+        },
+      }),
+    ],
+  });
+
+  await flushMicrotasks();
+  arrivals.length = 0;
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.journey.goToChapter, 'cluster');
+  await flushMicrotasks();
+  viewer.update(0.5);
+  viewer.update(0);
+  assert.deepEqual(arrivals, []);
+
+  viewer.update(0.6);
+  viewer.update(0);
+  assert.deepEqual(arrivals, ['cluster']);
+
+  await viewer.dispose();
+});
+
 test('spatial preload hints map to star-octree requests without exposing provider internals', () => {
   const hints = [
     {
@@ -1188,6 +1688,16 @@ test('debug bridge registers viewers, switches active viewer, updates observer, 
   assert.equal(viewerA.actions.isPressed(SKYKIT_ACTIONS.ship.moveForward), false);
   await debugA.invokeAction(SKYKIT_ACTIONS.viewer.reset);
   assert.equal(debug.listActions('alpha').some((entry) => entry.id === SKYKIT_ACTIONS.viewer.reset), true);
+  const diagnostic = debug.recordDiagnostic({
+    level: 'warn',
+    type: 'test/manual',
+    message: 'manual diagnostic',
+    viewerId: 'alpha',
+  });
+  assert.equal(diagnostic.level, 'warn');
+  assert.equal(debug.listDiagnostics({ viewerId: 'alpha' })[0].message, 'manual diagnostic');
+  debug.clearDiagnostics();
+  assert.equal(debug.listDiagnostics().length, 0);
 
   const target = {};
   const uninstall = installSkykitDebugGlobal(debug, { target, name: 'debug' });
@@ -1283,10 +1793,35 @@ test('streaming star layer can use an explicit session without disposing it', as
   assert.equal(session.disposed, false);
 });
 
-function createFakeSession() {
+function createTestCell(options = {}) {
+  const keyOrdinal = options.keyOrdinal ?? 1;
+  const node = {
+    level: 2,
+    gridX: keyOrdinal,
+    gridY: 0,
+    gridZ: 0,
+    mortonCode: String(encodeMorton3D(keyOrdinal, 0, 0, 2)),
+    centerX: options.x ?? keyOrdinal,
+    centerY: 0,
+    centerZ: 0,
+    halfSize: 0.5,
+  };
+  return createStarCellData({
+    node,
+    decoded: {
+      count: 1,
+      positionsPc: new Float32Array([options.x ?? keyOrdinal, 0, 0]),
+      teffLog8: new Uint8Array([128]),
+      magAbs: new Float32Array([1]),
+    },
+    attributes: ['position', 'teffLog8', 'magAbs'],
+  });
+}
+
+function createFakeSession(options = {}) {
   const listeners = new Set();
   return {
-    id: 'session',
+    id: options.id ?? 'session',
     updateCalls: [],
     disposed: false,
     updateView(patch, options) {
@@ -1317,12 +1852,45 @@ function createFakeSession() {
   };
 }
 
+function createPickResult(options = {}) {
+  const cellKey = options.cellKey ?? '2:7';
+  const objectIndex = options.objectIndex ?? 0;
+  return {
+    cellKey,
+    objectIndex,
+    cell: options.cell ?? null,
+    position: options.position ?? { x: 1, y: 0, z: 0 },
+    distancePc: options.distancePc ?? 100,
+    apparentMagnitude: options.apparentMagnitude ?? 4,
+    visualRadiusPx: options.visualRadiusPx ?? 3,
+    objectRef: options.objectRef ?? null,
+    pickMeta: options.pickMeta ?? null,
+    teffLog8: options.teffLog8 ?? 128,
+    magAbs: options.magAbs ?? 1,
+    score: options.score ?? 0,
+    angularDistanceDeg: options.angularDistanceDeg ?? 0,
+  };
+}
+
 function localVectorFromView(view, vector) {
   const q = view.orientationIcrs ?? { x: 0, y: 0, z: 0, w: 1 };
   const result = new THREE.Vector3(vector.x, vector.y, vector.z).applyQuaternion(
     new THREE.Quaternion(q.x, q.y, q.z, q.w),
   );
   return { x: result.x, y: result.y, z: result.z };
+}
+
+function createPointerTarget() {
+  const target = createEventTarget();
+  target.clientWidth = 800;
+  target.clientHeight = 600;
+  target.getBoundingClientRect = () => ({
+    left: 0,
+    top: 0,
+    width: 800,
+    height: 600,
+  });
+  return target;
 }
 
 function createEventTarget() {

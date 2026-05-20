@@ -12,6 +12,7 @@ export {
 } from './actions.js';
 export { createSkykitAnimationLoop } from './animation-loop.js';
 export { createSkykitDebugBridge, installSkykitDebugGlobal } from './debug.js';
+export { createSkykitHrDiagramPlugin } from './hr-diagram.js';
 export { createObject3dLayer } from './layers.js';
 export { createDesktopSkykitObserverRig } from './observer-rig.js';
 export {
@@ -28,5 +29,13 @@ export {
   createSkykitStatusPlugin,
   createStreamingStarsPlugin,
 } from './plugins.js';
+export {
+  createSkykitRenderCoordinateOutput,
+  createSkykitStarSourcePlugin,
+} from './star-source.js';
+export {
+  createSkykitStarPickMetadataResolver,
+  createSkykitStarPickingPlugin,
+} from './star-picking.js';
 export { createStreamingStarLayer } from './streaming-stars.js';
 export { createSkykitViewer } from './viewer.js';

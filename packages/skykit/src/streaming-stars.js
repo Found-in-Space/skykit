@@ -1,3 +1,6 @@
+import { createObserverShellStrategy } from '@found-in-space/star-trees';
+
+import { createSkykitRenderCoordinateOutput } from './star-source.js';
 import { isProviderSession, toStarOctreeViewPatch } from './utils.js';
 
 /**
@@ -13,8 +16,9 @@ import { isProviderSession, toStarOctreeViewPatch } from './utils.js';
  * @returns {StreamingStarLayer}
  */
 export function createStreamingStarLayer(options) {
-  if (!options?.provider) {
-    throw new TypeError('createStreamingStarLayer() requires provider.');
+  const source = options?.source ?? null;
+  if (!options?.provider && !source) {
+    throw new TypeError('createStreamingStarLayer() requires provider or source.');
   }
   if (!options?.renderer) {
     throw new TypeError('createStreamingStarLayer() requires renderer.');
@@ -25,6 +29,8 @@ export function createStreamingStarLayer(options) {
   const ownsSession = session == null;
   /** @type {(() => void) | null} */
   let unsubscribe = null;
+  /** @type {(() => void) | null} */
+  let unregisterDemand = null;
   let disposed = false;
   let deltaCount = 0;
   let status = /** @type {'idle' | 'streaming' | 'current' | 'failed' | 'disposed'} */ ('idle');
@@ -66,7 +72,14 @@ export function createStreamingStarLayer(options) {
   /** @param {import('./index.d.ts').SkykitThreePluginContext} context */
   function attach(context) {
     context.roots.originContentRoot.add(options.renderer.object3d);
+    if (source) {
+      registerSourceDemand();
+      return;
+    }
     if (!session) {
+      if (!options.provider) {
+        throw new TypeError('createStreamingStarLayer() cannot create a session without provider.');
+      }
       const sessionOptions = /** @type {import('@found-in-space/star-octree-provider').StarOctreeSessionOptions | undefined} */ (
         isProviderSession(options.session) ? undefined : options.session
       );
@@ -74,12 +87,18 @@ export function createStreamingStarLayer(options) {
       session = options.provider.createSession({
         ...(sessionOptions ?? {}),
         ...(options.attributes ? { attributes: Array.from(options.attributes) } : {}),
-        coordinates: options.coordinates ?? createRenderCoordinateOutput(initialView.coordinateUnitsPerParsec),
+        coordinates: options.coordinates ?? createSkykitRenderCoordinateOutput(initialView.coordinateUnitsPerParsec),
       });
     }
   }
 
   function start() {
+    if (source) {
+      unsubscribe = source.subscribe((delta) => {
+        apply(delta);
+      });
+      return;
+    }
     if (!session) return;
     unsubscribe = session.subscribe((delta) => {
       apply(delta);
@@ -94,10 +113,12 @@ export function createStreamingStarLayer(options) {
       limitingMagnitude: view.limitingMagnitude,
       coordinateUnitsPerParsec: view.coordinateUnitsPerParsec,
     });
-    session?.updateView(toStarOctreeViewPatch(view), {
-      reason: 'skykit.view',
-      ...(options.updateOptions ?? {}),
-    });
+    if (!source) {
+      session?.updateView(toStarOctreeViewPatch(view), {
+        reason: 'skykit.view',
+        ...(options.updateOptions ?? {}),
+      });
+    }
   }
 
   function detach() {
@@ -110,6 +131,8 @@ export function createStreamingStarLayer(options) {
     status = 'disposed';
     unsubscribe?.();
     unsubscribe = null;
+    unregisterDemand?.();
+    unregisterDemand = null;
     detach();
     if (ownsSession) {
       await session?.dispose();
@@ -122,39 +145,25 @@ export function createStreamingStarLayer(options) {
       id,
       status,
       deltaCount,
-      sessionId: session?.id ?? null,
+      sessionId: session?.id ?? source?.getSnapshot?.()?.sessionId ?? null,
       renderer: options.renderer.getSnapshot(),
-      session: session?.getSnapshot?.() ?? null,
+      session: session?.getSnapshot?.() ?? source?.getSnapshot?.()?.session ?? null,
+      source: source?.getSnapshot?.() ?? null,
       lastError,
     };
   }
-}
 
-/**
- * @param {number} coordinateUnitsPerParsec
- * @returns {import('@found-in-space/star-octree-provider').StarOctreeCoordinateOutput}
- */
-function createRenderCoordinateOutput(coordinateUnitsPerParsec) {
-  const scale = Number.isFinite(coordinateUnitsPerParsec) && coordinateUnitsPerParsec > 0
-    ? coordinateUnitsPerParsec
-    : 1;
-  if (scale === 1) {
-    return {
-      name: 'icrs-parsec-position',
-      frame: 'icrs',
-      units: ['pc', 'pc', 'pc'],
-    };
+  function registerSourceDemand() {
+    if (!source || unregisterDemand || typeof source.addDemand !== 'function') {
+      return;
+    }
+    const sessionOptions = /** @type {import('@found-in-space/star-octree-provider').StarOctreeSessionOptions | undefined} */ (
+      isProviderSession(options.session) ? undefined : options.session
+    );
+    unregisterDemand = source.addDemand({
+      id: `${id}:starfield`,
+      strategy: options.strategy ?? sessionOptions?.strategy ?? createObserverShellStrategy(),
+      attributes: options.attributes ?? sessionOptions?.attributes,
+    });
   }
-  return {
-    name: 'skykit-render-position',
-    frame: 'icrs',
-    units: ['render-unit', 'render-unit', 'render-unit'],
-    transformPosition({ xPc, yPc, zPc }) {
-      return {
-        x: xPc * scale,
-        y: yPc * scale,
-        z: zPc * scale,
-      };
-    },
-  };
 }

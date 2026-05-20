@@ -44,7 +44,7 @@ async function main() {
   const starField = createThreeStarField({ limitingMagnitude: 7.5, exposure: 2400 });
   const hyadesPosition = toRenderPosition(HYADES_CENTER_PC);
   const debug = createSkykitDebugBridge();
-  const constellationArt = await createSkycultureConstellationLayer();
+  const constellationArt = await createSkycultureConstellationLayer(debug);
   const navigationSphere = createNavigationSphere(SKY_GUIDE_RADIUS * 1.12);
   const bubble = createHyadesBubble(HYADES_RADIUS_PC * UNITS_PER_PARSEC);
 
@@ -186,7 +186,7 @@ function createHyadesBubble(radius) {
   return group;
 }
 
-async function createSkycultureConstellationLayer() {
+async function createSkycultureConstellationLayer(debug) {
   const group = await createAnchoredImageGroup({
     id: 'observer-centric-skyculture-art',
     manifestUrl: WESTERN_SKYCULTURE_MANIFEST_URL,
@@ -197,7 +197,13 @@ async function createSkycultureConstellationLayer() {
     subdivisions: 5,
     skipTextureErrors: true,
     onTextureError({ image, error }) {
-      console.warn('[custom-object-layer] failed to load skyculture texture', image.id, error);
+      debug.recordDiagnostic({
+        level: 'warn',
+        type: 'custom-object-layer/skyculture-texture-error',
+        message: `Failed to load skyculture texture ${image.id}.`,
+        data: { imageId: image.id },
+        error,
+      });
     },
   });
   group.name = 'observer-centric-skyculture-art';

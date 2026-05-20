@@ -101,6 +101,7 @@ test('createTouchOsHudPlugin attaches a HUD part, updates roots, and claims poin
   const roots = [];
   const driverFrames = [];
   const queuedOutputs = [];
+  const observedOutputs = [];
   let addedPart = null;
   let latestHit = null;
 
@@ -182,6 +183,13 @@ test('createTouchOsHudPlugin attaches a HUD part, updates roots, and claims poin
       commands: [{ id: 'look-sun', label: 'Look Sun', actionId: 'app.lookSun' }],
     }),
     status: ({ frame }) => (frame ? { label: 't', value: frame.elapsedSeconds.toFixed(1) } : 'starting'),
+    onOutput(output, outputContext) {
+      observedOutputs.push({
+        output,
+        frameElapsedSeconds: outputContext.frame?.elapsedSeconds ?? null,
+        viewerId: outputContext.viewer.id,
+      });
+    },
   });
   plugin.setup(createContext(actions, (part) => {
     addedPart = part;
@@ -193,6 +201,24 @@ test('createTouchOsHudPlugin attaches a HUD part, updates roots, and claims poin
   assert.equal(roots.length, 1);
   assert.equal(driverFrames[0].surfaceMetrics.width, 800);
   assert.equal(driverFrames[0].surfaceMetrics.height, 600);
+
+  queuedOutputs.push({
+    type: 'change-request',
+    componentId: 'hr-mode',
+    field: 'hrMode',
+    value: 'volume-complete',
+  });
+  addedPart.update(createFrame(0.5));
+  assert.deepEqual(observedOutputs[0], {
+    output: {
+      type: 'change-request',
+      componentId: 'hr-mode',
+      field: 'hrMode',
+      value: 'volume-complete',
+    },
+    frameElapsedSeconds: 0.5,
+    viewerId: 'test-viewer',
+  });
 
   queuedOutputs.push({ type: 'action', actionId: 'app.lookSun', componentId: 'look-sun', payload: { target: 'sun' } });
   const pointer = target.dispatchPointerEvent('pointerdown', {
@@ -207,6 +233,7 @@ test('createTouchOsHudPlugin attaches a HUD part, updates roots, and claims poin
     payload: { target: 'sun' },
     metadata: { source: 'touch-os:look-sun' },
   });
+  assert.equal(observedOutputs[1].output.type, 'action');
 
   addedPart.dispose();
   assert.deepEqual(invoked[1], { disposed: true });

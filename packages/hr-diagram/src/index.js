@@ -13,10 +13,14 @@ const DEFAULT_COOL_K = 2500;
 const DEFAULT_HOT_K = 40000;
 const DEFAULT_MIN_MAG = -6;
 const DEFAULT_MAX_MAG = 17;
-const DEFAULT_MARGIN_PX = 28;
+const DEFAULT_MARGIN_PX = 42;
 const DEFAULT_LIMITING_MAGNITUDE = 6.5;
 const DEFAULT_VOLUME_RADIUS_PC = 25;
 const DEFAULT_OBSERVER_PC = Object.freeze({ x: 0, y: 0, z: 0 });
+const DEFAULT_COORDINATE_UNITS_PER_PARSEC = 1;
+const DEFAULT_BACKGROUND = '#020712';
+const DEFAULT_POINT_ALPHA = 0.62;
+const TEMPERATURE_TICKS_K = Object.freeze([3000, 5000, 8000, 15000, 30000]);
 
 /**
  * @typedef {import('./index.d.ts').HrDiagramBounds} HrDiagramBounds
@@ -25,6 +29,7 @@ const DEFAULT_OBSERVER_PC = Object.freeze({ x: 0, y: 0, z: 0 });
  * @typedef {import('./index.d.ts').HrDiagramRect} HrDiagramRect
  * @typedef {import('./index.d.ts').HrDiagramRenderer} HrDiagramRenderer
  * @typedef {import('./index.d.ts').HrDiagramRendererOptions} HrDiagramRendererOptions
+ * @typedef {import('./index.d.ts').HrDiagramSelectedStar} HrDiagramSelectedStar
  * @typedef {import('./index.d.ts').HrDiagramView} HrDiagramView
  * @typedef {import('./index.d.ts').ProjectHrDiagramOptions} ProjectHrDiagramOptions
  * @typedef {import('./index.d.ts').ProjectHrDiagramResult} ProjectHrDiagramResult
@@ -34,17 +39,17 @@ const DEFAULT_OBSERVER_PC = Object.freeze({ x: 0, y: 0, z: 0 });
  */
 
 /**
- * @param {HrDiagramMode | 0 | 1 | 2 | undefined} mode
+ * @param {HrDiagramMode | undefined} mode
  * @returns {HrDiagramMode}
  */
 export function normalizeHrDiagramMode(mode) {
-  if (mode === 0 || mode === HR_DIAGRAM_MODE_MAGNITUDE || mode === undefined) {
+  if (mode === HR_DIAGRAM_MODE_MAGNITUDE || mode === undefined) {
     return HR_DIAGRAM_MODE_MAGNITUDE;
   }
-  if (mode === 1 || mode === HR_DIAGRAM_MODE_VOLUME) {
+  if (mode === HR_DIAGRAM_MODE_VOLUME) {
     return HR_DIAGRAM_MODE_VOLUME;
   }
-  if (mode === 2 || mode === HR_DIAGRAM_MODE_FRUSTUM) {
+  if (mode === HR_DIAGRAM_MODE_FRUSTUM) {
     return HR_DIAGRAM_MODE_FRUSTUM;
   }
   return HR_DIAGRAM_MODE_MAGNITUDE;
@@ -125,6 +130,14 @@ export function projectHrDiagramStars(rect, options = {}) {
     options.volumeRadiusPc,
     DEFAULT_VOLUME_RADIUS_PC,
   );
+  const coordinateUnitsPerParsec = normalizeCoordinateUnitsPerParsec(
+    options.coordinateUnitsPerParsec,
+  );
+  const observerPosition = normalizePoint(
+    options.observerPosition,
+    scalePoint(observerPc, coordinateUnitsPerParsec),
+  );
+  const viewProjection = normalizeMatrixArray(options.viewProjection);
   const points = [];
   let starCount = 0;
   let filteredCount = 0;
@@ -135,8 +148,11 @@ export function projectHrDiagramStars(rect, options = {}) {
     if (!passesCanvasVisibility(star, {
       mode,
       observerPc,
+      observerPosition,
+      coordinateUnitsPerParsec,
       limitingMagnitude,
       volumeRadiusPc,
+      viewProjection,
     })) {
       filteredCount += 1;
       continue;
@@ -182,21 +198,16 @@ export function drawHrDiagramCanvas(ctx, rect, options = {}) {
   }
 
   const projected = projectHrDiagramStars(rect, options);
-  const background = options.background === undefined
-    ? '#020712'
-    : options.background;
-  if (background) {
-    ctx.fillStyle = background;
-    ctx.fillRect(projected.rect.x, projected.rect.y, projected.rect.w, projected.rect.h);
-  }
+  drawHrDiagramFrame(ctx, projected.rect, options, projected.visibleCount, projected.starCount);
 
-  const alpha = clamp(normalizeFiniteNumber(options.alpha, 0.62), 0, 1);
+  const alpha = clamp(normalizeFiniteNumber(options.alpha, DEFAULT_POINT_ALPHA), 0, 1);
   for (const point of projected.points) {
     const [r, g, b] = point.color;
     ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
     ctx.fillRect(Math.round(point.x), Math.round(point.y), 1, 1);
   }
 
+  drawSelectedStars(ctx, projected.rect, options);
   return projected;
 }
 
@@ -211,11 +222,21 @@ export function createHrDiagramRenderer(options = {}) {
   /** @type {Map<string, StarCellData>} */
   const cellsByKey = new Map();
   let geometry = createHrDiagramGeometryFromCells([]);
+  let geometryDirty = false;
+  let geometryRevision = 0;
   const points = new THREE.Points(geometry, material);
   points.frustumCulled = false;
+  points.renderOrder = 1;
   scene.add(points);
   let disposed = false;
   let view = normalizeView(options);
+  const axesOverlay = createAxesOverlay(view);
+  let axesRevision = 0;
+  let axesDirty = true;
+  if (axesOverlay) {
+    axesOverlay.mesh.renderOrder = 0;
+    scene.add(axesOverlay.mesh);
+  }
 
   setMaterialView(material, view);
 
@@ -255,12 +276,15 @@ export function createHrDiagramRenderer(options = {}) {
     for (const cell of nextCells) {
       cellsByKey.set(cell.cellKey, cell);
     }
-    rebuildGeometry();
+    markGeometryDirty();
   }
 
   function clear() {
+    const hadCells = cellsByKey.size > 0;
     cellsByKey.clear();
-    rebuildGeometry();
+    if (hadCells || geometryDirty) {
+      markGeometryDirty();
+    }
   }
 
   /**
@@ -273,6 +297,7 @@ export function createHrDiagramRenderer(options = {}) {
       ...nextView,
     });
     setMaterialView(material, view);
+    markAxesDirty();
   }
 
   /**
@@ -284,6 +309,9 @@ export function createHrDiagramRenderer(options = {}) {
     if (!renderer || typeof renderer.render !== 'function') {
       throw new TypeError('HrDiagramRenderer.render() requires a THREE.WebGLRenderer.');
     }
+
+    updateGeometryIfNeeded();
+    updateAxesOverlayIfNeeded();
 
     if (target !== undefined && typeof renderer.setRenderTarget === 'function') {
       const previousTarget = renderer.getRenderTarget?.() ?? null;
@@ -300,13 +328,15 @@ export function createHrDiagramRenderer(options = {}) {
   }
 
   function getSnapshot() {
-    let starCount = 0;
-    for (const cell of cellsByKey.values()) {
-      starCount += cell.count;
-    }
+    const projected = projectCurrentCells();
     return {
       cellCount: cellsByKey.size,
-      starCount,
+      starCount: projected.starCount,
+      visibleCount: projected.visibleCount,
+      axesRevision,
+      axesAvailable: Boolean(axesOverlay),
+      geometryDirty,
+      geometryRevision,
       disposed,
       view,
     };
@@ -315,6 +345,10 @@ export function createHrDiagramRenderer(options = {}) {
   function dispose() {
     if (disposed) return;
     scene.remove(points);
+    if (axesOverlay) {
+      scene.remove(axesOverlay.mesh);
+      axesOverlay.dispose();
+    }
     geometry.dispose();
     cellsByKey.clear();
     material.dispose();
@@ -325,10 +359,14 @@ export function createHrDiagramRenderer(options = {}) {
    * @param {StarCellData[]} cells
    */
   function upsertCells(cells) {
+    let changed = false;
     for (const cell of cells) {
       cellsByKey.set(cell.cellKey, cell);
+      changed = true;
     }
-    rebuildGeometry();
+    if (changed) {
+      markGeometryDirty();
+    }
   }
 
   /**
@@ -340,7 +378,7 @@ export function createHrDiagramRenderer(options = {}) {
       changed = cellsByKey.delete(cellKey) || changed;
     }
     if (changed) {
-      rebuildGeometry();
+      markGeometryDirty();
     }
   }
 
@@ -350,6 +388,45 @@ export function createHrDiagramRenderer(options = {}) {
     geometry = nextGeometry;
     points.geometry = nextGeometry;
     previousGeometry.dispose();
+    geometryRevision += 1;
+    markAxesDirty();
+  }
+
+  function markGeometryDirty() {
+    geometryDirty = true;
+    markAxesDirty();
+  }
+
+  function markAxesDirty() {
+    axesDirty = true;
+  }
+
+  function updateGeometryIfNeeded() {
+    if (!geometryDirty) {
+      return;
+    }
+    rebuildGeometry();
+    geometryDirty = false;
+  }
+
+  function updateAxesOverlayIfNeeded() {
+    if (!axesOverlay || !axesDirty) {
+      return;
+    }
+    const projected = projectCurrentCells();
+    axesOverlay.update(view, projected.visibleCount, projected.starCount);
+    axesDirty = false;
+    axesRevision += 1;
+  }
+
+  function projectCurrentCells() {
+    return projectHrDiagramStars(
+      { x: 0, y: 0, w: view.width, h: view.height },
+      {
+        ...view,
+        cells: cellsByKey.values(),
+      },
+    );
   }
 
   function assertActive() {
@@ -403,7 +480,14 @@ function createHrDiagramMaterial(options) {
   const view = normalizeView(options);
   return new THREE.ShaderMaterial({
     uniforms: {
-      uObserverPc: { value: new THREE.Vector3(view.observerPc.x, view.observerPc.y, view.observerPc.z) },
+      uObserverPosition: {
+        value: new THREE.Vector3(
+          view.observerPosition.x,
+          view.observerPosition.y,
+          view.observerPosition.z,
+        ),
+      },
+      uCoordinateUnitsPerParsec: { value: view.coordinateUnitsPerParsec },
       uLimitingMagnitude: { value: view.limitingMagnitude },
       uVolumeRadiusPc: { value: view.volumeRadiusPc },
       uMode: { value: modeToShaderValue(view.mode) },
@@ -426,7 +510,8 @@ function createHrDiagramMaterial(options) {
       attribute float teff_log8;
       attribute float magAbs;
 
-      uniform vec3 uObserverPc;
+      uniform vec3 uObserverPosition;
+      uniform float uCoordinateUnitsPerParsec;
       uniform float uLimitingMagnitude;
       uniform float uVolumeRadiusPc;
       uniform int uMode;
@@ -473,8 +558,8 @@ function createHrDiagramMaterial(options) {
       }
 
       void main() {
-        vec3 worldPosPc = position;
-        float dPc = max(length(worldPosPc - uObserverPc), 0.001);
+        vec3 worldPos = position;
+        float dPc = max(length(worldPos - uObserverPosition) / max(uCoordinateUnitsPerParsec, 0.000001), 0.001);
         float mApp = magAbs + 5.0 * log(dPc) / log(10.0) - 5.0;
 
         if (uMode == 0 && mApp > uLimitingMagnitude) {
@@ -492,8 +577,8 @@ function createHrDiagramMaterial(options) {
             hidePoint();
             return;
           }
-          vec4 clip = uViewProjection * vec4(worldPosPc, 1.0);
-          if (abs(clip.x) > clip.w * 1.05 || abs(clip.y) > clip.w * 1.05 || clip.z < 0.0) {
+          vec4 clip = uViewProjection * vec4(worldPos, 1.0);
+          if (clip.w <= 0.0 || abs(clip.x) > clip.w * 1.05 || abs(clip.y) > clip.w * 1.05 || clip.z < -clip.w * 1.05 || clip.z > clip.w * 1.05) {
             hidePoint();
             return;
           }
@@ -552,11 +637,12 @@ function createHrDiagramMaterial(options) {
  * @param {Required<HrDiagramView>} view
  */
 function setMaterialView(material, view) {
-  material.uniforms.uObserverPc.value.set(
-    view.observerPc.x,
-    view.observerPc.y,
-    view.observerPc.z,
+  material.uniforms.uObserverPosition.value.set(
+    view.observerPosition.x,
+    view.observerPosition.y,
+    view.observerPosition.z,
   );
+  material.uniforms.uCoordinateUnitsPerParsec.value = view.coordinateUnitsPerParsec;
   material.uniforms.uLimitingMagnitude.value = view.limitingMagnitude;
   material.uniforms.uVolumeRadiusPc.value = view.volumeRadiusPc;
   material.uniforms.uMode.value = modeToShaderValue(view.mode);
@@ -617,17 +703,343 @@ function setColorUniform(color, value) {
 }
 
 /**
+ * @param {Required<HrDiagramView>} initialView
+ */
+function createAxesOverlay(initialView) {
+  const canvas = createRasterCanvas(initialView.width, initialView.height);
+  if (!canvas || typeof canvas.getContext !== 'function') {
+    return null;
+  }
+  const context = canvas.getContext('2d');
+  if (!context) {
+    return null;
+  }
+
+  let texture = createCanvasTexture(canvas);
+  const geometry = new THREE.PlaneGeometry(2, 2);
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.frustumCulled = false;
+
+  return {
+    mesh,
+    update(nextView, visibleCount, starCount) {
+      const width = Math.max(1, Math.round(nextView.width));
+      const height = Math.max(1, Math.round(nextView.height));
+      if (canvas.width !== width) {
+        canvas.width = width;
+        replaceTexture();
+      }
+      if (canvas.height !== height) {
+        canvas.height = height;
+        replaceTexture();
+      }
+      drawHrDiagramFrame(
+        context,
+        { x: 0, y: 0, w: width, h: height },
+        nextView,
+        visibleCount,
+        starCount,
+      );
+      drawSelectedStars(context, { x: 0, y: 0, w: width, h: height }, nextView);
+      texture.needsUpdate = true;
+    },
+    dispose() {
+      geometry.dispose();
+      material.dispose();
+      texture.dispose();
+    },
+  };
+
+  function replaceTexture() {
+    texture.dispose();
+    texture = createCanvasTexture(canvas);
+    material.map = texture;
+    material.needsUpdate = true;
+  }
+}
+
+/**
+ * @param {HTMLCanvasElement | OffscreenCanvas} canvas
+ */
+function createCanvasTexture(canvas) {
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  if ('colorSpace' in texture && THREE.SRGBColorSpace) {
+    texture.colorSpace = THREE.SRGBColorSpace;
+  }
+  return texture;
+}
+
+/**
+ * @param {number} width
+ * @param {number} height
+ */
+function createRasterCanvas(width, height) {
+  const normalizedWidth = Math.max(1, Math.round(width));
+  const normalizedHeight = Math.max(1, Math.round(height));
+  const documentRef = globalThis.document;
+  if (documentRef && typeof documentRef.createElement === 'function') {
+    const canvas = documentRef.createElement('canvas');
+    canvas.width = normalizedWidth;
+    canvas.height = normalizedHeight;
+    return canvas;
+  }
+  if (typeof globalThis.OffscreenCanvas === 'function') {
+    return new globalThis.OffscreenCanvas(normalizedWidth, normalizedHeight);
+  }
+  return null;
+}
+
+/**
+ * @param {CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D} ctx
+ * @param {HrDiagramRect} rect
+ * @param {HrDiagramView | import('./index.d.ts').DrawHrDiagramCanvasOptions} options
+ * @param {number} visibleCount
+ * @param {number} starCount
+ */
+function drawHrDiagramFrame(ctx, rect, options, visibleCount, starCount) {
+  const normalizedRect = normalizeRect(rect);
+  const bounds = normalizeBounds(options);
+  const background = options.background === undefined
+    ? DEFAULT_BACKGROUND
+    : options.background;
+
+  ctx.save();
+  if (background) {
+    ctx.fillStyle = background;
+    ctx.fillRect(normalizedRect.x, normalizedRect.y, normalizedRect.w, normalizedRect.h);
+  } else {
+    ctx.clearRect(normalizedRect.x, normalizedRect.y, normalizedRect.w, normalizedRect.h);
+  }
+
+  drawHighlightRegion(ctx, normalizedRect, options.highlightRegion ?? null, bounds);
+
+  if (options.showAxes !== false) {
+    drawAxes(ctx, normalizedRect, bounds);
+  }
+
+  if (options.showCount !== false) {
+    ctx.fillStyle = 'rgba(225, 236, 255, 0.72)';
+    ctx.font = '11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    const label = `${visibleCount.toLocaleString()} visible`;
+    ctx.fillText(
+      label,
+      normalizedRect.x + normalizedRect.w - bounds.marginPx,
+      normalizedRect.y + Math.max(8, bounds.marginPx - 30),
+    );
+    if (starCount !== visibleCount) {
+      ctx.fillStyle = 'rgba(171, 188, 218, 0.62)';
+      ctx.fillText(
+        `${starCount.toLocaleString()} loaded`,
+        normalizedRect.x + normalizedRect.w - bounds.marginPx,
+        normalizedRect.y + Math.max(23, bounds.marginPx - 15),
+      );
+    }
+  }
+  ctx.restore();
+}
+
+/**
+ * @param {CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D} ctx
+ * @param {HrDiagramRect} rect
+ * @param {HrDiagramHighlightRegion | null} highlight
+ * @param {Required<HrDiagramBounds>} bounds
+ */
+function drawHighlightRegion(ctx, rect, highlight, bounds) {
+  if (!highlight) {
+    return;
+  }
+
+  const xHot = rect.x + temperatureToHrX(highlight.teffMax, rect.w, bounds);
+  const xCool = rect.x + temperatureToHrX(highlight.teffMin, rect.w, bounds);
+  const yBright = rect.y + absoluteMagnitudeToHrY(highlight.magAbsMin, rect.h, bounds);
+  const yDim = rect.y + absoluteMagnitudeToHrY(highlight.magAbsMax, rect.h, bounds);
+  const left = Math.min(xHot, xCool);
+  const top = Math.min(yBright, yDim);
+  const width = Math.max(0, Math.abs(xCool - xHot));
+  const height = Math.max(0, Math.abs(yDim - yBright));
+  const color = cssColorFromValue(highlight.color ?? '#8cffb8', 1);
+
+  ctx.save();
+  ctx.fillStyle = cssColorFromValue(highlight.color ?? '#8cffb8', 0.09);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.setLineDash?.([5, 4]);
+  ctx.fillRect(left, top, width, height);
+  ctx.strokeRect(left + 0.5, top + 0.5, Math.max(0, width - 1), Math.max(0, height - 1));
+  if (highlight.label) {
+    ctx.setLineDash?.([]);
+    ctx.fillStyle = color;
+    ctx.font = '11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(highlight.label, left + 6, Math.max(rect.y + 4, top - 4));
+  }
+  ctx.restore();
+}
+
+/**
+ * @param {CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D} ctx
+ * @param {HrDiagramRect} rect
+ * @param {Required<HrDiagramBounds>} bounds
+ */
+function drawAxes(ctx, rect, bounds) {
+  const left = rect.x + bounds.marginPx;
+  const right = rect.x + rect.w - bounds.marginPx;
+  const top = rect.y + bounds.marginPx;
+  const bottom = rect.y + rect.h - bounds.marginPx;
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(137, 164, 204, 0.32)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(left + 0.5, top + 0.5, Math.max(0, right - left), Math.max(0, bottom - top));
+
+  ctx.font = '10px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = 'rgba(205, 218, 238, 0.76)';
+  ctx.strokeStyle = 'rgba(137, 164, 204, 0.18)';
+
+  for (const tick of TEMPERATURE_TICKS_K) {
+    if (tick < bounds.coolK || tick > bounds.hotK) continue;
+    const x = rect.x + temperatureToHrX(tick, rect.w, bounds);
+    ctx.beginPath();
+    ctx.moveTo(x + 0.5, top);
+    ctx.lineTo(x + 0.5, bottom);
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillText(formatTemperatureTick(tick), x, bottom + 9);
+  }
+
+  const firstMagTick = Math.ceil(bounds.minMag / 2) * 2;
+  for (let tick = firstMagTick; tick <= bounds.maxMag; tick += 2) {
+    const y = rect.y + absoluteMagnitudeToHrY(tick, rect.h, bounds);
+    ctx.beginPath();
+    ctx.moveTo(left, y + 0.5);
+    ctx.lineTo(right, y + 0.5);
+    ctx.stroke();
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(tick), left - 10, y);
+  }
+
+  ctx.fillStyle = 'rgba(230, 238, 252, 0.86)';
+  ctx.font = '11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+  ctx.fillText('Hot', left, bottom + 23);
+  ctx.textAlign = 'right';
+  ctx.fillText('Cool', right, bottom + 23);
+
+  ctx.save();
+  ctx.translate(rect.x + 13, top + (bottom - top) / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('Abs. magnitude', 0, 0);
+  ctx.restore();
+  ctx.restore();
+}
+
+/**
+ * @param {CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D} ctx
+ * @param {HrDiagramRect} rect
+ * @param {HrDiagramView | import('./index.d.ts').DrawHrDiagramCanvasOptions} options
+ */
+function drawSelectedStars(ctx, rect, options) {
+  if (!options.selectedStars) {
+    return;
+  }
+
+  ctx.save();
+  ctx.lineWidth = 1.5;
+  ctx.font = '11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  for (const selected of options.selectedStars) {
+    const point = projectHrPoint({
+      ...options,
+      rect,
+      teffLog8: selected.teffLog8,
+      temperatureK: selected.temperatureK,
+      magAbs: selected.magAbs,
+    });
+    if (!point) continue;
+    const color = selected.color ?? [255, 255, 255];
+    ctx.strokeStyle = cssColorFromValue(color, 0.95);
+    ctx.fillStyle = cssColorFromValue(color, 0.95);
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(point.x - 7, point.y);
+    ctx.lineTo(point.x + 7, point.y);
+    ctx.moveTo(point.x, point.y - 7);
+    ctx.lineTo(point.x, point.y + 7);
+    ctx.stroke();
+    if (selected.label) {
+      ctx.fillText(selected.label, point.x + 8, point.y);
+    }
+  }
+  ctx.restore();
+}
+
+/**
+ * @param {string | [number, number, number]} value
+ * @param {number} alpha
+ */
+function cssColorFromValue(value, alpha = 1) {
+  if (Array.isArray(value)) {
+    return `rgba(${clamp(Number(value[0]), 0, 255)}, ${clamp(Number(value[1]), 0, 255)}, ${clamp(Number(value[2]), 0, 255)}, ${clamp(alpha, 0, 1)})`;
+  }
+  if (alpha >= 0.999) {
+    return value;
+  }
+  const color = new THREE.Color(value);
+  return `rgba(${Math.round(color.r * 255)}, ${Math.round(color.g * 255)}, ${Math.round(color.b * 255)}, ${clamp(alpha, 0, 1)})`;
+}
+
+/**
+ * @param {number} tick
+ */
+function formatTemperatureTick(tick) {
+  return tick >= 10000 ? `${Math.round(tick / 1000)}k` : String(tick);
+}
+
+/**
  * @param {HrDiagramView} [view]
  * @returns {Required<HrDiagramView>}
  */
 function normalizeView(view = {}) {
+  const coordinateUnitsPerParsec = normalizeCoordinateUnitsPerParsec(
+    view.coordinateUnitsPerParsec,
+  );
+  const observerPc = normalizePoint(view.observerPc, DEFAULT_OBSERVER_PC);
   return {
     mode: normalizeHrDiagramMode(view.mode),
-    observerPc: normalizePoint(view.observerPc, DEFAULT_OBSERVER_PC),
+    observerPc,
+    observerPosition: normalizePoint(
+      view.observerPosition,
+      scalePoint(observerPc, coordinateUnitsPerParsec),
+    ),
+    coordinateUnitsPerParsec,
     limitingMagnitude: normalizeFiniteNumber(view.limitingMagnitude, DEFAULT_LIMITING_MAGNITUDE),
     volumeRadiusPc: normalizeFiniteNumber(view.volumeRadiusPc, DEFAULT_VOLUME_RADIUS_PC),
     viewProjection: view.viewProjection,
     highlightRegion: view.highlightRegion ?? null,
+    selectedStars: view.selectedStars ?? [],
+    showAxes: view.showAxes !== false,
+    showCount: view.showCount !== false,
+    background: view.background === undefined ? DEFAULT_BACKGROUND : view.background,
+    alpha: clamp(normalizeFiniteNumber(view.alpha, DEFAULT_POINT_ALPHA), 0, 1),
     ...normalizeBounds(view),
     width: normalizeFiniteNumber(view.width, 480),
     height: normalizeFiniteNumber(view.height, 320),
@@ -720,19 +1132,29 @@ function* iterateCellRows(cells) {
  * @param {{
  *   mode: HrDiagramMode;
  *   observerPc: { x: number; y: number; z: number };
+ *   observerPosition: { x: number; y: number; z: number };
+ *   coordinateUnitsPerParsec: number;
  *   limitingMagnitude: number;
  *   volumeRadiusPc: number;
+ *   viewProjection: Float32Array | number[] | null;
  * }} options
  */
 function passesCanvasVisibility(star, options) {
-  const distancePc = pointDistance(star.position, options.observerPc);
+  const distancePc = pointDistance(star.position, options.observerPosition) /
+    Math.max(options.coordinateUnitsPerParsec, 0.000001);
   if (options.mode === HR_DIAGRAM_MODE_VOLUME) {
     return distancePc <= options.volumeRadiusPc;
   }
-  if (options.mode === HR_DIAGRAM_MODE_MAGNITUDE || options.mode === HR_DIAGRAM_MODE_FRUSTUM) {
+  if (options.mode === HR_DIAGRAM_MODE_MAGNITUDE) {
     const magAbs = Number(star.magAbs);
     return Number.isFinite(magAbs) &&
       apparentMagnitude({ magAbs, distancePc }) <= options.limitingMagnitude;
+  }
+  if (options.mode === HR_DIAGRAM_MODE_FRUSTUM) {
+    const magAbs = Number(star.magAbs);
+    return Number.isFinite(magAbs) &&
+      apparentMagnitude({ magAbs, distancePc }) <= options.limitingMagnitude &&
+      pointInFrustum(star.position, options.viewProjection);
   }
   return true;
 }
@@ -746,6 +1168,73 @@ function pointDistance(left, right) {
   const dy = Number(left.y) - Number(right.y);
   const dz = Number(left.z) - Number(right.z);
   return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+/**
+ * @param {{ x: number; y: number; z: number }} point
+ * @param {number} scale
+ */
+function scalePoint(point, scale) {
+  return {
+    x: Number(point.x) * scale,
+    y: Number(point.y) * scale,
+    z: Number(point.z) * scale,
+  };
+}
+
+/**
+ * @param {unknown} value
+ */
+function normalizeCoordinateUnitsPerParsec(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0
+    ? number
+    : DEFAULT_COORDINATE_UNITS_PER_PARSEC;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {Float32Array | number[] | null}
+ */
+function normalizeMatrixArray(value) {
+  if (!value) {
+    return null;
+  }
+  if (Array.isArray(value) || ArrayBuffer.isView(value)) {
+    return /** @type {Float32Array | number[]} */ (value);
+  }
+  if (typeof value === 'object' && 'elements' in value) {
+    const elements = /** @type {{ elements?: unknown }} */ (value).elements;
+    if (Array.isArray(elements) || ArrayBuffer.isView(elements)) {
+      return /** @type {Float32Array | number[]} */ (elements);
+    }
+  }
+  return null;
+}
+
+/**
+ * @param {{ x: number; y: number; z: number }} position
+ * @param {Float32Array | number[] | null} matrix
+ */
+function pointInFrustum(position, matrix) {
+  if (!matrix || matrix.length < 16) {
+    return true;
+  }
+  const x = Number(position.x);
+  const y = Number(position.y);
+  const z = Number(position.z);
+  const clipX = Number(matrix[0]) * x + Number(matrix[4]) * y + Number(matrix[8]) * z + Number(matrix[12]);
+  const clipY = Number(matrix[1]) * x + Number(matrix[5]) * y + Number(matrix[9]) * z + Number(matrix[13]);
+  const clipZ = Number(matrix[2]) * x + Number(matrix[6]) * y + Number(matrix[10]) * z + Number(matrix[14]);
+  const clipW = Number(matrix[3]) * x + Number(matrix[7]) * y + Number(matrix[11]) * z + Number(matrix[15]);
+  if (!Number.isFinite(clipW) || clipW <= 0) {
+    return false;
+  }
+  const tolerance = clipW * 1.05;
+  return Math.abs(clipX) <= tolerance &&
+    Math.abs(clipY) <= tolerance &&
+    clipZ >= -tolerance &&
+    clipZ <= tolerance;
 }
 
 /**

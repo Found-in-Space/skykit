@@ -36,6 +36,7 @@
   },
   "dependencies": {
     "@found-in-space/anchored-image": "0.0.0-alpha.0",
+    "@found-in-space/hr-diagram": "0.0.0-alpha.0",
     "@found-in-space/journey": "0.0.0-alpha.0",
     "@found-in-space/spatial": "0.0.0-alpha.0",
     "@found-in-space/star-octree-provider": "0.0.0-alpha.0",
@@ -43,10 +44,10 @@
     "@found-in-space/three-star-field": "0.0.0-alpha.0"
   },
   "devDependencies": {
-    "@found-in-space/touch-os": "0.2.0-dev.0"
+    "@found-in-space/touch-os": "0.2.0-dev.1"
   },
   "peerDependencies": {
-    "@found-in-space/touch-os": ">=0.2.0-dev.0 <1",
+    "@found-in-space/touch-os": ">=0.2.0-dev.1 <1",
     "three": "^0.170.0"
   },
   "peerDependenciesMeta": {

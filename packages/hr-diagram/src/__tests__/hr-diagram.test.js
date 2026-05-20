@@ -5,8 +5,12 @@ import * as THREE from 'three';
 import { createStarCellData, encodeMorton3D } from '@found-in-space/star-trees';
 import {
   HR_DIAGRAM_MODE_MAGNITUDE,
+  HR_DIAGRAM_MODE_FRUSTUM,
+  HR_DIAGRAM_MODE_VOLUME,
   createHrDiagramGeometryFromCells,
   createHrDiagramRenderer,
+  drawHrDiagramCanvas,
+  normalizeHrDiagramMode,
   projectHrDiagramStars,
   projectHrPoint,
 } from '../index.js';
@@ -36,6 +40,78 @@ test('canvas projection consumes cells and emits cell-keyed points', () => {
 
   assert.equal(result.visibleCount, 1);
   assert.equal(result.points[0].cellKey, cell.cellKey);
+});
+
+test('HR modes are string-only at the public boundary', () => {
+  assert.equal(normalizeHrDiagramMode(HR_DIAGRAM_MODE_VOLUME), HR_DIAGRAM_MODE_VOLUME);
+  assert.equal(normalizeHrDiagramMode(HR_DIAGRAM_MODE_FRUSTUM), HR_DIAGRAM_MODE_FRUSTUM);
+  assert.equal(normalizeHrDiagramMode(/** @type {any} */ (1)), HR_DIAGRAM_MODE_MAGNITUDE);
+});
+
+test('projection filters render-unit cells with an explicit coordinate scale', () => {
+  const near = createCell({ keyOrdinal: 1, x: 10 });
+  const far = createCell({ keyOrdinal: 2, x: 30 });
+  const result = projectHrDiagramStars(
+    { x: 0, y: 0, w: 400, h: 300 },
+    {
+      cells: [near, far],
+      mode: HR_DIAGRAM_MODE_VOLUME,
+      observerPosition: { x: 0, y: 0, z: 0 },
+      coordinateUnitsPerParsec: 10,
+      volumeRadiusPc: 2,
+    },
+  );
+
+  assert.equal(result.starCount, 2);
+  assert.equal(result.visibleCount, 1);
+  assert.equal(result.points[0].cellKey, near.cellKey);
+});
+
+test('frustum mode applies the same magnitude and clip-space filters on CPU projection', () => {
+  const visible = createCell({ keyOrdinal: 1, x: 0 });
+  const clipped = createCell({ keyOrdinal: 2, x: 2 });
+  const result = projectHrDiagramStars(
+    { x: 0, y: 0, w: 400, h: 300 },
+    {
+      cells: [visible, clipped],
+      mode: HR_DIAGRAM_MODE_FRUSTUM,
+      limitingMagnitude: 20,
+      viewProjection: new THREE.Matrix4().identity(),
+    },
+  );
+
+  assert.equal(result.starCount, 2);
+  assert.equal(result.visibleCount, 1);
+  assert.equal(result.points[0].cellKey, visible.cellKey);
+});
+
+test('canvas renderer draws axes, highlight regions, visible count, and selected markers', () => {
+  const ctx = createRecordingContext();
+  const cell = createCell({ keyOrdinal: 1 });
+  const result = drawHrDiagramCanvas(
+    ctx,
+    { x: 0, y: 0, w: 400, h: 300 },
+    {
+      cells: [cell],
+      mode: HR_DIAGRAM_MODE_MAGNITUDE,
+      limitingMagnitude: 20,
+      highlightRegion: {
+        teffMin: 5000,
+        teffMax: 7000,
+        magAbsMin: 0,
+        magAbsMax: 8,
+        label: 'main sequence',
+      },
+      selectedStars: [{ temperatureK: 5800, magAbs: 4.8, label: 'Sol' }],
+    },
+  );
+
+  assert.equal(result.visibleCount, 1);
+  assert.equal(ctx.operations.some((operation) => operation[0] === 'strokeRect'), true);
+  assert.equal(ctx.operations.some((operation) => operation[0] === 'arc'), true);
+  assert.equal(ctx.operations.some((operation) => operation.includes('1 visible')), true);
+  assert.equal(ctx.operations.some((operation) => operation.includes('main sequence')), true);
+  assert.equal(ctx.operations.some((operation) => operation.includes('Sol')), true);
 });
 
 test('WebGL geometry aggregates cells deterministically', () => {
@@ -100,6 +176,35 @@ function createCell(options = {}) {
     },
     attributes: ['position', 'teffLog8', 'magAbs'],
   });
+}
+
+function createRecordingContext() {
+  const operations = [];
+  const context = {
+    operations,
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 1,
+    font: '',
+    textAlign: 'left',
+    textBaseline: 'top',
+    save() { operations.push(['save']); },
+    restore() { operations.push(['restore']); },
+    fillRect(...args) { operations.push(['fillRect', ...args]); },
+    clearRect(...args) { operations.push(['clearRect', ...args]); },
+    strokeRect(...args) { operations.push(['strokeRect', ...args]); },
+    beginPath() { operations.push(['beginPath']); },
+    moveTo(...args) { operations.push(['moveTo', ...args]); },
+    lineTo(...args) { operations.push(['lineTo', ...args]); },
+    stroke() { operations.push(['stroke']); },
+    fill() { operations.push(['fill']); },
+    arc(...args) { operations.push(['arc', ...args]); },
+    fillText(...args) { operations.push(['fillText', ...args]); },
+    setLineDash(...args) { operations.push(['setLineDash', ...args]); },
+    translate(...args) { operations.push(['translate', ...args]); },
+    rotate(...args) { operations.push(['rotate', ...args]); },
+  };
+  return context;
 }
 
 // Keep THREE referenced in the test module for environments that tree-shake imports.

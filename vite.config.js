@@ -1,11 +1,39 @@
 import { defineConfig } from 'vite';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const localTouchOsPath = path.resolve(
+  __dirname,
+  process.env.TOUCH_OS_LOCAL_PATH ?? '../touch-os',
+);
+const localTouchOsAliases = fs.existsSync(path.join(localTouchOsPath, 'src/index.ts'))
+  ? [
+      {
+        find: '@found-in-space/touch-os/hosts/three',
+        replacement: path.join(localTouchOsPath, 'src/hosts/three.ts'),
+      },
+      {
+        find: '@found-in-space/touch-os',
+        replacement: path.join(localTouchOsPath, 'src/index.ts'),
+      },
+    ]
+  : [];
 
 export default defineConfig({
   base: './',
+  resolve: {
+    alias: localTouchOsAliases,
+  },
+  optimizeDeps: localTouchOsAliases.length > 0
+    ? {
+        exclude: [
+          '@found-in-space/touch-os',
+          '@found-in-space/touch-os/hosts/three',
+        ],
+      }
+    : undefined,
   build: {
     rollupOptions: {
       input: {
@@ -31,6 +59,10 @@ export default defineConfig({
         skykitCustomObjectLayer: path.resolve(
           __dirname,
           'packages/skykit/examples/custom-object-layer/index.html',
+        ),
+        skykitHrDiagramFreeRoam: path.resolve(
+          __dirname,
+          'packages/skykit/examples/hr-diagram-free-roam/index.html',
         ),
         skykitNavigationAutomation: path.resolve(
           __dirname,
@@ -63,14 +95,6 @@ export default defineConfig({
         threeStarFieldShaderTuning: path.resolve(
           __dirname,
           'packages/three-star-field/examples/shader-tuning/index.html',
-        ),
-        hrDiagramMinimal: path.resolve(
-          __dirname,
-          'packages/hr-diagram/examples/minimal-hr/index.html',
-        ),
-        hrDiagramVolume: path.resolve(
-          __dirname,
-          'packages/hr-diagram/examples/volume-hr/index.html',
         ),
         journeyVideoEditor: path.resolve(
           __dirname,
