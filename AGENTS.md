@@ -64,10 +64,10 @@ rewriting it into the alpha package shape, never by importing old internals.
 - `@found-in-space/journey`: authored scene graphs, timed journey evaluators,
   cue/track evaluation, and retiming helpers built on spatial.
 - `@found-in-space/journey-video`: standalone alpha journey video editor,
-  editor state/import/export helpers, and future deterministic export tooling.
+  editor state/import/export helpers, and deterministic export tooling.
 - `@found-in-space/star-trees`: star tree identities, cell stores, iteration, and math.
-- `@found-in-space/star-octree-provider`: octree loading, strategies, streaming,
-  payload decode, and star cell emission.
+- `@found-in-space/star-octree-provider`: octree loading, provider planning,
+  streaming, payload decode, and star cell emission against shared strategies.
 - `@found-in-space/meta-sidecar-provider`: metadata facts keyed by star refs.
 - `@found-in-space/star-map-canvas`: 2D starmap rendering.
 - `@found-in-space/three-star-field`: Three.js star cell renderer and picking.

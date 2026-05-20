@@ -20,9 +20,8 @@ Bundled strategy helpers are ordinary implementations of the same public
 strategy interface as application strategies.
 
 See [`../../docs/star-octree-provider.md`](../../docs/star-octree-provider.md)
-for the package contract, strategy/planner/scheduler semantics, API semantics,
-and the current alpha gap where some implementation paths still use closed
-strategy-kind dispatch.
+for the package contract, strategy/planner/scheduler semantics, and API
+semantics.
 
 ## Examples
 

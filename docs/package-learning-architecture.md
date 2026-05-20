@@ -2,9 +2,10 @@
 
 Status: current alpha-direction document.
 
-This document is about replacing the current SkyKit demos with clear lessons
-that teach how to use the package-based project. It is not a wishlist for future
-packages.
+This document is about replacing this repository's local SkyKit proof-of-concept
+demos with clear lessons that teach how to use the package-based project. It is
+not describing the public website lesson status, and it is not a wishlist for
+future packages.
 
 The proof-of-concept phase is complete. The old root demos and old `src/`
 implementation are still useful as reference material, but the live learning
@@ -113,7 +114,8 @@ viewer
   + small custom plugin
 ```
 
-Root demos are transition sandboxes. New learning work should prefer:
+Root `demos/` pages in this repository are transition sandboxes. New package
+learning work should prefer:
 
 ```txt
 packages/<package>/examples/
