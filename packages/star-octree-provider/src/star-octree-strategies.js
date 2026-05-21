@@ -158,27 +158,21 @@ export async function warmVolumeRequests(provider, requests, options = {}) {
 
   for (let requestIndex = 0; requestIndex < requests.length; requestIndex += 1) {
     const request = requests[requestIndex];
-    for await (const delta of streamVolumeCells(provider, request, {
+    const result = await provider.warmCells({
       ...options,
+      strategy: createStrategyForVolumeRequest(request),
       id: options.id
         ? `${options.id}:${requestIndex}`
         : undefined,
       streaming: {
-        batchMode: 'payload-range',
+        emitCachedFirst: true,
         ...options.streaming,
       },
-    })) {
-      options.onProgress?.({ request, requestIndex, delta });
-
-      if (delta.type === 'stars/cells-upsert') {
-        cellCount += delta.cells.length;
-        starCount += delta.cells.reduce((sum, cell) => sum + cell.count, 0);
-      } else if (delta.type === 'stars/current') {
-        currentCount += 1;
-      } else if (delta.type === 'stars/error') {
-        throw new Error(delta.error?.message ?? 'Volume warm failed.');
-      }
-    }
+    });
+    options.onProgress?.({ request, requestIndex, result });
+    cellCount += result.counts.payloadNodeCount;
+    starCount += result.decodedStarCount;
+    currentCount += 1;
   }
 
   return {

@@ -220,6 +220,188 @@ test('rapid overlapping demands do not duplicate in-flight loads', async () => {
   assert.equal(session.getSnapshot().demand.inFlightCellCount, 0);
 });
 
+test('cached desired cells emit before delayed cold current loads', async () => {
+  const cachedNode = createNode('cached', { gridX: 0 });
+  const coldNode = createNode('cold', { gridX: 1 });
+  let releaseColdStream = () => {};
+  let streamCalls = 0;
+  const session = createStarOctreeProviderSession({
+    providerId: 'provider-a',
+    sessionId: 'session-a',
+    source: {
+      planDemand() {
+        return createPlan([cachedNode, coldNode]);
+      },
+      decodeNode(entry) {
+        return oneStar(entry.node);
+      },
+      readCachedCells(entries) {
+        return entries
+          .filter((entry) => createStarCellKey(entry.node) === createStarCellKey(cachedNode))
+          .map((entry) => createCell(entry.node));
+      },
+      async *streamCells(entries) {
+        streamCalls += 1;
+        assert.deepEqual(entries.map((entry) => createStarCellKey(entry.node)), [
+          createStarCellKey(coldNode),
+        ]);
+        await new Promise((resolve) => {
+          releaseColdStream = resolve;
+        });
+        yield entries.map((entry) => createCell(entry.node));
+      },
+    },
+  });
+  const iterator = session.deltas()[Symbol.asyncIterator]();
+
+  session.updateView({ observerPc: { x: 0, y: 0, z: 0 } }, { demand: 'force' });
+  const first = await iterator.next();
+
+  assert.equal(first.done, false);
+  assert.equal(first.value.type, 'stars/cells-upsert');
+  assert.deepEqual(upsertCellKeys([first.value]), [createStarCellKey(cachedNode)]);
+  await tick();
+  assert.equal(session.getSnapshot().demand.cachedCurrentCellHitCount, 1);
+  assert.equal(session.getSnapshot().demand.coldCurrentCellLoadCount, 1);
+  assert.equal(session.getSnapshot().demand.inFlightCellCount, 1);
+  assert.equal(streamCalls, 1);
+
+  releaseColdStream();
+  const remaining = await readUntilCurrent(iterator);
+
+  assert.deepEqual(upsertCellKeys(remaining), [createStarCellKey(coldNode)]);
+  assert.equal(session.getSnapshot().demand.inFlightCellCount, 0);
+});
+
+test('cached cells can promote entries that are already in flight', async () => {
+  const nodeA = createNode('a', { gridX: 0 });
+  let cacheReady = false;
+  let releaseColdStream = () => {};
+  const session = createStarOctreeProviderSession({
+    providerId: 'provider-a',
+    sessionId: 'session-a',
+    source: {
+      planDemand() {
+        return createPlan([nodeA]);
+      },
+      decodeNode(entry) {
+        return oneStar(entry.node);
+      },
+      readCachedCells(entries) {
+        return cacheReady ? entries.map((entry) => createCell(entry.node)) : [];
+      },
+      async *streamCells(entries) {
+        await new Promise((resolve) => {
+          releaseColdStream = resolve;
+        });
+        yield entries.map((entry) => createCell(entry.node));
+      },
+    },
+  });
+  const iterator = session.deltas()[Symbol.asyncIterator]();
+
+  session.updateView({ observerPc: { x: 0, y: 0, z: 0 } }, { demand: 'force' });
+  await tick();
+  assert.equal(session.getSnapshot().demand.inFlightCellCount, 1);
+
+  cacheReady = true;
+  session.updateView({ observerPc: { x: 1, y: 0, z: 0 } }, { demand: 'force' });
+  const deltas = await readUntilCurrent(iterator);
+
+  assert.deepEqual(upsertCellKeys(deltas), [createStarCellKey(nodeA)]);
+  assert.equal(session.getSnapshot().demand.cachedCurrentCellHitCount, 1);
+  assert.equal(session.getSnapshot().demand.inFlightCellCount, 0);
+
+  releaseColdStream();
+  await tick();
+});
+
+test('incomplete demand polls warm cache while current load remains in flight', async () => {
+  const nodeA = createNode('a', { gridX: 0 });
+  let cacheReady = false;
+  let releaseColdStream = () => {};
+  const session = createStarOctreeProviderSession({
+    providerId: 'provider-a',
+    sessionId: 'session-a',
+    source: {
+      planDemand() {
+        return createPlan([nodeA]);
+      },
+      decodeNode(entry) {
+        return oneStar(entry.node);
+      },
+      readCachedCells(entries) {
+        return cacheReady ? entries.map((entry) => createCell(entry.node)) : [];
+      },
+      async *streamCells(entries) {
+        await new Promise((resolve) => {
+          releaseColdStream = resolve;
+        });
+        yield entries.map((entry) => createCell(entry.node));
+      },
+    },
+  });
+  const iterator = session.deltas()[Symbol.asyncIterator]();
+
+  session.updateView({ observerPc: { x: 0, y: 0, z: 0 } }, { demand: 'force' });
+  await tick();
+  assert.equal(session.getSnapshot().demand.inFlightCellCount, 1);
+  cacheReady = true;
+
+  const deltas = await readUntilCurrent(iterator);
+
+  assert.deepEqual(upsertCellKeys(deltas), [createStarCellKey(nodeA)]);
+  assert.equal(session.getSnapshot().demand.cachedCurrentCellHitCount, 1);
+  assert.equal(session.getSnapshot().demand.inFlightCellCount, 0);
+
+  releaseColdStream();
+  await tick();
+});
+
+test('non-overlapping current loads abort when demand moves elsewhere', async () => {
+  const nodeA = createNode('a', { gridX: 0 });
+  const nodeB = createNode('b', { gridX: 1 });
+  const plans = [
+    createPlan([nodeA]),
+    createPlan([nodeB]),
+  ];
+  let observedAbort = false;
+  const session = createStarOctreeProviderSession({
+    providerId: 'provider-a',
+    sessionId: 'session-a',
+    source: {
+      planDemand() {
+        return plans.shift() ?? createPlan([nodeB]);
+      },
+      decodeNode(entry) {
+        return oneStar(entry.node);
+      },
+      async *streamCells(entries, options) {
+        const key = createStarCellKey(entries[0].node);
+        if (key === createStarCellKey(nodeA)) {
+          await new Promise((resolve) => {
+            options.signal?.addEventListener('abort', resolve, { once: true });
+          });
+          observedAbort = options.signal?.aborted === true;
+          return;
+        }
+        yield entries.map((entry) => createCell(entry.node));
+      },
+    },
+  });
+  const iterator = session.deltas()[Symbol.asyncIterator]();
+
+  session.updateView({ observerPc: { x: 0, y: 0, z: 0 } }, { demand: 'force' });
+  await tick();
+  session.updateView({ observerPc: { x: 1, y: 0, z: 0 } }, { demand: 'force' });
+  const deltas = await readUntilCurrent(iterator);
+
+  assert.equal(observedAbort, true);
+  assert.deepEqual(upsertCellKeys(deltas), [createStarCellKey(nodeB)]);
+  assert.equal(session.getSnapshot().demand.staleCurrentLoadAbortCount, 1);
+  assert.equal(session.getSnapshot().demand.inFlightCellCount, 0);
+});
+
 test('stale in-flight cells are discarded after demand moves elsewhere', async () => {
   const nodeA = createNode('a', { gridX: 0 });
   const nodeB = createNode('b', { gridX: 1 });
@@ -273,6 +455,8 @@ test('stale in-flight cells are discarded after demand moves elsewhere', async (
     session.getSnapshot().cells.map((cell) => cell.cellKey),
     [createStarCellKey(nodeB)],
   );
+  assert.equal(session.getSnapshot().demand.staleCurrentLoadAbortCount, 1);
+  assert.equal(session.getSnapshot().demand.staleCurrentCellDropCount, 1);
 });
 
 test('stale load failures are ignored without clearing visible cells', async () => {

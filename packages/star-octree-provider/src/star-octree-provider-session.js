@@ -39,6 +39,7 @@ const DEFAULT_COORDINATES = {
   frame: 'icrs',
   units: /** @type {[string, string, string]} */ (['pc', 'pc', 'pc']),
 };
+const CACHED_CURRENT_PROMOTION_INTERVAL_MS = 50;
 
 /**
  * @typedef {{
@@ -56,10 +57,19 @@ const DEFAULT_COORDINATES = {
  *       signal?: AbortSignal;
  *     }
  *   ) => AsyncIterable<StarCellData[]>;
+ *   readCachedCells?: (
+ *     entries: StarOctreeDemandEntry[],
+ *     options: {
+ *       sessionId?: string;
+ *       attributes?: string[];
+ *       coordinates?: StarOctreeCoordinateOutput;
+ *       memoryOwnership?: 'borrowed' | 'copy' | 'transfer';
+ *     }
+ *   ) => StarCellData[] | Promise<StarCellData[]>;
  *   warmEntries?: (
  *     entries: StarOctreeDemandEntry[],
  *     options?: { sessionId?: string; attributes?: string[]; emitCachedFirst?: boolean; signal?: AbortSignal }
- *   ) => Promise<void>;
+ *   ) => Promise<unknown>;
  * }} SessionSource
  */
 
@@ -72,6 +82,14 @@ const DEFAULT_COORDINATES = {
  *   getActiveWorkItemCount?: (sessionId: string) => number;
  *   onDispose?: (sessionId: string) => void;
  * }} CreateSessionOptions
+ */
+
+/**
+ * @typedef {{
+ *   controller: AbortController;
+ *   entriesByCellKey: Map<StarCellKey, StarOctreeDemandEntry>;
+ *   promise?: Promise<void>;
+ * }} CurrentLoadRecord
  */
 
 /**
@@ -98,14 +116,14 @@ export function createStarOctreeProviderSession(createOptions) {
   let pendingRemovalCellKeys = new Set();
   /** @type {Set<number>} */
   const activePlans = new Set();
-  /** @type {Set<Promise<void>>} */
+  /** @type {Set<CurrentLoadRecord>} */
   const activeCurrentLoads = new Set();
-  /** @type {Set<AbortController>} */
-  const activeCurrentLoadControllers = new Set();
-  /** @type {Set<Promise<void>>} */
+  /** @type {Set<Promise<unknown>>} */
   const activePrefetches = new Set();
   /** @type {Set<() => void>} */
   const activePrefetchCancels = new Set();
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let cachedCurrentPromotionTimeout = null;
 
   /** @type {StarOctreeViewPatch} */
   let currentView = {};
@@ -139,6 +157,12 @@ export function createStarOctreeProviderSession(createOptions) {
   let lastReasons = [];
   /** @type {string | null} */
   let lastError = null;
+  const demandStats = {
+    cachedCurrentCellHitCount: 0,
+    coldCurrentCellLoadCount: 0,
+    staleCurrentLoadAbortCount: 0,
+    staleCurrentCellDropCount: 0,
+  };
   let disposed = false;
 
   /** @type {StarOctreeProviderSession} */
@@ -260,6 +284,7 @@ export function createStarOctreeProviderSession(createOptions) {
    */
   function scheduleDemandPlanning(planOptions) {
     cancelScheduledPrefetch();
+    cancelScheduledCachedCurrentPromotion();
     if (activePlanningAbortController) {
       queuedPlanOptions = planOptions;
       status = 'planning';
@@ -376,11 +401,16 @@ export function createStarOctreeProviderSession(createOptions) {
       currentEntries.map((entry) => [createStarCellKey(entry.node), entry]),
     );
     desiredCurrentEntriesByCellKey = nextEntriesByCellKey;
+    abortStaleCurrentLoads(nextEntriesByCellKey);
     latestDemandHasProduced = false;
     pendingRemovalCellKeys = new Set(
       Array.from(liveCellsByKey.keys())
         .filter((cellKey) => !desiredCurrentEntriesByCellKey.has(cellKey)),
     );
+    await promoteCachedCurrentEntries(currentEntries, applyOptions);
+    if (!isActivePlan(applyOptions) || queuedPlanOptions) {
+      return;
+    }
     const entriesToLoad = currentEntries.filter((entry) => {
       const cellKey = createStarCellKey(entry.node);
       return !liveCellsByKey.has(cellKey) &&
@@ -395,6 +425,9 @@ export function createStarOctreeProviderSession(createOptions) {
     } else {
       finishCurrentDemandIfReady();
     }
+    if (hasIncompleteDesiredCells()) {
+      scheduleCachedCurrentPromotion(applyOptions);
+    }
 
     if (!isActivePlan(applyOptions) || queuedPlanOptions) {
       return;
@@ -404,6 +437,96 @@ export function createStarOctreeProviderSession(createOptions) {
       applyOptions.token,
       applyOptions.signal,
     );
+  }
+
+  /**
+   * @param {StarOctreeDemandEntry[]} currentEntries
+   * @param {{
+   *   context: StarOctreeSelectionContext;
+   *   token?: number;
+   *   signal: AbortSignal;
+   * }} applyOptions
+   * @returns {Promise<number>}
+   */
+  async function promoteCachedCurrentEntries(currentEntries, applyOptions) {
+    if (!createOptions.source.readCachedCells) {
+      return 0;
+    }
+    const cacheCandidates = currentEntries.filter((entry) => {
+      const cellKey = createStarCellKey(entry.node);
+      return !liveCellsByKey.has(cellKey);
+    });
+    if (cacheCandidates.length === 0) {
+      return 0;
+    }
+
+    throwIfAborted(applyOptions.signal);
+    const cells = await createOptions.source.readCachedCells(cacheCandidates, {
+      sessionId,
+      attributes: options.attributes,
+      coordinates: options.coordinates,
+      memoryOwnership: options.memory.ownership,
+    });
+    throwIfAborted(applyOptions.signal);
+    if (cells?.length > 0) {
+      return acceptLoadedCells(cells, { source: 'cache' });
+    }
+    return 0;
+  }
+
+  /**
+   * @param {{
+   *   context: StarOctreeSelectionContext;
+   *   token: number;
+   *   signal: AbortSignal;
+   * }} applyOptions
+   */
+  function scheduleCachedCurrentPromotion(applyOptions) {
+    if (
+      cachedCurrentPromotionTimeout ||
+      !createOptions.source.readCachedCells ||
+      !isActivePlan(applyOptions)
+    ) {
+      return;
+    }
+
+    cachedCurrentPromotionTimeout = setTimeout(() => {
+      cachedCurrentPromotionTimeout = null;
+      void runCachedCurrentPromotion(applyOptions);
+    }, CACHED_CURRENT_PROMOTION_INTERVAL_MS);
+  }
+
+  /**
+   * @param {{
+   *   context: StarOctreeSelectionContext;
+   *   token: number;
+   *   signal: AbortSignal;
+   * }} applyOptions
+   */
+  async function runCachedCurrentPromotion(applyOptions) {
+    if (!isActivePlan(applyOptions) || !hasIncompleteDesiredCells()) {
+      return;
+    }
+
+    try {
+      await promoteCachedCurrentEntries(
+        Array.from(desiredCurrentEntriesByCellKey.values()),
+        applyOptions,
+      );
+    } catch (error) {
+      if (!isAbortError(error)) {
+        failSession(error);
+      }
+      return;
+    }
+
+    if (
+      isActivePlan(applyOptions) &&
+      hasIncompleteDesiredCells() &&
+      activeCurrentLoads.size > 0
+    ) {
+      scheduleCachedCurrentPromotion(applyOptions);
+    }
   }
 
   /**
@@ -428,7 +551,13 @@ export function createStarOctreeProviderSession(createOptions) {
     if (loadingEntriesByCellKey.size === 0) return;
 
     const controller = new AbortController();
-    activeCurrentLoadControllers.add(controller);
+    demandStats.coldCurrentCellLoadCount += loadingEntriesByCellKey.size;
+    /** @type {CurrentLoadRecord} */
+    const record = {
+      controller,
+      entriesByCellKey: loadingEntriesByCellKey,
+    };
+    activeCurrentLoads.add(record);
     const load = (async () => {
       try {
         await loadCurrentEntries(
@@ -439,15 +568,12 @@ export function createStarOctreeProviderSession(createOptions) {
       } catch (error) {
         handleCurrentLoadError(error, loadingEntriesByCellKey);
       } finally {
-        activeCurrentLoadControllers.delete(controller);
+        activeCurrentLoads.delete(record);
         clearInFlightEntries(loadingEntriesByCellKey);
         finishCurrentDemandIfReady();
       }
     })();
-    activeCurrentLoads.add(load);
-    void load.finally(() => {
-      activeCurrentLoads.delete(load);
-    });
+    record.promise = load;
   }
 
   /**
@@ -490,10 +616,17 @@ export function createStarOctreeProviderSession(createOptions) {
 
   /**
    * @param {StarCellData[]} cells
+   * @param {{ source?: 'cache' | 'cold' }} [acceptOptions]
+   * @returns {number}
    */
-  function acceptLoadedCells(cells) {
-    const acceptedCells = storeLoadedCells(cells);
-    if (acceptedCells.length === 0) return;
+  function acceptLoadedCells(cells, acceptOptions = {}) {
+    const { acceptedCells, droppedCellCount } = storeLoadedCells(cells);
+    demandStats.staleCurrentCellDropCount += droppedCellCount;
+    if (acceptedCells.length === 0) return 0;
+    if (acceptOptions.source === 'cache') {
+      demandStats.cachedCurrentCellHitCount += acceptedCells.length;
+      clearInFlightCellKeys(acceptedCells.map((cell) => cell.cellKey));
+    }
     latestDemandHasProduced = true;
     status = 'streaming';
     removePendingCellsAfterReplacement();
@@ -506,18 +639,24 @@ export function createStarOctreeProviderSession(createOptions) {
       cells: acceptedCells,
     });
     finishCurrentDemandIfReady();
+    return acceptedCells.length;
   }
 
   /**
    * @param {StarCellData[]} cells
-   * @returns {StarCellData[]}
+   * @returns {{ acceptedCells: StarCellData[]; droppedCellCount: number }}
    */
   function storeLoadedCells(cells) {
     /** @type {StarCellData[]} */
     const acceptedCells = [];
+    let droppedCellCount = 0;
     for (const cell of cells) {
       const entry = desiredCurrentEntriesByCellKey.get(cell.cellKey);
       if (!entry) {
+        droppedCellCount += 1;
+        continue;
+      }
+      if (liveCellsByKey.has(cell.cellKey)) {
         continue;
       }
 
@@ -525,7 +664,7 @@ export function createStarOctreeProviderSession(createOptions) {
       entriesByCellKey.set(cell.cellKey, entry);
       acceptedCells.push(cell);
     }
-    return acceptedCells;
+    return { acceptedCells, droppedCellCount };
   }
 
   /**
@@ -537,6 +676,45 @@ export function createStarOctreeProviderSession(createOptions) {
         inFlightCurrentEntriesByCellKey.delete(cellKey);
       }
     }
+  }
+
+  /**
+   * @param {StarCellKey[]} cellKeys
+   */
+  function clearInFlightCellKeys(cellKeys) {
+    for (const cellKey of cellKeys) {
+      inFlightCurrentEntriesByCellKey.delete(cellKey);
+    }
+  }
+
+  /**
+   * @param {Map<StarCellKey, StarOctreeDemandEntry>} nextEntriesByCellKey
+   */
+  function abortStaleCurrentLoads(nextEntriesByCellKey) {
+    for (const record of activeCurrentLoads) {
+      if (
+        record.controller.signal.aborted ||
+        currentLoadOverlapsDemand(record, nextEntriesByCellKey)
+      ) {
+        continue;
+      }
+      demandStats.staleCurrentLoadAbortCount += 1;
+      record.controller.abort(createAbortError());
+      clearInFlightEntries(record.entriesByCellKey);
+    }
+  }
+
+  /**
+   * @param {CurrentLoadRecord} record
+   * @param {Map<StarCellKey, StarOctreeDemandEntry>} nextEntriesByCellKey
+   */
+  function currentLoadOverlapsDemand(record, nextEntriesByCellKey) {
+    for (const cellKey of record.entriesByCellKey.keys()) {
+      if (nextEntriesByCellKey.has(cellKey)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -798,6 +976,10 @@ export function createStarOctreeProviderSession(createOptions) {
         currentCellCount: liveCellsByKey.size,
         inFlightCellCount: inFlightCurrentEntriesByCellKey.size,
         activeWorkItemCount: getActiveWorkItemCount(),
+        cachedCurrentCellHitCount: demandStats.cachedCurrentCellHitCount,
+        coldCurrentCellLoadCount: demandStats.coldCurrentCellLoadCount,
+        staleCurrentLoadAbortCount: demandStats.staleCurrentLoadAbortCount,
+        staleCurrentCellDropCount: demandStats.staleCurrentCellDropCount,
       },
       cells: cellSummaries,
       memory: {
@@ -812,12 +994,13 @@ export function createStarOctreeProviderSession(createOptions) {
 
   function abortActiveWork() {
     abortActivePlanning();
-    for (const controller of activeCurrentLoadControllers) {
-      if (!controller.signal.aborted) {
-        controller.abort(createAbortError());
+    cancelScheduledCachedCurrentPromotion();
+    for (const record of activeCurrentLoads) {
+      if (!record.controller.signal.aborted) {
+        record.controller.abort(createAbortError());
       }
     }
-    activeCurrentLoadControllers.clear();
+    activeCurrentLoads.clear();
     inFlightCurrentEntriesByCellKey.clear();
   }
 
@@ -828,6 +1011,7 @@ export function createStarOctreeProviderSession(createOptions) {
     activePlanningAbortController = null;
     queuedPlanOptions = null;
     cancelScheduledPrefetch();
+    cancelScheduledCachedCurrentPromotion();
   }
 
   function cancelScheduledPrefetch() {
@@ -835,6 +1019,13 @@ export function createStarOctreeProviderSession(createOptions) {
       cancel();
     }
     activePrefetchCancels.clear();
+  }
+
+  function cancelScheduledCachedCurrentPromotion() {
+    if (cachedCurrentPromotionTimeout) {
+      clearTimeout(cachedCurrentPromotionTimeout);
+      cachedCurrentPromotionTimeout = null;
+    }
   }
 
   function assertActive() {

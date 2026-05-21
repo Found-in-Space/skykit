@@ -153,6 +153,13 @@ function createProviderService(options, internals, sourceConfig = {}) {
           },
           /**
            * @param {StarOctreeDemandEntry[]} entries
+           * @param {Parameters<ReturnType<typeof createStarOctreePipeline>['readCachedCellsForEntries']>[1]} streamOptions
+           */
+          readCachedCells(entries, streamOptions) {
+            return pipeline.readCachedCellsForEntries(entries, streamOptions);
+          },
+          /**
+           * @param {StarOctreeDemandEntry[]} entries
            * @param {{ sessionId?: string; attributes?: string[]; emitCachedFirst?: boolean; signal?: AbortSignal }} [warmOptions]
            */
           warmEntries(entries, warmOptions) {
@@ -231,6 +238,11 @@ function createProviderService(options, internals, sourceConfig = {}) {
     async fetchCells(_options) {
       assertActive();
       return pipeline.fetchCells(_options);
+    },
+
+    async warmCells(_options) {
+      assertActive();
+      return pipeline.warmCells(_options);
     },
 
     dispose() {

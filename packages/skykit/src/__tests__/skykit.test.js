@@ -1646,6 +1646,32 @@ test('spatial preload hints map to star-octree requests without exposing provide
     assertStrategyBehavior(request.strategy);
   }
   assert.equal(requests[0].view, undefined);
+  assert.equal(
+    requests[0].strategy
+      .createEvaluator(requests[0].strategy.createAnchor({}))
+      .evaluateCell({
+        centerX: 5,
+        centerY: 0,
+        centerZ: 0,
+        halfSize: 1,
+        level: 1,
+        mortonCode: '0',
+      }).priority.lane,
+    'warm',
+  );
+  assert.equal(
+    requests[1].strategy
+      .createEvaluator(requests[1].strategy.createAnchor({}))
+      .evaluateCell({
+        centerX: 1,
+        centerY: 2,
+        centerZ: 3,
+        halfSize: 1,
+        level: 1,
+        mortonCode: '0',
+      }).priority.lane,
+    'warm',
+  );
   assert.equal(requests[2].view.observerPc.x, 0);
   assert.deepEqual(requests[2].view.motion.velocityPcPerSec, { x: 1, y: 0, z: 0 });
   assert.equal(requests[2].view.motion.speedPcPerSec, 1);

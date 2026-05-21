@@ -11,6 +11,7 @@ import {
   createObserverShellStrategy,
   createPathVolumeStrategy,
   createSphereVolumeStrategy,
+  createWarmStrategy,
 } from '@found-in-space/star-trees';
 
 import {
@@ -864,9 +865,12 @@ export function createSkykitStarPreloadRequestsFromSpatialHints(hints, options =
     if (!hint || typeof hint !== 'object') continue;
     if (hint.kind === 'path-volume' && hint.pointsPc.length >= 2 && hint.radiusPc > 0) {
       requests.push({
-        strategy: createPathVolumeStrategy({
+        strategy: createWarmStrategy(createPathVolumeStrategy({
           pointsPc: hint.pointsPc,
           radiusPc: hint.radiusPc,
+        }), {
+          reason: 'spatial-preload',
+          scoreBias: finiteNumber(hint.priority, 0),
         }),
         sourceHint: hint,
       });
@@ -874,9 +878,12 @@ export function createSkykitStarPreloadRequestsFromSpatialHints(hints, options =
     }
     if (hint.kind === 'sphere-volume' && hint.radiusPc > 0) {
       requests.push({
-        strategy: createSphereVolumeStrategy({
+        strategy: createWarmStrategy(createSphereVolumeStrategy({
           centerPc: hint.centerPc,
           radiusPc: hint.radiusPc,
+        }), {
+          reason: 'spatial-preload',
+          scoreBias: finiteNumber(hint.priority, 0),
         }),
         sourceHint: hint,
       });

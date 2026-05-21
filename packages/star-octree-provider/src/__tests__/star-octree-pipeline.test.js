@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { createStarCellKey } from '@found-in-space/star-trees';
 import { createStarOctreePipeline } from '../star-octree-pipeline.js';
 import { STAR_HAS_PAYLOAD } from '../star-octree-format.js';
 
@@ -78,6 +79,53 @@ test('streamCellsForEntries forwards planner priority to payload and decode sche
     [2, 9],
   );
   assert.equal(batches.flat().length, 2);
+});
+
+test('readCachedCellsForEntries materializes warmed decoded cells only for matching attributes', async () => {
+  const node = createRuntimeNode({
+    mortonCode: '7',
+    flags: STAR_HAS_PAYLOAD,
+    payloadOffset: 300,
+    payloadLength: 16,
+  });
+  let fetchCalls = 0;
+  const pipeline = createStarOctreePipeline({
+    providerId: 'provider-a',
+    indexSource: {
+      sourceIdentity: 'test-source',
+      persistentCacheAvailable: false,
+      fetchNodePayloadBatchProgressive(nodes, options = {}) {
+        fetchCalls += 1;
+        const entries = nodes.map((entryNode) => ({
+          node: entryNode,
+          buffer: createDecodedPayloadBuffer(),
+        }));
+        return Promise.resolve()
+          .then(() => options.onBatch?.(entries))
+          .then(() => entries);
+      },
+      getSnapshot() {
+        return {
+          datasetId: 'dataset-a',
+          stats: {},
+          cache: {},
+        };
+      },
+    },
+  });
+
+  await pipeline.warmEntries([{ node }], { attributes: ['position'] });
+  const cached = pipeline.readCachedCellsForEntries([{ node }], {
+    attributes: ['position'],
+  });
+  const wrongMask = pipeline.readCachedCellsForEntries([{ node }], {
+    attributes: ['position', 'magAbs'],
+  });
+
+  assert.equal(fetchCalls, 1);
+  assert.equal(cached.length, 1);
+  assert.equal(cached[0].cellKey, createStarCellKey(node));
+  assert.equal(wrongMask.length, 0);
 });
 
 function createDecodedPayloadBuffer() {

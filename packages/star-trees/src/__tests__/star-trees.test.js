@@ -16,6 +16,7 @@ import {
   createStarCellKey,
   createStarCellStore,
   createTargetFrustumStrategy,
+  createWarmStrategy,
   decodeMorton3D,
   decodeTemperatureK,
   encodeMorton3D,
@@ -53,6 +54,41 @@ test('createStarCellData builds typed cell arrays and metadata', () => {
   assert.equal(cell.pickMeta?.[1].cellKey, cell.cellKey);
   assert.equal(cell.pickMeta?.[1].gridZ, node.gridZ);
   assert.equal(estimateStarCellBytes(cell), 34);
+});
+
+test('warm strategy decorates arbitrary strategy decisions without changing selection', () => {
+  const base = {
+    createAnchor(view = {}) {
+      return { view };
+    },
+    createEvaluator(_anchor, context = {}) {
+      return {
+        evaluateCell(cell) {
+          return {
+            include: cell.level === 1,
+            descend: true,
+            emit: true,
+            priority: { lane: 'live', band: 2, score: 7 },
+            reasons: [`role:${context.role ?? 'none'}`],
+          };
+        },
+      };
+    },
+    diff(previous, _next, context = {}) {
+      return previous
+        ? { kind: 'none', reasons: ['same'] }
+        : { kind: 'reset', reason: context.reason ?? 'initial' };
+    },
+  };
+  const strategy = createWarmStrategy(base, { scoreBias: 3, reason: 'prewarm' });
+  const decision = strategy
+    .createEvaluator(strategy.createAnchor({ observerPc: { x: 0, y: 0, z: 0 } }))
+    .evaluateCell(createNode({ level: 1, gridX: 0, gridY: 0, gridZ: 0 }));
+
+  assert.equal(decision.include, true);
+  assert.deepEqual(decision.priority, { lane: 'warm', band: 2, score: 10 });
+  assert.deepEqual(decision.reasons, ['prewarm', 'role:prefetch']);
+  assert.equal(decision.metadata.warmLane, 'warm');
 });
 
 test('createStarCellData omits unrequested attributes', () => {

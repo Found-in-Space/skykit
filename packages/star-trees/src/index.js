@@ -14,6 +14,7 @@ export {
   createSphereVolumeStrategy,
   createStrategyForVolumeRequest,
   createTargetFrustumStrategy,
+  createWarmStrategy,
   distancePointToPathPc,
   distanceToCellAabbPc,
   evaluateStarCellStrategyChange,

@@ -81,17 +81,23 @@ interface StarOctreeProviderService {
   streamPayloads(request: StarOctreeDemandRequest): AsyncIterable<StarOctreePayloadEvent>;
   streamCells(request: StarOctreeCellStreamRequest): AsyncIterable<StarCellDelta>;
   fetchCells(request: StarOctreeCellStreamRequest): Promise<StarCellData[]>;
+  warmCells(request: StarOctreeCellStreamRequest): Promise<StarOctreeWarmCellsResult>;
   createSession(options: StarOctreeProviderSessionOptions): StarOctreeProviderSession;
-  snapshot(): StarOctreeProviderSnapshot;
+  getSnapshot(): StarOctreeProviderSnapshot;
   dispose(): void;
 }
 ```
 
 `ensureBootstrap()` and `streamPayloads()` are diagnostic/lower-level surfaces.
-Most consumers should use `streamCells()`, `fetchCells()`, or a session.
+Most consumers should use `streamCells()`, `fetchCells()`, `warmCells()`, or a
+session.
 
 `fetchCells()` is a convenience helper for finite requests. It consumes the cell
 stream and returns the decoded cells once the demand is current.
+
+`warmCells()` plans the same strategy request in the prefetch scheduler lane and
+warms index shards, payload bytes, and decoded payload caches without emitting
+visible cell deltas.
 
 ## Sessions
 
@@ -141,9 +147,9 @@ strategy names.
 
 The public strategy contract is object/function based. Bundled strategies such
 as observer-shell visibility, target-frustum visibility, sphere/path volume
-selection, lookahead warming, and composition are ordinary strategy
-implementations. Custom strategies are first-class strategy objects, not
-registry entries or new provider enum cases.
+selection, lookahead warming, warm-decorated strategies, and composition are
+ordinary strategy implementations. Custom strategies are first-class strategy
+objects, not registry entries or new provider enum cases.
 
 The alpha implementation follows this open strategy contract in `star-trees`,
 `star-octree-provider`, and SkyKit composition. Provider planning code should
@@ -225,11 +231,19 @@ best semantic priority from its contributors, keeps contributor metadata, and
 still presents the same interface to the planner. Composition is not a
 privileged planner mode.
 
+`createWarmStrategy(base)` also returns an ordinary strategy. It delegates
+selection to `base`, evaluates it with prefetch role context, and rewrites
+included demand into the `warm` lane. Applications can warm built-in or custom
+strategies, including app-owned shapes such as StarPilot's pizza slice, without
+adding provider cases.
+
 Preload, prewarm, and lookahead are lower-priority strategy demand, not a
 separate loading subsystem. A forward-lookahead strategy may evaluate a base
 strategy against predicted view states, optionally skipping a near-future
 blackout period to account for roundtrip and decode delay, then emit those cells
-in the `warm` lane.
+in the `warm` lane. Lookahead scoring favors cells that appear in more predicted
+samples, which biases fast movement toward cells likely to remain useful over
+one-frame churn.
 
 ## Coordinates And Identity
 
@@ -340,8 +354,10 @@ Implemented:
 - abort cancellation for superseded demand revisions
 - internal range batching split back into cell records
 - persistent source/cache reuse across sessions
-- current bundled observer-shell, frustum, sphere, path, lookahead, and
-  composition helpers, with open strategy/planner separation still pending
+- current bundled observer-shell, frustum, sphere, path, lookahead, warm
+  decorator, and composition helpers
+- provider-level `warmCells()` for prefetch-lane index, payload, and decoded
+  cache warming without visible cell emission
 
 Non-goals:
 

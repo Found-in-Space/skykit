@@ -247,6 +247,71 @@ export function createLookaheadStrategy(options) {
 }
 
 /**
+ * @param {import('./index.d.ts').StarCellStrategy} base
+ * @param {import('./index.d.ts').WarmStrategyOptions} [options]
+ */
+export function createWarmStrategy(base, options = {}) {
+  if (!base || typeof base.createAnchor !== 'function' || typeof base.createEvaluator !== 'function') {
+    throw new TypeError('createWarmStrategy() requires a strategy object.');
+  }
+  const lane = typeof options.lane === 'string' && options.lane
+    ? options.lane
+    : 'warm';
+  const reason = typeof options.reason === 'string' && options.reason
+    ? options.reason
+    : 'warm';
+  const band = Number.isFinite(options.band) ? Number(options.band) : null;
+  const scoreBias = Number.isFinite(options.scoreBias) ? Number(options.scoreBias) : 0;
+
+  return {
+    createAnchor(view = {}) {
+      return base.createAnchor(view);
+    },
+    createEvaluator(anchor, context = {}) {
+      const evaluator = base.createEvaluator(anchor, {
+        ...context,
+        role: 'prefetch',
+      });
+      return {
+        view: evaluator.view,
+        ...(typeof evaluator.distanceToCell === 'function'
+          ? { distanceToCell: (cell) => evaluator.distanceToCell(cell) }
+          : {}),
+        evaluateCell(cell, helpers = {}) {
+          const decision = evaluator.evaluateCell(cell, helpers);
+          return {
+            ...decision,
+            priority: warmDecisionPriority(decision.priority, {
+              lane,
+              band,
+              scoreBias,
+            }),
+            reasons: dedupe([reason, ...(decision.reasons ?? [])]),
+            contributors: Array.isArray(decision.contributors)
+              ? decision.contributors.map((contributor) => ({
+                  ...contributor,
+                  priority: warmDecisionPriority(contributor.priority, {
+                    lane,
+                    band,
+                    scoreBias,
+                  }),
+                }))
+              : decision.contributors,
+            metadata: {
+              ...(decision.metadata ?? {}),
+              warmLane: lane,
+            },
+          };
+        },
+      };
+    },
+    diff(previous, next, context = {}) {
+      return base.diff(previous, next, context);
+    },
+  };
+}
+
+/**
  * @param {import('./index.d.ts').StarCellStrategy[]} strategies
  */
 export function combineStrategies(strategies) {
@@ -416,6 +481,19 @@ function warmPriority(band, score) {
     lane: 'warm',
     band,
     score: Number.isFinite(score) ? score : 0,
+  };
+}
+
+/**
+ * @param {import('./index.d.ts').StarCellPriority | undefined} priority
+ * @param {{ lane: string; band: number | null; scoreBias: number }} options
+ * @returns {import('./index.d.ts').StarCellPriority}
+ */
+function warmDecisionPriority(priority, options) {
+  return {
+    lane: options.lane,
+    band: options.band ?? priority?.band ?? 0,
+    score: (Number.isFinite(priority?.score) ? Number(priority.score) : 0) + options.scoreBias,
   };
 }
 

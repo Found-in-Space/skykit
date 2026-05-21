@@ -72,7 +72,9 @@ export function createStarOctreePipeline(options) {
     streamCells,
     inspectDemand,
     streamCellsForEntries,
+    readCachedCellsForEntries,
     warmEntries,
+    warmCells,
     fetchCells,
   };
 
@@ -88,13 +90,15 @@ export function createStarOctreePipeline(options) {
 
   /**
    * @param {StarOctreeSelectionContext} context
+   * @param {{ traversalLane?: import('./star-octree-scheduler.js').StarOctreeSchedulerLane }} [planOptions]
    * @returns {Promise<StarOctreeDemandPlan>}
    */
-  async function planDemandForContext(context) {
-    const enrichedContext = withTraversalContext(context, 'current');
+  async function planDemandForContext(context, planOptions = {}) {
+    const traversalLane = planOptions.traversalLane ?? 'current';
+    const enrichedContext = withTraversalContext(context, traversalLane);
     return scheduleWork({
       kind: 'traversal',
-      lane: 'current',
+      lane: traversalLane,
       signal: context.signal,
     }, () => planStarOctreeStrategyDemand({
       indexSource: options.indexSource,
@@ -110,9 +114,9 @@ export function createStarOctreePipeline(options) {
    *   demandRevision?: number;
    * }} extras
    */
-  async function planDemandForStreamOptions(streamOptions, extras = {}) {
+  async function planDemandForStreamOptions(streamOptions, extras = {}, planOptions = {}) {
     const context = createSelectionContext(options.providerId, streamOptions, extras);
-    const plan = await planDemandForContext(context);
+    const plan = await planDemandForContext(context, planOptions);
     return { context, plan };
   }
 
@@ -123,49 +127,11 @@ export function createStarOctreePipeline(options) {
   async function inspectDemand(streamOptions = {}) {
     const streamId = streamOptions.id ?? createStreamId('inspect');
     const { context, plan } = await planDemandForStreamOptions(streamOptions);
-    const entries = plan.entries;
-    const levels = entries.map((entry) => entry.node.level);
-    const currentEntries = entries.filter((entry) => (entry.role ?? 'current') === 'current');
-    const prefetchEntries = entries.filter((entry) => entry.role === 'prefetch');
-    const payloadEntries = entries.filter((entry) => entry.node.payloadLength > 0);
-
-    return {
-      providerId: options.providerId,
+    return createDemandInspection({
       streamId,
-      strategy: context.strategy,
-      view: context.view,
-      reasons: plan.reasons ?? [],
-      signature: plan.signature,
-      metadata: plan.metadata,
-      counts: {
-        nodeCount: entries.length,
-        currentNodeCount: currentEntries.length,
-        prefetchNodeCount: prefetchEntries.length,
-        payloadNodeCount: payloadEntries.length,
-        totalPayloadBytes: payloadEntries.reduce(
-          (sum, entry) => sum + entry.node.payloadLength,
-          0,
-        ),
-        minLevel: levels.length ? Math.min(...levels) : null,
-        maxLevel: levels.length ? Math.max(...levels) : null,
-      },
-      nodes: entries.map((entry) => ({
-        level: entry.node.level,
-        mortonCode: entry.node.mortonCode,
-        centerPc: {
-          x: entry.node.centerX,
-          y: entry.node.centerY,
-          z: entry.node.centerZ,
-        },
-        halfSizePc: entry.node.halfSize,
-        payloadBytes: entry.node.payloadLength,
-        role: entry.role ?? 'current',
-        priority: entry.priority,
-        relevance: entry.relevance,
-        reasons: entry.reasons,
-        metadata: entry.metadata,
-      })),
-    };
+      context,
+      plan,
+    });
   }
 
   /**
@@ -411,6 +377,52 @@ export function createStarOctreePipeline(options) {
   }
 
   /**
+   * Materialize cells that already have decoded payloads in memory.
+   *
+   * @param {StarOctreeDemandEntry[]} entries
+   * @param {{
+   *   attributes?: string[];
+   *   coordinates?: StarOctreeCoordinateOutput;
+   *   memoryOwnership?: 'borrowed' | 'copy' | 'transfer';
+   * }} [cellOptions]
+   * @returns {StarCellData[]}
+   */
+  function readCachedCellsForEntries(entries, cellOptions = {}) {
+    const attributes = normalizeCellAttributes(cellOptions.attributes);
+    const decodeContext = createDecodeContext(attributes);
+    /** @type {StarCellData[]} */
+    const cells = [];
+
+    for (const entry of entries) {
+      if ((entry.role ?? 'current') !== 'current' || entry.node.payloadLength <= 0) {
+        continue;
+      }
+      const cacheKey = decodedCache.createKey(
+        entry.node,
+        decodeContext.datasetId,
+        decodeContext.attributeMask,
+      );
+      const decoded = decodedCache.peek(
+        cacheKey,
+        entry.node,
+        decodeContext.datasetId,
+        decodeContext.attributeMask,
+      );
+      if (!decoded) continue;
+      cells.push(createCell({
+        node: entry.node,
+        decoded,
+      }, {
+        ...cellOptions,
+        attributes,
+        datasetId: decodeContext.datasetId,
+      }));
+    }
+
+    return cells;
+  }
+
+  /**
    * Warm payload and decoded caches for entries without emitting cells.
    *
    * @param {StarOctreeDemandEntry[]} entries
@@ -423,8 +435,10 @@ export function createStarOctreePipeline(options) {
       .filter((entry) => entry.node.payloadLength > 0)
       .map((entry) => entry.node);
     const priorityByNode = createPriorityByNode(entries);
+    let decodedStarCount = 0;
+    let warmedNodeCount = 0;
     if (nodes.length === 0) {
-      return;
+      return { nodeCount: 0, warmedNodeCount: 0, decodedStarCount: 0 };
     }
 
     const work = options.workTracker?.start({
@@ -443,7 +457,7 @@ export function createStarOctreePipeline(options) {
         async onBatch(payloadEntries) {
           throwIfAborted(warmOptions.signal);
           work?.update({ status: 'decoding' });
-          await Promise.all(
+          const decoded = await Promise.all(
             payloadEntries.map((entry) =>
               scheduleDecode(entry.node, entry.buffer, {
                 ...decodeContext,
@@ -453,17 +467,59 @@ export function createStarOctreePipeline(options) {
               }),
             ),
           );
+          warmedNodeCount += payloadEntries.length;
+          decodedStarCount += decoded.reduce((sum, segment) => sum + (segment?.count ?? 0), 0);
         },
       });
       work?.finish();
+      return {
+        nodeCount: nodes.length,
+        warmedNodeCount,
+        decodedStarCount,
+      };
     } catch (error) {
       if (isAbortError(error)) {
         work?.finish();
-        return;
+        return {
+          nodeCount: nodes.length,
+          warmedNodeCount,
+          decodedStarCount,
+        };
       }
       work?.fail();
       throw error;
     }
+  }
+
+  /**
+   * Plan a request in the prefetch lane and warm payload/decoded caches without emitting cells.
+   *
+   * @param {StarOctreeCellStreamOptions} streamOptions
+   * @returns {Promise<import('./index.js').StarOctreeWarmCellsResult>}
+   */
+  async function warmCells(streamOptions = {}) {
+    const streamId = streamOptions.id ?? createStreamId('warm');
+    const { context, plan } = await planDemandForStreamOptions(
+      streamOptions,
+      {},
+      { traversalLane: 'prefetch' },
+    );
+    const warmResult = await warmEntries(plan.entries, {
+      sessionId: streamOptions.sessionId,
+      attributes: streamOptions.attributes,
+      emitCachedFirst: streamOptions.streaming?.emitCachedFirst ?? true,
+      signal: streamOptions.signal,
+    });
+
+    return {
+      ...createDemandInspection({
+        streamId,
+        context,
+        plan,
+      }),
+      warmedNodeCount: warmResult?.warmedNodeCount ?? 0,
+      decodedStarCount: warmResult?.decodedStarCount ?? 0,
+    };
   }
 
   /**
@@ -702,6 +758,60 @@ export function createStarOctreePipeline(options) {
     }
     return options.scheduler.schedule(request, task).promise;
   }
+}
+
+/**
+ * @param {{
+ *   streamId?: string;
+ *   context: StarOctreeSelectionContext;
+ *   plan: StarOctreeDemandPlan;
+ * }} options
+ * @returns {StarOctreeDemandInspection}
+ */
+function createDemandInspection(options) {
+  const entries = options.plan.entries;
+  const levels = entries.map((entry) => entry.node.level);
+  const currentEntries = entries.filter((entry) => (entry.role ?? 'current') === 'current');
+  const prefetchEntries = entries.filter((entry) => entry.role === 'prefetch');
+  const payloadEntries = entries.filter((entry) => entry.node.payloadLength > 0);
+
+  return {
+    providerId: options.context.providerId,
+    streamId: options.streamId,
+    strategy: options.context.strategy,
+    view: options.context.view,
+    reasons: options.plan.reasons ?? [],
+    signature: options.plan.signature,
+    metadata: options.plan.metadata,
+    counts: {
+      nodeCount: entries.length,
+      currentNodeCount: currentEntries.length,
+      prefetchNodeCount: prefetchEntries.length,
+      payloadNodeCount: payloadEntries.length,
+      totalPayloadBytes: payloadEntries.reduce(
+        (sum, entry) => sum + entry.node.payloadLength,
+        0,
+      ),
+      minLevel: levels.length ? Math.min(...levels) : null,
+      maxLevel: levels.length ? Math.max(...levels) : null,
+    },
+    nodes: entries.map((entry) => ({
+      level: entry.node.level,
+      mortonCode: entry.node.mortonCode,
+      centerPc: {
+        x: entry.node.centerX,
+        y: entry.node.centerY,
+        z: entry.node.centerZ,
+      },
+      halfSizePc: entry.node.halfSize,
+      payloadBytes: entry.node.payloadLength,
+      role: entry.role ?? 'current',
+      priority: entry.priority,
+      relevance: entry.relevance,
+      reasons: entry.reasons,
+      metadata: entry.metadata,
+    })),
+  };
 }
 
 function createCellMemoryStats() {

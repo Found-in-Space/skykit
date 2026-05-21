@@ -85,6 +85,13 @@ export interface LookaheadStrategyOptions {
   blackoutSecs?: number;
 }
 
+export interface WarmStrategyOptions {
+  lane?: StarCellPriorityLane;
+  band?: number;
+  scoreBias?: number;
+  reason?: string;
+}
+
 export interface StarTreeSphereVolumeRequest {
   type: 'sphere';
   centerPc: StarTreePointPc;
@@ -382,6 +389,11 @@ export declare function createPathVolumeStrategy(
 
 export declare function createLookaheadStrategy(
   options: LookaheadStrategyOptions
+): StarCellStrategy;
+
+export declare function createWarmStrategy(
+  base: StarCellStrategy,
+  options?: WarmStrategyOptions
 ): StarCellStrategy;
 
 export declare function combineStrategies(

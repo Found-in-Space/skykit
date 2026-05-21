@@ -334,6 +334,10 @@ export interface StarOctreeSessionSnapshot {
     currentCellCount: number;
     inFlightCellCount?: number;
     activeWorkItemCount: number;
+    cachedCurrentCellHitCount?: number;
+    coldCurrentCellLoadCount?: number;
+    staleCurrentLoadAbortCount?: number;
+    staleCurrentCellDropCount?: number;
   };
   cells: Array<{
     cellKey: StarCellKey;
@@ -507,6 +511,11 @@ export interface StarOctreeDemandInspection {
   }>;
 }
 
+export interface StarOctreeWarmCellsResult extends StarOctreeDemandInspection {
+  warmedNodeCount: number;
+  decodedStarCount: number;
+}
+
 export interface StarOctreePayloadStreamOptions {
   id?: string;
   strategy?: StarCellStrategy;
@@ -549,13 +558,16 @@ export interface StarOctreeProviderService {
   fetchCells(
     options: StarOctreeCellStreamOptions
   ): Promise<StarCellData[]>;
+  warmCells(
+    options: StarOctreeCellStreamOptions
+  ): Promise<StarOctreeWarmCellsResult>;
   dispose(): void | Promise<void>;
 }
 
 export interface WarmVolumeProgress {
   request: StarTreeVolumeRequest;
   requestIndex: number;
-  delta: StarOctreeCellDelta;
+  result: StarOctreeWarmCellsResult;
 }
 
 export interface WarmVolumeResult {

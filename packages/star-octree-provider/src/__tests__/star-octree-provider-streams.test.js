@@ -179,6 +179,37 @@ test('fetchCells returns decoded cell records', async () => {
   }
 });
 
+test('warmCells warms index, payload, and decoded caches without cell emission', async () => {
+  const fixture = createObjectStreamFixture();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fixture.fileBytes, []);
+
+  try {
+    const provider = createStarOctreeProviderService({
+      id: 'provider-a',
+      url: 'memory://stars.octree',
+    });
+    const result = await provider.warmCells({
+      view: { observerPc: { x: 0, y: 0, z: 0 }, limitingMagnitude: 6.5 },
+      attributes: ['position', 'teffLog8', 'magAbs'],
+    });
+    const snapshot = provider.getSnapshot();
+
+    assert.equal(result.counts.payloadNodeCount, 2);
+    assert.equal(result.warmedNodeCount, 2);
+    assert.equal(result.decodedStarCount, 3);
+    assert.equal(snapshot.dataset.bootstrapReady, true);
+    assert.equal(snapshot.dataset.rootShardReady, true);
+    assert.equal(snapshot.cache.payloads, 2);
+    assert.equal(snapshot.cache.decodedPayloads, 2);
+    assert.equal(snapshot.stats.decodedCacheWritesByMask['p+t+m'], 2);
+    assert.equal(snapshot.stats.cellBorrowedBytes, 0);
+    assert.equal(snapshot.scheduler.stats.startedByLane.prefetch > 0, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('streamCells applies coordinate transforms per cell', async () => {
   const fixture = createObjectStreamFixture();
   const originalFetch = globalThis.fetch;

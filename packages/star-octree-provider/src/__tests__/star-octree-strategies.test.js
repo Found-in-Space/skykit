@@ -9,6 +9,7 @@ import {
   createPathVolumeStrategy,
   createSphereVolumeStrategy,
   createTargetFrustumStrategy,
+  createWarmStrategy,
   distancePointToPathPc,
   createStarCellKey,
 } from '@found-in-space/star-trees';
@@ -32,6 +33,7 @@ test('star-tree strategy factories create first-class behavior values', () => {
       horizonSecs: 1,
       tickSecs: 1,
     }),
+    createWarmStrategy(createSphereVolumeStrategy({ centerPc: { x: 0, y: 0, z: 0 }, radiusPc: 2 })),
     combineStrategies([createObserverShellStrategy()]),
   ];
 
@@ -229,6 +231,47 @@ test('warm lookahead demand never replaces live demand', async () => {
   assert.equal(plan.entries[1].metadata.semanticPriority.lane, 'warm');
 });
 
+test('warm strategy wraps custom demand as prefetch without provider registration', async () => {
+  const strategy = createWarmStrategy({
+    createAnchor(view = {}) {
+      return { view };
+    },
+    createEvaluator() {
+      return {
+        evaluateCell(cell) {
+          const include = cell.nodeKey === 'custom-warm';
+          return {
+            include,
+            descend: include,
+            emit: include,
+            priority: { lane: 'live', band: 0, score: 12 },
+            reasons: ['custom-warm-test'],
+          };
+        },
+      };
+    },
+    diff(previous, _next, context = {}) {
+      return previous
+        ? { kind: 'none', reasons: ['custom-warm-unchanged'] }
+        : { kind: 'reset', reason: context.reason ?? 'initial' };
+    },
+  });
+  const plan = await planStarOctreeStrategyDemand({
+    indexSource: {},
+    context: createSelectionContext(strategy, [
+      createNode({ nodeKey: 'ignored', mortonCode: 1 }),
+      createNode({ nodeKey: 'custom-warm', mortonCode: 2 }),
+    ]),
+  });
+
+  assert.deepEqual(
+    plan.entries.map((entry) => [entry.node.nodeKey, entry.role]),
+    [['custom-warm', 'prefetch']],
+  );
+  assert.equal(plan.entries[0].metadata.semanticPriority.lane, 'warm');
+  assert.equal(plan.signature, '');
+});
+
 test('streamVolumeCells passes a built-in volume strategy to the provider', async () => {
   let receivedStrategy = null;
   const provider = {
@@ -252,18 +295,31 @@ test('streamVolumeCells passes a built-in volume strategy to the provider', asyn
   assert.equal(deltas[0].type, 'stars/current');
 });
 
-test('warmVolumeRequests consumes streams and reports progress with cells', async () => {
+test('warmVolumeRequests warms provider caches without emitting cells', async () => {
   const progress = [];
+  let receivedStrategy = null;
   const provider = {
-    streamCells() {
-      return [
-        {
-          type: 'stars/cells-upsert',
-          providerId: 'provider-a',
-          cells: [{ count: 2, cellKey: '0:0' }],
+    async warmCells(options) {
+      receivedStrategy = options.strategy;
+      return {
+        providerId: 'provider-a',
+        streamId: options.id,
+        strategy: options.strategy,
+        view: { revision: 1 },
+        reasons: ['sphere-volume'],
+        counts: {
+          nodeCount: 1,
+          currentNodeCount: 1,
+          prefetchNodeCount: 0,
+          payloadNodeCount: 1,
+          totalPayloadBytes: 16,
+          minLevel: 1,
+          maxLevel: 1,
         },
-        createCurrentDelta(),
-      ];
+        nodes: [],
+        warmedNodeCount: 1,
+        decodedStarCount: 2,
+      };
     },
   };
 
@@ -275,17 +331,18 @@ test('warmVolumeRequests consumes streams and reports progress with cells', asyn
     },
   ], {
     onProgress(event) {
-      progress.push(event.delta.type);
+      progress.push(event.result.warmedNodeCount);
     },
   });
 
+  assert.equal(typeof receivedStrategy.createEvaluator, 'function');
   assert.deepEqual(result, {
     requestCount: 1,
     cellCount: 1,
     starCount: 2,
     currentCount: 1,
   });
-  assert.deepEqual(progress, ['stars/cells-upsert', 'stars/current']);
+  assert.deepEqual(progress, [1]);
 });
 
 function createCurrentDelta() {
@@ -401,4 +458,5 @@ const TEST_MORTON_CODES = {
   'node-b': 2,
   'current-node': 1,
   'future-node': 2,
+  'custom-warm': 2,
 };

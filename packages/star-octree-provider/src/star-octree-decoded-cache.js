@@ -64,11 +64,7 @@ export function createDecodedPayloadCache(options) {
     async get(key, node, datasetId = options.datasetId, attributeMask = DEFAULT_ATTRIBUTE_MASK) {
       const entry = memory.get(key);
       if (entry) {
-        hits += 1;
-        incrementCounter(hitsByMask, attributeMask);
-        clock += 1;
-        entry.lastUsed = clock;
-        return entry.segment;
+        return recordMemoryHit(entry, attributeMask);
       }
 
       const persistent = await readPersistent(key, node, datasetId);
@@ -82,6 +78,21 @@ export function createDecodedPayloadCache(options) {
       misses += 1;
       incrementCounter(missesByMask, attributeMask);
       return null;
+    },
+
+    /**
+     * Memory-only lookup for hot promotion paths. This intentionally avoids
+     * persistent cache reads so current-demand reconciliation stays synchronous.
+     *
+     * @param {string} key
+     * @param {StarOctreeRuntimeNode} [_node]
+     * @param {string | null | undefined} [_datasetId]
+     * @param {string} [attributeMask]
+     * @returns {DecodedStarSegment | null}
+     */
+    peek(key, _node, _datasetId = options.datasetId, attributeMask = DEFAULT_ATTRIBUTE_MASK) {
+      const entry = memory.get(key);
+      return entry ? recordMemoryHit(entry, attributeMask) : null;
     },
 
     set,
@@ -127,6 +138,18 @@ export function createDecodedPayloadCache(options) {
     incrementCounter(writesByMask, attributeMask);
     evictToBudget();
     void writePersistent(key, segment).catch(() => {});
+  }
+
+  /**
+   * @param {{ segment: DecodedStarSegment; bytes: number; lastUsed: number }} entry
+   * @param {string} attributeMask
+   */
+  function recordMemoryHit(entry, attributeMask) {
+    hits += 1;
+    incrementCounter(hitsByMask, attributeMask);
+    clock += 1;
+    entry.lastUsed = clock;
+    return entry.segment;
   }
 
   function evictToBudget() {
