@@ -16,6 +16,7 @@ export const DEFAULT_JOURNEY_SCENARIOS = Object.freeze([
     setup: [
       { click: '[data-cluster-fly="hyades"]', settleMs: 7_000 },
     ],
+    setupVisibilityTimeoutMs: 10_000,
     measureClick: '[data-cluster-fly="omega-cen"]',
     travelWindowMs: 9_000,
     sampleDurationMs: 12_000,
@@ -30,6 +31,7 @@ export const DEFAULT_JOURNEY_SCENARIOS = Object.freeze([
     setup: [
       { click: '[data-step-fly="ngc-752"]', settleMs: 8_000 },
     ],
+    setupVisibilityTimeoutMs: 12_000,
     measureClick: '[data-step-fly="omega-cen"]',
     travelWindowMs: 15_000,
     sampleDurationMs: 20_000,
@@ -142,11 +144,21 @@ export function summarizeJourneyRecords(records) {
         target: String(first.target ?? ''),
         journey: String(first.journey ?? ''),
         scenario: String(first.scenario ?? ''),
+        healthyRunRatio: summarizeNumbers(group.values.map((record) => Number(record.health?.healthy === true ? 1 : 0))),
+        setupVisibleRatio: summarizeNumbers(group.values.map((record) => Number(record.health?.setupVisible === true ? 1 : 0))),
+        measuredVisibleRatio: summarizeNumbers(group.values.map((record) => Number(record.health?.measuredHasVisible === true ? 1 : 0))),
+        debugAvailableRatio: summarizeNumbers(group.values.map((record) => Number(record.health?.debugAvailable === true ? 1 : 0))),
+        canvasAvailableRatio: summarizeNumbers(group.values.map((record) => Number(record.health?.canvasAvailable === true ? 1 : 0))),
+        sampleCoverageRatio: summarizeNumbers(group.values.map((record) => Number(record.health?.sampleCoverageRatio ?? 0))),
+        sampleCount: summarizeNumbers(group.values.map((record) => Number(record.sampleCount ?? 0))),
         timeToFirstVisibleMs: summarizeNumbers(group.values.map((record) => Number(record.timeToFirstVisibleMs ?? 0))),
         blankTravelRatio: summarizeNumbers(group.values.map((record) => Number(record.blankTravelRatio ?? 0))),
         visibleTravelRatio: summarizeNumbers(group.values.map((record) => Number(record.visibleTravelRatio ?? 0))),
         arrivalVisible: summarizeNumbers(group.values.map((record) => Number(record.arrivalVisible === true ? 1 : 0))),
         arrivalStarCount: summarizeNumbers(group.values.map((record) => Number(record.arrivalStarCount ?? 0))),
+        arrivalCellCount: summarizeNumbers(group.values.map((record) => Number(record.arrivalCellCount ?? 0))),
+        arrivalDesiredCells: summarizeNumbers(group.values.map((record) => Number(record.arrivalDesiredCellCount ?? 0))),
+        arrivalCurrentCells: summarizeNumbers(group.values.map((record) => Number(record.arrivalCurrentCellCount ?? 0))),
         arrivalActiveWorkItems: summarizeNumbers(group.values.map((record) => Number(record.arrivalActiveWorkItemCount ?? 0))),
         arrivalInFlightCells: summarizeNumbers(group.values.map((record) => Number(record.arrivalInFlightCellCount ?? 0))),
         arrivalCurrentDesiredRatio: summarizeNumbers(group.values.map((record) => Number(record.arrivalCurrentDesiredRatio ?? 0))),
@@ -155,9 +167,16 @@ export function summarizeJourneyRecords(records) {
         arrivalColdCurrentCellLoads: summarizeNumbers(group.values.map((record) => Number(record.arrivalColdCurrentCellLoadCount ?? 0))),
         arrivalStaleCurrentLoadAborts: summarizeNumbers(group.values.map((record) => Number(record.arrivalStaleCurrentLoadAbortCount ?? 0))),
         arrivalStaleCurrentCellDrops: summarizeNumbers(group.values.map((record) => Number(record.arrivalStaleCurrentCellDropCount ?? 0))),
+        finalStarCount: summarizeNumbers(group.values.map((record) => Number(record.finalStarCount ?? 0))),
+        finalCellCount: summarizeNumbers(group.values.map((record) => Number(record.finalCellCount ?? 0))),
+        finalDesiredCells: summarizeNumbers(group.values.map((record) => Number(record.finalDesiredCellCount ?? 0))),
+        finalCurrentCells: summarizeNumbers(group.values.map((record) => Number(record.finalCurrentCellCount ?? 0))),
+        finalInFlightCells: summarizeNumbers(group.values.map((record) => Number(record.finalInFlightCellCount ?? 0))),
+        finalActiveWorkItems: summarizeNumbers(group.values.map((record) => Number(record.finalActiveWorkItemCount ?? 0))),
         finalCurrentDesiredRatio: summarizeNumbers(group.values.map((record) => Number(record.finalCurrentDesiredRatio ?? 0))),
         finalInFlightDesiredRatio: summarizeNumbers(group.values.map((record) => Number(record.finalInFlightDesiredRatio ?? 0))),
         finalCachedCurrentCellHits: summarizeNumbers(group.values.map((record) => Number(record.finalCachedCurrentCellHitCount ?? 0))),
+        finalColdCurrentCellLoads: summarizeNumbers(group.values.map((record) => Number(record.finalColdCurrentCellLoadCount ?? 0))),
         finalStaleCurrentLoadAborts: summarizeNumbers(group.values.map((record) => Number(record.finalStaleCurrentLoadAbortCount ?? 0))),
         finalStaleCurrentCellDrops: summarizeNumbers(group.values.map((record) => Number(record.finalStaleCurrentCellDropCount ?? 0))),
         resourceCount: summarizeNumbers(group.values.map((record) => Number(record.resourceCount ?? 0))),
@@ -179,6 +198,7 @@ export function summarizeJourneyRecords(records) {
  *   frames?: Array<{ deltaMs?: number }>;
  *   longTasks?: Array<{ duration?: number }>;
  *   visibility?: typeof DEFAULT_VISIBILITY_THRESHOLDS;
+ *   preMeasureSample?: JourneySample | null;
  * }} [options]
  */
 export function computeJourneyRecordMetrics(samples, scenario, options = {}) {
@@ -186,10 +206,7 @@ export function computeJourneyRecordMetrics(samples, scenario, options = {}) {
     ...DEFAULT_VISIBILITY_THRESHOLDS,
     ...(options.visibility ?? {}),
   };
-  const visibleSamples = samples.map((sample) => ({
-    ...sample,
-    visible: isSampleVisible(sample, visibility),
-  }));
+  const visibleSamples = annotateVisibleSamples(samples, visibility);
   const travelSamples = visibleSamples.filter((sample) => sample.elapsedMs <= scenario.travelWindowMs);
   const firstVisible = visibleSamples.find((sample) => sample.visible);
   const arrivalSample = findClosestSample(visibleSamples, scenario.travelWindowMs);
@@ -207,8 +224,13 @@ export function computeJourneyRecordMetrics(samples, scenario, options = {}) {
     blankTravelRatio: round(blankTravelCount / travelCount, 4),
     visibleTravelRatio: round(visibleTravelCount / travelCount, 4),
     blankTravelSampleCount: blankTravelCount,
+    milestones: createJourneyMilestoneSamples(samples, scenario, {
+      preMeasureSample: options.preMeasureSample ?? null,
+      visibility,
+    }),
     arrivalVisible: arrivalSample?.visible ?? false,
     arrivalStarCount: arrivalSample?.debug?.starCount ?? null,
+    arrivalCellCount: arrivalSample?.debug?.cellCount ?? null,
     arrivalLitPixelRatio: arrivalSample?.canvas?.litPixelRatio ?? null,
     arrivalActiveWorkItemCount: arrivalSample?.debug?.activeWorkItemCount ?? null,
     arrivalInFlightCellCount: arrivalSample?.debug?.inFlightCellCount ?? null,
@@ -226,8 +248,13 @@ export function computeJourneyRecordMetrics(samples, scenario, options = {}) {
     arrivalColdCurrentCellLoadCount: arrivalSample?.debug?.coldCurrentCellLoadCount ?? null,
     arrivalStaleCurrentLoadAbortCount: arrivalSample?.debug?.staleCurrentLoadAbortCount ?? null,
     arrivalStaleCurrentCellDropCount: arrivalSample?.debug?.staleCurrentCellDropCount ?? null,
+    arrivalDecodedCacheLeasedPayloads: arrivalSample?.debug?.decodedCacheLeasedPayloads ?? null,
+    arrivalDecodedCacheLeasedPayloadBytes: arrivalSample?.debug?.decodedCacheLeasedPayloadBytes ?? null,
+    arrivalDecodedCacheActiveLeases: arrivalSample?.debug?.decodedCacheActiveLeases ?? null,
+    arrivalDecodedCacheLeasePressureBytes: arrivalSample?.debug?.decodedCacheLeasePressureBytes ?? null,
     finalVisible: finalSample?.visible ?? false,
     finalStarCount: finalSample?.debug?.starCount ?? null,
+    finalCellCount: finalSample?.debug?.cellCount ?? null,
     finalActiveWorkItemCount: finalSample?.debug?.activeWorkItemCount ?? null,
     finalInFlightCellCount: finalSample?.debug?.inFlightCellCount ?? null,
     finalDesiredCellCount: finalSample?.debug?.desiredCellCount ?? null,
@@ -244,11 +271,110 @@ export function computeJourneyRecordMetrics(samples, scenario, options = {}) {
     finalColdCurrentCellLoadCount: finalSample?.debug?.coldCurrentCellLoadCount ?? null,
     finalStaleCurrentLoadAbortCount: finalSample?.debug?.staleCurrentLoadAbortCount ?? null,
     finalStaleCurrentCellDropCount: finalSample?.debug?.staleCurrentCellDropCount ?? null,
+    finalDecodedCacheLeasedPayloads: finalSample?.debug?.decodedCacheLeasedPayloads ?? null,
+    finalDecodedCacheLeasedPayloadBytes: finalSample?.debug?.decodedCacheLeasedPayloadBytes ?? null,
+    finalDecodedCacheActiveLeases: finalSample?.debug?.decodedCacheActiveLeases ?? null,
+    finalDecodedCacheLeasePressureBytes: finalSample?.debug?.decodedCacheLeasePressureBytes ?? null,
     resourceCount: resources.length,
     resourceDurationMs: round(resources.reduce((sum, resource) => sum + Number(resource.duration ?? 0), 0)),
     frameBudgetMisses: frames.filter((frame) => Number(frame.deltaMs ?? 0) > 24).length,
     longTaskCount: longTasks.length,
     longTaskDurationMs: round(longTasks.reduce((sum, task) => sum + Number(task.duration ?? 0), 0)),
+  };
+}
+
+/**
+ * @param {Array<JourneySample>} samples
+ * @param {{
+ *   travelWindowMs: number;
+ *   sampleDurationMs: number;
+ * }} scenario
+ * @param {{
+ *   preMeasureSample?: JourneySample | null;
+ *   visibility?: typeof DEFAULT_VISIBILITY_THRESHOLDS;
+ * }} [options]
+ */
+export function createJourneyMilestoneSamples(samples, scenario, options = {}) {
+  const visibility = {
+    ...DEFAULT_VISIBILITY_THRESHOLDS,
+    ...(options.visibility ?? {}),
+  };
+  const visibleSamples = annotateVisibleSamples(samples, visibility);
+  return {
+    beforeMeasure: summarizeJourneySample(
+      options.preMeasureSample
+        ? {
+            ...options.preMeasureSample,
+            visible: isSampleVisible(options.preMeasureSample, visibility),
+          }
+        : null,
+    ),
+    afterClick: summarizeJourneySample(visibleSamples[0] ?? null),
+    midTravel: summarizeJourneySample(findClosestSample(visibleSamples, scenario.travelWindowMs / 2)),
+    arrival: summarizeJourneySample(findClosestSample(visibleSamples, scenario.travelWindowMs)),
+    finalSettle: summarizeJourneySample(visibleSamples.at(-1) ?? null),
+  };
+}
+
+/**
+ * @param {{
+ *   browserErrors?: string[];
+ *   setupSample?: JourneySample | null;
+ *   samples?: JourneySample[];
+ *   scenario?: Partial<(typeof DEFAULT_JOURNEY_SCENARIOS)[number]>;
+ *   visibility?: typeof DEFAULT_VISIBILITY_THRESHOLDS;
+ * }} [options]
+ */
+export function computeJourneyRecordHealth(options = {}) {
+  const visibility = {
+    ...DEFAULT_VISIBILITY_THRESHOLDS,
+    ...(options.visibility ?? {}),
+  };
+  const samples = options.samples ?? [];
+  const allSamples = [
+    ...(options.setupSample ? [options.setupSample] : []),
+    ...samples,
+  ];
+  const visibleSamples = annotateVisibleSamples(samples, visibility);
+  const setupVisible = options.setupSample
+    ? isSampleVisible(options.setupSample, visibility)
+    : false;
+  const measuredHasVisible = visibleSamples.some((sample) => sample.visible);
+  const canvasAvailable = allSamples.some((sample) =>
+    sample?.canvas?.available === true || sample?.screenshot?.available === true
+  );
+  const debugAvailable = allSamples.some((sample) => sample?.debug?.available === true);
+  const browserErrors = options.browserErrors ?? [];
+  const expectedSampleCount = computeExpectedSampleCount(options.scenario);
+  const sampleCoverageRatio = expectedSampleCount > 0
+    ? round(samples.length / expectedSampleCount, 4)
+    : null;
+  const reasons = [];
+  const warnings = [];
+
+  if (browserErrors.length > 0) reasons.push('page-errors');
+  if (!canvasAvailable) reasons.push('missing-canvas-samples');
+  if (samples.length === 0) reasons.push('missing-measurement-samples');
+  if (expectedSampleCount > 0 && samples.length < Math.max(1, Math.floor(expectedSampleCount * 0.75))) {
+    warnings.push('low-sample-coverage');
+  }
+  if (!setupVisible) reasons.push('setup-not-visible');
+  if (options.scenario?.journey === 'star-clusters' && !measuredHasVisible) {
+    reasons.push('cluster-measured-blank');
+  }
+
+  return {
+    healthy: reasons.length === 0,
+    reasons,
+    warnings,
+    browserErrorCount: browserErrors.length,
+    canvasAvailable,
+    debugAvailable,
+    setupVisible,
+    measuredHasVisible,
+    sampleCount: samples.length,
+    expectedSampleCount,
+    sampleCoverageRatio,
   };
 }
 
@@ -265,7 +391,9 @@ export function computeJourneyRecordMetrics(samples, scenario, options = {}) {
  *     maxLuma?: number | null;
  *   } | null;
  *   debug?: {
+ *     available?: boolean;
  *     starCount?: number | null;
+ *     cellCount?: number | null;
  *     activeWorkItemCount?: number | null;
  *     inFlightCellCount?: number | null;
  *     desiredCellCount?: number | null;
@@ -274,6 +402,10 @@ export function computeJourneyRecordMetrics(samples, scenario, options = {}) {
  *     coldCurrentCellLoadCount?: number | null;
  *     staleCurrentLoadAbortCount?: number | null;
  *     staleCurrentCellDropCount?: number | null;
+ *     decodedCacheLeasedPayloads?: number | null;
+ *     decodedCacheLeasedPayloadBytes?: number | null;
+ *     decodedCacheActiveLeases?: number | null;
+ *     decodedCacheLeasePressureBytes?: number | null;
  *   } | null;
  * }} JourneySample
  */
@@ -313,6 +445,15 @@ async function runScenario(options) {
       await page.waitForTimeout(Math.max(0, Number(setup.settleMs ?? 0)));
     }
 
+    const preMeasureStartedAt = await page.evaluate(() => performance.now());
+    const preMeasureSample = await waitForVisibleBenchmarkSample({
+      page,
+      canvasSelector: options.scenario.canvasSelector,
+      startedAt: preMeasureStartedAt,
+      visibility: options.visibility,
+      timeoutMs: options.scenario.setupVisibilityTimeoutMs,
+    });
+
     await page.evaluate(() => {
       performance.clearResourceTimings?.();
       globalThis.__SKYKIT_JOURNEY_BENCHMARK?.reset?.();
@@ -323,18 +464,7 @@ async function runScenario(options) {
     const samples = [];
     const deadline = Date.now() + options.scenario.sampleDurationMs;
     while (Date.now() <= deadline) {
-      const sample = await page.evaluate(
-        ({ canvasSelector, startedAt: browserStartedAt }) =>
-          globalThis.__SKYKIT_JOURNEY_BENCHMARK.collectSample(canvasSelector, browserStartedAt),
-        {
-          canvasSelector: options.scenario.canvasSelector,
-          startedAt,
-        },
-      );
-      if (needsScreenshotVisualSample(sample)) {
-        sample.screenshot = await sampleElementScreenshot(page, options.scenario.canvasSelector);
-      }
-      samples.push(sample);
+      samples.push(await collectBenchmarkSample(page, options.scenario.canvasSelector, startedAt));
       await page.waitForTimeout(options.scenario.sampleIntervalMs);
     }
 
@@ -356,6 +486,14 @@ async function runScenario(options) {
       frames: browserSummary.frames,
       longTasks: browserSummary.longTasks,
       visibility: options.visibility,
+      preMeasureSample,
+    });
+    const health = computeJourneyRecordHealth({
+      browserErrors: errors,
+      setupSample: preMeasureSample,
+      samples,
+      scenario: options.scenario,
+      visibility: options.visibility,
     });
 
     return {
@@ -368,7 +506,9 @@ async function runScenario(options) {
       travelWindowMs: options.scenario.travelWindowMs,
       sampleDurationMs: options.scenario.sampleDurationMs,
       browserErrors: errors,
+      health,
       ...metrics,
+      preMeasureSample,
       rawSamples: samples,
       resources,
       frames: browserSummary.frames,
@@ -377,6 +517,46 @@ async function runScenario(options) {
   } finally {
     await page.close();
   }
+}
+
+/**
+ * @param {import('playwright').Page} page
+ * @param {string} canvasSelector
+ * @param {number} startedAt
+ */
+async function collectBenchmarkSample(page, canvasSelector, startedAt) {
+  const sample = await page.evaluate(
+    ({ canvasSelector: selector, startedAt: browserStartedAt }) =>
+      globalThis.__SKYKIT_JOURNEY_BENCHMARK.collectSample(selector, browserStartedAt),
+    {
+      canvasSelector,
+      startedAt,
+    },
+  );
+  if (needsScreenshotVisualSample(sample)) {
+    sample.screenshot = await sampleElementScreenshot(page, canvasSelector);
+  }
+  return sample;
+}
+
+/**
+ * @param {{
+ *   page: import('playwright').Page;
+ *   canvasSelector: string;
+ *   startedAt: number;
+ *   visibility: typeof DEFAULT_VISIBILITY_THRESHOLDS;
+ *   timeoutMs?: number;
+ * }} options
+ */
+async function waitForVisibleBenchmarkSample(options) {
+  const timeoutMs = Math.max(0, Number(options.timeoutMs ?? 0));
+  const deadline = Date.now() + timeoutMs;
+  let latest = await collectBenchmarkSample(options.page, options.canvasSelector, options.startedAt);
+  while (!isSampleVisible(latest, options.visibility) && Date.now() < deadline) {
+    await options.page.waitForTimeout(Math.min(500, Math.max(0, deadline - Date.now())));
+    latest = await collectBenchmarkSample(options.page, options.canvasSelector, options.startedAt);
+  }
+  return latest;
 }
 
 function installBrowserProbe() {
@@ -513,6 +693,10 @@ function installBrowserProbe() {
       coldCurrentCellLoadCount: null,
       staleCurrentLoadAbortCount: null,
       staleCurrentCellDropCount: null,
+      decodedCacheLeasedPayloads: null,
+      decodedCacheLeasedPayloadBytes: null,
+      decodedCacheActiveLeases: null,
+      decodedCacheLeasePressureBytes: null,
       demandStatuses: [],
     };
     const seen = new Set();
@@ -542,8 +726,51 @@ function installBrowserProbe() {
         if (typeof demand.status === 'string') summary.demandStatuses.push(demand.status);
       }
 
+      if ('cache' in value && value.cache && typeof value.cache === 'object') {
+        const cache = value.cache;
+        summary.decodedCacheLeasedPayloads = maxNullable(
+          summary.decodedCacheLeasedPayloads,
+          cache.decodedLeasedPayloads,
+        );
+      }
+
+      if ('memory' in value && value.memory && typeof value.memory === 'object') {
+        const memory = value.memory;
+        summary.decodedCacheLeasedPayloadBytes = maxNullable(
+          summary.decodedCacheLeasedPayloadBytes,
+          memory.retainedDecodedPayloadBytes,
+        );
+        summary.decodedCacheLeasePressureBytes = maxNullable(
+          summary.decodedCacheLeasePressureBytes,
+          memory.decodedLeasePressureBytes,
+        );
+      }
+
+      if ('stats' in value && value.stats && typeof value.stats === 'object') {
+        const stats = value.stats;
+        summary.decodedCacheLeasedPayloads = maxNullable(
+          summary.decodedCacheLeasedPayloads,
+          stats.decodedCacheLeasedPayloads,
+        );
+        summary.decodedCacheLeasedPayloadBytes = maxNullable(
+          summary.decodedCacheLeasedPayloadBytes,
+          stats.decodedCacheLeasedPayloadBytes,
+        );
+        summary.decodedCacheActiveLeases = maxNullable(
+          summary.decodedCacheActiveLeases,
+          stats.decodedCacheActiveLeases,
+        );
+        summary.decodedCacheLeasePressureBytes = maxNullable(
+          summary.decodedCacheLeasePressureBytes,
+          stats.decodedCacheLeasePressureBytes,
+        );
+      }
+
       if ('session' in value && value.session && typeof value.session === 'object') {
         walk(value.session, depth + 1);
+      }
+      if ('provider' in value && value.provider && typeof value.provider === 'object') {
+        walk(value.provider, depth + 1);
       }
       if ('source' in value && value.source && typeof value.source === 'object') {
         walk(value.source, depth + 1);
@@ -565,6 +792,17 @@ function installBrowserProbe() {
 }
 
 /**
+ * @param {JourneySample[]} samples
+ * @param {typeof DEFAULT_VISIBILITY_THRESHOLDS} visibility
+ */
+function annotateVisibleSamples(samples, visibility) {
+  return samples.map((sample) => ({
+    ...sample,
+    visible: isSampleVisible(sample, visibility),
+  }));
+}
+
+/**
  * @param {JourneySample} sample
  * @param {typeof DEFAULT_VISIBILITY_THRESHOLDS} visibility
  */
@@ -580,6 +818,65 @@ function isSampleVisible(sample, visibility) {
     Number.isFinite(maxLuma) &&
     litPixelRatio >= visibility.minLitPixelRatio &&
     maxLuma >= visibility.minMaxLuma;
+}
+
+/**
+ * @param {(JourneySample & { visible?: boolean }) | null} sample
+ */
+function summarizeJourneySample(sample) {
+  if (!sample) return null;
+  const visual = sample.screenshot?.available ? sample.screenshot : sample.canvas;
+  return {
+    elapsedMs: round(Number(sample.elapsedMs ?? 0)),
+    visible: sample.visible === true,
+    canvasAvailable: sample.canvas?.available === true,
+    screenshotAvailable: sample.screenshot?.available === true,
+    debugAvailable: sample.debug?.available === true,
+    starCount: numberOrNull(sample.debug?.starCount),
+    cellCount: numberOrNull(sample.debug?.cellCount),
+    desiredCellCount: numberOrNull(sample.debug?.desiredCellCount),
+    currentCellCount: numberOrNull(sample.debug?.currentCellCount),
+    inFlightCellCount: numberOrNull(sample.debug?.inFlightCellCount),
+    activeWorkItemCount: numberOrNull(sample.debug?.activeWorkItemCount),
+    cachedCurrentCellHitCount: numberOrNull(sample.debug?.cachedCurrentCellHitCount),
+    coldCurrentCellLoadCount: numberOrNull(sample.debug?.coldCurrentCellLoadCount),
+    staleCurrentLoadAbortCount: numberOrNull(sample.debug?.staleCurrentLoadAbortCount),
+    staleCurrentCellDropCount: numberOrNull(sample.debug?.staleCurrentCellDropCount),
+    decodedCacheLeasedPayloads: numberOrNull(sample.debug?.decodedCacheLeasedPayloads),
+    decodedCacheLeasedPayloadBytes: numberOrNull(sample.debug?.decodedCacheLeasedPayloadBytes),
+    decodedCacheActiveLeases: numberOrNull(sample.debug?.decodedCacheActiveLeases),
+    decodedCacheLeasePressureBytes: numberOrNull(sample.debug?.decodedCacheLeasePressureBytes),
+    currentDesiredRatio: ratioNullable(
+      sample.debug?.currentCellCount,
+      sample.debug?.desiredCellCount,
+    ),
+    inFlightDesiredRatio: ratioNullable(
+      sample.debug?.inFlightCellCount,
+      sample.debug?.desiredCellCount,
+    ),
+    litPixelRatio: numberOrNull(visual?.litPixelRatio),
+    maxLuma: numberOrNull(visual?.maxLuma),
+    demandStatuses: Array.isArray(sample.debug?.demandStatuses)
+      ? sample.debug.demandStatuses.slice()
+      : [],
+  };
+}
+
+/**
+ * @param {Partial<(typeof DEFAULT_JOURNEY_SCENARIOS)[number]> | undefined} scenario
+ */
+function computeExpectedSampleCount(scenario) {
+  const duration = Number(scenario?.sampleDurationMs);
+  const interval = Number(scenario?.sampleIntervalMs);
+  if (!Number.isFinite(duration) || duration < 0 || !Number.isFinite(interval) || interval <= 0) {
+    return 0;
+  }
+  return Math.floor(duration / interval) + 1;
+}
+
+function numberOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function ratioNullable(numerator, denominator) {
@@ -788,6 +1085,7 @@ function compactScenario(scenario) {
     path: scenario.path,
     travelWindowMs: scenario.travelWindowMs,
     sampleDurationMs: scenario.sampleDurationMs,
+    setupVisibilityTimeoutMs: scenario.setupVisibilityTimeoutMs,
   };
 }
 
@@ -797,9 +1095,17 @@ function compactScenario(scenario) {
 function summarizeJourneyTotals(records) {
   return {
     scenarioCount: records.length,
+    healthyRunRatio: summarizeNumbers(records.map((record) => Number(record.health?.healthy === true ? 1 : 0))),
+    setupVisibleRatio: summarizeNumbers(records.map((record) => Number(record.health?.setupVisible === true ? 1 : 0))),
+    measuredVisibleRatio: summarizeNumbers(records.map((record) => Number(record.health?.measuredHasVisible === true ? 1 : 0))),
+    debugAvailableRatio: summarizeNumbers(records.map((record) => Number(record.health?.debugAvailable === true ? 1 : 0))),
+    sampleCoverageRatio: summarizeNumbers(records.map((record) => Number(record.health?.sampleCoverageRatio ?? 0))),
     timeToFirstVisibleMs: summarizeNumbers(records.map((record) => Number(record.timeToFirstVisibleMs ?? 0))),
     blankTravelRatio: summarizeNumbers(records.map((record) => Number(record.blankTravelRatio ?? 0))),
     visibleTravelRatio: summarizeNumbers(records.map((record) => Number(record.visibleTravelRatio ?? 0))),
+    arrivalCurrentDesiredRatio: summarizeNumbers(records.map((record) => Number(record.arrivalCurrentDesiredRatio ?? 0))),
+    finalCurrentDesiredRatio: summarizeNumbers(records.map((record) => Number(record.finalCurrentDesiredRatio ?? 0))),
+    finalInFlightCells: summarizeNumbers(records.map((record) => Number(record.finalInFlightCellCount ?? 0))),
     frameBudgetMisses: summarizeNumbers(records.map((record) => Number(record.frameBudgetMisses ?? 0))),
     longTaskCount: summarizeNumbers(records.map((record) => Number(record.longTaskCount ?? 0))),
   };

@@ -636,6 +636,7 @@ export interface SkykitStarCellSourceSnapshot {
   demands: Array<{ id: string; attributes: string[] }>;
   store: unknown;
   session: unknown;
+  provider?: unknown;
   lastError?: string | null;
   disposed: boolean;
 }
@@ -664,6 +665,12 @@ export interface SkykitStarSourcePluginOptions {
   attributes?: readonly string[];
   coordinates?: StarOctreeCoordinateOutput;
   updateOptions?: ViewUpdateOptions;
+  retainCellsOnRestart?: SkykitStarSourceRestartRetentionPolicy | false;
+}
+
+export interface SkykitStarSourceRestartRetentionPolicy {
+  until: 'first-upsert' | 'current';
+  maxAgeMs?: number;
 }
 
 export interface SkykitHrDiagramTouchOsOptions {
@@ -674,6 +681,19 @@ export interface SkykitHrDiagramTouchOsOptions {
   height?: number;
   root?: DisplayNode | null;
 }
+
+export interface SkykitHrDiagramDemandStrategyContext {
+  view: SkykitViewState;
+  mode: HrDiagramMode;
+  volumeRadiusPc: number;
+  limitingMagnitude: number;
+  volumeDemandCenterPc: SpatialVector3 | null;
+  createDefaultStrategy(): StarCellStrategy | null;
+}
+
+export type SkykitHrDiagramDemandStrategy = (
+  context: SkykitHrDiagramDemandStrategyContext
+) => StarCellStrategy | null;
 
 export interface SkykitHrDiagramPluginOptions {
   id?: string;
@@ -686,6 +706,7 @@ export interface SkykitHrDiagramPluginOptions {
   height?: number;
   highlightRegion?: HrDiagramHighlightRegion | null;
   selectedStars?: Iterable<HrDiagramSelectedStar>;
+  demandStrategy?: SkykitHrDiagramDemandStrategy | null;
   touchOs?: SkykitHrDiagramTouchOsOptions;
 }
 

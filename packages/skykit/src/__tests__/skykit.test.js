@@ -503,6 +503,102 @@ test('shared star source feeds starfield and HR consumers from one provider sess
   assert.ok(rendererCalls.includes('dispose'));
 });
 
+test('shared star source clears cells immediately on demand restarts by default', async () => {
+  const { sessions, source, deltas, viewer } = await createRestartingStarSourceFixture();
+
+  await source.refreshDemand('test.restart');
+
+  assert.equal(sessions.length, 2);
+  assert.equal(source.getStore().getSnapshot().starCount, 0);
+  assert.equal(deltas.filter((delta) => delta.type === 'stars/cells-remove').length, 1);
+
+  await viewer.dispose();
+});
+
+test('shared star source can retain restart cells until the first replacement upsert', async () => {
+  const { sessions, source, deltas, viewer } = await createRestartingStarSourceFixture({
+    until: 'first-upsert',
+    maxAgeMs: 1_000,
+  });
+
+  await source.refreshDemand('test.restart');
+
+  assert.equal(sessions.length, 2);
+  assert.equal(source.getStore().getSnapshot().starCount, 1);
+  assert.equal(deltas.filter((delta) => delta.type === 'stars/cells-remove').length, 0);
+
+  const secondCell = createTestCell({ keyOrdinal: 2 });
+  sessions[1].emit({ type: 'stars/cells-upsert', providerId: 'provider', cells: [secondCell] });
+
+  assert.equal(source.getStore().getSnapshot().starCount, 1);
+  assert.deepEqual(source.getStore().getCells().map((cell) => cell.cellKey), [secondCell.cellKey]);
+  assert.equal(deltas.filter((delta) => delta.type === 'stars/cells-remove').length, 1);
+
+  await viewer.dispose();
+});
+
+test('shared star source can retain restart cells until replacement current', async () => {
+  const { sessions, source, deltas, viewer } = await createRestartingStarSourceFixture({
+    until: 'current',
+    maxAgeMs: 1_000,
+  });
+
+  await source.refreshDemand('test.restart');
+
+  const secondCell = createTestCell({ keyOrdinal: 2 });
+  sessions[1].emit({ type: 'stars/cells-upsert', providerId: 'provider', cells: [secondCell] });
+
+  assert.equal(source.getStore().getSnapshot().starCount, 2);
+  assert.equal(deltas.filter((delta) => delta.type === 'stars/cells-remove').length, 0);
+
+  sessions[1].emit({
+    type: 'stars/current',
+    providerId: 'provider',
+    cellKeys: [secondCell.cellKey],
+    starCount: secondCell.count,
+  });
+
+  assert.equal(source.getStore().getSnapshot().starCount, 1);
+  assert.deepEqual(source.getStore().getCells().map((cell) => cell.cellKey), [secondCell.cellKey]);
+  assert.equal(deltas.filter((delta) => delta.type === 'stars/cells-remove').length, 1);
+
+  await viewer.dispose();
+});
+
+test('shared star source clears retained restart cells on replacement errors', async () => {
+  const { sessions, source, deltas, viewer } = await createRestartingStarSourceFixture({
+    until: 'current',
+    maxAgeMs: 1_000,
+  });
+
+  await source.refreshDemand('test.restart');
+  sessions[1].emit({
+    type: 'stars/error',
+    providerId: 'provider',
+    error: new Error('replacement failed'),
+  });
+
+  assert.equal(source.getStore().getSnapshot().starCount, 0);
+  assert.equal(deltas.filter((delta) => delta.type === 'stars/cells-remove').length, 1);
+
+  await viewer.dispose();
+});
+
+test('shared star source expires retained restart cells after maxAgeMs', async () => {
+  const { source, deltas, viewer } = await createRestartingStarSourceFixture({
+    until: 'current',
+    maxAgeMs: 5,
+  });
+
+  await source.refreshDemand('test.restart');
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  assert.equal(source.getStore().getSnapshot().starCount, 0);
+  assert.equal(deltas.filter((delta) => delta.type === 'stars/cells-remove').length, 1);
+
+  await viewer.dispose();
+});
+
 test('shared star source reports provider errors through the debug bridge', async () => {
   const session = createFakeSession();
   const source = createSkykitStarSourcePlugin({ session });
@@ -582,6 +678,53 @@ test('HR diagram mode changes refresh shared demand and update the renderer view
   assert.equal(sessions.length, 2);
   assert.equal(sessions[0].session.disposed, true);
   assertStrategyBehavior(sessions[1].options.strategy);
+
+  await viewer.dispose();
+});
+
+test('HR diagram demand strategy override can be supplied and restored at runtime', async () => {
+  const sessions = [];
+  const provider = {
+    id: 'provider',
+    createSession(options) {
+      const session = createFakeSession({ id: `session-${sessions.length + 1}` });
+      sessions.push({ options, session });
+      return session;
+    },
+  };
+  const source = createSkykitStarSourcePlugin({ provider });
+  const customStrategy = createObserverShellStrategy();
+  const contexts = [];
+  const hr = createSkykitHrDiagramPlugin({
+    id: 'hr',
+    source,
+    mode: 'volume-complete',
+    volumeRadiusPc: 12,
+    demandStrategy(context) {
+      contexts.push(context);
+      return customStrategy;
+    },
+  });
+
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [source, hr],
+  });
+
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].options.strategy, customStrategy);
+  assert.equal(contexts[0].mode, 'volume-complete');
+  assert.equal(contexts[0].volumeRadiusPc, 12);
+  assert.equal(typeof contexts[0].createDefaultStrategy, 'function');
+  assert.equal(hr.getSnapshot().demandStrategyActive, true);
+
+  await hr.setOptions({ demandStrategy: null });
+
+  assert.equal(sessions.length, 2);
+  assert.equal(sessions[0].session.disposed, true);
+  assert.notEqual(sessions[1].options.strategy, customStrategy);
+  assertStrategyBehavior(sessions[1].options.strategy);
+  assert.equal(hr.getSnapshot().demandStrategyActive, false);
 
   await viewer.dispose();
 });
@@ -1456,6 +1599,159 @@ test('journey plugin executes semantic orbit-transfer scenes without snapping', 
   await viewer.dispose();
 });
 
+test('journey plugin uses explicit route points for authored orbit transfers', async () => {
+  const navigationPlugin = createSkykitNavigationPlugin({ speed: 80, acceleration: 80, deceleration: 80 });
+  const authoredPoints = [
+    { x: 0, y: 4, z: 0 },
+    { x: 40, y: 10, z: 80 },
+    { x: 100, y: 0, z: 10 },
+  ];
+  const journey = createJourney({
+    initial: 'inside',
+    order: ['inside', 'omega'],
+    targets: {
+      sun: { positionPc: { x: 0, y: 0, z: 0 } },
+      omega: { positionPc: { x: 100, y: 0, z: 0 } },
+    },
+    scenes: {
+      inside: {
+        view: { observerPc: { x: 0, y: 4, z: 0 } },
+        camera: {
+          type: 'orbit',
+          center: 'sun',
+          radiusPc: 4,
+          angularSpeedRadPerSec: 0.2,
+          normal: { x: 0, y: 0, z: 1 },
+        },
+      },
+      omega: {
+        camera: {
+          type: 'orbit',
+          center: 'omega',
+          radiusPc: 10,
+          angularSpeedRadPerSec: 0.12,
+          normal: { x: 0, y: 0, z: 1 },
+        },
+      },
+    },
+    transitions: [
+      {
+        fromSceneId: 'inside',
+        toSceneId: 'omega',
+        travel: {
+          type: 'orbit-transfer',
+          durationSecs: 2,
+          pointsPc: authoredPoints,
+          arrivalAction: {
+            type: 'orbit',
+            center: { x: 100, y: 0, z: 0 },
+            radius: 10,
+            angularSpeedRadPerSec: 0.12,
+            normal: { x: 0, y: 0, z: 1 },
+          },
+        },
+      },
+    ],
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [
+      navigationPlugin,
+      createSkykitJourneyPlugin({ journey }),
+    ],
+  });
+
+  await flushMicrotasks();
+  viewer.update(0);
+  await viewer.actions.invoke(SKYKIT_ACTIONS.journey.goToChapter, 'omega');
+  await flushMicrotasks();
+
+  viewer.update(1);
+  viewer.update(0);
+  assert.ok(viewer.getViewState().observerPc.z > 20);
+
+  viewer.update(1.1);
+  viewer.update(0);
+  assert.equal(navigationPlugin.getSnapshot().navigation.activeAutomation, 'orbit');
+  assert.ok(Math.abs(distance(viewer.getViewState().observerPc, { x: 100, y: 0, z: 0 }) - 10) < 1e-9);
+
+  await viewer.dispose();
+});
+
+test('journey plugin can route to non-orbit scenes before applying the arrival transition', async () => {
+  const navigationPlugin = createSkykitNavigationPlugin({ speed: 80, acceleration: 80, deceleration: 80 });
+  const journey = createJourney({
+    initial: 'omega',
+    order: ['omega', 'local'],
+    targets: {
+      omega: { positionPc: { x: 100, y: 0, z: 0 } },
+    },
+    scenes: {
+      omega: {
+        view: { observerPc: { x: 100, y: 0, z: 10 } },
+        camera: {
+          type: 'orbit',
+          center: 'omega',
+          radiusPc: 10,
+          angularSpeedRadPerSec: 0.12,
+          normal: { x: 0, y: 0, z: 1 },
+        },
+      },
+      local: {
+        view: { targetPc: { x: 1, y: 0, z: 0 } },
+        navigation: {
+          transitionTo: {
+            observerPc: { x: 0, y: 0, z: 0 },
+            orientationIcrs: { x: 0, y: 0, z: 0, w: 1 },
+            durationSecs: 1,
+            movement: { durationSecs: 1 },
+            orientationTransition: { durationSecs: 1 },
+          },
+        },
+      },
+    },
+    transitions: [
+      {
+        fromSceneId: 'omega',
+        toSceneId: 'local',
+        travel: {
+          type: 'orbit-transfer',
+          durationSecs: 2,
+          pointsPc: [
+            { x: 100, y: 0, z: 10 },
+            { x: 50, y: 0, z: 80 },
+            { x: 0, y: 0, z: 0 },
+          ],
+        },
+      },
+    ],
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [
+      navigationPlugin,
+      createSkykitJourneyPlugin({ journey }),
+    ],
+  });
+
+  await flushMicrotasks();
+  viewer.update(0);
+  await viewer.actions.invoke(SKYKIT_ACTIONS.journey.goToChapter, 'local');
+  await flushMicrotasks();
+
+  viewer.update(1);
+  viewer.update(0);
+  assert.ok(viewer.getViewState().observerPc.z > 20);
+
+  viewer.update(1.1);
+  await flushMicrotasks();
+  viewer.update(0.1);
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 0, y: 0, z: 0 });
+
+  await viewer.dispose();
+});
+
 test('journey plugin emits timed preload hints once and not on every frame', async () => {
   const preloadEvents = [];
   const viewer = await createSkykitViewer({
@@ -1967,6 +2263,36 @@ function createFakeSession(options = {}) {
       listeners.clear();
     },
   };
+}
+
+async function createRestartingStarSourceFixture(retainCellsOnRestart) {
+  const sessions = [];
+  const provider = {
+    id: 'provider',
+    createSession() {
+      const session = createFakeSession({ id: `session-${sessions.length + 1}` });
+      sessions.push(session);
+      return session;
+    },
+  };
+  const source = createSkykitStarSourcePlugin({
+    provider,
+    strategy: createObserverShellStrategy(),
+    ...(retainCellsOnRestart !== undefined ? { retainCellsOnRestart } : {}),
+  });
+  const deltas = [];
+  source.subscribe((delta) => deltas.push(delta));
+
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [source],
+  });
+
+  const firstCell = createTestCell({ keyOrdinal: 1 });
+  sessions[0].emit({ type: 'stars/cells-upsert', providerId: 'provider', cells: [firstCell] });
+  assert.equal(source.getStore().getSnapshot().starCount, 1);
+
+  return { sessions, source, deltas, viewer, firstCell };
 }
 
 function createPickResult(options = {}) {

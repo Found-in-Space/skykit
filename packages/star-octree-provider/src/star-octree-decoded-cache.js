@@ -1,5 +1,6 @@
 const DECODED_CACHE_VERSION = 2;
 const DEFAULT_DECODED_CACHE_BUDGET_BYTES = 64 * 1024 * 1024;
+const DEFAULT_DECODED_MEMORY_LEASE_TTL_MS = 60_000;
 const PERSISTENT_DECODED_CACHE_NAME =
   'skykit-star-octree-provider-decoded-alpha-v2';
 const DEFAULT_ATTRIBUTE_MASK = 'p+t+m';
@@ -15,10 +16,11 @@ const DEFAULT_ATTRIBUTE_MASK = 'p+t+m';
  *   datasetId?: string | null;
  *   memoryBudgetBytes?: number;
  *   persistentCache?: 'on' | 'off';
+ *   now?: () => number;
  * }} options
  */
 export function createDecodedPayloadCache(options) {
-  /** @type {Map<string, { segment: DecodedStarSegment; bytes: number; lastUsed: number }>} */
+  /** @type {Map<string, { segment: DecodedStarSegment; bytes: number; lastUsed: number; leases: Map<string, number> }>} */
   const memory = new Map();
   /** @type {Promise<Cache | null> | null} */
   let persistentCachePromise = null;
@@ -40,6 +42,7 @@ export function createDecodedPayloadCache(options) {
 
   const memoryBudgetBytes =
     options.memoryBudgetBytes ?? DEFAULT_DECODED_CACHE_BUDGET_BYTES;
+  const now = typeof options.now === 'function' ? options.now : () => Date.now();
 
   return {
     /**
@@ -97,10 +100,52 @@ export function createDecodedPayloadCache(options) {
 
     set,
 
+    /**
+     * Keep an already-decoded memory entry resident for a bounded interval.
+     * Persistent cache remains a fallback; promotion paths still use peek().
+     *
+     * @param {string} key
+     * @param {{ key?: string; ttlMs?: number } | null | undefined} leaseOptions
+     * @returns {boolean}
+     */
+    retain(key, leaseOptions) {
+      const lease = normalizeLease(leaseOptions, now());
+      if (!lease) return false;
+      const entry = memory.get(key);
+      if (!entry) return false;
+      pruneExpiredLeases(entry);
+      entry.leases.set(lease.key, lease.expiresAtMs);
+      return true;
+    },
+
+    /**
+     * @param {string} leaseKey
+     * @returns {number}
+     */
+    releaseLease(leaseKey) {
+      const key = normalizeLeaseKey(leaseKey);
+      if (!key) return 0;
+      let released = 0;
+      for (const entry of memory.values()) {
+        if (entry.leases.delete(key)) {
+          released += 1;
+        }
+      }
+      evictToBudget();
+      return released;
+    },
+
     getSnapshot() {
+      pruneAllExpiredLeases();
+      const leaseStats = collectLeaseStats();
       return {
         decodedPayloads: memory.size,
         decodedPayloadBytes: usedBytes,
+        decodedCacheLeasedPayloads: leaseStats.payloads,
+        decodedCacheLeasedPayloadBytes: leaseStats.bytes,
+        decodedCacheActiveLeases: leaseStats.activeLeases,
+        decodedCacheLeasePressureBytes: Math.max(0, usedBytes - memoryBudgetBytes),
+        decodedCacheLeasesByKey: leaseStats.byKey,
         decodedCacheHits: hits,
         decodedCacheMisses: misses,
         decodedCacheWrites: writes,
@@ -119,12 +164,19 @@ export function createDecodedPayloadCache(options) {
    * @param {string} key
    * @param {DecodedStarSegment} segment
    * @param {string} [attributeMask]
+   * @param {{ key?: string; ttlMs?: number } | null | undefined} [leaseOptions]
    */
-  function set(key, segment, attributeMask = DEFAULT_ATTRIBUTE_MASK) {
+  function set(key, segment, attributeMask = DEFAULT_ATTRIBUTE_MASK, leaseOptions = null) {
     const bytes = estimateDecodedBytes(segment);
     const current = memory.get(key);
     if (current) {
+      pruneExpiredLeases(current);
       usedBytes -= current.bytes;
+    }
+    const leases = current ? new Map(current.leases) : new Map();
+    const lease = normalizeLease(leaseOptions, now());
+    if (lease) {
+      leases.set(lease.key, lease.expiresAtMs);
     }
 
     clock += 1;
@@ -132,6 +184,7 @@ export function createDecodedPayloadCache(options) {
       segment,
       bytes,
       lastUsed: clock,
+      leases,
     });
     usedBytes += bytes;
     writes += 1;
@@ -141,10 +194,11 @@ export function createDecodedPayloadCache(options) {
   }
 
   /**
-   * @param {{ segment: DecodedStarSegment; bytes: number; lastUsed: number }} entry
+   * @param {{ segment: DecodedStarSegment; bytes: number; lastUsed: number; leases: Map<string, number> }} entry
    * @param {string} attributeMask
    */
   function recordMemoryHit(entry, attributeMask) {
+    pruneExpiredLeases(entry);
     hits += 1;
     incrementCounter(hitsByMask, attributeMask);
     clock += 1;
@@ -153,6 +207,7 @@ export function createDecodedPayloadCache(options) {
   }
 
   function evictToBudget() {
+    pruneAllExpiredLeases();
     if (usedBytes <= memoryBudgetBytes) {
       return;
     }
@@ -163,10 +218,71 @@ export function createDecodedPayloadCache(options) {
       if (usedBytes <= memoryBudgetBytes) {
         return;
       }
+      if (hasActiveLease(entry)) {
+        continue;
+      }
       memory.delete(key);
       usedBytes -= entry.bytes;
       evictions += 1;
     }
+  }
+
+  function pruneAllExpiredLeases() {
+    for (const entry of memory.values()) {
+      pruneExpiredLeases(entry);
+    }
+  }
+
+  /**
+   * @param {{ leases: Map<string, number> }} entry
+   */
+  function pruneExpiredLeases(entry) {
+    if (entry.leases.size === 0) return;
+    const currentTimeMs = now();
+    for (const [leaseKey, expiresAtMs] of entry.leases) {
+      if (expiresAtMs <= currentTimeMs) {
+        entry.leases.delete(leaseKey);
+      }
+    }
+  }
+
+  /**
+   * @param {{ leases: Map<string, number> }} entry
+   */
+  function hasActiveLease(entry) {
+    pruneExpiredLeases(entry);
+    return entry.leases.size > 0;
+  }
+
+  function collectLeaseStats() {
+    const activeLeaseKeys = new Set();
+    /** @type {Record<string, { payloads: number; bytes: number; expiresAtMs: number }>} */
+    const byKey = {};
+    let payloads = 0;
+    let bytes = 0;
+    for (const entry of memory.values()) {
+      if (entry.leases.size === 0) continue;
+      payloads += 1;
+      bytes += entry.bytes;
+      for (const [leaseKey, expiresAtMs] of entry.leases) {
+        activeLeaseKeys.add(leaseKey);
+        const current = byKey[leaseKey] ?? {
+          payloads: 0,
+          bytes: 0,
+          expiresAtMs: 0,
+        };
+        current.payloads += 1;
+        current.bytes += entry.bytes;
+        current.expiresAtMs = Math.max(current.expiresAtMs, expiresAtMs);
+        byKey[leaseKey] = current;
+      }
+    }
+    return {
+      payloads,
+      bytes,
+      activeLeases: activeLeaseKeys.size,
+      byKey,
+    };
   }
 
   async function openPersistentCache() {
@@ -213,6 +329,31 @@ export function createDecodedPayloadCache(options) {
       new Response(encodePersistentSegment(segment)),
     );
   }
+}
+
+/**
+ * @param {{ key?: string; ttlMs?: number } | null | undefined} leaseOptions
+ * @param {number} nowMs
+ */
+function normalizeLease(leaseOptions, nowMs) {
+  if (!leaseOptions) return null;
+  const key = normalizeLeaseKey(leaseOptions.key);
+  if (!key) return null;
+  const ttlMs = Number(leaseOptions.ttlMs ?? DEFAULT_DECODED_MEMORY_LEASE_TTL_MS);
+  if (!Number.isFinite(ttlMs) || ttlMs <= 0) return null;
+  return {
+    key,
+    expiresAtMs: nowMs + ttlMs,
+  };
+}
+
+/**
+ * @param {unknown} value
+ */
+function normalizeLeaseKey(value) {
+  if (typeof value !== 'string') return null;
+  const key = value.trim();
+  return key.length > 0 ? key : null;
 }
 
 /**

@@ -426,11 +426,18 @@ export function createStarOctreePipeline(options) {
    * Warm payload and decoded caches for entries without emitting cells.
    *
    * @param {StarOctreeDemandEntry[]} entries
-   * @param {{ sessionId?: string; attributes?: string[]; emitCachedFirst?: boolean; signal?: AbortSignal }} [warmOptions]
+   * @param {{
+   *   sessionId?: string;
+   *   attributes?: string[];
+   *   emitCachedFirst?: boolean;
+   *   cache?: StarOctreeCellStreamOptions['cache'];
+   *   signal?: AbortSignal;
+   * }} [warmOptions]
    */
   async function warmEntries(entries, warmOptions = {}) {
     const attributes = normalizeCellAttributes(warmOptions.attributes);
     const decodeContext = createDecodeContext(attributes);
+    const decodedMemoryLease = warmOptions.cache?.decodedMemoryLease;
     const nodes = entries
       .filter((entry) => entry.node.payloadLength > 0)
       .map((entry) => entry.node);
@@ -458,14 +465,26 @@ export function createStarOctreePipeline(options) {
           throwIfAborted(warmOptions.signal);
           work?.update({ status: 'decoding' });
           const decoded = await Promise.all(
-            payloadEntries.map((entry) =>
-              scheduleDecode(entry.node, entry.buffer, {
+            payloadEntries.map(async (entry) => {
+              const segment = await scheduleDecode(entry.node, entry.buffer, {
                 ...decodeContext,
+                decodedMemoryLease,
                 lane: 'prefetch',
                 priority: priorityByNode.get(entry.node),
                 signal: warmOptions.signal,
-              }),
-            ),
+              });
+              if (decodedMemoryLease) {
+                decodedCache.retain(
+                  decodedCache.createKey(
+                    entry.node,
+                    decodeContext.datasetId,
+                    decodeContext.attributeMask,
+                  ),
+                  decodedMemoryLease,
+                );
+              }
+              return segment;
+            }),
           );
           warmedNodeCount += payloadEntries.length;
           decodedStarCount += decoded.reduce((sum, segment) => sum + (segment?.count ?? 0), 0);
@@ -508,6 +527,7 @@ export function createStarOctreePipeline(options) {
       sessionId: streamOptions.sessionId,
       attributes: streamOptions.attributes,
       emitCachedFirst: streamOptions.streaming?.emitCachedFirst ?? true,
+      cache: streamOptions.cache,
       signal: streamOptions.signal,
     });
 
@@ -569,6 +589,7 @@ export function createStarOctreePipeline(options) {
    *   datasetId?: string | null;
    *   decodeAttributes?: ReturnType<typeof normalizePayloadDecodeAttributes>;
    *   attributeMask?: string;
+   *   decodedMemoryLease?: import('./index.js').StarOctreeDecodedMemoryLeaseOptions | null;
    * }} [decodeOptions]
    */
   async function decodePayloadEntry(node, buffer, decodeOptions = {}) {
@@ -582,11 +603,12 @@ export function createStarOctreePipeline(options) {
     const cached = await decodedCache.get(cacheKey, node, datasetId, attributeMask);
     throwIfAborted(decodeOptions.signal);
     if (cached) {
+      decodedCache.retain(cacheKey, decodeOptions.decodedMemoryLease);
       return cached;
     }
 
     const decoded = decodeStarPayload(buffer, node, { attributes: decodeAttributes });
-    decodedCache.set(cacheKey, decoded, attributeMask);
+    decodedCache.set(cacheKey, decoded, attributeMask, decodeOptions.decodedMemoryLease);
     return decoded;
   }
 
@@ -600,6 +622,7 @@ export function createStarOctreePipeline(options) {
    *   datasetId?: string | null;
    *   decodeAttributes?: ReturnType<typeof normalizePayloadDecodeAttributes>;
    *   attributeMask?: string;
+   *   decodedMemoryLease?: import('./index.js').StarOctreeDecodedMemoryLeaseOptions | null;
    * }} [decodeOptions]
    */
   function scheduleDecode(node, buffer, decodeOptions = {}) {

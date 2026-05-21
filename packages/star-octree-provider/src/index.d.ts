@@ -371,6 +371,7 @@ export interface StarOctreeProviderSnapshot {
     shardHeaders: number;
     payloads: number;
     decodedPayloads?: number;
+    decodedLeasedPayloads?: number;
     cells?: number;
   };
   sessions: Array<{
@@ -396,9 +397,11 @@ export interface StarOctreeProviderSnapshot {
     usedBytes?: number;
     rawPayloadBytes?: number;
     decodedPayloadBytes?: number;
+    retainedDecodedPayloadBytes?: number;
     liveCellBytes?: number;
     borrowedBytes?: number;
     evictableBytes?: number;
+    decodedLeasePressureBytes?: number;
   };
   stats: {
     rangeRequests: number;
@@ -415,6 +418,15 @@ export interface StarOctreeProviderSnapshot {
     decodedCacheHits?: number;
     decodedPersistentCacheHits?: number;
     decodedCacheEvictions?: number;
+    decodedCacheLeasedPayloads?: number;
+    decodedCacheLeasedPayloadBytes?: number;
+    decodedCacheActiveLeases?: number;
+    decodedCacheLeasePressureBytes?: number;
+    decodedCacheLeasesByKey?: Record<string, {
+      payloads: number;
+      bytes: number;
+      expiresAtMs: number;
+    }>;
     decodedCacheHitsByMask?: Record<string, number>;
     decodedCacheMissesByMask?: Record<string, number>;
     decodedCacheWritesByMask?: Record<string, number>;
@@ -477,7 +489,15 @@ export interface StarOctreeCellStreamOptions {
   memory?: {
     ownership?: 'borrowed' | 'copy' | 'transfer';
   };
+  cache?: {
+    decodedMemoryLease?: StarOctreeDecodedMemoryLeaseOptions | null;
+  };
   signal?: AbortSignal;
+}
+
+export interface StarOctreeDecodedMemoryLeaseOptions {
+  key: string;
+  ttlMs?: number;
 }
 
 export interface StarOctreeDemandInspection {

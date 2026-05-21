@@ -12,6 +12,7 @@ import { isProviderSession, toStarOctreeViewPatch } from './utils.js';
  * @typedef {import('./index.d.ts').SkykitViewState} SkykitViewState
  * @typedef {import('@found-in-space/star-octree-provider').StarOctreeProviderSession} StarOctreeProviderSession
  * @typedef {import('@found-in-space/star-trees').StarCellDelta} StarCellDelta
+ * @typedef {import('@found-in-space/star-trees').StarCellKey} StarCellKey
  * @typedef {import('@found-in-space/star-trees').StarCellStrategy} StarCellStrategy
  * @typedef {SkykitStarCellDemand & {
  *   id: string;
@@ -19,7 +20,18 @@ import { isProviderSession, toStarOctreeViewPatch } from './utils.js';
  *   view?: SkykitStarCellDemand['view'];
  *   attributes: string[];
  * }} NormalizedStarCellDemand
+ * @typedef {{
+ *   until: 'first-upsert' | 'current';
+ *   maxAgeMs: number;
+ * }} RestartRetentionPolicy
+ * @typedef {{
+ *   cellKeys: Set<StarCellKey>;
+ *   until: RestartRetentionPolicy['until'];
+ *   timeoutId: ReturnType<typeof setTimeout> | null;
+ * }} RetainedRestartCells
  */
+
+const DEFAULT_RESTART_RETENTION_MAX_AGE_MS = 20_000;
 
 /**
  * @param {SkykitStarSourcePluginOptions} options
@@ -54,6 +66,9 @@ export function createSkykitStarSourcePlugin(options) {
   let lastError = null;
   /** @type {string | null} */
   let lastErrorEventKey = null;
+  const restartRetentionPolicy = normalizeRestartRetentionPolicy(options.retainCellsOnRestart);
+  /** @type {RetainedRestartCells | null} */
+  let retainedRestartCells = null;
 
   if (options.strategy) {
     addDemand({
@@ -164,6 +179,7 @@ export function createSkykitStarSourcePlugin(options) {
     for (const listener of listeners) {
       listener(delta);
     }
+    flushRetainedRestartCells(delta);
   }
 
   /**
@@ -219,6 +235,7 @@ export function createSkykitStarSourcePlugin(options) {
   async function dispose() {
     if (disposed) return;
     detach();
+    clearRetainedRestartCells();
     clearStoreForConsumers();
     disposed = true;
     status = 'disposed';
@@ -244,6 +261,7 @@ export function createSkykitStarSourcePlugin(options) {
       })),
       store: store.getSnapshot(),
       session: session?.getSnapshot?.() ?? null,
+      provider: options.provider?.getSnapshot?.() ?? null,
       lastError,
       disposed,
     };
@@ -296,7 +314,11 @@ export function createSkykitStarSourcePlugin(options) {
     const previousSession = session;
     unsubscribeSession?.();
     unsubscribeSession = null;
-    clearStoreForConsumers();
+    if (restartRetentionPolicy) {
+      retainCurrentStoreCellsForRestart(restartRetentionPolicy);
+    } else {
+      clearStoreForConsumers();
+    }
     session = createSession(context.getViewState());
     if (started) {
       subscribeSession();
@@ -315,6 +337,65 @@ export function createSkykitStarSourcePlugin(options) {
     const cellKeys = store.getCells().map((cell) => cell.cellKey);
     if (cellKeys.length > 0) {
       apply({ type: 'stars/cells-remove', providerId: id, cellKeys });
+    }
+  }
+
+  /** @param {RestartRetentionPolicy} policy */
+  function retainCurrentStoreCellsForRestart(policy) {
+    clearRetainedRestartCells();
+    const cellKeys = store.getCells().map((cell) => cell.cellKey);
+    if (cellKeys.length === 0) return;
+    retainedRestartCells = {
+      cellKeys: new Set(cellKeys),
+      until: policy.until,
+      timeoutId: setTimeout(() => {
+        releaseRetainedRestartCells(new Set());
+      }, policy.maxAgeMs),
+    };
+  }
+
+  /** @param {StarCellDelta} delta */
+  function flushRetainedRestartCells(delta) {
+    if (!retainedRestartCells || retainedRestartCells.cellKeys.size === 0) return;
+    /** @type {Set<StarCellKey> | null} */
+    let replacementCellKeys = null;
+    if (delta.type === 'stars/cells-upsert' && retainedRestartCells.until === 'first-upsert') {
+      replacementCellKeys = new Set(delta.cells.map((cell) => cell.cellKey));
+    } else if (delta.type === 'stars/current') {
+      replacementCellKeys = new Set(delta.cellKeys);
+    } else if (delta.type === 'stars/error') {
+      replacementCellKeys = new Set();
+    }
+    if (!replacementCellKeys) return;
+    releaseRetainedRestartCells(replacementCellKeys);
+  }
+
+  /** @param {Set<StarCellKey>} replacementCellKeys */
+  function releaseRetainedRestartCells(replacementCellKeys) {
+    if (!retainedRestartCells) return;
+    const cellKeys = Array.from(retainedRestartCells.cellKeys)
+      .filter((cellKey) => !replacementCellKeys.has(cellKey));
+    clearRetainedRestartCells();
+    emitCellRemoval(cellKeys);
+  }
+
+  function clearRetainedRestartCells() {
+    if (retainedRestartCells?.timeoutId) {
+      clearTimeout(retainedRestartCells.timeoutId);
+    }
+    retainedRestartCells = null;
+  }
+
+  /** @param {StarCellKey[]} cellKeys */
+  function emitCellRemoval(cellKeys) {
+    if (cellKeys.length === 0) return;
+    const delta = /** @type {Extract<StarCellDelta, { type: 'stars/cells-remove' }>} */ (
+      { type: 'stars/cells-remove', providerId: id, cellKeys }
+    );
+    deltaCount += 1;
+    store.apply(delta);
+    for (const listener of listeners) {
+      listener(delta);
     }
   }
 
@@ -386,6 +467,25 @@ function normalizeDemand(demand, id) {
 }
 
 /**
+ * @param {SkykitStarSourcePluginOptions['retainCellsOnRestart']} value
+ * @returns {RestartRetentionPolicy | null}
+ */
+function normalizeRestartRetentionPolicy(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const until = value.until === 'first-upsert' || value.until === 'current'
+    ? value.until
+    : null;
+  if (!until) return null;
+  const maxAgeMs = positiveFiniteNumber(
+    value.maxAgeMs,
+    DEFAULT_RESTART_RETENTION_MAX_AGE_MS,
+  );
+  return { until, maxAgeMs };
+}
+
+/**
  * @param {SkykitStarCellDemand['strategy']} strategy
  * @param {SkykitViewState} view
  * @returns {StarCellStrategy | null}
@@ -432,6 +532,15 @@ function mergeStarSourceViewPatch(base, patch) {
     );
   }
   return merged;
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ */
+function positiveFiniteNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
 /**

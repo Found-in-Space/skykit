@@ -14,6 +14,7 @@ import {
 
 /**
  * @typedef {import('./index.d.ts').SkykitHrDiagramPlugin} SkykitHrDiagramPlugin
+ * @typedef {import('./index.d.ts').SkykitHrDiagramDemandStrategy} SkykitHrDiagramDemandStrategy
  * @typedef {import('./index.d.ts').SkykitHrDiagramPluginOptions} SkykitHrDiagramPluginOptions
  * @typedef {import('./index.d.ts').SkykitThreeFrame} SkykitThreeFrame
  * @typedef {import('./index.d.ts').SkykitViewState} SkykitViewState
@@ -41,6 +42,7 @@ export function createSkykitHrDiagramPlugin(options) {
     volumeRadiusPc: positiveFinite(options.volumeRadiusPc, DEFAULT_HR_VOLUME_RADIUS_PC),
     highlightRegion: options.highlightRegion ?? null,
     selectedStars: Array.from(options.selectedStars ?? []),
+    demandStrategy: normalizeDemandStrategy(options.demandStrategy),
   };
   const width = positiveFinite(options.width ?? options.touchOs?.width, DEFAULT_HR_WIDTH);
   const height = positiveFinite(options.height ?? options.touchOs?.height, DEFAULT_HR_HEIGHT);
@@ -143,6 +145,7 @@ export function createSkykitHrDiagramPlugin(options) {
         surfaceDirty,
         source: surfaceSource.getSnapshot(),
         nodeId: node.id,
+        demandStrategyActive: typeof state.demandStrategy === 'function',
         disposed,
       };
     },
@@ -199,6 +202,7 @@ export function createSkykitHrDiagramPlugin(options) {
   async function setOptions(nextOptions = {}) {
     const previousMode = state.mode;
     const previousVolumeRadiusPc = state.volumeRadiusPc;
+    const previousDemandStrategy = state.demandStrategy;
 
     if (nextOptions.mode !== undefined) {
       state.mode = normalizeHrDiagramMode(nextOptions.mode);
@@ -215,13 +219,17 @@ export function createSkykitHrDiagramPlugin(options) {
     if (nextOptions.selectedStars !== undefined) {
       state.selectedStars = Array.from(nextOptions.selectedStars);
     }
+    if ('demandStrategy' in nextOptions) {
+      state.demandStrategy = normalizeDemandStrategy(nextOptions.demandStrategy);
+    }
 
     const demandChanged = hrModeHasDemand(previousMode) !== hrModeHasDemand(state.mode) ||
+      previousDemandStrategy !== state.demandStrategy ||
       (state.mode === HR_DIAGRAM_MODE_VOLUME && (
         previousMode !== HR_DIAGRAM_MODE_VOLUME ||
         state.volumeRadiusPc !== previousVolumeRadiusPc
       ));
-    if (state.mode === HR_DIAGRAM_MODE_VOLUME && lastView) {
+    if (state.mode === HR_DIAGRAM_MODE_VOLUME && lastView && !state.demandStrategy) {
       volumeDemandCenterPc = clonePoint(lastView.observerPc);
     } else if (state.mode !== HR_DIAGRAM_MODE_VOLUME) {
       volumeDemandCenterPc = null;
@@ -239,6 +247,9 @@ export function createSkykitHrDiagramPlugin(options) {
   /** @param {SkykitViewState} view */
   function refreshVolumeDemandIfNeeded(view) {
     if (state.mode !== HR_DIAGRAM_MODE_VOLUME) {
+      return;
+    }
+    if (state.demandStrategy) {
       return;
     }
     if (!volumeDemandCenterPc) {
@@ -281,11 +292,35 @@ function createSurfaceViewKey(view, state) {
 }
 
 /**
- * @param {{ mode: import('@found-in-space/hr-diagram').HrDiagramMode; volumeRadiusPc: number }} state
+ * @param {{
+ *   mode: import('@found-in-space/hr-diagram').HrDiagramMode;
+ *   limitingMagnitude: number;
+ *   volumeRadiusPc: number;
+ *   demandStrategy: SkykitHrDiagramDemandStrategy | null;
+ * }} state
  * @param {SkykitViewState} view
  * @param {{ x: number; y: number; z: number } | null} volumeDemandCenterPc
  */
 function createHrDemandStrategy(state, view, volumeDemandCenterPc) {
+  if (state.demandStrategy) {
+    return state.demandStrategy({
+      view,
+      mode: state.mode,
+      limitingMagnitude: state.limitingMagnitude,
+      volumeRadiusPc: state.volumeRadiusPc,
+      volumeDemandCenterPc: volumeDemandCenterPc ? clonePoint(volumeDemandCenterPc) : null,
+      createDefaultStrategy: () => createDefaultHrDemandStrategy(state, view, volumeDemandCenterPc),
+    });
+  }
+  return createDefaultHrDemandStrategy(state, view, volumeDemandCenterPc);
+}
+
+/**
+ * @param {{ mode: import('@found-in-space/hr-diagram').HrDiagramMode; volumeRadiusPc: number }} state
+ * @param {SkykitViewState} view
+ * @param {{ x: number; y: number; z: number } | null} volumeDemandCenterPc
+ */
+function createDefaultHrDemandStrategy(state, view, volumeDemandCenterPc) {
   if (state.mode === HR_DIAGRAM_MODE_VOLUME) {
     return createSphereVolumeStrategy({
       centerPc: volumeDemandCenterPc ?? view.observerPc,
@@ -293,6 +328,16 @@ function createHrDemandStrategy(state, view, volumeDemandCenterPc) {
     });
   }
   return null;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {SkykitHrDiagramDemandStrategy | null}
+ */
+function normalizeDemandStrategy(value) {
+  return typeof value === 'function'
+    ? /** @type {SkykitHrDiagramDemandStrategy} */ (value)
+    : null;
 }
 
 /** @param {import('@found-in-space/hr-diagram').HrDiagramMode} mode */

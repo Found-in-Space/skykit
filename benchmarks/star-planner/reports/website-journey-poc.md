@@ -180,18 +180,268 @@ focus on website/journey warm timing and current-demand arrival semantics:
 prewarm must complete before or during the authored travel envelope, and the
 session must have destination demand active by arrival.
 
+### 3. Benchmark Health And Demand-Timeline Trace
+
+Change:
+
+- Added milestone samples to the website journey benchmark: before measure,
+  after click, mid-travel, arrival, and final settle.
+- Added record health fields for browser errors, canvas/debug availability,
+  setup visibility, measured visibility, sample coverage, and warnings.
+- Kept old-main support visual-only: old pages do not need alpha debug
+  snapshots and still use screenshot/canvas visibility.
+- Added cluster-tour SkyKit debug registration on the current website branch so
+  clusters can report the same renderer/session counters as HR.
+- Added bounded setup visibility polling before the measured jump. If the setup
+  scene never becomes visible, the run is marked unhealthy instead of silently
+  treating a blank setup as a valid journey start.
+
+Verification:
+
+- `node --check benchmarks/star-planner/src/journey-browser-suite.js`
+- `node --check benchmarks/star-planner/src/run-journey-browser-benchmark.js`
+- `node --test benchmarks/star-planner/src/__tests__/benchmark-utils.test.js`
+- `node --test packages/star-octree-provider/src/__tests__/*.test.js packages/skykit/src/__tests__/skykit.test.js`
+- `npm run typecheck`
+- `SKYKIT_LOCAL_PATH=../skykit TOUCH_OS_LOCAL_PATH=../touch-os npm run build`
+- `npm run bench:journey -- --target old=http://127.0.0.1:4323 --target current=http://127.0.0.1:4322 --timeout-ms 180000`
+
+Latest directional side-by-side:
+
+| Journey | Target | health | warning/reason | blank travel | first visible | arrival visible |
+| --- | --- | ---: | --- | ---: | ---: | --- |
+| clusters Hyades -> omega Cen | old | no | setup not visible; low sample coverage | 0% | 2.58s | yes |
+| HR NGC 752 -> omega Cen | old | yes | low sample coverage | 9.1% | 0.89s | yes |
+| clusters Hyades -> omega Cen | current | yes | low sample coverage | 0% | 1.83s | yes |
+| HR NGC 752 -> omega Cen | current | no | setup not visible | 97.1% | 3.57s | no |
+
+Current-branch milestone counters:
+
+| Journey | Milestone | visible | rendered cells / stars | desired | current | in-flight | cached hits | stale aborts |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| clusters | before measure | yes | 91 / 70,345 | 103 | 91 | 83 | 24 | 2 |
+| clusters | arrival | yes | 79 / 55,616 | 111 | 79 | 98 | 30 | 4 |
+| clusters | final settle | yes | 89 / 65,578 | 111 | 89 | 0 | 30 | 4 |
+| HR | before measure | no | 0 / 0 | 84 | 0 | 84 | 0 | 0 |
+| HR | arrival | no | 0 / 0 | 0 | 0 | 0 | 0 | 0 |
+| HR | final settle | yes | 57 / 3,005 | 634 | 57 | 604 | 30 | 0 |
+
+Finding:
+
+The benchmark is now better at refusing misleading comparisons. Current
+clusters are a useful health sentinel again: they expose debug counters and the
+latest current run stayed visually populated. Old clusters were visually fine
+during the measured travel but did not prove the setup scene was visible before
+the click, so that row should not be used as an old-vs-new efficiency claim.
+
+The HR trace is more informative than the aggregate score. The current HR setup
+never became visible before the measured Omega Centauri click, even after the
+bounded setup wait. At the authored arrival moment, desired/current demand was
+empty; by final settle the destination demand existed, but only `57 / 634`
+current cells had materialized and `604` cells were still in flight. That points
+to late destination-demand activation plus a large current-load backlog, not to
+missing route geometry alone. The stale-abort counter stayed at `0`, reinforcing
+the earlier suspicion that overlapping large current loads are not cancellable
+at a fine enough granularity.
+
+### 4. Omega Cen Authored Tunnel And Route Reuse
+
+Change:
+
+- Moved the Omega Centauri corridor into authored website HR lesson code.
+- Built one canonical NGC 752-side route to the Omega Centauri arrival orbit,
+  plus the exact reverse point set for return travel.
+- Started pinned page-load warming for the canonical corridor and destination
+  sphere, while keeping scene-triggered hints as idempotent fallback requests.
+- Added direct Omega return transitions to `ngc-752`, `pleiades`,
+  `away-volume`, and `local-volume`; the latter three share the reverse
+  corridor before forking near the inner/NGC-side anchor.
+- Added generic SkyKit journey support for authored `travel.pointsPc` /
+  `travelPathPc` routes. Orbit scenes hand off to an arrival orbit action;
+  non-orbit scenes follow the route first, then apply their normal arrival
+  transition. The star octree provider remains unaware of Omega Centauri,
+  HR, or journey names.
+
+Verification:
+
+- `node --check packages/skykit/src/plugins.js`
+- `node --check src/scripts/hr-diagram-viewer.js`
+- `node --check src/scripts/hr-diagram-omega-route.js`
+- `node --test src/scripts/__tests__/hr-diagram-omega-route.test.js`
+- `node --test packages/journey/src/__tests__/journey.test.js packages/skykit/src/__tests__/skykit.test.js`
+- `node --test packages/star-octree-provider/src/__tests__/*.test.js`
+- `npm run typecheck`
+- `SKYKIT_LOCAL_PATH=../skykit JOURNEY_VIDEO_LOCAL_PATH=../journey-video TOUCH_OS_LOCAL_PATH=../touch-os npm run build`
+
+Benchmark notes:
+
+The first current-only smoke run was discarded: Vite re-optimized dependencies
+during the cluster page load, and both scenarios sat in `planning` with zero
+desired/current cells. A warmed current-only rerun was healthy:
+
+| Journey | health | blank travel | first visible | arrival visible | arrival current / desired | final in-flight |
+| --- | ---: | ---: | ---: | --- | ---: | ---: |
+| clusters Hyades -> omega Cen | yes | 0% | 1.31s | yes | 0.783 | 96 |
+| HR NGC 752 -> omega Cen | yes | 93.9% | 0.94s | no | 0 / 0 | 608 |
+
+The follow-up old-vs-current pass had healthy cluster and HR setup for both
+targets, though old-main still has low sample coverage and visual-only
+counters:
+
+| Journey | Target | health | blank travel | first visible | arrival visible | arrival current / desired | final in-flight |
+| --- | --- | ---: | ---: | ---: | --- | ---: | ---: |
+| clusters Hyades -> omega Cen | current | yes | 0% | 1.33s | yes | 0.858 | 0 |
+| HR NGC 752 -> omega Cen | current | yes | 92.0% | 0.81s | no | 0 / 0 | 0 |
+| clusters Hyades -> omega Cen | old main | yes | 0% | 0.92s | yes | n/a | n/a |
+| HR NGC 752 -> omega Cen | old main | yes | 0% | 0.65s | yes | n/a | n/a |
+
+Current HR milestone detail from the old-vs-current pass:
+
+| Milestone | visible | rendered cells / stars | desired | current | in-flight | cached hits |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| before measure | yes | 8 / 544 | 83 | 8 | 83 | 0 |
+| after click | yes | 36 / 5,499 | 84 | 36 | 79 | 5 |
+| mid-travel | no | 0 / 0 | 0 | 0 | 0 | 0 |
+| arrival | no | 0 / 0 | 0 | 0 | 0 | 0 |
+| final settle | no | 0 / 0 | 0 | 0 | 0 | 0 |
+
+Finding:
+
+This change restored the important authored-route shape from old main without
+putting special cases into the loader. The route API and preload plumbing are
+working mechanically: clusters stay healthy, explicit journey routes are
+exercised by tests, and current HR shows some useful stars immediately after
+the Omega click instead of waiting until roughly ten seconds.
+
+It is not yet a visual win for HR. The latest run shows the opposite failure
+mode from the earlier backlog-heavy runs: during mid-travel and arrival the HR
+session reports no desired cells at all, so there is nothing for warm cache
+promotion to materialize. The old hardcoded implementation remains visually
+continuous, which suggests the missing piece is now HR demand semantics during
+the authored route: the live volume is likely being cleared or allowed to chase
+an impossible fast observer-centered bubble instead of holding route/destination
+demand through the tunnel.
+
+Next implication:
+
+Keep this authored route and generic `pointsPc` API. The next performance slice
+should make HR demand route-aware during Omega transfer: hold the last useful
+inner volume until route/destination demand is active, activate destination
+volume demand before arrival, and only then tune provider scheduling if
+in-flight backlog remains high. That still preserves the architecture: the
+website/journey layer decides what matters; the provider generically warms and
+promotes cells.
+
+### 5. Route-Aware HR Demand With Decoded Memory Lease
+
+Change:
+
+- Added a generic decoded-memory lease to `provider.warmCells()` via
+  `cache.decodedMemoryLease: { key, ttlMs }`.
+- Leased decoded payloads are skipped by normal LRU eviction until TTL expiry
+  or explicit release, and provider snapshots now report retained payload
+  count/bytes, active lease count, and lease pressure.
+- Exposed provider cache diagnostics through the SkyKit star-source debug
+  snapshot so journey benchmark samples can see lease counters.
+- Added a generic HR `demandStrategy` override. Default HR volume demand is
+  unchanged when no override is supplied.
+- Authored the HR Omega Centauri lesson to use a custom route/destination
+  demand strategy during Omega transfers and destination demand on arrival.
+- Tagged Omega corridor warm requests with the stable
+  `website.hr-diagram.omega-corridor` lease key.
+- Enabled conservative source-level cell retention for the HR lesson so a
+  demand restart does not immediately blank already-visible cells before the
+  replacement demand produces cells.
+
+Verification:
+
+- `node --test packages/star-octree-provider/src/__tests__/*.test.js`
+- `node --test packages/skykit/src/__tests__/skykit.test.js benchmarks/star-planner/src/__tests__/benchmark-utils.test.js`
+- `node --test src/scripts/__tests__/hr-diagram-omega-route.test.js`
+- `npm run typecheck`
+- `SKYKIT_LOCAL_PATH=../skykit JOURNEY_VIDEO_LOCAL_PATH=../journey-video TOUCH_OS_LOCAL_PATH=../touch-os npm run build`
+- Current-only smoke:
+  `npm run bench:journey -- --target current=http://127.0.0.1:4322 --timeout-ms 180000`
+- Old-vs-current:
+  `npm run bench:journey -- --target old=http://127.0.0.1:4323 --target current=http://127.0.0.1:4322 --timeout-ms 180000`
+
+Current-only smoke after a warmed dev server:
+
+| Journey | health | blank travel | first visible | arrival visible | arrival current / desired | final in-flight |
+| --- | ---: | ---: | ---: | --- | ---: | ---: |
+| clusters Hyades -> omega Cen | yes | 0% | 8.79s | yes | 0.845 | 115 |
+| HR NGC 752 -> omega Cen | yes | 0% | 0.92s | yes | 0.003 | 9,970 |
+
+Follow-up old-vs-current pass:
+
+| Journey | Target | health | note | blank travel | first visible | arrival visible | arrival current / desired | final in-flight |
+| --- | --- | ---: | --- | ---: | ---: | --- | ---: | ---: |
+| clusters Hyades -> omega Cen | old main | no | setup not visible | 0% | 4.14s | yes | n/a | n/a |
+| HR NGC 752 -> omega Cen | old main | yes | visual-only | 0% | 0.69s | yes | n/a | n/a |
+| clusters Hyades -> omega Cen | current | yes | debug-rich | 0% | 1.20s | yes | 93 / 113 | 0 |
+| HR NGC 752 -> omega Cen | current | yes | low sample coverage | 0% | 1.66s | yes | 29 / 9,994 | 0 |
+
+Current HR milestone detail from the old-vs-current pass:
+
+| Milestone | visible | rendered cells / stars | desired | current | in-flight | cached hits | leased payloads | lease pressure |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| before measure | yes | 5 / 506 | 84 | 5 | 84 | 0 | 0 | 0 |
+| after click | yes | 29 / 4,189 | 0 | 0 | 0 | 0 | 0 | 0 |
+| mid-travel | yes | 29 / 4,189 | 0 | 0 | 0 | 0 | 0 | 0 |
+| arrival | yes | 29 / 4,189 | 9,994 | 29 | 0 | 29 | 4 | 0 |
+| final settle | yes | 29 / 4,370 | 9,995 | 29 | 0 | 30 | 8 | 0 |
+
+Finding:
+
+This is the first post-alpha HR Omega run that restores the user-visible
+continuity target: current HR stayed visible for the full travel window and was
+visible at arrival. That strongly supports the architecture choice: authored
+route strategy plus generic provider retention can recover the useful old
+behavior without putting Omega-specific code into the octree loader.
+
+It is not yet a readiness win. The benchmark now shows a different, clearer
+failure mode: by arrival/final, custom HR demand wants about `10k` cells but
+only `29` are current. In-flight is `0`, and demand status stays around
+planning, so the bottleneck in this run is not stale fetch backlog; it is that
+the live route/destination demand is too broad or too expensive to plan as one
+current demand. The visual continuity is being carried by retained previous
+cells plus a small number of cache-promoted route/destination cells.
+
+The decoded lease diagnostics are working but also instructive. The Omega lease
+is visible (`1` active lease, `4 -> 8` leased payloads, zero pressure), but the
+retained decoded set is tiny relative to the eventual desired set. That implies
+we should next inspect warm completion by route segment and the live demand
+strategy's breadth before increasing cache budgets. If the lease is not holding
+many payloads, either the page-load prewarm is not reaching enough cells before
+travel, or the custom live demand is asking for far more cells than the
+prewarmed corridor actually covers.
+
+Next implication:
+
+Keep the memory lease and HR demand override APIs. The next optimization should
+narrow the route-aware current demand instead of widening provider behavior:
+request the last useful volume plus the current/near-future corridor segment
+and destination readiness, not the whole authored tunnel and full Omega sphere
+as one huge live demand. Add route-warm completion counters by request/segment
+so we can tell whether the lease is small because the warm request is late,
+because dedupe skips most cells, or because the strategy is selecting a
+different cell set than the arrival demand.
+
 ## Findings
 
-The old hardcoded HR preloader is materially better for the long Omega
-Centauri journey. In the measured run it kept the HR route visually populated
-through the whole transition, while the new alpha HR path was blank for roughly
-two thirds of the travel window and did not show useful stars until almost 10
-seconds after the click.
+The old hardcoded HR preloader was materially better in the initial comparison:
+it kept the Omega Centauri route visually populated while the new alpha HR path
+was mostly blank. The route-aware demand plus decoded-memory lease slice closes
+that visual-continuity gap in the latest directional run: current HR now has
+`0%` blank travel and visible arrival.
 
-The new HR path appears to be chasing live/current demand rather than arriving
-from warmed route data. At arrival it had only 1 current cell out of 633 desired
-cells, with 634 cells still in flight. Even by the final sample it still had
-620 cells in flight. This matches the observed backlog/stale-request behavior.
+The alpha path is still not "ready" in the same way old main feels ready. The
+failure mode has moved from visible blankness and stale in-flight backlog to
+over-broad/late live demand: the latest current HR run had only `29 / 9,994`
+current cells at arrival, with `0` in-flight cells and demand still around
+planning. That makes the next question much sharper: the route/destination
+strategy is preserving visible continuity, but it is asking for too much as
+current demand or asking for it too late to become fully materialized.
 
 The new cluster route is visually acceptable in this run, but it is much
 heavier than old main: more than twice the resource count, almost twice the

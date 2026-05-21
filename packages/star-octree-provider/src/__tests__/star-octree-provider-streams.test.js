@@ -192,6 +192,9 @@ test('warmCells warms index, payload, and decoded caches without cell emission',
     const result = await provider.warmCells({
       view: { observerPc: { x: 0, y: 0, z: 0 }, limitingMagnitude: 6.5 },
       attributes: ['position', 'teffLog8', 'magAbs'],
+      cache: {
+        decodedMemoryLease: { key: 'test-warm-route', ttlMs: 60_000 },
+      },
     });
     const snapshot = provider.getSnapshot();
 
@@ -202,6 +205,9 @@ test('warmCells warms index, payload, and decoded caches without cell emission',
     assert.equal(snapshot.dataset.rootShardReady, true);
     assert.equal(snapshot.cache.payloads, 2);
     assert.equal(snapshot.cache.decodedPayloads, 2);
+    assert.equal(snapshot.cache.decodedLeasedPayloads, 2);
+    assert.equal(snapshot.stats.decodedCacheActiveLeases, 1);
+    assert.equal(snapshot.stats.decodedCacheLeasedPayloads, 2);
     assert.equal(snapshot.stats.decodedCacheWritesByMask['p+t+m'], 2);
     assert.equal(snapshot.stats.cellBorrowedBytes, 0);
     assert.equal(snapshot.scheduler.stats.startedByLane.prefetch > 0, true);

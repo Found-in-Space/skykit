@@ -592,12 +592,30 @@ export function createSkykitJourneyPlugin(options = {}) {
     if (isOrbitCameraScene(scene)) {
       arrivalDeferred = await applyOrbitCameraScene(scene, context, event, onArrive);
     } else if (navigation?.transitionTo) {
-      const results = await context.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
-        .../** @type {Record<string, unknown>} */ (navigation.transitionTo),
-        onArrive,
-      }, {
-        source: id,
-      });
+      const travel = normalizeJourneySceneTravel(scene.travel);
+      const explicitRoutePoints = await resolveJourneyRoutePoints(scene, travel, context);
+      const results = explicitRoutePoints.length >= 2
+        ? await context.actions.invoke(SKYKIT_ACTIONS.navigation.flyPolyline, {
+          points: explicitRoutePoints,
+          durationSecs: travel.durationSecs,
+          arrivalThreshold: travel.arrivalThreshold,
+          onArrive: () => {
+            void context.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+              ...createRouteArrivalTransitionPayload(navigation.transitionTo),
+              onArrive,
+            }, {
+              source: id,
+            });
+          },
+        }, {
+          source: id,
+        })
+        : await context.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+          .../** @type {Record<string, unknown>} */ (navigation.transitionTo),
+          onArrive,
+        }, {
+          source: id,
+        });
       arrivalDeferred = hasActionResult(results);
     }
     if (Array.isArray(scene.preloadHints)) {
@@ -654,6 +672,22 @@ export function createSkykitJourneyPlugin(options = {}) {
     }
 
     const travel = normalizeJourneySceneTravel(scene.travel);
+    const explicitRoutePoints = await resolveJourneyRoutePoints(scene, travel, context);
+    if (explicitRoutePoints.length >= 2) {
+      const arrivalAction = normalizeJourneyOrbitAction(
+        travel.arrivalAction ?? scene.travelPathArrivalAction,
+        destinationOrbit,
+      );
+      rememberResolvedJourneyOrbit(scene, arrivalAction);
+      const results = await context.actions.invoke(SKYKIT_ACTIONS.navigation.flyPolyline, {
+        points: explicitRoutePoints,
+        durationSecs: travel.durationSecs,
+        arrivalThreshold: travel.arrivalThreshold,
+        arrivalAction,
+        onArrive,
+      }, source);
+      return hasActionResult(results);
+    }
     const route = createOrbitTransferRoute({
       start: context.getViewState().observerPc,
       sourceOrbit: await resolveSourceJourneyOrbit(event, context),
@@ -686,6 +720,95 @@ export function createSkykitJourneyPlugin(options = {}) {
       normal: fallbackNormal,
     }, source);
     return false;
+  }
+
+  /**
+   * @param {unknown} transitionTo
+   * @returns {Record<string, unknown>}
+   */
+  function createRouteArrivalTransitionPayload(transitionTo) {
+    const payload = /** @type {Record<string, unknown>} */ (
+      transitionTo && typeof transitionTo === 'object' ? transitionTo : {}
+    );
+    return {
+      ...payload,
+      movement: {
+        ...(payload.movement && typeof payload.movement === 'object'
+          ? /** @type {Record<string, unknown>} */ (payload.movement)
+          : {}),
+        durationSecs: 0.001,
+      },
+    };
+  }
+
+  /**
+   * @param {Record<string, unknown>} scene
+   * @param {Record<string, unknown>} travel
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   * @returns {Promise<Vector3Like[]>}
+   */
+  async function resolveJourneyRoutePoints(scene, travel, context) {
+    const rawPoints = resolveJourneyRoutePointSource(scene, travel);
+    if (!rawPoints) return [];
+    const points = [];
+    for (const point of Array.from(rawPoints)) {
+      const resolved = await resolveJourneyTarget(point, context);
+      if (resolved) points.push(resolved);
+    }
+    return points;
+  }
+
+  /**
+   * @param {Record<string, unknown>} scene
+   * @param {Record<string, unknown>} travel
+   * @returns {Iterable<unknown> | null}
+   */
+  function resolveJourneyRoutePointSource(scene, travel) {
+    return firstIterable(
+      scene.travelPathPc,
+      scene.travelPath,
+      travel.pathPointsPc,
+      travel.pointsPc,
+      travel.points,
+    );
+  }
+
+  /**
+   * @param {...unknown} candidates
+   * @returns {Iterable<unknown> | null}
+   */
+  function firstIterable(...candidates) {
+    for (const candidate of candidates) {
+      if (
+        candidate
+        && typeof /** @type {{ [Symbol.iterator]?: unknown }} */ (candidate)[Symbol.iterator] === 'function'
+      ) {
+        return /** @type {Iterable<unknown>} */ (candidate);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * @param {unknown} value
+   * @param {{ center: Vector3Like; radius: number; angularSpeedRadPerSec: number; normal?: Vector3Like }} fallback
+   * @returns {{ type: 'orbit'; center: Vector3Like; radius: number; angularSpeedRadPerSec: number; normal: Vector3Like }}
+   */
+  function normalizeJourneyOrbitAction(value, fallback) {
+    const source = value && typeof value === 'object'
+      ? /** @type {Record<string, unknown>} */ (value)
+      : {};
+    const fallbackNormal = fallback.normal ?? { x: 0, y: 1, z: 0 };
+    return {
+      type: 'orbit',
+      center: normalizeOptionalVector3(source.center) ?? cloneVector3(fallback.center),
+      radius: positiveFinite(source.radius ?? source.radiusPc, fallback.radius),
+      angularSpeedRadPerSec: finiteNumber(
+        source.angularSpeedRadPerSec ?? source.angularSpeed,
+        fallback.angularSpeedRadPerSec,
+      ),
+      normal: normalizeDirectionVector(source.normal, fallbackNormal),
+    };
   }
 
   /**
@@ -1445,12 +1568,16 @@ function isInitialJourneyEvent(event) {
   );
 }
 
-/** @param {unknown} value */
+/**
+ * @param {unknown} value
+ * @returns {Record<string, unknown> & { durationSecs: number; sampleStepSecs: number; arrivalThreshold: number }}
+ */
 function normalizeJourneySceneTravel(value) {
   const source = /** @type {Record<string, unknown>} */ (
     value && typeof value === 'object' ? value : {}
   );
   return {
+    ...source,
     durationSecs: positiveFinite(source.durationSecs, 5),
     sampleStepSecs: positiveFinite(source.sampleStepSecs, 1 / 60),
     arrivalThreshold: positiveFinite(source.arrivalThreshold, 0.05),

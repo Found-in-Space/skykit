@@ -62,6 +62,18 @@ export interface JourneyTravelSpec {
   durationSecs: number;
   sampleStepSecs?: number;
   dwellSecs?: number;
+  pointsPc?: SpatialVector3[];
+  points?: SpatialVector3[];
+  pathPointsPc?: SpatialVector3[];
+  arrivalAction?: {
+    type?: 'orbit' | string;
+    center: SpatialVector3;
+    radius: number;
+    angularSpeedRadPerSec?: number;
+    angularSpeed?: number;
+    normal?: SpatialVector3;
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 }
 

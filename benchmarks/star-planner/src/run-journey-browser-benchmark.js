@@ -13,9 +13,12 @@ console.log(`Website journey benchmark complete: ${result.records.length} runs`)
 for (const row of result.summaries) {
   console.log([
     `${row.target}/${row.scenario}`,
+    `healthy=${row.healthyRunRatio.mean}`,
     `blank travel mean=${row.blankTravelRatio.mean}`,
     `first visible p50=${row.timeToFirstVisibleMs.p50} ms`,
     `arrival visible=${row.arrivalVisible.mean}`,
+    `arrival current/desired=${row.arrivalCurrentDesiredRatio.mean}`,
+    `final in-flight=${row.finalInFlightCells.mean}`,
   ].join(' | '));
 }
 

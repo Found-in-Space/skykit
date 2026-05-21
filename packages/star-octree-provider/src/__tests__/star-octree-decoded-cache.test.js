@@ -1,0 +1,70 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { createDecodedPayloadCache } from '../star-octree-decoded-cache.js';
+
+test('decoded cache lease retains warmed entries under memory budget pressure', () => {
+  let nowMs = 1_000;
+  const cache = createDecodedPayloadCache({
+    sourceIdentity: 'test-source',
+    memoryBudgetBytes: 40,
+    now: () => nowMs,
+  });
+
+  cache.set('leased', createSegment(2), 'p', { key: 'omega-route', ttlMs: 10_000 });
+  cache.set('churn', createSegment(2), 'p');
+
+  assert.ok(cache.peek('leased'));
+  assert.equal(cache.peek('churn'), null);
+
+  const snapshot = cache.getSnapshot();
+  assert.equal(snapshot.decodedPayloads, 1);
+  assert.equal(snapshot.decodedCacheLeasedPayloads, 1);
+  assert.equal(snapshot.decodedCacheActiveLeases, 1);
+  assert.equal(snapshot.decodedCacheLeasedPayloadBytes, 24);
+
+  nowMs += 10_001;
+  cache.set('replacement', createSegment(2), 'p');
+
+  assert.equal(cache.peek('leased'), null);
+  assert.ok(cache.peek('replacement'));
+});
+
+test('decoded cache releaseLease makes retained entries evictable again', () => {
+  const cache = createDecodedPayloadCache({
+    sourceIdentity: 'test-source',
+    memoryBudgetBytes: 40,
+  });
+
+  cache.set('leased', createSegment(2), 'p', { key: 'omega-route', ttlMs: 10_000 });
+
+  assert.equal(cache.releaseLease('omega-route'), 1);
+  cache.set('replacement', createSegment(2), 'p');
+
+  assert.equal(cache.peek('leased'), null);
+  assert.ok(cache.peek('replacement'));
+  assert.equal(cache.getSnapshot().decodedCacheActiveLeases, 0);
+});
+
+test('decoded cache reports lease pressure when retained payloads exceed budget', () => {
+  const cache = createDecodedPayloadCache({
+    sourceIdentity: 'test-source',
+    memoryBudgetBytes: 40,
+  });
+
+  cache.set('leased-a', createSegment(2), 'p', { key: 'omega-route', ttlMs: 10_000 });
+  cache.set('leased-b', createSegment(2), 'p', { key: 'omega-route', ttlMs: 10_000 });
+
+  const snapshot = cache.getSnapshot();
+  assert.equal(snapshot.decodedPayloads, 2);
+  assert.equal(snapshot.decodedCacheLeasedPayloads, 2);
+  assert.equal(snapshot.decodedCacheLeasePressureBytes, 8);
+  assert.equal(snapshot.decodedCacheLeasesByKey['omega-route'].payloads, 2);
+});
+
+function createSegment(count) {
+  return {
+    count,
+    positionsPc: new Float32Array(count * 3),
+  };
+}
