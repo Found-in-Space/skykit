@@ -1,9 +1,12 @@
 {
   "name": "@found-in-space/meta-sidecar-provider",
-  "version": "0.0.0-alpha.0",
+  "version": "0.2.0-alpha.0",
   "description": "Alpha metadata sidecar provider package for Found in Space datasets",
   "license": "MIT",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
   "exports": {
@@ -22,6 +25,6 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@found-in-space/star-trees": "0.0.0-alpha.0"
+    "@found-in-space/star-trees": "0.2.0-alpha.0"
   }
 }

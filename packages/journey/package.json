@@ -1,9 +1,12 @@
 {
   "name": "@found-in-space/journey",
-  "version": "0.0.0-alpha.0",
+  "version": "0.2.0-alpha.0",
   "description": "Plain authored journey graphs, timed evaluators, cues, and retiming helpers for Found in Space",
   "license": "MIT",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
   "exports": {
@@ -26,6 +29,6 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@found-in-space/spatial": "0.0.0-alpha.0"
+    "@found-in-space/spatial": "0.2.0-alpha.0"
   }
 }
