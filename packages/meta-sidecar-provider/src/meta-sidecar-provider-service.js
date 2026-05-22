@@ -15,7 +15,7 @@ import {
  */
 
 export const META_SIDECAR_c56103 =
-  'https://d1kwci8ql2abxm.cloudfront.net/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.meta.octree';
+  'https://data.foundin.space/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.meta.octree';
 export const META_SIDECAR_DEFAULT = META_SIDECAR_c56103;
 
 export const ERR_META_SIDECAR_PARENT_MISMATCH =

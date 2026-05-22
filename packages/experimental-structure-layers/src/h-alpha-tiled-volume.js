@@ -1,7 +1,7 @@
 // @ts-nocheck
 
 export const HA_TILED_VOLUME_FORMAT = 'mccallum_ha_tiled_volume_v1';
-export const DEFAULT_MCCALLUM_HA_TILED_VOLUME_URL = 'https://d1kwci8ql2abxm.cloudfront.net/mccallum2025/15fe84ad/manifest.json';
+export const DEFAULT_MCCALLUM_HA_TILED_VOLUME_URL = 'https://data.foundin.space/mccallum2025/15fe84ad/manifest.json';
 export const HA_TILED_LEVEL_MAGIC = 'FHATILE1';
 export const HA_TILED_LEVEL_HEADER_BYTES = 128;
 export const HA_TILED_LEVEL_RECORD_BYTES = 32;
