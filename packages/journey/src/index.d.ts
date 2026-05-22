@@ -295,6 +295,9 @@ export interface JourneyRetimingResult {
   insertedCount: number;
   effectiveEaseSecs?: number;
   groupId?: string;
+  startGroupId?: string;
+  endGroupId?: string;
+  groupIds?: string[];
 }
 
 export interface DeleteJourneyEaseLocationGroupResult {
@@ -338,13 +341,23 @@ export declare function equalizeJourneyLocationRangeSpeeds(
   locationWaypoints: Iterable<unknown>,
   anchorId: string,
   focusId: string,
-  options?: { samplesPerSegment?: number }
+  options?: { samplesPerSegment?: number; timeStepSecs?: number }
 ): JourneyRetimingResult;
 export declare function easeJourneyLocationRangeStartEnd(
   locationWaypoints: Iterable<unknown>,
   anchorId: string,
   focusId: string,
-  options?: { easeSecs?: number; rampSampleSecs?: number; samplesPerSegment?: number; groupId?: string }
+  options?: {
+    easeSecs?: number;
+    rampSampleSecs?: number;
+    timeStepSecs?: number;
+    samplesPerSegment?: number;
+    groupId?: string;
+    startGroupId?: string;
+    endGroupId?: string;
+    phase?: 'start' | 'end';
+    phases?: Iterable<'start' | 'end'>;
+  }
 ): JourneyRetimingResult;
 export declare function deleteJourneyEaseLocationGroupHelpers(
   locationWaypoints: Iterable<unknown>,
@@ -354,7 +367,7 @@ export declare function deleteJourneyEaseLocationGroupHelpers(
 export declare function rebuildJourneyEaseLocationGroup(
   locationWaypoints: Iterable<unknown>,
   groupId: string,
-  options?: { easeSecs?: number; rampSampleSecs?: number; samplesPerSegment?: number; phase?: string }
+  options?: { easeSecs?: number; rampSampleSecs?: number; timeStepSecs?: number; samplesPerSegment?: number; phase?: string }
 ): JourneyRetimingResult;
 
 export type { SpatialPreloadHint, SpatialSmoothPathSample, SpatialVector3, SpatialQuaternion };

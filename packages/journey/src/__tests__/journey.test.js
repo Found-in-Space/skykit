@@ -17,6 +17,12 @@ import {
   rebuildJourneyEaseLocationGroup,
   sampleJourneyLocationArcPoint,
 } from '../index.js';
+import {
+  deleteTimedJourneyEaseGroup,
+  easeTimedJourneyLocationRange,
+  equalizeTimedJourneyLocationRangeSpeed,
+  rebuildTimedJourneyEaseGroup,
+} from '../authoring.js';
 
 test('createJourney normalizes ordered orbit scenes and generated transitions', () => {
   const journey = createJourney({
@@ -207,14 +213,28 @@ test('retiming helpers report range speeds, equalize movement, and insert ease h
   assert.ok(b);
   assert.ok(b.timeSecs > 0.5 && b.timeSecs < 2);
 
+  const withHold = [
+    { id: 'a', timeSecs: 0, positionPc: { x: 0, y: 0, z: 0 } },
+    { id: 'hold', timeSecs: 2, positionPc: { x: 0, y: 0, z: 0 } },
+    { id: 'b', timeSecs: 5, positionPc: { x: 1, y: 0, z: 0 } },
+    { id: 'c', timeSecs: 10, positionPc: { x: 10, y: 0, z: 0 } },
+  ];
+  const holdEqualized = equalizeJourneyLocationRangeSpeeds(withHold, 'a', 'c', { timeStepSecs: 0.05 });
+  assert.equal(holdEqualized.locationWaypoints.find((waypoint) => waypoint.id === 'hold')?.timeSecs, 2);
+  assert.equal(holdEqualized.locationWaypoints.find((waypoint) => waypoint.id === 'b')?.timeSecs, 2.8);
+
   const eased = easeJourneyLocationRangeStartEnd(waypoints, 'a', 'c', {
     easeSecs: 2,
     rampSampleSecs: 1,
     groupId: 'ease-test',
   });
   assert.equal(eased.groupId, 'ease-test');
-  assert.equal(eased.insertedCount, 2);
-  assert.ok(eased.insertedIds.every((id) => id.startsWith('loc-ease-test')));
+  assert.equal(eased.startGroupId, 'ease-test');
+  assert.notEqual(eased.endGroupId, eased.startGroupId);
+  assert.deepEqual(eased.groupIds, [eased.startGroupId, eased.endGroupId]);
+  assert.equal(eased.insertedCount, 4);
+  assert.ok(eased.insertedIds.some((id) => id.startsWith('loc-ease-test')));
+  assert.ok(eased.locationWaypoints.some((waypoint) => waypoint.motionGroup?.phase === 'end'));
 });
 
 test('arc diagnostics and sampling expose editor-friendly path data', () => {
@@ -270,5 +290,59 @@ test('ease group helpers delete and rebuild editor helper waypoints', () => {
   });
   assert.equal(rebuilt.groupId, 'ease-a');
   assert.ok(rebuilt.insertedCount >= 2);
-  assert.ok(rebuilt.insertedIds.every((id) => id.startsWith('loc-ease-a')));
+  assert.ok(rebuilt.insertedIds.some((id) => id.startsWith('loc-ease-a')));
+});
+
+test('authoring retiming transforms return journey-focused results', () => {
+  const journey = normalizeTimedJourney({
+    durationSecs: 10,
+    locationWaypoints: [
+      { id: 'a', timeSecs: 0, positionPc: { x: 0, y: 0, z: 0 } },
+      { id: 'hold', timeSecs: 2, positionPc: { x: 0, y: 0, z: 0 } },
+      { id: 'b', timeSecs: 5, positionPc: { x: 1, y: 0, z: 0 } },
+      { id: 'c', timeSecs: 10, positionPc: { x: 10, y: 0, z: 0 } },
+    ],
+  });
+
+  const equalized = equalizeTimedJourneyLocationRangeSpeed(journey, {
+    anchorId: 'a',
+    focusId: 'c',
+    timeStepSecs: 0.05,
+  });
+  assert.equal(equalized.journey.locationWaypoints.find((waypoint) => waypoint.id === 'hold')?.timeSecs, 2);
+  assert.equal(equalized.locationWaypoints.find((waypoint) => waypoint.id === 'b')?.timeSecs, 2.8);
+
+  const eased = easeTimedJourneyLocationRange(journey, {
+    anchorId: 'a',
+    focusId: 'c',
+    easeSecs: 2,
+    rampSampleSecs: 1,
+    timeStepSecs: 0.05,
+  });
+  assert.ok(eased.startGroupId);
+  assert.ok(eased.endGroupId);
+  assert.notEqual(eased.startGroupId, eased.endGroupId);
+  assert.equal(eased.insertedCount, 4);
+  assert.equal(eased.journey.locationWaypoints.some((waypoint) => waypoint.motionGroup?.rangeStartId === 'a'), true);
+
+  const evaluator = createTimedJourneyEvaluator(eased.journey);
+  for (const timeSecs of [0, 1, 2, 5, 9, 10]) {
+    const frame = evaluator.evaluate(timeSecs);
+    assert.equal(Number.isFinite(frame.observerPc.x), true);
+    assert.equal(Number.isFinite(frame.velocityPcPerSec.x), true);
+    assert.equal(Number.isFinite(frame.speedPcPerSec), true);
+  }
+
+  const deletedStart = deleteTimedJourneyEaseGroup(eased.journey, eased.startGroupId, { phase: 'start' });
+  assert.equal(deletedStart.journey.locationWaypoints.some((waypoint) => waypoint.motionGroup?.id === eased.startGroupId), false);
+  assert.equal(deletedStart.journey.locationWaypoints.some((waypoint) => waypoint.motionGroup?.id === eased.endGroupId), true);
+
+  const rebuiltEnd = rebuildTimedJourneyEaseGroup(eased.journey, eased.endGroupId, {
+    phase: 'end',
+    easeSecs: 1,
+    rampSampleSecs: 0.5,
+    timeStepSecs: 0.05,
+  });
+  assert.equal(rebuiltEnd.journey.locationWaypoints.some((waypoint) => waypoint.motionGroup?.id === eased.startGroupId), true);
+  assert.equal(rebuiltEnd.journey.locationWaypoints.some((waypoint) => waypoint.motionGroup?.id === eased.endGroupId), true);
 });

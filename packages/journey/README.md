@@ -48,6 +48,22 @@ const evaluator = createTimedJourneyEvaluator({
 const frame = evaluator.evaluate(5);
 ```
 
+Timed journey authoring tools live under `@found-in-space/journey/authoring`.
+They transform journey data before playback, so websites and build scripts can
+retime a long waypoint journey and then render it with the normal evaluator.
+
+```js
+import { easeTimedJourneyLocationRange } from '@found-in-space/journey/authoring';
+
+const eased = easeTimedJourneyLocationRange(timedJourney, {
+  anchorId: 'earth',
+  focusId: 'orion',
+  easeSecs: 3,
+});
+
+const evaluator = createTimedJourneyEvaluator(eased.journey);
+```
+
 Orbit cameras require `radiusPc` and `angularSpeedRadPerSec`. `normal` is
 optional: omit it to let SkyKit/spatial derive a natural insertion plane from
 the approach vector, or provide it to request a specific orbital plane.

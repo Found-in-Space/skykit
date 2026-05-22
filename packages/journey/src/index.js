@@ -2,7 +2,6 @@ import {
   ZERO_VECTOR,
   createSpatialPositionTrack,
   createSpatialSmoothPath,
-  evaluateSpatialPositionTrack,
   materializeSpatialPathSamples,
   normalizeTimedSpatialPositionWaypoints,
   normalizeVector3,
@@ -363,6 +362,362 @@ export function sampleJourneyLocationArcPoint(locationWaypoints, segmentIndex, d
   return pointAtArcDistance(segment.arc.samples, targetDistance);
 }
 
+/** @param {{ phase?: string; phases?: Iterable<string> }} options */
+function normalizeEasePhases(options = {}) {
+  const phases = new Set();
+  if (options.phase === 'start' || options.phase === 'end') phases.add(options.phase);
+  if (options.phases && typeof options.phases[Symbol.iterator] === 'function') {
+    for (const phase of options.phases) {
+      if (phase === 'start' || phase === 'end') phases.add(phase);
+    }
+  }
+  if (!options.phase && !options.phases) {
+    phases.add('start');
+    phases.add('end');
+  }
+  return phases;
+}
+
+/** @param {number} movementLengthPc @param {number} movementDurationSecs */
+function linearRetimingProfile(movementLengthPc, movementDurationSecs) {
+  return {
+    startEaseSecs: 0,
+    endEaseSecs: 0,
+    effectiveEaseSecs: 0,
+    /** @param {number} timeSecs */
+    distanceAtTime(timeSecs) {
+      if (movementDurationSecs <= EPSILON) return 0;
+      return movementLengthPc * clamp(timeSecs / movementDurationSecs, 0, 1);
+    },
+    /** @param {number} distancePc */
+    timeAtDistance(distancePc) {
+      if (movementLengthPc <= EPSILON) return 0;
+      return movementDurationSecs * clamp(distancePc / movementLengthPc, 0, 1);
+    },
+  };
+}
+
+/**
+ * @param {number} movementLengthPc
+ * @param {number} movementDurationSecs
+ * @param {{ startEaseSecs?: number; endEaseSecs?: number }} options
+ */
+function cosineRampRetimingProfile(movementLengthPc, movementDurationSecs, options = {}) {
+  const startEaseSecs = clamp(finiteNumber(options.startEaseSecs, 0), 0, movementDurationSecs);
+  const endEaseSecs = clamp(finiteNumber(options.endEaseSecs, 0), 0, Math.max(0, movementDurationSecs - startEaseSecs));
+  if (
+    movementDurationSecs <= EPSILON
+    || movementLengthPc <= EPSILON
+    || (startEaseSecs <= EPSILON && endEaseSecs <= EPSILON)
+  ) {
+    return linearRetimingProfile(movementLengthPc, movementDurationSecs);
+  }
+  const cruiseSpeedPcPerSec = movementLengthPc / Math.max(
+    EPSILON,
+    movementDurationSecs - (startEaseSecs + endEaseSecs) / 2,
+  );
+
+  /** @param {number} timeSecs */
+  function distanceAtTime(timeSecs) {
+    const t = clamp(timeSecs, 0, movementDurationSecs);
+    if (startEaseSecs > EPSILON && t < startEaseSecs) {
+      return retimingRampDistance(t, startEaseSecs, cruiseSpeedPcPerSec);
+    }
+    if (endEaseSecs > EPSILON && t > movementDurationSecs - endEaseSecs) {
+      return movementLengthPc - retimingRampDistance(movementDurationSecs - t, endEaseSecs, cruiseSpeedPcPerSec);
+    }
+    return (
+      (startEaseSecs > EPSILON ? retimingRampDistance(startEaseSecs, startEaseSecs, cruiseSpeedPcPerSec) : 0)
+      + cruiseSpeedPcPerSec * Math.max(0, t - startEaseSecs)
+    );
+  }
+
+  /** @param {number} distancePc */
+  function timeAtDistance(distancePc) {
+    const target = clamp(distancePc, 0, movementLengthPc);
+    let low = 0;
+    let high = movementDurationSecs;
+    for (let index = 0; index < 32; index += 1) {
+      const middle = (low + high) / 2;
+      if (distanceAtTime(middle) < target) low = middle;
+      else high = middle;
+    }
+    return (low + high) / 2;
+  }
+
+  return {
+    startEaseSecs,
+    endEaseSecs,
+    effectiveEaseSecs: Math.max(startEaseSecs, endEaseSecs),
+    distanceAtTime,
+    timeAtDistance,
+  };
+}
+
+/** @param {number} timeSecs @param {number} easeSecs @param {number} cruiseSpeedPcPerSec */
+function retimingRampDistance(timeSecs, easeSecs, cruiseSpeedPcPerSec) {
+  const t = clamp(timeSecs, 0, easeSecs);
+  return cruiseSpeedPcPerSec * (0.5 * t - (easeSecs / (2 * Math.PI)) * Math.sin(Math.PI * t / easeSecs));
+}
+
+/**
+ * @param {ReturnType<typeof rangeContext>} context
+ * @param {{ timeAtDistance(distancePc: number): number }} profile
+ * @param {unknown} timeStepSecs
+ */
+function retimeExistingWaypoints(context, profile, timeStepSecs) {
+  const nextTimes = context.sorted.map((waypoint) => waypoint.timeSecs);
+  let holdCursor = 0;
+  let traversedLengthPc = 0;
+  for (const segment of context.segments) {
+    if (segment.held || segment.length <= EPSILON) {
+      holdCursor += Math.max(0, segment.durationSecs);
+    } else {
+      traversedLengthPc += segment.length;
+    }
+    if (segment.index + 1 < context.endIndex) {
+      const movementTimeSecs = profile.timeAtDistance(traversedLengthPc);
+      nextTimes[segment.index + 1] = snapRetimingTime(
+        context.start.timeSecs + holdCursor + movementTimeSecs,
+        timeStepSecs,
+      );
+    }
+  }
+  nextTimes[context.startIndex] = context.start.timeSecs;
+  nextTimes[context.endIndex] = context.end.timeSecs;
+  clampInteriorTimes(nextTimes, context.startIndex, context.endIndex, timeStepSecs);
+  return nextTimes;
+}
+
+/**
+ * @param {number[]} times
+ * @param {number} startIndex
+ * @param {number} endIndex
+ * @param {unknown} timeStepSecs
+ */
+function clampInteriorTimes(times, startIndex, endIndex, timeStepSecs) {
+  const stepSecs = positiveFinite(timeStepSecs, DEFAULT_TIME_STEP_SECS);
+  const startTime = times[startIndex];
+  const endTime = times[endIndex];
+  const segmentCount = endIndex - startIndex;
+  const minimumDuration = segmentCount * stepSecs;
+  if (endTime - startTime + EPSILON < minimumDuration) {
+    for (let index = startIndex + 1; index < endIndex; index += 1) {
+      times[index] = clamp(times[index], startTime, endTime);
+    }
+    return;
+  }
+  for (let index = startIndex + 1; index < endIndex; index += 1) {
+    times[index] = Math.max(times[index], times[index - 1] + stepSecs);
+  }
+  for (let index = endIndex - 1; index > startIndex; index -= 1) {
+    times[index] = Math.min(times[index], times[index + 1] - stepSecs);
+  }
+}
+
+/**
+ * @param {ReturnType<typeof rangeContext>} context
+ * @param {number[]} nextTimes
+ */
+function applyRetimingTimes(context, nextTimes) {
+  const changedIds = [];
+  for (let index = context.startIndex + 1; index < context.endIndex; index += 1) {
+    const waypoint = context.sorted[index];
+    const nextTime = roundTime(nextTimes[index]);
+    if (Math.abs(waypoint.timeSecs - nextTime) > EPSILON) changedIds.push(waypoint.id);
+    waypoint.timeSecs = nextTime;
+  }
+  return changedIds;
+}
+
+/**
+ * @param {Iterable<unknown>} originalWaypoints
+ * @param {import('./index.d.ts').TimedJourneyLocationWaypoint[]} sortedWaypoints
+ * @param {import('./index.d.ts').TimedJourneyLocationWaypoint[]} [insertedWaypoints]
+ */
+function rebuildLocationWaypoints(originalWaypoints, sortedWaypoints, insertedWaypoints = []) {
+  const byId = new Map(sortedWaypoints.map((waypoint) => [waypoint.id, waypoint]));
+  const updatedOriginals = sortLocationWaypoints(originalWaypoints).map((waypoint) => {
+    const updated = byId.get(waypoint.id);
+    return updated ? cloneLocationWaypoint(updated) : cloneLocationWaypoint(waypoint);
+  });
+  return sortLocationWaypoints([...updatedOriginals, ...insertedWaypoints]);
+}
+
+/**
+ * @param {ReturnType<typeof rangeContext>} context
+ * @param {number} movementDistancePc
+ */
+function holdDurationBeforeMovementDistance(context, movementDistancePc) {
+  let holdDurationSecs = 0;
+  let traversedLengthPc = 0;
+  for (const segment of context.segments) {
+    if (segment.held || segment.length <= EPSILON) {
+      holdDurationSecs += Math.max(0, segment.durationSecs);
+      continue;
+    }
+    if (movementDistancePc <= traversedLengthPc + segment.length + EPSILON) return holdDurationSecs;
+    traversedLengthPc += segment.length;
+  }
+  return holdDurationSecs;
+}
+
+/**
+ * @param {ReturnType<typeof rangeContext>} context
+ * @param {number} movementDistancePc
+ */
+function pointAtMovementDistance(context, movementDistancePc) {
+  let traversedLengthPc = 0;
+  for (const segment of context.segments) {
+    if (segment.held || segment.length <= EPSILON) continue;
+    const nextLengthPc = traversedLengthPc + segment.length;
+    if (movementDistancePc <= nextLengthPc + EPSILON) {
+      return sampleJourneyLocationArcPoint(
+        context.sorted,
+        segment.index,
+        Math.max(0, movementDistancePc - traversedLengthPc),
+        context.options,
+      );
+    }
+    traversedLengthPc = nextLengthPc;
+  }
+  return { ...(context.sorted[context.endIndex]?.positionPc ?? ZERO_VECTOR) };
+}
+
+/**
+ * @param {{ startEaseSecs: number; endEaseSecs: number }} profile
+ * @param {number} movementDurationSecs
+ * @param {unknown} rampSampleSecs
+ */
+function generatedRampTimes(profile, movementDurationSecs, rampSampleSecs) {
+  const entries = [];
+  const sampleStepSecs = positiveFinite(rampSampleSecs, DEFAULT_RAMP_SAMPLE_SECS);
+  /** @param {number} timeSecs @param {'start' | 'end'} phase */
+  function add(timeSecs, phase) {
+    if (timeSecs <= EPSILON || timeSecs >= movementDurationSecs - EPSILON) return;
+    if (!entries.some((entry) => Math.abs(entry.timeSecs - timeSecs) <= EPSILON)) {
+      entries.push({ timeSecs, phase });
+    }
+  }
+  if (profile.startEaseSecs > EPSILON) {
+    for (let timeSecs = sampleStepSecs; timeSecs <= profile.startEaseSecs + EPSILON; timeSecs += sampleStepSecs) {
+      add(Math.min(timeSecs, profile.startEaseSecs), 'start');
+    }
+  }
+  if (profile.endEaseSecs > EPSILON) {
+    for (
+      let timeSecs = movementDurationSecs - profile.endEaseSecs;
+      timeSecs < movementDurationSecs - EPSILON;
+      timeSecs += sampleStepSecs
+    ) {
+      add(timeSecs, 'end');
+    }
+  }
+  return entries.sort((left, right) => left.timeSecs - right.timeSecs);
+}
+
+/**
+ * @param {{ startEaseSecs: number; endEaseSecs: number }} profile
+ * @param {number} movementDurationSecs
+ * @param {number} movementTimeSecs
+ */
+function easePhaseForMovementTime(profile, movementDurationSecs, movementTimeSecs) {
+  if (profile.startEaseSecs > EPSILON && movementTimeSecs <= profile.startEaseSecs + EPSILON) return 'start';
+  if (
+    profile.endEaseSecs > EPSILON
+    && movementTimeSecs >= movementDurationSecs - profile.endEaseSecs - EPSILON
+  ) {
+    return 'end';
+  }
+  return null;
+}
+
+/**
+ * @param {string} groupId
+ * @param {string} role
+ * @param {{ effectiveEaseSecs: number }} profile
+ * @param {Record<string, unknown>} options
+ * @param {'start' | 'end'} phase
+ * @param {ReturnType<typeof rangeContext>} context
+ */
+function groupMetadata(groupId, role, profile, options, phase, context) {
+  return {
+    id: groupId,
+    kind: 'ease',
+    role,
+    phase,
+    easeSecs: profile.effectiveEaseSecs,
+    rampSampleSecs: positiveFinite(options.rampSampleSecs, DEFAULT_RAMP_SAMPLE_SECS),
+    rangeStartId: context.start.id,
+    rangeEndId: context.end.id,
+  };
+}
+
+/**
+ * @param {ReturnType<typeof rangeContext>} context
+ * @param {{ startEaseSecs: number; endEaseSecs: number; effectiveEaseSecs: number; timeAtDistance(distancePc: number): number }} profile
+ * @param {{ start: string; end: string }} groupIds
+ * @param {Set<string>} phases
+ * @param {Record<string, unknown>} options
+ */
+function tagEaseSourceWaypoints(context, profile, groupIds, phases, options) {
+  let traversedLengthPc = 0;
+  if (phases.has('start')) {
+    context.sorted[context.startIndex].motionGroup = groupMetadata(groupIds.start, 'anchor', profile, options, 'start', context);
+  }
+  if (phases.has('end')) {
+    context.sorted[context.endIndex].motionGroup = groupMetadata(groupIds.end, 'anchor', profile, options, 'end', context);
+  }
+  for (let index = context.startIndex; index < context.endIndex; index += 1) {
+    const segment = context.segments.find((entry) => entry.index === index);
+    if (!segment) continue;
+    if (!segment.held && segment.length > EPSILON) traversedLengthPc += segment.length;
+    const waypointIndex = index + 1;
+    if (waypointIndex >= context.endIndex) continue;
+    const movementTimeSecs = profile.timeAtDistance(traversedLengthPc);
+    const phase = easePhaseForMovementTime(profile, context.movementDuration, movementTimeSecs);
+    if (phase && phases.has(phase)) {
+      context.sorted[waypointIndex].motionGroup = groupMetadata(groupIds[phase], 'real', profile, options, phase, context);
+    }
+  }
+}
+
+/**
+ * @param {ReturnType<typeof rangeContext>} context
+ * @param {{ startEaseSecs: number; endEaseSecs: number; distanceAtTime(timeSecs: number): number }} profile
+ * @param {number[]} nextTimes
+ * @param {{ start: string; end: string }} groupIds
+ * @param {Set<string>} phases
+ * @param {Record<string, unknown>} options
+ */
+function generateEaseWaypoints(context, profile, nextTimes, groupIds, phases, options) {
+  const timeStepSecs = positiveFinite(options.timeStepSecs, DEFAULT_TIME_STEP_SECS);
+  const usedTimes = new Set(nextTimes.map(timeKey));
+  const insertedWaypoints = [];
+  const phaseCounts = { start: 0, end: 0 };
+  for (const { timeSecs: movementTimeSecs, phase } of generatedRampTimes(profile, context.movementDuration, options.rampSampleSecs)) {
+    if (!phases.has(phase)) continue;
+    const movementDistancePc = profile.distanceAtTime(movementTimeSecs);
+    const actualTimeSecs = snapRetimingTime(
+      context.start.timeSecs + holdDurationBeforeMovementDistance(context, movementDistancePc) + movementTimeSecs,
+      timeStepSecs,
+    );
+    if (actualTimeSecs <= context.start.timeSecs + EPSILON || actualTimeSecs >= context.end.timeSecs - EPSILON) continue;
+    const key = timeKey(actualTimeSecs);
+    if (usedTimes.has(key)) continue;
+    usedTimes.add(key);
+    phaseCounts[phase] += 1;
+    const groupId = groupIds[phase];
+    insertedWaypoints.push({
+      id: `loc-${groupId}-${String(phaseCounts[phase]).padStart(3, '0')}`,
+      timeSecs: roundTime(actualTimeSecs),
+      positionPc: pointAtMovementDistance(context, movementDistancePc),
+      motionGroup: groupMetadata(groupId, 'helper', { effectiveEaseSecs: Math.max(profile.startEaseSecs, profile.endEaseSecs) }, options, phase, context),
+    });
+  }
+  return insertedWaypoints;
+}
+
 /** @param {ReturnType<typeof rangeContext>} context */
 function statsFromRangeContext(context) {
   if (!context) return null;
@@ -402,26 +757,17 @@ function statsFromRangeContext(context) {
  * @param {Iterable<unknown>} locationWaypoints
  * @param {string} anchorId
  * @param {string} focusId
- * @param {{ samplesPerSegment?: number }} [options]
+ * @param {{ samplesPerSegment?: number; timeStepSecs?: number }} [options]
  */
 export function equalizeJourneyLocationRangeSpeeds(locationWaypoints, anchorId, focusId, options = {}) {
   const context = rangeContext(locationWaypoints, anchorId, focusId, options);
   if (!context || context.movementLength <= EPSILON || context.movementDuration <= EPSILON) {
     return noRetimingChange(locationWaypoints, context?.before ?? null);
   }
-  const next = context.sorted.map(cloneLocationWaypoint);
-  let traversedLength = 0;
-  const changedIds = [];
-  for (const segment of context.segments) {
-    if (!segment.held && segment.length > EPSILON) traversedLength += segment.length;
-    const waypointIndex = segment.index + 1;
-    if (waypointIndex <= context.startIndex || waypointIndex >= context.endIndex) continue;
-    const waypoint = next[waypointIndex];
-    const nextTime = context.start.timeSecs + (traversedLength / context.movementLength) * context.movementDuration;
-    if (Math.abs(waypoint.timeSecs - nextTime) > EPSILON) changedIds.push(waypoint.id);
-    waypoint.timeSecs = roundTime(nextTime);
-  }
-  const locationWaypointsNext = sortLocationWaypoints(next);
+  const profile = linearRetimingProfile(context.movementLength, context.movementDuration);
+  const nextTimes = retimeExistingWaypoints(context, profile, options.timeStepSecs);
+  const changedIds = applyRetimingTimes(context, nextTimes);
+  const locationWaypointsNext = rebuildLocationWaypoints(locationWaypoints, context.sorted);
   return {
     locationWaypoints: locationWaypointsNext,
     before: context.before,
@@ -437,76 +783,52 @@ export function equalizeJourneyLocationRangeSpeeds(locationWaypoints, anchorId, 
  * @param {Iterable<unknown>} locationWaypoints
  * @param {string} anchorId
  * @param {string} focusId
- * @param {{ easeSecs?: number; rampSampleSecs?: number; samplesPerSegment?: number; groupId?: string }} [options]
+ * @param {{ easeSecs?: number; rampSampleSecs?: number; timeStepSecs?: number; samplesPerSegment?: number; groupId?: string; startGroupId?: string; endGroupId?: string; phase?: string; phases?: Iterable<string> }} [options]
  */
 export function easeJourneyLocationRangeStartEnd(locationWaypoints, anchorId, focusId, options = {}) {
   const context = rangeContext(locationWaypoints, anchorId, focusId, options);
   if (!context || context.movementLength <= EPSILON || context.movementDuration <= EPSILON) {
     return noRetimingChange(locationWaypoints, context?.before ?? null, { effectiveEaseSecs: 0 });
   }
-  const easeSecs = Math.min(
-    Math.max(0, finiteNumber(options.easeSecs, DEFAULT_EASE_SECS)),
-    context.movementDuration / 2,
-  );
-  const groupId = String(options.groupId ?? nextEaseGroupId(context.sorted));
-  const rampSampleSecs = positiveFinite(options.rampSampleSecs, DEFAULT_RAMP_SAMPLE_SECS);
-  const track = createSpatialPositionTrack(context.sorted.map((waypoint) => ({
-    id: waypoint.id,
-    timeSecs: waypoint.timeSecs,
-    positionPc: waypoint.positionPc,
-  })), options);
-  /** @type {import('./index.d.ts').TimedJourneyLocationWaypoint[]} */
-  const inserted = [];
-  let insertedIndex = 1;
-  for (const phase of ['start', 'end']) {
-    if (easeSecs <= EPSILON) continue;
-    for (let offset = rampSampleSecs; offset < easeSecs - EPSILON; offset += rampSampleSecs) {
-      const timeSecs = phase === 'start'
-        ? context.start.timeSecs + offset
-        : context.end.timeSecs - offset;
-      const sample = evaluateSpatialPositionTrack(track, timeSecs);
-      inserted.push({
-        id: `loc-${groupId}-${String(insertedIndex).padStart(3, '0')}`,
-        timeSecs: roundTime(timeSecs),
-        positionPc: sample.position,
-        motionGroup: {
-          id: groupId,
-          kind: 'ease',
-          role: 'helper',
-          phase,
-          easeSecs,
-          rampSampleSecs,
-        },
-      });
-      insertedIndex += 1;
-    }
+  const phases = normalizeEasePhases(options);
+  if (!phases.size) {
+    return noRetimingChange(locationWaypoints, context.before, { effectiveEaseSecs: 0 });
   }
-  const next = context.sorted.map((waypoint) => {
-    if (waypoint.id === anchorId || waypoint.id === focusId) {
-      return {
-        ...waypoint,
-        motionGroup: {
-          id: groupId,
-          kind: 'ease',
-          role: 'anchor',
-          phase: waypoint.id === anchorId ? 'start' : 'end',
-          easeSecs,
-          rampSampleSecs,
-        },
-      };
-    }
-    return waypoint;
+  const easeSecs = Math.max(0, finiteNumber(options.easeSecs, DEFAULT_EASE_SECS));
+  const fallbackIds = nextEaseGroupIds(context.sorted, 2);
+  const startGroupId = String(options.startGroupId ?? options.groupId ?? fallbackIds[0]);
+  const endGroupId = String(options.endGroupId ?? fallbackIds[startGroupId === fallbackIds[0] ? 1 : 0]);
+  const groupIds = {
+    start: startGroupId,
+    end: endGroupId === startGroupId ? nextEaseGroupIds([...context.sorted, {
+      id: '',
+      timeSecs: 0,
+      positionPc: ZERO_VECTOR,
+      motionGroup: { id: startGroupId },
+    }], 1)[0] : endGroupId,
+  };
+  const profile = cosineRampRetimingProfile(context.movementLength, context.movementDuration, {
+    startEaseSecs: phases.has('start') ? easeSecs : 0,
+    endEaseSecs: phases.has('end') ? easeSecs : 0,
   });
-  const locationWaypointsNext = sortLocationWaypoints([...next, ...inserted]);
+  const nextTimes = retimeExistingWaypoints(context, profile, options.timeStepSecs);
+  tagEaseSourceWaypoints(context, profile, groupIds, phases, options);
+  const inserted = generateEaseWaypoints(context, profile, nextTimes, groupIds, phases, options);
+  const changedIds = applyRetimingTimes(context, nextTimes);
+  const locationWaypointsNext = rebuildLocationWaypoints(locationWaypoints, context.sorted, inserted);
+  const returnedGroupIds = [...phases].map((phase) => groupIds[phase]);
   return {
     locationWaypoints: locationWaypointsNext,
     before: context.before,
     after: getJourneyLocationRangeSpeedStats(locationWaypointsNext, anchorId, focusId, options),
-    changedIds: [],
+    changedIds,
     insertedIds: inserted.map((waypoint) => waypoint.id),
     insertedCount: inserted.length,
-    effectiveEaseSecs: easeSecs,
-    groupId,
+    effectiveEaseSecs: Math.max(profile.startEaseSecs, profile.endEaseSecs),
+    groupId: returnedGroupIds[0],
+    startGroupId: groupIds.start,
+    endGroupId: groupIds.end,
+    groupIds: returnedGroupIds,
   };
 }
 
@@ -560,7 +882,15 @@ export function rebuildJourneyEaseLocationGroup(locationWaypoints, groupId, opti
     return group?.id === groupId && group.kind === 'ease' && (!phase || group.phase === phase);
   });
   const anchors = groupWaypoints.filter((waypoint) => normalizeMotionGroup(waypoint.motionGroup)?.role === 'anchor');
-  const endpoints = anchors.length >= 2 ? anchors : groupWaypoints;
+  const firstGroup = normalizeMotionGroup(groupWaypoints[0]?.motionGroup);
+  const rangeStartId = typeof firstGroup?.rangeStartId === 'string' ? firstGroup.rangeStartId : null;
+  const rangeEndId = typeof firstGroup?.rangeEndId === 'string' ? firstGroup.rangeEndId : null;
+  const endpoints = rangeStartId && rangeEndId
+    ? [
+        sorted.find((waypoint) => waypoint.id === rangeStartId),
+        sorted.find((waypoint) => waypoint.id === rangeEndId),
+      ].filter(Boolean)
+    : anchors.length >= 2 ? anchors : groupWaypoints;
   if (endpoints.length < 2) {
     return noRetimingChange(sorted, null, { effectiveEaseSecs: 0, groupId });
   }
@@ -570,7 +900,8 @@ export function rebuildJourneyEaseLocationGroup(locationWaypoints, groupId, opti
   });
   return easeJourneyLocationRangeStartEnd(withoutHelpers, endpoints[0].id, endpoints[endpoints.length - 1].id, {
     ...options,
-    groupId,
+    ...(phase === 'end' ? { endGroupId: groupId } : { startGroupId: groupId }),
+    phases: phase ? [phase] : undefined,
   });
 }
 
@@ -941,9 +1272,11 @@ function rangeContext(locationWaypoints, anchorId, focusId, options) {
     positionPc: waypoint.positionPc,
   })), options);
   const segments = track.segments.filter((segment) => segment.index >= low && segment.index < high);
-  const movementLength = segments.filter((segment) => !segment.held).reduce((sum, segment) => sum + segment.length, 0);
-  const movementDuration = segments.filter((segment) => !segment.held).reduce((sum, segment) => sum + segment.durationSecs, 0);
+  const moving = segments.filter((segment) => !segment.held && segment.length > EPSILON && segment.durationSecs > EPSILON);
+  const movementLength = moving.reduce((sum, segment) => sum + segment.length, 0);
+  const movementDuration = moving.reduce((sum, segment) => sum + segment.durationSecs, 0);
   const context = {
+    options,
     sorted,
     startIndex: low,
     endIndex: high,
@@ -951,6 +1284,7 @@ function rangeContext(locationWaypoints, anchorId, focusId, options) {
     end: sorted[high],
     rangeWaypoints: sorted.slice(low, high + 1),
     segments,
+    rangeDuration: Math.max(0, sorted[high].timeSecs - sorted[low].timeSecs),
     movementLength,
     movementDuration,
     before: null,
@@ -977,6 +1311,17 @@ function roundTime(time) {
   return Number(time.toFixed(6));
 }
 
+/** @param {number} value @param {unknown} timeStepSecs */
+function snapRetimingTime(value, timeStepSecs) {
+  const stepSecs = positiveFinite(timeStepSecs, DEFAULT_TIME_STEP_SECS);
+  return Math.round(finiteNumber(value, 0) / stepSecs) * stepSecs;
+}
+
+/** @param {number} value */
+function timeKey(value) {
+  return Number(value).toFixed(6);
+}
+
 /** @param {import('./index.d.ts').TimedJourneyLocationWaypoint[]} waypoints */
 function nextEaseGroupId(waypoints) {
   let max = 0;
@@ -985,6 +1330,19 @@ function nextEaseGroupId(waypoints) {
     if (match) max = Math.max(max, Number(match[1]));
   }
   return `ease-${max + 1}`;
+}
+
+/**
+ * @param {import('./index.d.ts').TimedJourneyLocationWaypoint[]} waypoints
+ * @param {number} count
+ */
+function nextEaseGroupIds(waypoints, count = 1) {
+  let max = 0;
+  for (const waypoint of waypoints) {
+    const match = /^ease-(\d+)$/u.exec(String(waypoint.motionGroup?.id ?? ''));
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  return Array.from({ length: Math.max(1, count) }, (_, index) => `ease-${max + index + 1}`);
 }
 
 /**
