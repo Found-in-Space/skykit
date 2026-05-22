@@ -14,7 +14,7 @@ interactive, event-driven journeys
 timed, automatic journeys
   a clock chooses camera/cue state
   useful for autoplay, video recording, and deterministic exports
-  examples: journey-video render example and editor
+  examples: skykit-studio render example and editor
 ```
 
 These belong in shared package infrastructure rather than website-only scripts,
@@ -58,13 +58,13 @@ timeline editor UI
 Optional packages can sit on top:
 
 ```txt
-@found-in-space/journey-video
+@found-in-space/skykit-studio
   external sibling project for timed journey JSON, projection/perspective/SkyKit
   preview tiles, guide/timeline editing, retiming tools, draft storage, and
   deterministic render/export orchestration
 ```
 
-The editor is available outside the website through `@found-in-space/journey-video`.
+The editor is available outside the website through `@found-in-space/skykit-studio`.
 It is an optional sibling project rather than a core runtime dependency.
 
 DOM scroll/nav wiring should stay in the website or consuming application for
@@ -297,7 +297,7 @@ src/scripts/parallax-viewer.js
 ```
 
 Earlier evaluator/editor experiments that lived in the website have either been
-ported into `@found-in-space/journey` and the sibling `@found-in-space/journey-video`
+ported into `@found-in-space/journey` and the sibling `@found-in-space/skykit-studio`
 project, or removed from the website. New alpha package work should continue to
 extract durable behavior into package-shaped APIs rather than importing website
 scripts.
@@ -328,8 +328,8 @@ Implemented first slice:
   semantic orbit-transfer execution for authored scenes
   spatial preload hint to warm-lane strategy demand mapping
 
-@found-in-space/journey-video (sibling project)
-  JOURNEY_VIDEO_PACKAGE_STATUS = 'alpha-editor'
+@found-in-space/skykit-studio (sibling project)
+  SKYKIT_STUDIO_PACKAGE_STATUS = 'alpha-editor'
   createJourneyVideoEditor()
   editor document/state import/export helpers
   projection, perspective, and SkyKit streamed-stars preview tiles
@@ -337,7 +337,7 @@ Implemented first slice:
   deterministic browser render page
   JavaScript sky-frame capture
   cached transparent overlay block rendering
-  ffmpeg compositing helpers and journey-video-render CLI
+  ffmpeg compositing helpers and skykit-studio-render CLI
 ```
 
 Still deferred:

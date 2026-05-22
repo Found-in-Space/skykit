@@ -136,12 +136,12 @@ packages/skykit/examples/
   and evaluation, cues, generic tracks, preload hints that adapt into warm
   strategy demand, and retiming helpers
 
-@found-in-space/journey-video (sibling project)
+@found-in-space/skykit-studio (sibling project)
   implemented: standalone alpha journey video editor, editor document/state
   helpers, JSON import/export, projection/perspective/SkyKit preview tiles,
   guide/timeline retiming workflows, deterministic browser export page,
   JavaScript sky-frame capture, cached overlay block rendering, ffmpeg composite
-  helpers, and the journey-video-render CLI
+  helpers, and the skykit-studio-render CLI
 
 @found-in-space/star-trees
   implemented: StarCellData types, StarCellStore, StarObjectRef identity,

@@ -271,7 +271,7 @@ Verification:
 - `node --test packages/journey/src/__tests__/journey.test.js packages/skykit/src/__tests__/skykit.test.js`
 - `node --test packages/star-octree-provider/src/__tests__/*.test.js`
 - `npm run typecheck`
-- `SKYKIT_LOCAL_PATH=../skykit JOURNEY_VIDEO_LOCAL_PATH=../journey-video TOUCH_OS_LOCAL_PATH=../touch-os npm run build`
+- `SKYKIT_LOCAL_PATH=../skykit TOUCH_OS_LOCAL_PATH=../touch-os npm run build`
 
 Benchmark notes:
 
@@ -359,7 +359,7 @@ Verification:
 - `node --test packages/skykit/src/__tests__/skykit.test.js benchmarks/star-planner/src/__tests__/benchmark-utils.test.js`
 - `node --test src/scripts/__tests__/hr-diagram-omega-route.test.js`
 - `npm run typecheck`
-- `SKYKIT_LOCAL_PATH=../skykit JOURNEY_VIDEO_LOCAL_PATH=../journey-video TOUCH_OS_LOCAL_PATH=../touch-os npm run build`
+- `SKYKIT_LOCAL_PATH=../skykit TOUCH_OS_LOCAL_PATH=../touch-os npm run build`
 - Current-only smoke:
   `npm run bench:journey -- --target current=http://127.0.0.1:4322 --timeout-ms 180000`
 - Old-vs-current:

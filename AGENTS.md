@@ -77,8 +77,9 @@ rewriting it into the alpha package shape, never by importing old internals.
   `@found-in-space/skykit/xr` is the optional WebXR subpath for rig/input/body,
   rays, session, and depth helpers.
 
-Sibling project note: `../journey-video` owns the standalone alpha journey video
-editor, editor state/import/export helpers, and deterministic export tooling.
+Sibling project note: `../skykit-studio` owns the standalone alpha journey video
+editor, editor state/import/export helpers, and deterministic export tooling as
+`@found-in-space/skykit-studio`.
 - `@found-in-space/experimental-structure-layers`: experimental H-alpha/dust
   preservation package, not stable core.
 

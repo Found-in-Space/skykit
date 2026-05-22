@@ -47,8 +47,8 @@ Space project that `skykit` can depend on for interactive surfaces, but it
 should not be folded back into core `skykit`.
 
 The journey video editor and deterministic export tooling now live in the
-sibling `../journey-video` project. It still consumes SkyKit packages, but it is
-not part of this workspace.
+sibling `../skykit-studio` project as `@found-in-space/skykit-studio`. It still
+consumes SkyKit packages, but it is not part of this workspace.
 
 ## Development
 
