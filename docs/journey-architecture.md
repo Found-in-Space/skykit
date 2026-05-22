@@ -59,13 +59,13 @@ Optional packages can sit on top:
 
 ```txt
 @found-in-space/journey-video
-  standalone alpha editor for timed journey JSON, projection/perspective/SkyKit
+  external sibling project for timed journey JSON, projection/perspective/SkyKit
   preview tiles, guide/timeline editing, retiming tools, draft storage, and
   deterministic render/export orchestration
 ```
 
 The editor is available outside the website through `@found-in-space/journey-video`.
-It is an optional extra project rather than a core runtime dependency.
+It is an optional sibling project rather than a core runtime dependency.
 
 DOM scroll/nav wiring should stay in the website or consuming application for
 now. The current reusable part is small once scene changes are triggered through
@@ -297,9 +297,10 @@ src/scripts/parallax-viewer.js
 ```
 
 Earlier evaluator/editor experiments that lived in the website have either been
-ported into `@found-in-space/journey` and `@found-in-space/journey-video` or
-removed from the website. New alpha package work should continue to extract
-durable behavior into package-shaped APIs rather than importing website scripts.
+ported into `@found-in-space/journey` and the sibling `@found-in-space/journey-video`
+project, or removed from the website. New alpha package work should continue to
+extract durable behavior into package-shaped APIs rather than importing website
+scripts.
 
 ---
 
@@ -327,7 +328,7 @@ Implemented first slice:
   semantic orbit-transfer execution for authored scenes
   spatial preload hint to warm-lane strategy demand mapping
 
-@found-in-space/journey-video
+@found-in-space/journey-video (sibling project)
   JOURNEY_VIDEO_PACKAGE_STATUS = 'alpha-editor'
   createJourneyVideoEditor()
   editor document/state import/export helpers

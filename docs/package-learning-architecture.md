@@ -136,7 +136,7 @@ packages/skykit/examples/
   and evaluation, cues, generic tracks, preload hints that adapt into warm
   strategy demand, and retiming helpers
 
-@found-in-space/journey-video
+@found-in-space/journey-video (sibling project)
   implemented: standalone alpha journey video editor, editor document/state
   helpers, JSON import/export, projection/perspective/SkyKit preview tiles,
   guide/timeline retiming workflows, deterministic browser export page,

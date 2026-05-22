@@ -63,8 +63,6 @@ rewriting it into the alpha package shape, never by importing old internals.
   hints, smooth navigation, orbit, look-at, and motion helpers.
 - `@found-in-space/journey`: authored scene graphs, timed journey evaluators,
   cue/track evaluation, and retiming helpers built on spatial.
-- `@found-in-space/journey-video`: standalone alpha journey video editor,
-  editor state/import/export helpers, and deterministic export tooling.
 - `@found-in-space/star-trees`: star tree identities, cell stores, iteration, and math.
 - `@found-in-space/star-octree-provider`: octree loading, provider planning,
   streaming, payload decode, and star cell emission against shared strategies.
@@ -78,6 +76,9 @@ rewriting it into the alpha package shape, never by importing old internals.
 - `@found-in-space/skykit`: plugin-first composition and teaching helpers.
   `@found-in-space/skykit/xr` is the optional WebXR subpath for rig/input/body,
   rays, session, and depth helpers.
+
+Sibling project note: `../journey-video` owns the standalone alpha journey video
+editor, editor state/import/export helpers, and deterministic export tooling.
 - `@found-in-space/experimental-structure-layers`: experimental H-alpha/dust
   preservation package, not stable core.
 

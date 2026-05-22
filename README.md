@@ -29,7 +29,6 @@ Current package direction:
 
 - `@found-in-space/spatial`: dependency-free coordinates, poses, smooth paths, timed pose tracks, preload hints, routes, targets, and smooth navigation helpers
 - `@found-in-space/journey`: authored scene graphs, timed journeys, cues, tracks, and retiming helpers
-- `@found-in-space/journey-video`: standalone alpha journey video editor and deterministic export tooling
 - `@found-in-space/star-trees`: star tree identities, cell stores, iteration, star math, and display helpers
 - `@found-in-space/star-octree-provider`: star octree loading, provider-owned planning, streaming sessions, and cell emission against shared strategy objects
 - `@found-in-space/meta-sidecar-provider`: metadata sidecar facts keyed by star refs
@@ -46,6 +45,10 @@ surface systems should also stand alone when they are broadly reusable. For
 example, [`touch-os`](https://github.com/found-in-Space/touch-os/) is a Found in
 Space project that `skykit` can depend on for interactive surfaces, but it
 should not be folded back into core `skykit`.
+
+The journey video editor and deterministic export tooling now live in the
+sibling `../journey-video` project. It still consumes SkyKit packages, but it is
+not part of this workspace.
 
 ## Development
 
