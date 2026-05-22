@@ -302,6 +302,53 @@ test('foreground shard consumer protects an existing speculative fetch', async (
   assert.equal(requestCount, 1);
 });
 
+test('foreground shard demand preempts unrelated speculative shard fetch', async () => {
+  const prefetchShardOffset = 4096;
+  const currentShardOffset = 8192;
+  const shardBytes = createShardBytes();
+  let requestCount = 0;
+  /** @type {AbortSignal | undefined} */
+  let speculativeSignal;
+  const source = createStarOctreeIndexSource({
+    providerId: 'provider-a',
+    options: { url: 'memory://stars.octree' },
+    scheduler: createStarOctreeScheduler({
+      limits: {
+        maxInflightShardFetches: 1,
+        maxInflightPrefetchShardFetches: 1,
+      },
+    }),
+    rangeSource: {
+      persistentCacheAvailable: false,
+      fetchRange(start, _end, options = {}) {
+        requestCount += 1;
+        if (start === prefetchShardOffset) {
+          speculativeSignal = options.signal;
+          return new Promise((_resolve, reject) => {
+            options.signal?.addEventListener('abort', () => {
+              reject(options.signal?.reason);
+            }, { once: true });
+          });
+        }
+
+        return Promise.resolve(toArrayBuffer(shardBytes));
+      },
+    },
+  });
+
+  const prefetch = source.loadShard(prefetchShardOffset, { lane: 'prefetch' });
+  prefetch.catch(() => {});
+  await tick();
+
+  const current = source.loadShard(currentShardOffset, { lane: 'current' });
+  await assert.rejects(prefetch, { name: 'AbortError' });
+  const shard = await current;
+
+  assert.equal(speculativeSignal?.aborted, true);
+  assert.equal(shard.header.nodeCount, 1);
+  assert.equal(requestCount, 2);
+});
+
 test('aborted foreground shard consumer releases its in-flight range request', async () => {
   const shardOffset = 3072;
   const fetchGate = createDeferred();
@@ -436,6 +483,64 @@ test('foreground payload demand promotes an existing speculative range request',
   assert.equal(fetchSignal?.aborted, false);
   assert.equal(requestCount, 1);
   assert.deepEqual([...new Uint8Array(entries[0].buffer)], [5, 6, 7, 8]);
+});
+
+test('foreground payload demand preempts unrelated speculative payload fetch', async () => {
+  const prefetchPayload = gzipSync(new Uint8Array([9, 10, 11, 12]));
+  const currentPayload = gzipSync(new Uint8Array([13, 14, 15, 16]));
+  const prefetchNode = createPayloadNode({
+    payloadOffset: 300,
+    payloadLength: prefetchPayload.length,
+  });
+  const currentNode = createPayloadNode({
+    payloadOffset: 900,
+    payloadLength: currentPayload.length,
+  });
+  let requestCount = 0;
+  /** @type {AbortSignal | undefined} */
+  let speculativeSignal;
+  const source = createStarOctreeIndexSource({
+    providerId: 'provider-a',
+    options: { url: 'memory://payloads.octree' },
+    scheduler: createStarOctreeScheduler({
+      limits: {
+        maxInflightPayloadBatches: 1,
+        maxInflightPrefetchPayloadBatches: 1,
+      },
+    }),
+    rangeSource: {
+      persistentCacheAvailable: false,
+      fetchRange(start, _end, options = {}) {
+        requestCount += 1;
+        if (start === prefetchNode.payloadOffset) {
+          speculativeSignal = options.signal;
+          return new Promise((_resolve, reject) => {
+            options.signal?.addEventListener('abort', () => {
+              reject(options.signal?.reason);
+            }, { once: true });
+          });
+        }
+
+        return Promise.resolve(toArrayBuffer(currentPayload));
+      },
+    },
+  });
+
+  const prefetch = source.fetchNodePayloadBatchProgressive([prefetchNode], {
+    lane: 'prefetch',
+  });
+  prefetch.catch(() => {});
+  await tick();
+
+  const current = source.fetchNodePayloadBatchProgressive([currentNode], {
+    lane: 'current',
+  });
+  await assert.rejects(prefetch, { name: 'AbortError' });
+  const entries = await current;
+
+  assert.equal(speculativeSignal?.aborted, true);
+  assert.equal(requestCount, 2);
+  assert.deepEqual([...new Uint8Array(entries[0].buffer)], [13, 14, 15, 16]);
 });
 
 test('payload batch scheduling uses the highest requested node priority', async () => {

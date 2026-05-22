@@ -43,6 +43,8 @@ const LANES = /** @type {const} */ (['current', 'replacement', 'prefetch']);
  *   key?: string;
  *   priority?: number;
  *   signal?: AbortSignal;
+ *   preempt?: 'foreground';
+ *   onPreempt?: (reason: unknown) => void;
  * }} StarOctreeSchedulerRequest
  */
 
@@ -66,6 +68,8 @@ export function createStarOctreeScheduler(options = {}) {
   const activeByKind = createKindCounts();
   const activeByLane = createLaneCounts();
   const activePrefetchByKind = createKindCounts();
+  /** @type {Set<ScheduledTaskRecord>} */
+  const activeTasks = new Set();
   const stats = createSchedulerStats();
   let queuedTaskCount = 0;
   let queuedForegroundTaskCount = 0;
@@ -98,6 +102,9 @@ export function createStarOctreeScheduler(options = {}) {
       priority,
       sequence: nextSequence,
       signal: request.signal,
+      preempt: request.preempt,
+      onPreempt: request.onPreempt,
+      preempted: false,
       run,
       state: 'queued',
       heapIndex: -1,
@@ -223,6 +230,7 @@ export function createStarOctreeScheduler(options = {}) {
     if (task.lane === 'prefetch') {
       activePrefetchByKind[task.kind] += 1;
     }
+    activeTasks.add(task);
     stats.started += 1;
     stats.startedByKind[task.kind] += 1;
     stats.startedByLane[task.lane] += 1;
@@ -238,12 +246,15 @@ export function createStarOctreeScheduler(options = {}) {
           task.resolve(value);
         },
         (error) => {
-          task.state = 'failed';
-          if (isAbortError(error)) {
+          if (isAbortError(error) && task.preempted) {
+            task.state = 'preempted';
+          } else if (isAbortError(error)) {
+            task.state = 'cancelled';
             stats.cancelled += 1;
             stats.cancelledByKind[task.kind] += 1;
             stats.cancelledByLane[task.lane] += 1;
           } else {
+            task.state = 'failed';
             stats.failed += 1;
             stats.failedByKind[task.kind] += 1;
             stats.failedByLane[task.lane] += 1;
@@ -252,6 +263,7 @@ export function createStarOctreeScheduler(options = {}) {
         },
       )
       .finally(() => {
+        activeTasks.delete(task);
         activeByKind[task.kind] -= 1;
         activeByLane[task.lane] -= 1;
         if (task.lane === 'prefetch') {
@@ -271,6 +283,7 @@ export function createStarOctreeScheduler(options = {}) {
     queuedByLane[task.lane] += 1;
     if (task.lane !== 'prefetch') {
       queuedForegroundTaskCount += 1;
+      preemptRunningPrefetch('foreground');
     }
   }
 
@@ -340,6 +353,9 @@ export function createStarOctreeScheduler(options = {}) {
         enqueueTask(task);
         stats.promoted += 1;
         stats.promotedByLane[previousLane] += 1;
+        if (promotedLane !== 'prefetch') {
+          preemptRunningPrefetch('foreground');
+        }
         pump();
         return;
       }
@@ -364,9 +380,39 @@ export function createStarOctreeScheduler(options = {}) {
       activeByLane[task.lane] += 1;
       stats.promoted += 1;
       stats.promotedByLane[previousLane] += 1;
+      if (promotedLane !== 'prefetch') {
+        preemptRunningPrefetch('foreground');
+      }
     }
 
     task.priority = nextTaskPriority;
+  }
+
+  /**
+   * @param {'foreground'} reason
+   */
+  function preemptRunningPrefetch(reason) {
+    const preemptReason = createPreemptError(reason);
+    for (const task of activeTasks) {
+      if (
+        task.state !== 'running' ||
+        task.lane !== 'prefetch' ||
+        task.preempt !== 'foreground' ||
+        task.preempted
+      ) {
+        continue;
+      }
+
+      task.preempted = true;
+      stats.preempted += 1;
+      stats.preemptedByKind[task.kind] += 1;
+      stats.preemptedByLane[task.lane] += 1;
+      try {
+        task.onPreempt?.(preemptReason);
+      } catch {
+        // The running task owns its promise; preemption callbacks are best-effort abort hooks.
+      }
+    }
   }
 
   function hasActiveForegroundWork() {
@@ -390,6 +436,7 @@ export function createStarOctreeScheduler(options = {}) {
         started: stats.started,
         completed: stats.completed,
         cancelled: stats.cancelled,
+        preempted: stats.preempted,
         failed: stats.failed,
         queuedByKind: { ...stats.queuedByKind },
         queuedByLane: { ...stats.queuedByLane },
@@ -399,6 +446,8 @@ export function createStarOctreeScheduler(options = {}) {
         completedByLane: { ...stats.completedByLane },
         cancelledByKind: { ...stats.cancelledByKind },
         cancelledByLane: { ...stats.cancelledByLane },
+        preemptedByKind: { ...stats.preemptedByKind },
+        preemptedByLane: { ...stats.preemptedByLane },
         failedByKind: { ...stats.failedByKind },
         failedByLane: { ...stats.failedByLane },
       },
@@ -419,8 +468,11 @@ export function createStarOctreeScheduler(options = {}) {
  *   sequence: number;
  *   signal?: AbortSignal;
  *   abortListener?: () => void;
+ *   preempt?: 'foreground';
+ *   onPreempt?: (reason: unknown) => void;
+ *   preempted: boolean;
  *   run: () => Promise<unknown> | unknown;
- *   state: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+ *   state: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'preempted';
  *   heapIndex: number;
  *   resolve: (value: unknown) => void;
  *   reject: (error: unknown) => void;
@@ -620,6 +672,7 @@ function createSchedulerStats() {
     started: 0,
     completed: 0,
     cancelled: 0,
+    preempted: 0,
     failed: 0,
     promoted: 0,
     queuedByKind: createKindCounts(),
@@ -630,6 +683,8 @@ function createSchedulerStats() {
     completedByLane: createLaneCounts(),
     cancelledByKind: createKindCounts(),
     cancelledByLane: createLaneCounts(),
+    preemptedByKind: createKindCounts(),
+    preemptedByLane: createLaneCounts(),
     failedByKind: createKindCounts(),
     failedByLane: createLaneCounts(),
     promotedByLane: createLaneCounts(),
@@ -706,6 +761,15 @@ function createAbortError(reason) {
     return reason;
   }
   const error = new Error('Star octree scheduled work aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
+/**
+ * @param {'foreground'} reason
+ */
+function createPreemptError(reason) {
+  const error = new Error(`Star octree prefetch preempted by ${reason} work.`);
   error.name = 'AbortError';
   return error;
 }

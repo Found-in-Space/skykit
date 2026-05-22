@@ -128,6 +128,103 @@ test('readCachedCellsForEntries materializes warmed decoded cells only for match
   assert.equal(wrongMask.length, 0);
 });
 
+test('warmEntries schedules decoded prefetch work as foreground-preemptible', async () => {
+  const scheduledRequests = [];
+  let payloadOptions = null;
+  const scheduler = {
+    schedule(request, run) {
+      scheduledRequests.push(request);
+      return {
+        promise: Promise.resolve().then(run),
+        cancel() {},
+        promote() {},
+      };
+    },
+  };
+  const node = createRuntimeNode({
+    mortonCode: '8',
+    flags: STAR_HAS_PAYLOAD,
+    payloadOffset: 400,
+    payloadLength: 16,
+  });
+  const pipeline = createStarOctreePipeline({
+    providerId: 'provider-a',
+    scheduler,
+    indexSource: {
+      sourceIdentity: 'test-source',
+      persistentCacheAvailable: false,
+      fetchNodePayloadBatchProgressive(nodes, options = {}) {
+        payloadOptions = options;
+        const entries = nodes.map((entryNode) => ({
+          node: entryNode,
+          buffer: createDecodedPayloadBuffer(),
+        }));
+        return Promise.resolve()
+          .then(() => options.onBatch?.(entries))
+          .then(() => entries);
+      },
+      getSnapshot() {
+        return {
+          datasetId: 'dataset-a',
+          stats: {},
+          cache: {},
+        };
+      },
+    },
+  });
+
+  const result = await pipeline.warmEntries([{ node }], { attributes: ['position'] });
+  const decodeRequest = scheduledRequests.find((request) => request.kind === 'decode');
+
+  assert.equal(payloadOptions?.lane, 'prefetch');
+  assert.equal(decodeRequest?.lane, 'prefetch');
+  assert.equal(decodeRequest?.preempt, 'foreground');
+  assert.equal(typeof decodeRequest?.onPreempt, 'function');
+  assert.equal(result.warmedNodeCount, 1);
+});
+
+test('warmCells returns an aborted zero-result when prefetch traversal is preempted', async () => {
+  const scheduledRequests = [];
+  const scheduler = {
+    schedule(request) {
+      scheduledRequests.push(request);
+      const error = new Error('preempted');
+      error.name = 'AbortError';
+      return {
+        promise: Promise.reject(error),
+        cancel() {},
+        promote() {},
+      };
+    },
+  };
+  const pipeline = createStarOctreePipeline({
+    providerId: 'provider-a',
+    scheduler,
+    indexSource: {
+      sourceIdentity: 'test-source',
+      persistentCacheAvailable: false,
+      getSnapshot() {
+        return {
+          datasetId: 'dataset-a',
+          stats: {},
+          cache: {},
+        };
+      },
+    },
+  });
+
+  const result = await pipeline.warmCells({ attributes: ['position'] });
+  const traversalRequest = scheduledRequests.find((request) => request.kind === 'traversal');
+
+  assert.equal(traversalRequest?.lane, 'prefetch');
+  assert.equal(traversalRequest?.preempt, 'foreground');
+  assert.equal(typeof traversalRequest?.onPreempt, 'function');
+  assert.equal(result.counts.nodeCount, 0);
+  assert.equal(result.warmedNodeCount, 0);
+  assert.equal(result.decodedStarCount, 0);
+  assert.deepEqual(result.reasons, ['aborted']);
+});
+
 function createDecodedPayloadBuffer() {
   const buffer = new ArrayBuffer(16);
   const view = new DataView(buffer);

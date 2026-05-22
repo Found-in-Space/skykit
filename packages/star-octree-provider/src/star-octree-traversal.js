@@ -88,13 +88,16 @@ export function createTraversalStats() {
  *     descend: boolean;
  *     distancePc?: number;
  *   };
-  *   signal?: AbortSignal;
-  *   lane?: import('./star-octree-scheduler.js').StarOctreeSchedulerLane;
+ *   signal?: AbortSignal;
+ *   lane?: import('./star-octree-scheduler.js').StarOctreeSchedulerLane;
  * }} options
  */
 export async function traverseOctree(options) {
   throwIfAborted(options.signal);
-  const root = await options.indexSource.ensureRootShardLoaded();
+  const root = await options.indexSource.ensureRootShardLoaded({
+    lane: options.lane,
+    signal: options.signal,
+  });
   throwIfAborted(options.signal);
   const queue = new TraversalPriorityQueue();
   /** @type {StarOctreeRuntimeNode[]} */

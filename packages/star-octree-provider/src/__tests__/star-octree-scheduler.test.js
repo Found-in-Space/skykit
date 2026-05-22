@@ -136,6 +136,126 @@ test('scheduler holds prefetch while foreground work is queued or active', async
   await prefetchDecode.task.promise;
 });
 
+test('scheduler preempts running prefetch when current work is queued', async () => {
+  const scheduler = createStarOctreeScheduler({
+    limits: {
+      maxInflightPayloadBatches: 1,
+      maxInflightPrefetchPayloadBatches: 1,
+    },
+  });
+  const started = [];
+  let preemptReason = null;
+  const prefetch = scheduleGated(scheduler, started, {
+    label: 'prefetch',
+    kind: 'payload',
+    lane: 'prefetch',
+    preempt: 'foreground',
+    onPreempt(reason) {
+      preemptReason = reason;
+      prefetch.reject(reason);
+    },
+  });
+  await tick();
+
+  const current = scheduleGated(scheduler, started, {
+    label: 'current',
+    kind: 'payload',
+    lane: 'current',
+  });
+  await assert.rejects(prefetch.task.promise, { name: 'AbortError' });
+  await tick();
+
+  assert.equal(preemptReason?.name, 'AbortError');
+  assert.deepEqual(started, ['prefetch', 'current']);
+  const snapshot = scheduler.getSnapshot();
+  assert.equal(snapshot.stats.preempted, 1);
+  assert.equal(snapshot.stats.preemptedByKind.payload, 1);
+  assert.equal(snapshot.stats.preemptedByLane.prefetch, 1);
+  assert.equal(snapshot.stats.cancelled, 0);
+
+  current.resolve();
+  await current.task.promise;
+});
+
+test('scheduler preempts running prefetch when replacement work is queued', async () => {
+  const scheduler = createStarOctreeScheduler({
+    limits: {
+      maxInflightShardFetches: 1,
+      maxInflightPrefetchShardFetches: 1,
+    },
+  });
+  const started = [];
+  const prefetch = scheduleGated(scheduler, started, {
+    label: 'prefetch-shard',
+    kind: 'shard',
+    lane: 'prefetch',
+    preempt: 'foreground',
+    onPreempt(reason) {
+      prefetch.reject(reason);
+    },
+  });
+  await tick();
+
+  const replacement = scheduleGated(scheduler, started, {
+    label: 'replacement-shard',
+    kind: 'shard',
+    lane: 'replacement',
+  });
+  await assert.rejects(prefetch.task.promise, { name: 'AbortError' });
+  await tick();
+
+  assert.deepEqual(started, ['prefetch-shard', 'replacement-shard']);
+  const snapshot = scheduler.getSnapshot();
+  assert.equal(snapshot.stats.preempted, 1);
+  assert.equal(snapshot.stats.preemptedByKind.shard, 1);
+  assert.equal(snapshot.stats.preemptedByLane.prefetch, 1);
+
+  replacement.resolve();
+  await replacement.task.promise;
+});
+
+test('scheduler does not preempt prefetch after it is promoted to foreground', async () => {
+  const scheduler = createStarOctreeScheduler({
+    limits: {
+      maxInflightPayloadBatches: 1,
+      maxInflightPrefetchPayloadBatches: 1,
+    },
+  });
+  const started = [];
+  let preempted = false;
+  const promoted = scheduleGated(scheduler, started, {
+    label: 'promoted-prefetch',
+    kind: 'payload',
+    lane: 'prefetch',
+    preempt: 'foreground',
+    onPreempt(reason) {
+      preempted = true;
+      promoted.reject(reason);
+    },
+  });
+  await tick();
+
+  promoted.task.promote('current', 10);
+  const current = scheduleGated(scheduler, started, {
+    label: 'current',
+    kind: 'payload',
+    lane: 'current',
+  });
+  await tick();
+
+  assert.equal(preempted, false);
+  assert.deepEqual(started, ['promoted-prefetch']);
+  assert.equal(scheduler.getSnapshot().stats.preempted, 0);
+
+  promoted.resolve();
+  await promoted.task.promise;
+  await tick();
+  assert.deepEqual(started, ['promoted-prefetch', 'current']);
+
+  current.resolve();
+  await current.task.promise;
+});
+
 test('scheduler cancels queued work and keeps FIFO ties deterministic', async () => {
   const scheduler = createStarOctreeScheduler({
     limits: {
@@ -205,6 +325,8 @@ function scheduleGated(scheduler, started, options) {
     kind: options.kind ?? 'payload',
     lane: options.lane,
     priority: options.priority,
+    preempt: options.preempt,
+    onPreempt: options.onPreempt,
   }, async () => {
     started.push(options.label);
     await gate.promise;
@@ -216,16 +338,22 @@ function scheduleGated(scheduler, started, options) {
     resolve() {
       gate.resolve();
     },
+    reject(error) {
+      gate.reject(error);
+    },
   };
 }
 
 function createDeferred() {
   /** @type {(value?: unknown) => void} */
   let resolve = () => {};
-  const promise = new Promise((innerResolve) => {
+  /** @type {(error?: unknown) => void} */
+  let reject = () => {};
+  const promise = new Promise((innerResolve, innerReject) => {
     resolve = innerResolve;
+    reject = innerReject;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 async function tick() {

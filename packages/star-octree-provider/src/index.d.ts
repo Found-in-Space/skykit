@@ -452,6 +452,7 @@ export interface StarOctreeSchedulerSnapshot {
     started: number;
     completed: number;
     cancelled: number;
+    preempted: number;
     failed: number;
     queuedByKind: Record<'traversal' | 'shard' | 'payload' | 'decode', number>;
     queuedByLane: Record<'current' | 'replacement' | 'prefetch', number>;
@@ -461,6 +462,8 @@ export interface StarOctreeSchedulerSnapshot {
     completedByLane: Record<'current' | 'replacement' | 'prefetch', number>;
     cancelledByKind: Record<'traversal' | 'shard' | 'payload' | 'decode', number>;
     cancelledByLane: Record<'current' | 'replacement' | 'prefetch', number>;
+    preemptedByKind: Record<'traversal' | 'shard' | 'payload' | 'decode', number>;
+    preemptedByLane: Record<'current' | 'replacement' | 'prefetch', number>;
     failedByKind: Record<'traversal' | 'shard' | 'payload' | 'decode', number>;
     failedByLane: Record<'current' | 'replacement' | 'prefetch', number>;
   };

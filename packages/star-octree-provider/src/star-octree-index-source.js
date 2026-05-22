@@ -187,19 +187,42 @@ export function createStarOctreeIndexSource(createOptions) {
       return bootstrapPromise;
     },
 
-    async ensureRootShardLoaded() {
+    /**
+     * @param {{
+     *   lane?: StarOctreeSchedulerLane;
+     *   signal?: AbortSignal;
+     *   priority?: number;
+     * }} [options]
+     */
+    async ensureRootShardLoaded(options = {}) {
       if (rootShardPromise) {
         stats.shardCacheHits += 1;
+        const lane = normalizeSchedulerLane(options.lane);
+        if (lane !== 'prefetch') {
+          const bootstrap = await ensureBootstrapForRoot();
+          await loadShard(bootstrap.header.indexOffset, options);
+        }
         return rootShardPromise;
       }
 
-      rootShardPromise = (async () => {
+      const lane = normalizeSchedulerLane(options.lane);
+      const pendingRootShard = (async () => {
         const bootstrap = await ensureBootstrapForRoot();
-        const shard = await loadShard(bootstrap.header.indexOffset, { lane: 'current' });
+        const shard = await loadShard(bootstrap.header.indexOffset, {
+          lane,
+          signal: options.signal,
+          priority: options.priority,
+        });
         const nodes = shard.readRuntimeNodes(bootstrap.header);
         rootShard = { shard, nodes };
         return rootShard;
       })();
+      rootShardPromise = pendingRootShard;
+      pendingRootShard.catch(() => {
+        if (rootShardPromise === pendingRootShard) {
+          rootShardPromise = null;
+        }
+      });
 
       return rootShardPromise;
     },
@@ -293,6 +316,7 @@ export function createStarOctreeIndexSource(createOptions) {
       key: `shard:${shardOffset}`,
       priority: options.priority,
       signal: controller.signal,
+      ...createForegroundPreemptOptions(lane, controller),
     }, () => loadShardUncached(shardOffset, {
       signal: controller.signal,
     }));
@@ -585,6 +609,7 @@ export function createStarOctreeIndexSource(createOptions) {
         key: `payload:${batch.start}:${batch.end}`,
         priority,
         signal: controller.signal,
+        ...createForegroundPreemptOptions(lane, controller),
       }, async () => {
         stats.payloadBatchRequests += 1;
         stats.payloadNodesFetched += batch.nodes.length;
@@ -899,6 +924,24 @@ function scheduleWork(scheduler, request, task) {
     promise: Promise.resolve().then(task),
     cancel() {},
     promote() {},
+  };
+}
+
+/**
+ * @param {StarOctreeSchedulerLane} lane
+ * @param {AbortController} controller
+ * @returns {{ preempt?: 'foreground'; onPreempt?: (reason: unknown) => void }}
+ */
+function createForegroundPreemptOptions(lane, controller) {
+  if (lane !== 'prefetch') {
+    return {};
+  }
+
+  return {
+    preempt: 'foreground',
+    onPreempt(reason) {
+      controller.abort(reason);
+    },
   };
 }
 

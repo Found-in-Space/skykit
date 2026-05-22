@@ -95,15 +95,24 @@ export function createStarOctreePipeline(options) {
    */
   async function planDemandForContext(context, planOptions = {}) {
     const traversalLane = planOptions.traversalLane ?? 'current';
-    const enrichedContext = withTraversalContext(context, traversalLane);
-    return scheduleWork({
-      kind: 'traversal',
-      lane: traversalLane,
-      signal: context.signal,
-    }, () => planStarOctreeStrategyDemand({
-      indexSource: options.indexSource,
-      context: enrichedContext,
-    }));
+    const preemptible = createForegroundPreemptSignal(traversalLane, context.signal);
+    const enrichedContext = withTraversalContext({
+      ...context,
+      signal: preemptible.signal,
+    }, traversalLane);
+    try {
+      return await scheduleWork({
+        kind: 'traversal',
+        lane: traversalLane,
+        signal: preemptible.signal,
+        ...preemptible.requestOptions,
+      }, () => planStarOctreeStrategyDemand({
+        indexSource: options.indexSource,
+        context: enrichedContext,
+      }));
+    } finally {
+      preemptible.dispose();
+    }
   }
 
   /**
@@ -518,28 +527,36 @@ export function createStarOctreePipeline(options) {
    */
   async function warmCells(streamOptions = {}) {
     const streamId = streamOptions.id ?? createStreamId('warm');
-    const { context, plan } = await planDemandForStreamOptions(
-      streamOptions,
-      {},
-      { traversalLane: 'prefetch' },
-    );
-    const warmResult = await warmEntries(plan.entries, {
-      sessionId: streamOptions.sessionId,
-      attributes: streamOptions.attributes,
-      emitCachedFirst: streamOptions.streaming?.emitCachedFirst ?? true,
-      cache: streamOptions.cache,
-      signal: streamOptions.signal,
-    });
+    try {
+      const { context, plan } = await planDemandForStreamOptions(
+        streamOptions,
+        {},
+        { traversalLane: 'prefetch' },
+      );
+      const warmResult = await warmEntries(plan.entries, {
+        sessionId: streamOptions.sessionId,
+        attributes: streamOptions.attributes,
+        emitCachedFirst: streamOptions.streaming?.emitCachedFirst ?? true,
+        cache: streamOptions.cache,
+        signal: streamOptions.signal,
+      });
 
-    return {
-      ...createDemandInspection({
-        streamId,
-        context,
-        plan,
-      }),
-      warmedNodeCount: warmResult?.warmedNodeCount ?? 0,
-      decodedStarCount: warmResult?.decodedStarCount ?? 0,
-    };
+      return {
+        ...createDemandInspection({
+          streamId,
+          context,
+          plan,
+        }),
+        warmedNodeCount: warmResult?.warmedNodeCount ?? 0,
+        decodedStarCount: warmResult?.decodedStarCount ?? 0,
+      };
+    } catch (error) {
+      if (!isAbortError(error)) {
+        throw error;
+      }
+
+      return createAbortedWarmCellsResult(options.providerId, streamId, streamOptions);
+    }
   }
 
   /**
@@ -626,13 +643,21 @@ export function createStarOctreePipeline(options) {
    * }} [decodeOptions]
    */
   function scheduleDecode(node, buffer, decodeOptions = {}) {
+    const lane = decodeOptions.lane ?? 'current';
+    const preemptible = createForegroundPreemptSignal(lane, decodeOptions.signal);
+    const runOptions = {
+      ...decodeOptions,
+      signal: preemptible.signal,
+    };
     return scheduleWork({
       kind: 'decode',
-      lane: decodeOptions.lane ?? 'current',
+      lane,
       key: createStarCellKey(node),
       priority: decodeOptions.priority,
-      signal: decodeOptions.signal,
-    }, () => decodePayloadEntry(node, buffer, decodeOptions));
+      signal: preemptible.signal,
+      ...preemptible.requestOptions,
+    }, () => decodePayloadEntry(node, buffer, runOptions))
+      .finally(() => preemptible.dispose());
   }
 
   /**
@@ -837,6 +862,28 @@ function createDemandInspection(options) {
   };
 }
 
+/**
+ * @param {string} providerId
+ * @param {string} streamId
+ * @param {StarOctreeCellStreamOptions} streamOptions
+ * @returns {import('./index.js').StarOctreeWarmCellsResult}
+ */
+function createAbortedWarmCellsResult(providerId, streamId, streamOptions) {
+  const context = createSelectionContext(providerId, streamOptions, {});
+  return {
+    ...createDemandInspection({
+      streamId,
+      context,
+      plan: {
+        entries: [],
+        reasons: ['aborted'],
+      },
+    }),
+    warmedNodeCount: 0,
+    decodedStarCount: 0,
+  };
+}
+
 function createCellMemoryStats() {
   return {
     copiedBytes: 0,
@@ -953,6 +1000,56 @@ function createUnavailableTraversal() {
   return {
     async select() {
       throw new Error('Star octree traversal context is not initialized.');
+    },
+  };
+}
+
+/**
+ * @param {import('./star-octree-scheduler.js').StarOctreeSchedulerLane} lane
+ * @param {AbortSignal | undefined} parentSignal
+ * @returns {{
+ *   signal?: AbortSignal;
+ *   requestOptions: { preempt?: 'foreground'; onPreempt?: (reason: unknown) => void };
+ *   dispose: () => void;
+ * }}
+ */
+function createForegroundPreemptSignal(lane, parentSignal) {
+  if (lane !== 'prefetch') {
+    return {
+      signal: parentSignal,
+      requestOptions: {},
+      dispose() {},
+    };
+  }
+
+  const controller = new AbortController();
+  /**
+   * @param {unknown} reason
+   */
+  const abort = (reason) => {
+    if (!controller.signal.aborted) {
+      controller.abort(reason);
+    }
+  };
+  /** @type {(() => void) | null} */
+  let abortListener = null;
+  if (parentSignal?.aborted) {
+    abort(parentSignal.reason);
+  } else if (parentSignal) {
+    abortListener = () => abort(parentSignal.reason);
+    parentSignal.addEventListener('abort', abortListener, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    requestOptions: {
+      preempt: 'foreground',
+      onPreempt: abort,
+    },
+    dispose() {
+      if (abortListener) {
+        parentSignal?.removeEventListener('abort', abortListener);
+      }
     },
   };
 }
