@@ -80,8 +80,11 @@ rewriting it into the alpha package shape, never by importing old internals.
 Sibling project note: `../skykit-studio` owns the standalone alpha journey video
 editor, editor state/import/export helpers, and deterministic export tooling as
 `@found-in-space/skykit-studio`.
-- `@found-in-space/experimental-structure-layers`: experimental H-alpha/dust
-  preservation package, not stable core.
+
+Historical H-alpha and dust experiments remain in the sibling `../skykit-halpha`
+project as reference material. Do not carry an unused structural-layer package
+in this workspace; design future structural data packages against the current
+package APIs when there is an active consumer.
 
 ## Release And Versioning
 
@@ -97,8 +100,6 @@ editor, editor state/import/export helpers, and deterministic export tooling as
 - `@found-in-space/skykit` is the beginner-facing compatibility anchor: learners
   can install SkyKit and get a compatible set of focused modules, while the
   focused modules still keep their own versions.
-- Keep `@found-in-space/experimental-structure-layers` out of normal stable
-  release expectations unless the user explicitly decides to publish it.
 
 ## Standard Commands
 

@@ -176,12 +176,13 @@ packages/skykit/examples/
   status helper, navigation actions/plugin backed by spatial, journey
   plugin/action bridge, animation loop, desktop observer rig, debug bridge, and
   optional `skykit/xr` WebXR rig/input/ray/session/depth helpers
-
-@found-in-space/experimental-structure-layers
-  implemented: experimental preservation package for H-alpha tiled volumes,
-  Dust Map NG helpers, and density/structure rendering experiments; not stable
-  core
 ```
+
+Historical H-alpha tiled-volume and Dust Map NG experiments remain in the
+sibling `../skykit-halpha` project as reference material. They are not part of
+the current alpha package map; future structural data packages should be
+designed against the then-current SkyKit/provider APIs when there is an active
+consumer.
 
 Dependency direction should stay clean:
 

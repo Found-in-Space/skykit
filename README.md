@@ -36,7 +36,6 @@ Current package direction:
 - `@found-in-space/three-star-field`: Three.js renderer for streamed star cells
 - `@found-in-space/hr-diagram`: HR diagram data, Canvas fallback, and WebGL renderer
 - `@found-in-space/anchored-image`: renderer-neutral anchored image manifests, solving, and Canvas2D/Three.js image adapters
-- `@found-in-space/experimental-structure-layers`: preserved experimental H-alpha/dust helpers, not stable core
 - `@found-in-space/skykit`: friendly composition exports and teaching-oriented examples
   - `@found-in-space/skykit/xr`: optional WebXR rig/input/ray/session/depth helpers
 
@@ -49,6 +48,10 @@ should not be folded back into core `skykit`.
 The journey video editor and deterministic export tooling now live in the
 sibling `../skykit-studio` project as `@found-in-space/skykit-studio`. It still
 consumes SkyKit packages, but it is not part of this workspace.
+
+Historical H-alpha and dust experiments remain available in the sibling
+`../skykit-halpha` project. Future structural data packages should be designed
+against the current package APIs when there is an active consumer.
 
 ## Development
 
