@@ -1,0 +1,31 @@
+{
+  "name": "@found-in-space/star-octree-provider",
+  "version": "0.2.0-alpha.0",
+  "description": "Alpha star octree provider package for Found in Space datasets",
+  "license": "MIT",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "examples",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@found-in-space/star-trees": "0.2.0-alpha.0"
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.found-in.space/anchored-image-manifest.v1.schema.json",
+  "title": "Found in Space Anchored Image Manifest v1",
+  "type": "object",
+  "required": ["format", "images"],
+  "additionalProperties": true,
+  "properties": {
+    "format": {
+      "const": "found-in-space/anchored-image-manifest@1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1
+    },
+    "assetBaseUrl": {
+      "type": ["string", "null"]
+    },
+    "images": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/image"
+      }
+    },
+    "attribution": {},
+    "metadata": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "vec2": {
+      "type": "object",
+      "required": ["x", "y"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      }
+    },
+    "directionTarget": {
+      "type": "object",
+      "required": ["kind", "frame", "x", "y", "z"],
+      "additionalProperties": true,
+      "properties": {
+        "kind": { "const": "direction" },
+        "frame": { "const": "icrs" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" }
+      }
+    },
+    "positionTarget": {
+      "type": "object",
+      "required": ["kind", "frame", "x", "y", "z"],
+      "additionalProperties": true,
+      "properties": {
+        "kind": { "const": "position" },
+        "frame": { "const": "icrs-pc" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" }
+      }
+    },
+    "anchor": {
+      "type": "object",
+      "required": ["pixel", "target"],
+      "additionalProperties": true,
+      "properties": {
+        "pixel": { "$ref": "#/$defs/vec2" },
+        "target": {
+          "oneOf": [
+            { "$ref": "#/$defs/directionTarget" },
+            { "$ref": "#/$defs/positionTarget" }
+          ]
+        },
+        "metadata": {
+          "type": "object"
+        }
+      }
+    },
+    "imageSource": {
+      "type": "object",
+      "required": ["src", "width", "height", "anchors"],
+      "additionalProperties": true,
+      "properties": {
+        "src": {
+          "type": "string"
+        },
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "anchors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/anchor"
+          }
+        }
+      }
+    },
+    "image": {
+      "type": "object",
+      "required": ["id", "image"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "groupId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "image": {
+          "$ref": "#/$defs/imageSource"
+        },
+        "attribution": {},
+        "metadata": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

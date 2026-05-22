@@ -1,0 +1,32 @@
+{
+  "name": "@found-in-space/star-map-canvas",
+  "version": "0.2.0-alpha.0",
+  "description": "2D canvas star map adapter for Found in Space star cells",
+  "license": "MIT",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "examples",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@found-in-space/spatial": "0.2.0-alpha.0",
+    "@found-in-space/star-trees": "0.2.0-alpha.0"
+  }
+}

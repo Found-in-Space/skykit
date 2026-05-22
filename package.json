@@ -1,10 +1,14 @@
 {
-  "name": "@found-in-space/skykit",
-  "version": "0.1.1",
+  "name": "@found-in-space/skykit-workspace",
+  "version": "0.2.0-alpha.0",
+  "private": true,
   "description": "Reusable runtime for building Found in Space sky experiences",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.js",
+  "workspaces": [
+    "packages/*"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/Found-in-Space/skykit.git"
@@ -27,13 +31,28 @@
     "build": "vite build",
     "diag:observer-shell": "node ./scripts/observer-shell-diagnostic.js",
     "lookup:bookmark-star": "node ./scripts/bookmark-star-lookup.js",
+    "bench:planner": "node ./benchmarks/star-planner/src/run-planner-benchmark.js",
+    "bench:browser": "node ./benchmarks/star-planner/src/run-browser-benchmark.js",
+    "bench:journey": "node ./benchmarks/star-planner/src/run-journey-browser-benchmark.js",
+    "bench:baseline": "node ./benchmarks/star-planner/src/run-baseline.js",
+    "bench:compare": "node ./benchmarks/star-planner/src/compare-baseline.js",
+    "bench:smoke": "node ./benchmarks/star-planner/src/run-smoke.js",
+    "changeset": "changeset",
+    "release:version": "changeset version",
+    "release:publish": "changeset publish --tag alpha",
+    "release:status": "changeset status --verbose",
+    "release:trust": "scripts/configure-npm-trusted-publishing.sh",
     "test": "node --test",
-    "test:watch": "node --test --watch"
+    "test:watch": "node --test --watch",
+    "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "dependencies": {
     "three": "^0.170.0"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.31.0",
+    "playwright": "1.60.0",
+    "typescript": "^5.9.3",
     "vite": "^6.0.0"
   }
 }

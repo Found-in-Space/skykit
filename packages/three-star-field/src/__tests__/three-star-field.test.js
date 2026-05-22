@@ -1,0 +1,153 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import * as THREE from 'three';
+
+import { createStarCellData, encodeMorton3D } from '@found-in-space/star-trees';
+import {
+  computeThreeStarFieldVisualRadiusPx,
+  createThreeStarField,
+  createThreeStarFieldGeometryFromCells,
+  pickThreeStarFieldData,
+} from '../index.js';
+
+test('field starts with one stable aggregate render object', () => {
+  const field = createThreeStarField({ materialProfile: createMaterialProfile() });
+  const snapshot = field.getSnapshot();
+
+  assert.equal(snapshot.cellCount, 0);
+  assert.equal(snapshot.starCount, 0);
+  assert.equal(snapshot.renderObjectCount, 1);
+  assert.equal(field.object3d.children.length, 1);
+});
+
+test('cell upserts replace by cellKey and keep one aggregate Points object', () => {
+  const field = createThreeStarField({ materialProfile: createMaterialProfile() });
+  const points = field.object3d.children[0];
+  const cellA = createCell({ keyOrdinal: 1, count: 2 });
+  const cellA2 = createCell({ keyOrdinal: 1, count: 1, x: 9 });
+  const cellB = createCell({ keyOrdinal: 2, count: 3 });
+
+  field.apply({ type: 'stars/cells-upsert', providerId: 'provider-a', cells: [cellA, cellB] });
+  assert.equal(field.getSnapshot().cellCount, 2);
+  assert.equal(field.getSnapshot().starCount, 5);
+  assert.equal(field.object3d.children[0], points);
+
+  field.apply({ type: 'stars/cells-upsert', providerId: 'provider-a', cells: [cellA2] });
+  assert.equal(field.getSnapshot().cellCount, 2);
+  assert.equal(field.getSnapshot().starCount, 4);
+  assert.equal(field.object3d.children[0], points);
+
+  field.apply({ type: 'stars/cells-remove', providerId: 'provider-a', cellKeys: [cellB.cellKey] });
+  assert.equal(field.getSnapshot().cellCount, 1);
+  assert.equal(field.getSnapshot().starCount, 1);
+});
+
+test('current and error deltas update status without deleting visible cells', () => {
+  const field = createThreeStarField({ materialProfile: createMaterialProfile() });
+  const cell = createCell({ keyOrdinal: 1 });
+
+  field.apply({ type: 'stars/cells-upsert', providerId: 'provider-a', cells: [cell] });
+  field.apply({
+    type: 'stars/current',
+    providerId: 'provider-a',
+    viewRevision: 2,
+    demandRevision: 3,
+    cellKeys: [cell.cellKey],
+    starCount: cell.count,
+  });
+  assert.equal(field.getSnapshot().status, 'current');
+
+  field.apply({
+    type: 'stars/error',
+    providerId: 'provider-a',
+    demandRevision: 4,
+    error: { message: 'boom' },
+  });
+  assert.equal(field.getSnapshot().status, 'failed');
+  assert.equal(field.getSnapshot().starCount, cell.count);
+});
+
+test('aggregate geometry is deterministic by cellKey', () => {
+  const cellB = createCell({ keyOrdinal: 2, x: 20 });
+  const cellA = createCell({ keyOrdinal: 1, x: 10 });
+  const geometry = createThreeStarFieldGeometryFromCells([cellB, cellA]);
+
+  assert.deepEqual(
+    Array.from(geometry.getAttribute('position').array).slice(0, 6),
+    [10, 0, 0, 20, 0, 0],
+  );
+  assert.equal(geometry.drawRange.count, 2);
+});
+
+test('picking returns cell identity and object metadata', () => {
+  const cell = createCell({ keyOrdinal: 3, x: 10, refs: true });
+  const result = pickThreeStarFieldData(
+    new THREE.Ray(new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 0, 0)),
+    {
+      cells: [cell],
+      view: {
+        limitingMagnitude: 20,
+        coordinateUnitsPerParsec: 1,
+      },
+    },
+  );
+
+  assert.equal(result?.cellKey, cell.cellKey);
+  assert.equal(result?.objectRef?.ordinal, 0);
+});
+
+test('visual radius helper still computes finite sizes', () => {
+  const radius = computeThreeStarFieldVisualRadiusPx({
+    apparentMagnitude: 3,
+    limitingMagnitude: 6.5,
+  });
+  assert.ok(radius > 0);
+});
+
+function createCell(options = {}) {
+  const keyOrdinal = options.keyOrdinal ?? 1;
+  const node = {
+    level: 2,
+    gridX: keyOrdinal,
+    gridY: 0,
+    gridZ: 0,
+    mortonCode: String(encodeMorton3D(keyOrdinal, 0, 0, 2)),
+    centerX: options.x ?? keyOrdinal,
+    centerY: 0,
+    centerZ: 0,
+    halfSize: 0.5,
+  };
+  const count = options.count ?? 1;
+  const positions = new Float32Array(count * 3);
+  for (let index = 0; index < count; index += 1) {
+    positions[index * 3] = (options.x ?? keyOrdinal) + index;
+  }
+  return createStarCellData({
+    node,
+    decoded: {
+      count,
+      positionsPc: positions,
+      teffLog8: new Uint8Array(count).fill(128),
+      magAbs: new Float32Array(count).fill(1),
+    },
+    datasetId: 'dataset-a',
+    attributes: [
+      'position',
+      'teffLog8',
+      'magAbs',
+      ...(options.refs ? ['objectRef', 'pickMeta'] : []),
+    ],
+  });
+}
+
+function createMaterialProfile() {
+  const material = new THREE.PointsMaterial();
+  return {
+    material,
+    haloMaterial: null,
+    updateUniforms() {},
+    dispose() {
+      material.dispose();
+    },
+  };
+}

@@ -3,83 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SkyKit: XR Free Roam</title>
+    <title>SkyKit XR Free Roam</title>
     <link rel="stylesheet" href="./shared.css" />
-    <style>
-      .pick-panel .pick-detail[hidden] {
-        display: none !important;
-      }
-      .pick-panel .pick-placeholder[hidden] {
-        display: none !important;
-      }
-      .pick-panel .pick-subtitle {
-        margin: 12px 0 6px;
-        font-size: 0.78rem;
-        font-weight: 600;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: var(--text-muted);
-      }
-      .pick-simbad-row {
-        margin: 8px 0 0;
-        font-size: 0.88rem;
-      }
-      .pick-simbad-link {
-        color: #9fe9ff;
-        text-decoration: underline;
-        text-underline-offset: 2px;
-      }
-      .pick-simbad-link:hover {
-        color: #c8f4ff;
-      }
-    </style>
+    <link rel="stylesheet" href="../packages/skykit/examples/xr-free-roam/xr-free-roam.css" />
   </head>
   <body>
-    <aside>
-      <nav class="breadcrumb"><a href="../index.html">SkyKit</a> <span>/ XR Free Roam</span></nav>
-      <h1>XR Free Roam</h1>
-      <p>
-        Headset validation: one observer shell, one star field, one locomotion
-        controller, and just enough runtime plumbing to test headset motion and
-        progressive loading. This test also overlays the dense H-alpha l2
-        volume.
-      </p>
-      <ul>
-        <li>Full <code>4π</code> lookaround with <code>6DoF</code> head and rig motion.</li>
-        <li>Joystick forward, backward, and sideways movement for long-distance reload testing.</li>
-        <li>Use a WebXR-capable browser on a headset and press <code>Enter VR</code>.</li>
-      </ul>
-      <label for="mag-limit">Magnitude Limit</label>
-      <input id="mag-limit" type="number" min="0" max="25" step="0.1" value="7.5" data-mag-limit />
-      <div class="controls">
+    <main class="xr-free-roam-shell">
+      <div class="viewer-shell" data-viewer></div>
+      <div class="xr-actions" aria-label="XR actions">
         <button type="button" data-action="enter-xr">Enter VR</button>
         <button type="button" data-action="exit-xr">Exit VR</button>
       </div>
-      <div class="pick-panel" data-pick-info>
-        <p class="aside-section-title">Selected Star</p>
-        <p class="pick-placeholder" data-pick-empty>No star selected — use trigger to pick</p>
-        <div class="pick-detail" data-pick-detail hidden>
-          <p class="pick-subtitle">Catalog</p>
-          <pre class="meta-block" data-pick-catalog>Proper name: —
-Bayer: —
-HD: —
-HIP: —
-Gaia: —</pre>
-          <p class="pick-simbad-row" data-pick-simbad-row>
-            <span data-pick-simbad-empty>SIMBAD: —</span>
-            <a class="pick-simbad-link" data-pick-simbad-link href="#" target="_blank" rel="noopener noreferrer" hidden>View in SIMBAD</a>
-          </p>
-          <p class="pick-subtitle">Observation</p>
-          <pre class="meta-block" data-pick-obs>—</pre>
-        </div>
-      </div>
-      <p class="status">Status: <span data-status>idle</span></p>
-      <pre class="meta-block" data-summary></pre>
-      <pre data-snapshot></pre>
-    </aside>
-    <main>
-      <div class="viewer-shell" data-skykit-viewer-root></div>
     </main>
-    <script type="module" src="/src/demo/xr-free-roam.js"></script>
+    <script type="module" src="../packages/skykit/examples/xr-free-roam/xr-free-roam.js"></script>
   </body>
 </html>

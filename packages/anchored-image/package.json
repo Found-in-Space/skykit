@@ -1,0 +1,45 @@
+{
+  "name": "@found-in-space/anchored-image",
+  "version": "0.2.0-alpha.0",
+  "description": "Renderer-neutral anchored sky and space image math for Found in Space packages",
+  "license": "MIT",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./canvas": {
+      "types": "./src/canvas.d.ts",
+      "default": "./src/canvas.js"
+    },
+    "./three": {
+      "types": "./src/three.d.ts",
+      "default": "./src/three.js"
+    },
+    "./schemas/anchored-image-manifest.v1.schema.json": "./schemas/anchored-image-manifest.v1.schema.json"
+  },
+  "files": [
+    "src",
+    "schemas",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test"
+  },
+  "peerDependencies": {
+    "three": "^0.170.0"
+  },
+  "peerDependenciesMeta": {
+    "three": {
+      "optional": true
+    }
+  }
+}

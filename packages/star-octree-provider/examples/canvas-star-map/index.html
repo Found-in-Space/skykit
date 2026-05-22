@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Star Octree Provider: Canvas Star Map</title>
+    <link rel="stylesheet" href="../../../../demos/shared.css" />
+    <link rel="stylesheet" href="./canvas-star-map.css" />
+  </head>
+  <body>
+    <aside>
+      <nav class="breadcrumb">
+        <a href="../../../../index.html">SkyKit</a>
+        <span>/ Star Octree Provider</span>
+      </nav>
+      <h1>Canvas Star Map</h1>
+      <p>
+        Stream spatial star cells into a star-trees store, then render the
+        same current set as an observer-relative 2D sky map.
+      </p>
+
+      <form data-query-form>
+        <label for="octree-url">Octree URL</label>
+        <input id="octree-url" name="url" type="url" data-url />
+
+        <div class="coordinate-grid" aria-label="Observer coordinates in parsecs">
+          <label>
+            X pc
+            <input name="x" type="number" step="1" value="0" data-x />
+          </label>
+          <label>
+            Y pc
+            <input name="y" type="number" step="1" value="0" data-y />
+          </label>
+          <label>
+            Z pc
+            <input name="z" type="number" step="1" value="0" data-z />
+          </label>
+        </div>
+
+        <label for="magnitude">Apparent magnitude limit</label>
+        <input id="magnitude" name="magnitude" type="number" step="0.1" value="6.5" data-magnitude />
+
+        <div class="controls">
+          <button type="submit" data-apply>Apply view</button>
+          <button type="button" data-reset>Reset origin</button>
+        </div>
+      </form>
+
+      <p class="status">Status: <span data-status>idle</span></p>
+      <div class="selected" data-selected>No star selected.</div>
+    </aside>
+
+    <main>
+      <section class="map-shell" aria-label="Observer-relative 2D star map">
+        <div class="map-toolbar">
+          <div class="metric">
+            <span>Store stars</span>
+            <strong data-store-count>0</strong>
+          </div>
+          <div class="metric">
+            <span>Visible</span>
+            <strong data-visible-count>0</strong>
+          </div>
+          <div class="metric">
+            <span>Cells</span>
+            <strong data-cell-count>0</strong>
+          </div>
+          <div class="metric">
+            <span>Demand</span>
+            <strong data-demand-state>idle</strong>
+          </div>
+        </div>
+        <canvas data-star-map aria-label="RA Dec equirectangular star map"></canvas>
+      </section>
+    </main>
+
+    <script type="module" src="./canvas-star-map.js"></script>
+  </body>
+</html>

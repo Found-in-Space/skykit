@@ -1,0 +1,1950 @@
+import * as THREE from 'three';
+
+import {
+  createJourneyController,
+  createTimedJourneyEvaluator,
+} from '@found-in-space/journey';
+
+import {
+  combineStrategies,
+  createLookaheadStrategy,
+  createObserverShellStrategy,
+  createPathVolumeStrategy,
+  createSphereVolumeStrategy,
+  createWarmStrategy,
+} from '@found-in-space/star-trees';
+
+import {
+  IDENTITY_QUATERNION as SPATIAL_IDENTITY_QUATERNION,
+  createOrbitTransferRoute,
+  createSpatialPoseTransition,
+  createSpatialNavigationAutomation,
+  resolveSpatialTarget,
+} from '@found-in-space/spatial';
+
+import { SKYKIT_ACTIONS, SKYKIT_CONTROLS } from './actions.js';
+import { createObject3dLayer } from './layers.js';
+import { createStreamingStarLayer } from './streaming-stars.js';
+import {
+  cloneVector3,
+  finiteNumber,
+  normalizeQuaternion,
+  normalizeVector3,
+  positiveFinite,
+  IDENTITY_QUATERNION,
+} from './utils.js';
+
+/**
+ * @typedef {import('./index.d.ts').SkykitPlugin} SkykitPlugin
+ * @typedef {import('./index.d.ts').SkykitThreePart} SkykitThreePart
+ * @typedef {import('./index.d.ts').SkykitObject3dPlugin} SkykitObject3dPlugin
+ * @typedef {import('./index.d.ts').SkykitStreamingStarsPlugin} SkykitStreamingStarsPlugin
+ * @typedef {import('./index.d.ts').Object3dLayerOptions} Object3dLayerOptions
+ * @typedef {import('./index.d.ts').StreamingStarLayerOptions} StreamingStarLayerOptions
+ * @typedef {import('./index.d.ts').StreamingStarLayer} StreamingStarLayer
+ * @typedef {import('./index.d.ts').SkykitKeyboardNavigationOptions} SkykitKeyboardNavigationOptions
+ * @typedef {import('./index.d.ts').SkykitKeyboardNavigationBindingContext} SkykitKeyboardNavigationBindingContext
+ * @typedef {import('./index.d.ts').SkykitDragLookOptions} SkykitDragLookOptions
+ * @typedef {import('./index.d.ts').SkykitStatusPluginOptions} SkykitStatusPluginOptions
+ * @typedef {import('./index.d.ts').Vector3Like} Vector3Like
+ */
+
+export const SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS = Object.freeze({
+  KeyW: SKYKIT_ACTIONS.ship.moveForward,
+  ArrowUp: SKYKIT_ACTIONS.ship.moveForward,
+  KeyS: SKYKIT_ACTIONS.ship.moveBack,
+  ArrowDown: SKYKIT_ACTIONS.ship.moveBack,
+  KeyA: SKYKIT_ACTIONS.ship.moveLeft,
+  ArrowLeft: SKYKIT_ACTIONS.ship.moveLeft,
+  KeyD: SKYKIT_ACTIONS.ship.moveRight,
+  ArrowRight: SKYKIT_ACTIONS.ship.moveRight,
+  KeyE: SKYKIT_ACTIONS.ship.moveUp,
+  PageUp: SKYKIT_ACTIONS.ship.moveUp,
+  KeyQ: SKYKIT_ACTIONS.ship.moveDown,
+  PageDown: SKYKIT_ACTIONS.ship.moveDown,
+});
+
+const DEFAULT_BOOST_KEYS = Object.freeze(['ShiftLeft', 'ShiftRight', 'Shift']);
+
+const LEGACY_KEYBOARD_ACTION_ALIASES = Object.freeze({
+  forward: SKYKIT_ACTIONS.ship.moveForward,
+  back: SKYKIT_ACTIONS.ship.moveBack,
+  left: SKYKIT_ACTIONS.ship.moveLeft,
+  right: SKYKIT_ACTIONS.ship.moveRight,
+  up: SKYKIT_ACTIONS.ship.moveUp,
+  down: SKYKIT_ACTIONS.ship.moveDown,
+  pitchUp: SKYKIT_ACTIONS.ship.pitchUp,
+  pitchDown: SKYKIT_ACTIONS.ship.pitchDown,
+  yawLeft: SKYKIT_ACTIONS.ship.yawLeft,
+  yawRight: SKYKIT_ACTIONS.ship.yawRight,
+  rollClockwise: SKYKIT_ACTIONS.ship.rollClockwise,
+  rollAnticlockwise: SKYKIT_ACTIONS.ship.rollAnticlockwise,
+});
+
+/**
+ * @param {Partial<Record<string, import('./index.d.ts').SkykitKeyboardNavigationBinding>>} [overrides]
+ * @returns {Record<string, import('./index.d.ts').SkykitKeyboardNavigationBinding>}
+ */
+export function createSkykitDefaultKeyboardNavigationBindings(overrides = {}) {
+  return {
+    ...SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS,
+    ...overrides,
+  };
+}
+
+/**
+ * @param {Object3dLayerOptions} options
+ * @returns {SkykitObject3dPlugin}
+ */
+export function createObject3dPlugin(options) {
+  /** @type {SkykitThreePart | null} */
+  let layer = null;
+  const id = options?.id ?? 'object3d-plugin';
+  return {
+    id,
+    setup(context) {
+      layer = createObject3dLayer(options);
+      context.addPart(layer);
+    },
+    getLayer() {
+      return layer;
+    },
+    getSnapshot() {
+      return layer?.getSnapshot?.() ?? { id, layer: null };
+    },
+  };
+}
+
+/**
+ * @param {StreamingStarLayerOptions} options
+ * @returns {SkykitStreamingStarsPlugin}
+ */
+export function createStreamingStarsPlugin(options) {
+  /** @type {StreamingStarLayer | null} */
+  let layer = null;
+  const id = options?.id ?? 'streaming-stars-plugin';
+  return {
+    id,
+    setup(context) {
+      layer = createStreamingStarLayer(options);
+      context.addPart(layer);
+    },
+    getLayer() {
+      return layer;
+    },
+    getSnapshot() {
+      return layer?.getSnapshot?.() ?? { id, layer: null };
+    },
+  };
+}
+
+/**
+ * @param {import('./index.d.ts').SkykitNavigationPluginOptions} [options]
+ * @returns {SkykitPlugin & { getSnapshot(): unknown }}
+ */
+export function createSkykitNavigationPlugin(options = {}) {
+  const id = options.id ?? 'navigation';
+  const navigation = options.navigation ?? createSpatialNavigationAutomation(options);
+  const scaleProfile = options.scaleProfile ?? { navigationUnits: 'pc', metersPerNavigationUnit: 3.085677581e16 };
+  let disposed = false;
+  /** @type {import('@found-in-space/spatial').SpatialPoseTransition | null} */
+  let activeTransition = null;
+  /** @type {(() => void) | null} */
+  let activeTransitionOnArrive = null;
+  let transitionElapsedSeconds = 0;
+
+  /** @type {SkykitThreePart} */
+  const part = {
+    id,
+    priority: options.priority,
+    update(frame) {
+      if (disposed) return;
+      if (activeTransition) {
+        transitionElapsedSeconds += Math.max(0, finiteNumber(frame.deltaSeconds, 0));
+        const sample = activeTransition.evaluate(transitionElapsedSeconds);
+        const current = frame.view;
+        if (!sameVector(current.observerPc, sample.pose.position) || !sameQuaternion(current.orientationIcrs, sample.pose.orientation)) {
+          frame.viewer.requestViewState({
+            observerPc: sample.pose.position,
+            orientationIcrs: sample.pose.orientation,
+          }, id);
+        }
+        if (sample.complete) {
+          const onArrive = activeTransitionOnArrive;
+          activeTransition = null;
+          activeTransitionOnArrive = null;
+          transitionElapsedSeconds = 0;
+          onArrive?.();
+        }
+        return;
+      }
+      const pose = navigation.update({
+        pose: {
+          position: frame.view.observerPc,
+          orientation: frame.view.orientationIcrs ?? SPATIAL_IDENTITY_QUATERNION,
+        },
+        deltaSeconds: frame.deltaSeconds,
+        scale: scaleProfile,
+        manualLookActive: Boolean(frame.viewer.actions.getControlValue('skykit:navigation.manualLookActive')),
+      });
+      const current = frame.view;
+      if (!sameVector(current.observerPc, pose.position) || !sameQuaternion(current.orientationIcrs, pose.orientation)) {
+        frame.viewer.requestViewState({
+          observerPc: pose.position,
+          orientationIcrs: pose.orientation,
+        }, id);
+      }
+    },
+    dispose() {
+      disposed = true;
+      navigation.dispose?.();
+    },
+    getSnapshot() {
+      return {
+        id,
+        disposed,
+        navigation: navigation.getSnapshot?.() ?? null,
+        transition: activeTransition
+          ? {
+              active: true,
+              elapsedSeconds: transitionElapsedSeconds,
+              durationSecs: activeTransition.durationSecs,
+            }
+          : { active: false },
+      };
+    },
+  };
+
+  return {
+    id,
+    setup(context) {
+      const threeContext = /** @type {import('./index.d.ts').SkykitThreePluginContext} */ (context);
+      threeContext.addPart(part);
+      threeContext.addDisposable(registerNavigationActions(threeContext));
+    },
+    getSnapshot: () => part.getSnapshot?.() ?? null,
+  };
+
+  /**
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   */
+  function registerNavigationActions(context) {
+    const unregisters = [
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.flyTo, async ({ payload }) => {
+        const target = await resolveTarget(payload, context);
+        if (target) navigation.flyTo(target, payloadOptions(payload));
+        return target;
+      }, { label: 'Fly to target' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.flyPolyline, async ({ payload }) => {
+        const points = await resolvePointList(payload, context);
+        if (points.length >= 2) navigation.flyPolyline(points, payloadOptions(payload));
+        return points;
+      }, { label: 'Fly polyline' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.transitionTo, async ({ payload }) => {
+        activeTransition = await createTransition(payload, context);
+        activeTransitionOnArrive = resolveOnArrive(payload);
+        transitionElapsedSeconds = 0;
+        navigation.cancel();
+        return activeTransition;
+      }, { label: 'Transition to view' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.orbit, async ({ payload }) => {
+        const target = await resolveCenter(payload, context);
+        if (target) navigation.orbit(target, payloadOptions(payload));
+        return target;
+      }, { label: 'Orbit target' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.orbitalInsert, async ({ payload }) => {
+        const target = await resolveCenter(payload, context);
+        if (target) navigation.orbitalInsert(target, payloadOptions(payload));
+        return target;
+      }, { label: 'Insert into orbit' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.lookAt, async ({ payload }) => {
+        const target = await resolveTarget(payload, context);
+        if (target) navigation.lookAt(target, payloadOptions(payload));
+        return target;
+      }, { label: 'Look at target' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.lockAt, async ({ payload }) => {
+        const target = await resolveTarget(payload, context);
+        if (target) navigation.lockAt(target, payloadOptions(payload));
+        return target;
+      }, { label: 'Lock at target' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.unlockAt, () => {
+        navigation.unlockAt();
+      }, { label: 'Unlock look target' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancelMovement, () => {
+        activeTransition = null;
+        activeTransitionOnArrive = null;
+        transitionElapsedSeconds = 0;
+        navigation.cancelMovement();
+      }, { label: 'Cancel movement' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancelOrientation, () => {
+        activeTransition = null;
+        activeTransitionOnArrive = null;
+        transitionElapsedSeconds = 0;
+        navigation.cancelOrientation();
+      }, { label: 'Cancel orientation' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancel, () => {
+        activeTransition = null;
+        activeTransitionOnArrive = null;
+        transitionElapsedSeconds = 0;
+        navigation.cancel();
+      }, { label: 'Cancel navigation' }),
+    ];
+    return () => {
+      for (const unregister of unregisters.reverse()) unregister();
+    };
+  }
+
+  /**
+   * @param {unknown} input
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   */
+  async function resolveTarget(input, context) {
+    const custom = options.resolveTarget?.(input, context);
+    if (custom !== undefined) {
+      return await custom;
+    }
+    return await resolveSpatialTarget(
+      /** @type {import('@found-in-space/spatial').SpatialTargetInput} */ (input),
+      {
+        observerPc: context.getViewState().observerPc,
+        resolveBookmark: typeof options.resolveBookmark === 'function'
+          ? (bookmarkId, original) => {
+            const resolved = options.resolveBookmark?.(
+              bookmarkId,
+              /** @type {import('@found-in-space/spatial').SpatialTargetInput} */ (original),
+              context,
+            );
+            return resolved === undefined ? null : resolved;
+          }
+          : undefined,
+      },
+    );
+  }
+
+  /**
+   * @param {unknown} payload
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   */
+  async function resolveCenter(payload, context) {
+    if (payload && typeof payload === 'object' && 'center' in payload) {
+      return resolveTarget(/** @type {{ center?: unknown }} */ (payload).center, context);
+    }
+    return resolveTarget(payload, context);
+  }
+
+  /**
+   * @param {unknown} payload
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   */
+  async function resolvePointList(payload, context) {
+    const rawPoints = payload && typeof payload === 'object' && 'points' in payload
+      ? /** @type {{ points?: Iterable<unknown> }} */ (payload).points
+      : payload;
+    const points = [];
+    for (const point of Array.from(/** @type {Iterable<unknown>} */ (rawPoints ?? []))) {
+      const resolved = await resolveTarget(point, context);
+      if (resolved) points.push(resolved);
+    }
+    return points;
+  }
+
+  /**
+   * @param {unknown} payload
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   */
+  async function createTransition(payload, context) {
+    const source = /** @type {Record<string, unknown>} */ (payload && typeof payload === 'object' ? payload : {});
+    const targetSource = /** @type {Record<string, unknown>} */ (
+      source.view && typeof source.view === 'object'
+        ? source.view
+        : source.to && typeof source.to === 'object'
+          ? source.to
+          : source
+    );
+    const current = context.getViewState();
+    const positionInput = resolveTransitionPositionInput(targetSource);
+    const position = positionInput === undefined
+      ? current.observerPc
+      : await resolveTarget(positionInput, context) ?? current.observerPc;
+    const orientationInput = targetSource.orientationIcrs
+      ?? (targetSource.orientation && isQuaternionLike(targetSource.orientation) ? targetSource.orientation : undefined)
+      ?? source.orientationIcrs;
+    const orientation = normalizeQuaternion(orientationInput, current.orientationIcrs ?? IDENTITY_QUATERNION);
+    return createSpatialPoseTransition({
+      from: {
+        position: current.observerPc,
+        orientation: current.orientationIcrs ?? IDENTITY_QUATERNION,
+      },
+      to: {
+        position,
+        orientation,
+      },
+      durationSecs: finiteNumber(source.durationSecs ?? targetSource.durationSecs, 1),
+      movement: normalizeTransitionLane(source.movement ?? targetSource.movement, source.movementDurationSecs),
+      orientation: normalizeTransitionLane(
+        isQuaternionLike(source.orientation) ? undefined : source.orientation ?? targetSource.orientationTransition,
+        source.orientationDurationSecs,
+      ),
+    });
+  }
+}
+
+/**
+ * @param {import('./index.d.ts').SkykitJourneyPluginOptions} [options]
+ * @returns {SkykitPlugin & { getSnapshot(): unknown }}
+ */
+export function createSkykitJourneyPlugin(options = {}) {
+  const id = options.id ?? 'journey';
+  const controller = options.controller
+    ?? (options.journey
+      ? createJourneyController({ graph: options.journey })
+      : (options.graph || options.scenes ? createJourneyController(options) : null));
+  const evaluator = options.evaluator
+    ?? (options.timedJourney ? createTimedJourneyEvaluator(options.timedJourney, options.evaluatorOptions) : null);
+  let disposed = false;
+  let playing = options.autoPlay === true;
+  let currentTimeSecs = Math.max(0, finiteNumber(options.startTimeSecs, 0));
+  let lastCueId = /** @type {string | null} */ (null);
+  let initialSceneApplied = false;
+  let timedPreloadHintsEmitted = false;
+  /** @type {import('./index.d.ts').SkykitThreePluginContext | null} */
+  let pluginContext = null;
+  const resolvedJourneyOrbits = new Map();
+  /** @type {(() => void) | null} */
+  let unsubscribeController = null;
+  /** @type {Promise<unknown>} */
+  let pendingSceneApplication = Promise.resolve(null);
+
+  /** @type {SkykitThreePart} */
+  const part = {
+    id,
+    priority: options.priority,
+    attach(context) {
+      pluginContext = context;
+      if (controller) {
+        unsubscribeController = controller.subscribe((event) => {
+          queueSceneApplication(event.spec, context, event);
+        });
+        applyInitialScene(context);
+      }
+      emitTimedPreloadHints(context, 'attach');
+    },
+    update(frame) {
+      if (disposed || !evaluator || !playing) return;
+      currentTimeSecs = Math.min(
+        evaluator.durationSecs,
+        currentTimeSecs + Math.max(0, finiteNumber(frame.deltaSeconds, 0)),
+      );
+      applyTimedFrame(evaluator.evaluate(currentTimeSecs), frame);
+      if (currentTimeSecs >= evaluator.durationSecs) {
+        playing = options.loop === true;
+        currentTimeSecs = playing ? 0 : evaluator.durationSecs;
+      }
+    },
+    detach() {
+      unsubscribeController?.();
+      unsubscribeController = null;
+      pluginContext = null;
+    },
+    dispose() {
+      disposed = true;
+      this.detach?.();
+      if (options.disposeController !== false) controller?.dispose?.();
+    },
+    getSnapshot,
+  };
+
+  return {
+    id,
+    setup(context) {
+      const threeContext = /** @type {import('./index.d.ts').SkykitThreePluginContext} */ (context);
+      threeContext.addPart(part);
+      threeContext.addDisposable(registerJourneyActions(threeContext));
+    },
+    getSnapshot,
+  };
+
+  /** @param {import('./index.d.ts').SkykitThreePluginContext} context */
+  function registerJourneyActions(context) {
+    const unregisters = [
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.goToChapter, async ({ payload }) => {
+        await pendingSceneApplication;
+        const sceneId = resolveSceneId(payload);
+        const spec = sceneId && controller ? controller.goTo(sceneId, { source: SKYKIT_ACTIONS.journey.goToChapter }) : null;
+        await pendingSceneApplication;
+        return spec;
+      }, { label: 'Go to journey chapter' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.next, async () => {
+        await pendingSceneApplication;
+        const spec = controller?.next({ source: SKYKIT_ACTIONS.journey.next }) ?? null;
+        await pendingSceneApplication;
+        return spec;
+      }, {
+        label: 'Next journey chapter',
+      }),
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.previous, async () => {
+        await pendingSceneApplication;
+        const spec = controller?.previous({ source: SKYKIT_ACTIONS.journey.previous }) ?? null;
+        await pendingSceneApplication;
+        return spec;
+      }, {
+        label: 'Previous journey chapter',
+      }),
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.seek, ({ payload }) => {
+        currentTimeSecs = clampTime(resolveTimeSecs(payload), evaluator?.durationSecs ?? Number.POSITIVE_INFINITY);
+        if (evaluator) applyTimedFrame(evaluator.evaluate(currentTimeSecs), { viewer: context.viewer, view: context.getViewState() });
+        emitTimedPreloadHints(context, 'seek');
+        return currentTimeSecs;
+      }, { label: 'Seek journey time' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.play, ({ payload }) => {
+        if (payload && typeof payload === 'object' && 'timeSecs' in payload) {
+          currentTimeSecs = clampTime(resolveTimeSecs(payload), evaluator?.durationSecs ?? Number.POSITIVE_INFINITY);
+        }
+        playing = true;
+        emitTimedPreloadHints(context, 'play');
+        return currentTimeSecs;
+      }, { label: 'Play journey' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.pause, () => {
+        playing = false;
+        return currentTimeSecs;
+      }, { label: 'Pause journey' }),
+    ];
+    return () => {
+      for (const unregister of unregisters.reverse()) unregister();
+    };
+  }
+
+  /** @param {import('./index.d.ts').SkykitThreePluginContext} context */
+  function applyInitialScene(context) {
+    if (!controller || initialSceneApplied) return;
+    const snapshot = controller.getSnapshot();
+    const sceneId = snapshot.activeSceneId;
+    if (!sceneId) {
+      initialSceneApplied = true;
+      return;
+    }
+    initialSceneApplied = true;
+    const spec = controller.graph.resolveSceneSpec(sceneId, { fromSceneId: snapshot.previousSceneId });
+    queueSceneApplication(spec, context, {
+      type: 'journey/initial',
+      sceneId,
+      previousSceneId: snapshot.previousSceneId,
+      source: 'attach',
+      spec,
+    });
+  }
+
+  /**
+   * @param {unknown} spec
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   * @param {unknown} event
+   */
+  function queueSceneApplication(spec, context, event) {
+    pendingSceneApplication = Promise.resolve(applySceneSpec(spec, context, event)).catch((error) => {
+      context.emit?.({
+        type: 'journey/scene/error',
+        pluginId: id,
+        message: 'Failed to apply journey scene.',
+        error,
+        event,
+      });
+      return null;
+    });
+    return pendingSceneApplication;
+  }
+
+  /**
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   * @param {string} source
+   */
+  function emitTimedPreloadHints(context, source) {
+    if (!evaluator || timedPreloadHintsEmitted) return;
+    const preloadHints = typeof evaluator.getPreloadHints === 'function'
+      ? evaluator.getPreloadHints()
+      : evaluator.evaluate(currentTimeSecs).preloadHints;
+    timedPreloadHintsEmitted = true;
+    if (preloadHints.length > 0) {
+      options.onPreloadHints?.(preloadHints, {
+        type: 'journey/timed-preload',
+        journeyId: evaluator.journey.id,
+        source,
+      }, context);
+    }
+  }
+
+  /**
+   * @param {unknown} spec
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   * @param {unknown} event
+   */
+  async function applySceneSpec(spec, context, event) {
+    const scene = /** @type {Record<string, unknown> | null} */ (spec && typeof spec === 'object' ? spec : null);
+    options.onScene?.(scene, context, event);
+    if (!scene) return;
+    const onArrive = () => {
+      void notifySceneArrive(scene, context, event);
+    };
+    let arrivalDeferred = false;
+    if (scene.view && typeof scene.view === 'object') {
+      context.requestViewState(/** @type {Partial<import('./index.d.ts').SkykitViewState>} */ (scene.view), id);
+    }
+    const navigation = /** @type {Record<string, unknown> | null} */ (scene.navigation && typeof scene.navigation === 'object' ? scene.navigation : null);
+    if (isOrbitCameraScene(scene)) {
+      arrivalDeferred = await applyOrbitCameraScene(scene, context, event, onArrive);
+    } else if (navigation?.transitionTo) {
+      const travel = normalizeJourneySceneTravel(scene.travel);
+      const explicitRoutePoints = await resolveJourneyRoutePoints(scene, travel, context);
+      const results = explicitRoutePoints.length >= 2
+        ? await context.actions.invoke(SKYKIT_ACTIONS.navigation.flyPolyline, {
+          points: explicitRoutePoints,
+          durationSecs: travel.durationSecs,
+          arrivalThreshold: travel.arrivalThreshold,
+          onArrive: () => {
+            void context.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+              ...createRouteArrivalTransitionPayload(navigation.transitionTo),
+              onArrive,
+            }, {
+              source: id,
+            });
+          },
+        }, {
+          source: id,
+        })
+        : await context.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+          .../** @type {Record<string, unknown>} */ (navigation.transitionTo),
+          onArrive,
+        }, {
+          source: id,
+        });
+      arrivalDeferred = hasActionResult(results);
+    }
+    if (Array.isArray(scene.preloadHints)) {
+      options.onPreloadHints?.(scene.preloadHints, scene, context);
+    }
+    options.onLayerState?.(scene, context);
+    if (!arrivalDeferred) {
+      onArrive();
+    }
+  }
+
+  /**
+   * @param {Record<string, unknown>} scene
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   * @param {unknown} event
+   * @param {() => void} onArrive
+   * @returns {Promise<boolean>} true when arrival will be reported asynchronously
+   */
+  async function applyOrbitCameraScene(scene, context, event, onArrive) {
+    const camera = /** @type {Record<string, unknown>} */ (scene.camera);
+    const destinationOrbit = await resolveJourneyOrbit(camera, context);
+    if (!destinationOrbit) return false;
+    const lookTarget = await resolveJourneyTarget(camera.lookAt ?? camera.center, context)
+      ?? destinationOrbit.center;
+    const source = { source: id };
+    await context.actions.invoke(SKYKIT_ACTIONS.navigation.cancel, null, source);
+    context.requestViewState({ targetPc: lookTarget }, id);
+    await context.actions.invoke(SKYKIT_ACTIONS.navigation.lockAt, {
+      ...lookTarget,
+      ...(destinationOrbit.normal ? { up: destinationOrbit.normal } : {}),
+      dwellSecs: resolveJourneyDwellSecs(camera, scene.travel),
+      recenterSpeed: 0.06,
+    }, source);
+
+    if (isInitialJourneyEvent(event)) {
+      const initialNormal = destinationOrbit.normal ?? { x: 0, y: 1, z: 0 };
+      const initialObserverPc = resolveInitialSceneObserverPc(scene)
+        ?? defaultOrbitPosition(destinationOrbit.center, destinationOrbit.radius, initialNormal);
+      rememberResolvedJourneyOrbit(scene, {
+        ...destinationOrbit,
+        normal: initialNormal,
+      });
+      context.requestViewState({
+        observerPc: initialObserverPc,
+        targetPc: lookTarget,
+      }, id);
+      await context.actions.invoke(SKYKIT_ACTIONS.navigation.orbit, {
+        center: destinationOrbit.center,
+        radius: destinationOrbit.radius,
+        angularSpeedRadPerSec: destinationOrbit.angularSpeedRadPerSec,
+        normal: initialNormal,
+      }, source);
+      return false;
+    }
+
+    const travel = normalizeJourneySceneTravel(scene.travel);
+    const explicitRoutePoints = await resolveJourneyRoutePoints(scene, travel, context);
+    if (explicitRoutePoints.length >= 2) {
+      const arrivalAction = normalizeJourneyOrbitAction(
+        travel.arrivalAction ?? scene.travelPathArrivalAction,
+        destinationOrbit,
+      );
+      rememberResolvedJourneyOrbit(scene, arrivalAction);
+      const results = await context.actions.invoke(SKYKIT_ACTIONS.navigation.flyPolyline, {
+        points: explicitRoutePoints,
+        durationSecs: travel.durationSecs,
+        arrivalThreshold: travel.arrivalThreshold,
+        arrivalAction,
+        onArrive,
+      }, source);
+      return hasActionResult(results);
+    }
+    const route = createOrbitTransferRoute({
+      start: context.getViewState().observerPc,
+      sourceOrbit: await resolveSourceJourneyOrbit(event, context),
+      destinationOrbit,
+      durationSecs: travel.durationSecs,
+      sampleStepSecs: travel.sampleStepSecs,
+    });
+    if (route && Array.isArray(route.points) && route.points.length >= 2) {
+      rememberResolvedJourneyOrbit(scene, route.arrivalAction);
+      const results = await context.actions.invoke(SKYKIT_ACTIONS.navigation.flyPolyline, {
+        points: route.points,
+        durationSecs: travel.durationSecs,
+        currentSpeed: route.departureSpeed,
+        arrivalSpeed: route.arrivalSpeed,
+        arrivalThreshold: travel.arrivalThreshold,
+        arrivalAction: route.arrivalAction,
+        onArrive,
+      }, source);
+      return hasActionResult(results);
+    }
+    const fallbackNormal = destinationOrbit.normal ?? { x: 0, y: 1, z: 0 };
+    rememberResolvedJourneyOrbit(scene, {
+      ...destinationOrbit,
+      normal: fallbackNormal,
+    });
+    await context.actions.invoke(SKYKIT_ACTIONS.navigation.orbit, {
+      center: destinationOrbit.center,
+      radius: destinationOrbit.radius,
+      angularSpeedRadPerSec: destinationOrbit.angularSpeedRadPerSec,
+      normal: fallbackNormal,
+    }, source);
+    return false;
+  }
+
+  /**
+   * @param {unknown} transitionTo
+   * @returns {Record<string, unknown>}
+   */
+  function createRouteArrivalTransitionPayload(transitionTo) {
+    const payload = /** @type {Record<string, unknown>} */ (
+      transitionTo && typeof transitionTo === 'object' ? transitionTo : {}
+    );
+    return {
+      ...payload,
+      movement: {
+        ...(payload.movement && typeof payload.movement === 'object'
+          ? /** @type {Record<string, unknown>} */ (payload.movement)
+          : {}),
+        durationSecs: 0.001,
+      },
+    };
+  }
+
+  /**
+   * @param {Record<string, unknown>} scene
+   * @param {Record<string, unknown>} travel
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   * @returns {Promise<Vector3Like[]>}
+   */
+  async function resolveJourneyRoutePoints(scene, travel, context) {
+    const rawPoints = resolveJourneyRoutePointSource(scene, travel);
+    if (!rawPoints) return [];
+    const points = [];
+    for (const point of Array.from(rawPoints)) {
+      const resolved = await resolveJourneyTarget(point, context);
+      if (resolved) points.push(resolved);
+    }
+    return points;
+  }
+
+  /**
+   * @param {Record<string, unknown>} scene
+   * @param {Record<string, unknown>} travel
+   * @returns {Iterable<unknown> | null}
+   */
+  function resolveJourneyRoutePointSource(scene, travel) {
+    return firstIterable(
+      scene.travelPathPc,
+      scene.travelPath,
+      travel.pathPointsPc,
+      travel.pointsPc,
+      travel.points,
+    );
+  }
+
+  /**
+   * @param {...unknown} candidates
+   * @returns {Iterable<unknown> | null}
+   */
+  function firstIterable(...candidates) {
+    for (const candidate of candidates) {
+      if (
+        candidate
+        && typeof /** @type {{ [Symbol.iterator]?: unknown }} */ (candidate)[Symbol.iterator] === 'function'
+      ) {
+        return /** @type {Iterable<unknown>} */ (candidate);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * @param {unknown} value
+   * @param {{ center: Vector3Like; radius: number; angularSpeedRadPerSec: number; normal?: Vector3Like }} fallback
+   * @returns {{ type: 'orbit'; center: Vector3Like; radius: number; angularSpeedRadPerSec: number; normal: Vector3Like }}
+   */
+  function normalizeJourneyOrbitAction(value, fallback) {
+    const source = value && typeof value === 'object'
+      ? /** @type {Record<string, unknown>} */ (value)
+      : {};
+    const fallbackNormal = fallback.normal ?? { x: 0, y: 1, z: 0 };
+    return {
+      type: 'orbit',
+      center: normalizeOptionalVector3(source.center) ?? cloneVector3(fallback.center),
+      radius: positiveFinite(source.radius ?? source.radiusPc, fallback.radius),
+      angularSpeedRadPerSec: finiteNumber(
+        source.angularSpeedRadPerSec ?? source.angularSpeed,
+        fallback.angularSpeedRadPerSec,
+      ),
+      normal: normalizeDirectionVector(source.normal, fallbackNormal),
+    };
+  }
+
+  /**
+   * @param {Record<string, unknown>} camera
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   */
+  async function resolveJourneyOrbit(camera, context) {
+    const center = await resolveJourneyTarget(camera.center, context);
+    if (!center) return null;
+    return {
+      center,
+      radius: positiveFinite(camera.radiusPc, 1),
+      angularSpeedRadPerSec: finiteNumber(camera.angularSpeedRadPerSec, 0.1),
+      ...(camera.normal != null ? { normal: normalizeDirectionVector(camera.normal, { x: 0, y: 1, z: 0 }) } : {}),
+    };
+  }
+
+  /**
+   * @param {Record<string, unknown>} scene
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   * @param {unknown} event
+   */
+  async function notifySceneArrive(scene, context, event) {
+    try {
+      await options.onSceneArrive?.(scene, context, event);
+    } catch (error) {
+      context.emit?.({
+        type: 'journey/scene-arrive/error',
+        pluginId: id,
+        message: 'Failed to handle journey scene arrival.',
+        error,
+        event,
+      });
+    }
+  }
+
+  /**
+   * @param {unknown} input
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   */
+  async function resolveJourneyTarget(input, context) {
+    if (typeof input === 'string') {
+      const targets = resolveJourneyTargets();
+      const target = targets[input];
+      if (target && typeof target === 'object' && target.positionPc) {
+        return normalizeVector3(target.positionPc, { x: 0, y: 0, z: 0 });
+      }
+      return null;
+    }
+    return await resolveSpatialTarget(
+      /** @type {import('@found-in-space/spatial').SpatialTargetInput} */ (input),
+      { observerPc: context.getViewState().observerPc },
+    );
+  }
+
+  function resolveJourneyTargets() {
+    const graph = controller?.graph;
+    if (graph && typeof graph === 'object' && 'targets' in graph) {
+      return /** @type {Record<string, { positionPc?: unknown }>} */ (
+        /** @type {Record<string, unknown>} */ (graph).targets ?? {}
+      );
+    }
+    return /** @type {Record<string, { positionPc?: unknown }>} */ (options.journey?.targets ?? {});
+  }
+
+  /**
+   * @param {unknown} event
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   */
+  async function resolveSourceJourneyOrbit(event, context) {
+    const previousSceneId = event && typeof event === 'object'
+      ? /** @type {{ previousSceneId?: unknown }} */ (event).previousSceneId
+      : null;
+    if (typeof previousSceneId !== 'string') return null;
+    const resolved = resolvedJourneyOrbits.get(previousSceneId);
+    if (resolved) return resolved;
+    const previousScene = controller?.graph.getScene(previousSceneId);
+    const camera = previousScene?.camera && typeof previousScene.camera === 'object'
+      ? /** @type {Record<string, unknown>} */ (previousScene.camera)
+      : null;
+    return camera && camera.type === 'orbit' ? resolveJourneyOrbit(camera, context) : null;
+  }
+
+  /** @param {Record<string, unknown>} scene */
+  function resolveInitialSceneObserverPc(scene) {
+    const view = scene.view && typeof scene.view === 'object'
+      ? /** @type {{ observerPc?: unknown }} */ (scene.view)
+      : null;
+    return normalizeOptionalVector3(view?.observerPc);
+  }
+
+  /**
+   * @param {Record<string, unknown>} scene
+   * @param {{ center: Vector3Like; radius: number; angularSpeedRadPerSec: number; normal: Vector3Like }} orbit
+   */
+  function rememberResolvedJourneyOrbit(scene, orbit) {
+    const sceneId = typeof scene.sceneId === 'string' ? scene.sceneId : null;
+    if (!sceneId) return;
+    resolvedJourneyOrbits.set(sceneId, {
+      center: cloneVector3(orbit.center),
+      radius: orbit.radius,
+      angularSpeedRadPerSec: orbit.angularSpeedRadPerSec,
+      normal: cloneVector3(orbit.normal),
+    });
+  }
+
+  /**
+   * @param {import('@found-in-space/journey').TimedJourneyFrame} frameState
+   * @param {{ viewer: import('./index.d.ts').SkykitViewer; view: import('./index.d.ts').SkykitViewState }} frame
+   */
+  function applyTimedFrame(frameState, frame) {
+    const context = pluginContext;
+    const hookResult = options.applyFrame?.(frameState, context, frame);
+    if (hookResult === false) return;
+    frame.viewer.requestViewState({
+      observerPc: frameState.observerPc,
+      orientationIcrs: frameState.orientationIcrs,
+      targetPc: frameState.targetPc,
+      motion: {
+        velocityPcPerSec: frameState.velocityPcPerSec,
+        speedPcPerSec: frameState.speedPcPerSec,
+      },
+    }, id);
+    if (frameState.cue && frameState.cue.id !== lastCueId) {
+      lastCueId = frameState.cue.id;
+      options.onCue?.(frameState.cue, frameState, context);
+    } else if (!frameState.cue) {
+      lastCueId = null;
+    }
+  }
+
+  function getSnapshot() {
+    return {
+      id,
+      disposed,
+      playing,
+      currentTimeSecs,
+      initialSceneApplied,
+      timedPreloadHintsEmitted,
+      controller: controller?.getSnapshot?.() ?? null,
+      timedJourney: evaluator
+        ? {
+            durationSecs: evaluator.durationSecs,
+            journeyId: evaluator.journey.id,
+          }
+        : null,
+    };
+  }
+}
+
+/**
+ * Strategy-only convenience helper. View-bound lookahead hints stay in preload
+ * requests so their authored view can travel with the warm-lane strategy.
+ *
+ * @param {Iterable<import('@found-in-space/spatial').SpatialPreloadHint>} hints
+ * @param {import('./index.d.ts').SkykitSpatialPreloadStrategyOptions} [options]
+ */
+export function createSkykitStarStrategiesFromSpatialHints(hints, options = {}) {
+  const requests = createSkykitStarPreloadRequestsFromSpatialHints(hints, options);
+  const strategies = requests
+    .filter((request) => !request.view)
+    .map((request) => request.strategy);
+  if (options.combine === false) return strategies;
+  if (strategies.length === 0) return null;
+  return strategies.length === 1 ? strategies[0] : combineStrategies(strategies);
+}
+
+/**
+ * @param {Iterable<import('@found-in-space/spatial').SpatialPreloadHint>} hints
+ * @param {import('./index.d.ts').SkykitSpatialPreloadStrategyOptions} [options]
+ * @returns {import('./index.d.ts').SkykitStarPreloadRequest[]}
+ */
+export function createSkykitStarPreloadRequestsFromSpatialHints(hints, options = {}) {
+  /** @type {import('./index.d.ts').SkykitStarPreloadRequest[]} */
+  const requests = [];
+  for (const hint of Array.from(hints ?? [])) {
+    if (!hint || typeof hint !== 'object') continue;
+    if (hint.kind === 'path-volume' && hint.pointsPc.length >= 2 && hint.radiusPc > 0) {
+      requests.push({
+        strategy: createWarmStrategy(createPathVolumeStrategy({
+          pointsPc: hint.pointsPc,
+          radiusPc: hint.radiusPc,
+        }), {
+          reason: 'spatial-preload',
+          scoreBias: finiteNumber(hint.priority, 0),
+        }),
+        sourceHint: hint,
+      });
+      continue;
+    }
+    if (hint.kind === 'sphere-volume' && hint.radiusPc > 0) {
+      requests.push({
+        strategy: createWarmStrategy(createSphereVolumeStrategy({
+          centerPc: hint.centerPc,
+          radiusPc: hint.radiusPc,
+        }), {
+          reason: 'spatial-preload',
+          scoreBias: finiteNumber(hint.priority, 0),
+        }),
+        sourceHint: hint,
+      });
+      continue;
+    }
+    if (hint.kind === 'view-lookahead' && hint.lookaheadSecs > 0) {
+      const velocity = cloneVector3(hint.velocity);
+      requests.push({
+        strategy: createLookaheadStrategy({
+          base: options.baseStrategy ?? createObserverShellStrategy(),
+          horizonSecs: hint.lookaheadSecs,
+          tickSecs: hint.lookaheadSecs,
+        }),
+        view: {
+          observerPc: cloneVector3(hint.pose.position),
+          orientationIcrs: normalizeQuaternion(hint.pose.orientation, IDENTITY_QUATERNION),
+          motion: {
+            velocityPcPerSec: velocity,
+            speedPcPerSec: Math.hypot(velocity.x, velocity.y, velocity.z),
+            lookaheadSecs: hint.lookaheadSecs,
+          },
+        },
+        sourceHint: hint,
+      });
+    }
+  }
+  return requests;
+}
+
+/**
+ * @param {SkykitKeyboardNavigationOptions} [options]
+ * @returns {SkykitPlugin & { getSnapshot(): unknown }}
+ */
+export function createKeyboardNavigationPlugin(options = {}) {
+  const id = options.id ?? 'keyboard-navigation';
+  const speedPcPerSec = positiveFinite(options.speedPcPerSec, 1);
+  const rotationSpeedDegPerSec = positiveFinite(options.rotationSpeedDegPerSec, 60);
+  const boostMultiplier = positiveFinite(options.boostMultiplier, 10);
+  const bindings = /** @type {Record<string, import('./index.d.ts').SkykitKeyboardNavigationBinding>} */ (
+    options.bindings ?? SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS
+  );
+  const boostKeys = new Set(options.boostKeys ?? DEFAULT_BOOST_KEYS);
+  const verticalMode = options.verticalMode ?? 'view';
+  const pressed = new Set();
+  let enabled = options.enabled !== false;
+  let attached = false;
+  /** @type {import('./index.d.ts').SkykitThreePluginContext | null} */
+  let pluginContext = null;
+  /** @type {EventTarget | null} */
+  let activeTarget = null;
+  /** @type {Vector3Like} */
+  let lastVelocityPcPerSec = { x: 0, y: 0, z: 0 };
+
+  /** @type {SkykitThreePart} */
+  const part = {
+    id,
+    priority: options.priority,
+    attach(context) {
+      pluginContext = context;
+      activeTarget = options.target ?? getDefaultEventTarget();
+      activeTarget?.addEventListener?.('keydown', onKeyDown);
+      activeTarget?.addEventListener?.('keyup', onKeyUp);
+      attached = Boolean(activeTarget);
+    },
+    update(frame) {
+      if (!enabled) return;
+      const deltaSeconds = Math.max(0, finiteNumber(frame.deltaSeconds, 0));
+      const actions = pluginContext?.actions ?? frame.viewer.actions;
+      const boosted = actions.isPressed(SKYKIT_ACTIONS.ship.boost);
+      const patch = /** @type {Partial<import('./index.d.ts').SkykitViewState>} */ ({});
+      const movement = resolveMovementVector(frame.view.orientationIcrs, actions, verticalMode);
+      const length = Math.hypot(movement.x, movement.y, movement.z);
+      if (length > 0) {
+        const speed = speedPcPerSec * (boosted ? boostMultiplier : 1);
+        const distance = speed * deltaSeconds;
+        const unit = {
+          x: movement.x / length,
+          y: movement.y / length,
+          z: movement.z / length,
+        };
+        patch.observerPc = {
+          x: frame.view.observerPc.x + unit.x * distance,
+          y: frame.view.observerPc.y + unit.y * distance,
+          z: frame.view.observerPc.z + unit.z * distance,
+        };
+        lastVelocityPcPerSec = {
+          x: unit.x * speed,
+          y: unit.y * speed,
+          z: unit.z * speed,
+        };
+      } else {
+        lastVelocityPcPerSec = { x: 0, y: 0, z: 0 };
+      }
+      actions.setControlValue(SKYKIT_CONTROLS.ship.move, cloneVector3(lastVelocityPcPerSec), {
+        source: id,
+      });
+
+      const rotation = resolveRotationInput(actions);
+      const rotationLength = Math.hypot(rotation.pitch, rotation.yaw, rotation.roll);
+      actions.setControlValue(SKYKIT_CONTROLS.ship.attitude, { ...rotation }, {
+        source: id,
+      });
+      if (rotationLength > 0) {
+        const radiansPerSecond = (rotationSpeedDegPerSec * Math.PI) / 180;
+        const angle = radiansPerSecond * (boosted ? boostMultiplier : 1) * deltaSeconds;
+        patch.orientationIcrs = rotateOrientationByKeyboard(frame.view.orientationIcrs, {
+          pitchRad: (rotation.pitch / rotationLength) * angle,
+          yawRad: (rotation.yaw / rotationLength) * angle,
+          rollRad: (rotation.roll / rotationLength) * angle,
+        });
+      }
+
+      if (patch.observerPc || patch.orientationIcrs) {
+        frame.viewer.requestViewState(patch, 'keyboard-navigation');
+      }
+    },
+    detach() {
+      releasePressedKeys();
+      activeTarget?.removeEventListener?.('keydown', onKeyDown);
+      activeTarget?.removeEventListener?.('keyup', onKeyUp);
+      activeTarget = null;
+      pluginContext = null;
+      attached = false;
+      pressed.clear();
+    },
+    dispose() {
+      this.detach?.();
+    },
+    getSnapshot,
+  };
+
+  return {
+    id,
+    setup(context) {
+      context.addPart(part);
+    },
+    getSnapshot,
+  };
+
+  /** @param {Event} event */
+  function onKeyDown(event) {
+    const key = getEventKey(event);
+    if (!key) return;
+    const binding = bindings[key];
+    if (typeof binding === 'function') {
+      pressed.delete(key);
+      if (options.preventDefault !== false) event.preventDefault?.();
+      void binding(createKeyboardBindingContext(key, event));
+      return;
+    }
+    const action = typeof binding === 'string' ? normalizeKeyboardAction(binding) : null;
+    if (action && pluginContext) {
+      if (isHeldKeyboardAction(action)) {
+        if (!pressed.has(key)) {
+          pluginContext.actions.press(action, { key }, keyboardMetadata(key));
+        }
+        pressed.add(key);
+      } else {
+        void pluginContext.actions.invoke(action, { key }, keyboardMetadata(key));
+      }
+    }
+    if (boostKeys.has(key) && pluginContext) {
+      pluginContext.actions.press(SKYKIT_ACTIONS.ship.boost, { key }, keyboardMetadata(key));
+      pressed.add(key);
+    }
+    if (binding || boostKeys.has(key)) {
+      if (options.preventDefault !== false) event.preventDefault?.();
+    }
+  }
+
+  /** @param {Event} event */
+  function onKeyUp(event) {
+    const key = getEventKey(event);
+    if (!key) return;
+    const binding = bindings[key];
+    const action = typeof binding === 'string' ? normalizeKeyboardAction(binding) : null;
+    if (action && isHeldKeyboardAction(action)) {
+      pluginContext?.actions.release(action, keyboardMetadata(key));
+    }
+    if (boostKeys.has(key)) {
+      pluginContext?.actions.release(SKYKIT_ACTIONS.ship.boost, keyboardMetadata(key));
+    }
+    pressed.delete(key);
+    if (bindings[key] || boostKeys.has(key)) {
+      if (options.preventDefault !== false) event.preventDefault?.();
+    }
+  }
+
+  /**
+   * @param {string} key
+   * @param {Event} event
+   * @returns {SkykitKeyboardNavigationBindingContext}
+   */
+  function createKeyboardBindingContext(key, event) {
+    if (!pluginContext) {
+      throw new Error('Keyboard binding callback fired before the keyboard plugin was attached.');
+    }
+    const context = pluginContext;
+    return {
+      key,
+      event,
+      context,
+      viewer: context.viewer,
+      actions: context.actions,
+      getViewState() {
+        return context.getViewState();
+      },
+      requestViewState(patch, reason = 'keyboard-navigation') {
+        context.requestViewState(patch, reason);
+      },
+    };
+  }
+
+  function getSnapshot() {
+    return {
+      id,
+      enabled,
+      attached,
+      pressed: Array.from(pressed),
+      speedPcPerSec,
+      rotationSpeedDegPerSec,
+      boostMultiplier,
+      verticalMode,
+      lastVelocityPcPerSec: cloneVector3(lastVelocityPcPerSec),
+      pressedActions: pluginContext
+        ? [
+            SKYKIT_ACTIONS.ship.moveForward,
+            SKYKIT_ACTIONS.ship.moveBack,
+            SKYKIT_ACTIONS.ship.moveLeft,
+            SKYKIT_ACTIONS.ship.moveRight,
+            SKYKIT_ACTIONS.ship.moveUp,
+            SKYKIT_ACTIONS.ship.moveDown,
+            SKYKIT_ACTIONS.ship.pitchUp,
+            SKYKIT_ACTIONS.ship.pitchDown,
+            SKYKIT_ACTIONS.ship.yawLeft,
+            SKYKIT_ACTIONS.ship.yawRight,
+            SKYKIT_ACTIONS.ship.rollClockwise,
+            SKYKIT_ACTIONS.ship.rollAnticlockwise,
+            SKYKIT_ACTIONS.ship.boost,
+          ].filter((action) => pluginContext?.actions.isPressed(action))
+        : [],
+    };
+  }
+
+  /**
+   * @param {boolean} nextEnabled
+   */
+  function setEnabled(nextEnabled) {
+    enabled = Boolean(nextEnabled);
+    if (!enabled) releasePressedKeys();
+  }
+
+  // Expose a tiny imperative seam for lessons/tests without introducing a registry.
+  Object.assign(part, { setEnabled });
+
+  function releasePressedKeys() {
+    if (!pluginContext) {
+      pressed.clear();
+      return;
+    }
+    for (const key of pressed) {
+      const binding = bindings[key];
+      const action = typeof binding === 'string' ? normalizeKeyboardAction(binding) : null;
+      if (action && isHeldKeyboardAction(action)) {
+        pluginContext.actions.release(action, keyboardMetadata(key));
+      }
+      if (boostKeys.has(key)) {
+        pluginContext.actions.release(SKYKIT_ACTIONS.ship.boost, keyboardMetadata(key));
+      }
+    }
+    pressed.clear();
+  }
+}
+
+/**
+ * @param {SkykitDragLookOptions} [options]
+ * @returns {SkykitPlugin & { getSnapshot(): unknown }}
+ */
+export function createSkyGrabPlugin(options = {}) {
+  return createDragLookPlugin({
+    ...options,
+    id: options.id ?? 'sky-grab',
+    dragMode: 'grab',
+  });
+}
+
+/**
+ * @param {SkykitDragLookOptions} [options]
+ * @returns {SkykitPlugin & { getSnapshot(): unknown }}
+ */
+export function createMouseLookPlugin(options = {}) {
+  return createDragLookPlugin({
+    ...options,
+    id: options.id ?? 'mouse-look',
+    dragMode: 'look',
+  });
+}
+
+/**
+ * @param {SkykitDragLookOptions & { dragMode: 'grab' | 'look' }} options
+ * @returns {SkykitPlugin & { getSnapshot(): unknown }}
+ */
+function createDragLookPlugin(options) {
+  const id = options.id ?? 'drag-look';
+  const sensitivityRadiansPerPixel = positiveFinite(options.sensitivityRadiansPerPixel, 0.0009);
+  const pitchLimitRad = Math.min(
+    Math.max((positiveFinite(options.pitchLimitDeg, 89) * Math.PI) / 180, 0),
+    Math.PI / 2 - 1e-4,
+  );
+  const button = Number.isInteger(options.button) ? Number(options.button) : 0;
+  let enabled = options.enabled !== false;
+  let dragging = false;
+  let attached = false;
+  let pointerId = /** @type {number | null} */ (null);
+  /** @type {import('./index.d.ts').QuaternionLike} */
+  let orientation = { ...IDENTITY_QUATERNION };
+  let yawRad = 0;
+  let pitchRad = 0;
+  let lastClientX = /** @type {number | null} */ (null);
+  let lastClientY = /** @type {number | null} */ (null);
+  /** @type {EventTarget | null} */
+  let activeTarget = null;
+  /** @type {import('./index.d.ts').SkykitViewer | null} */
+  let viewer = null;
+
+  /** @type {SkykitThreePart} */
+  const part = {
+    id,
+    priority: options.priority,
+    attach(context) {
+      viewer = context.viewer;
+      syncAnglesFromOrientation(context.getViewState().orientationIcrs);
+      activeTarget = options.target ?? getDefaultEventTarget();
+      activeTarget?.addEventListener?.('pointerdown', onPointerDown);
+      activeTarget?.addEventListener?.('pointermove', onPointerMove);
+      activeTarget?.addEventListener?.('pointerup', onPointerUp);
+      activeTarget?.addEventListener?.('pointercancel', onPointerUp);
+      attached = Boolean(activeTarget);
+    },
+    setView(view) {
+      if (!dragging) syncAnglesFromOrientation(view.orientationIcrs);
+    },
+    detach() {
+      activeTarget?.removeEventListener?.('pointerdown', onPointerDown);
+      activeTarget?.removeEventListener?.('pointermove', onPointerMove);
+      activeTarget?.removeEventListener?.('pointerup', onPointerUp);
+      activeTarget?.removeEventListener?.('pointercancel', onPointerUp);
+      activeTarget = null;
+      viewer = null;
+      pointerId = null;
+      lastClientX = null;
+      lastClientY = null;
+      dragging = false;
+      attached = false;
+    },
+    dispose() {
+      this.detach?.();
+    },
+    getSnapshot,
+  };
+
+  return {
+    id,
+    setup(context) {
+      context.addPart(part);
+    },
+    getSnapshot,
+  };
+
+  /** @param {Event} event */
+  function onPointerDown(event) {
+    if (!enabled) return;
+    const pointerEvent = /** @type {{ button?: unknown; pointerId?: unknown; clientX?: unknown; clientY?: unknown; preventDefault?: () => void; currentTarget?: unknown }} */ (event);
+    if (Number(pointerEvent.button ?? 0) !== button) return;
+    syncAnglesFromOrientation(viewer?.getViewState().orientationIcrs);
+    dragging = true;
+    pointerId = Number.isFinite(Number(pointerEvent.pointerId)) ? Number(pointerEvent.pointerId) : null;
+    lastClientX = Number.isFinite(Number(pointerEvent.clientX)) ? Number(pointerEvent.clientX) : null;
+    lastClientY = Number.isFinite(Number(pointerEvent.clientY)) ? Number(pointerEvent.clientY) : null;
+    const captureTarget = /** @type {{ setPointerCapture?: (pointerId: number) => void }} */ (pointerEvent.currentTarget ?? activeTarget);
+    if (pointerId != null) captureTarget.setPointerCapture?.(pointerId);
+    viewer?.actions.setControlValue('skykit:navigation.manualLookActive', true, { source: id });
+    if (options.preventDefault !== false) pointerEvent.preventDefault?.();
+  }
+
+  /** @param {Event} event */
+  function onPointerMove(event) {
+    if (!enabled || !dragging || !viewer) return;
+    const pointerEvent = /** @type {{ pointerId?: unknown; clientX?: unknown; clientY?: unknown; movementX?: unknown; movementY?: unknown; preventDefault?: () => void }} */ (event);
+    const eventPointerId = Number(pointerEvent.pointerId);
+    if (pointerId != null && Number.isFinite(eventPointerId) && eventPointerId !== pointerId) return;
+    const clientX = Number(pointerEvent.clientX);
+    const clientY = Number(pointerEvent.clientY);
+    let movementX = finiteNumber(pointerEvent.movementX, 0);
+    let movementY = finiteNumber(pointerEvent.movementY, 0);
+    if (Number.isFinite(clientX) && Number.isFinite(clientY)) {
+      movementX = lastClientX == null ? 0 : clientX - lastClientX;
+      movementY = lastClientY == null ? 0 : clientY - lastClientY;
+      lastClientX = clientX;
+      lastClientY = clientY;
+    }
+    if (movementX === 0 && movementY === 0) return;
+    const dragSign = options.dragMode === 'look' ? -1 : 1;
+    orientation = rotateOrientationInScreenSpace(
+      orientation,
+      movementX * sensitivityRadiansPerPixel * dragSign,
+      movementY * sensitivityRadiansPerPixel * dragSign,
+    );
+    syncAnglesFromOrientation(orientation);
+    viewer.actions.setControlValue('skykit:navigation.manualLookActive', true, { source: id });
+    viewer.requestViewState({ orientationIcrs: orientation }, id);
+    if (options.preventDefault !== false) pointerEvent.preventDefault?.();
+  }
+
+  /** @param {Event} event */
+  function onPointerUp(event) {
+    const pointerEvent = /** @type {{ pointerId?: unknown; preventDefault?: () => void; currentTarget?: unknown }} */ (event);
+    const eventPointerId = Number(pointerEvent.pointerId);
+    if (pointerId != null && Number.isFinite(eventPointerId) && eventPointerId !== pointerId) return;
+    const captureTarget = /** @type {{ releasePointerCapture?: (pointerId: number) => void }} */ (pointerEvent.currentTarget ?? activeTarget);
+    if (pointerId != null) captureTarget.releasePointerCapture?.(pointerId);
+    pointerId = null;
+    lastClientX = null;
+    lastClientY = null;
+    dragging = false;
+    viewer?.actions.setControlValue('skykit:navigation.manualLookActive', false, { source: id });
+    if (options.preventDefault !== false) pointerEvent.preventDefault?.();
+  }
+
+  function getSnapshot() {
+    return {
+      id,
+      enabled,
+      attached,
+      dragging,
+      yawRad,
+      pitchRad,
+      sensitivityRadiansPerPixel,
+      pitchLimitDeg: (pitchLimitRad * 180) / Math.PI,
+    };
+  }
+
+  /** @param {boolean} nextEnabled */
+  function setEnabled(nextEnabled) {
+    enabled = Boolean(nextEnabled);
+    if (!enabled) {
+      pointerId = null;
+      lastClientX = null;
+      lastClientY = null;
+      dragging = false;
+    }
+  }
+
+  /** @param {import('./index.d.ts').QuaternionLike | null | undefined} nextOrientation */
+  function syncAnglesFromOrientation(nextOrientation) {
+    const q = normalizeQuaternion(nextOrientation, IDENTITY_QUATERNION);
+    orientation = q;
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(
+      new THREE.Quaternion(q.x, q.y, q.z, q.w),
+    );
+    yawRad = -Math.atan2(forward.x, -forward.z);
+    pitchRad = Math.min(
+      Math.max(Math.asin(Math.min(Math.max(forward.y, -1), 1)), -pitchLimitRad),
+      pitchLimitRad,
+    );
+  }
+
+  Object.assign(part, { setEnabled });
+}
+
+/**
+ * @param {SkykitStatusPluginOptions} [options]
+ * @returns {SkykitPlugin & { getSnapshot(): unknown }}
+ */
+export function createSkykitStatusPlugin(options = {}) {
+  const id = options.id ?? 'skykit-status';
+  const intervalSeconds = Math.max(0, finiteNumber(options.intervalSeconds, 0));
+  let elapsedSinceRender = 0;
+  let renderCount = 0;
+  /** @type {string | null} */
+  let lastTargetText = null;
+  /** @type {{ viewerId?: string; viewRevision?: number } | null} */
+  let lastSummary = null;
+
+  /** @type {SkykitThreePart} */
+  const part = {
+    id,
+    priority: options.priority,
+    start(context) {
+      renderStatus(context.viewer.getSnapshot(), context.getViewState());
+    },
+    update(frame) {
+      elapsedSinceRender += Math.max(0, finiteNumber(frame.deltaSeconds, 0));
+      if (elapsedSinceRender < intervalSeconds) return;
+      elapsedSinceRender = 0;
+      renderStatus(frame.viewer.getSnapshot(), frame.view);
+    },
+    getSnapshot,
+  };
+
+  return {
+    id,
+    setup(context) {
+      context.addPart(part);
+    },
+    getSnapshot,
+  };
+
+  /**
+   * @param {import('./index.d.ts').SkykitViewerSnapshot} viewerSnapshot
+   * @param {import('./index.d.ts').SkykitViewState} view
+   */
+  function renderStatus(viewerSnapshot, view) {
+    const payload = { viewer: viewerSnapshot, view };
+    lastSummary = {
+      viewerId: viewerSnapshot.id,
+      viewRevision: view.revision,
+    };
+    renderCount += 1;
+    if (typeof options.render === 'function') {
+      options.render(payload);
+    } else if (options.target && 'textContent' in options.target) {
+      const targetText = JSON.stringify(viewerSnapshot, null, 2);
+      if (targetText !== lastTargetText) {
+        lastTargetText = targetText;
+        options.target.textContent = targetText;
+      }
+    }
+  }
+
+  function getSnapshot() {
+    return {
+      id,
+      renderCount,
+      lastSummary,
+    };
+  }
+}
+
+function getDefaultEventTarget() {
+  return typeof globalThis.addEventListener === 'function' ? globalThis : null;
+}
+
+/** @param {Record<string, unknown>} scene */
+function isOrbitCameraScene(scene) {
+  return Boolean(
+    scene.camera
+    && typeof scene.camera === 'object'
+    && /** @type {{ type?: unknown }} */ (scene.camera).type === 'orbit',
+  );
+}
+
+/** @param {unknown} event */
+function isInitialJourneyEvent(event) {
+  return Boolean(
+    event
+    && typeof event === 'object'
+    && /** @type {{ type?: unknown; previousSceneId?: unknown }} */ (event).type === 'journey/initial',
+  );
+}
+
+/**
+ * @param {unknown} value
+ * @returns {Record<string, unknown> & { durationSecs: number; sampleStepSecs: number; arrivalThreshold: number }}
+ */
+function normalizeJourneySceneTravel(value) {
+  const source = /** @type {Record<string, unknown>} */ (
+    value && typeof value === 'object' ? value : {}
+  );
+  return {
+    ...source,
+    durationSecs: positiveFinite(source.durationSecs, 5),
+    sampleStepSecs: positiveFinite(source.sampleStepSecs, 1 / 60),
+    arrivalThreshold: positiveFinite(source.arrivalThreshold, 0.05),
+  };
+}
+
+/**
+ * @param {Record<string, unknown>} camera
+ * @param {unknown} travel
+ */
+function resolveJourneyDwellSecs(camera, travel) {
+  if (camera.dwellSecs != null) return Math.max(0, finiteNumber(camera.dwellSecs, 0));
+  if (travel && typeof travel === 'object' && 'dwellSecs' in travel) {
+    return Math.max(0, finiteNumber(/** @type {{ dwellSecs?: unknown }} */ (travel).dwellSecs, 0));
+  }
+  return 0;
+}
+
+/**
+ * @param {Vector3Like} center
+ * @param {number} radius
+ * @param {Vector3Like} normal
+ * @returns {Vector3Like}
+ */
+function defaultOrbitPosition(center, radius, normal) {
+  const axis = Math.abs(normal.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
+  const projected = projectOnPlane(axis, normal);
+  const length = Math.hypot(projected.x, projected.y, projected.z);
+  const direction = length > 1e-9
+    ? { x: projected.x / length, y: projected.y / length, z: projected.z / length }
+    : { x: 1, y: 0, z: 0 };
+  return {
+    x: center.x + direction.x * radius,
+    y: center.y + direction.y * radius,
+    z: center.z + direction.z * radius,
+  };
+}
+
+/**
+ * @param {unknown} value
+ * @param {Vector3Like} fallback
+ * @returns {Vector3Like}
+ */
+function normalizeDirectionVector(value, fallback) {
+  const vector = normalizeVector3(value, fallback);
+  const length = Math.hypot(vector.x, vector.y, vector.z);
+  return length > 1e-9
+    ? { x: vector.x / length, y: vector.y / length, z: vector.z / length }
+    : cloneVector3(fallback);
+}
+
+/** @param {unknown} value */
+function normalizeOptionalVector3(value) {
+  if (!value || typeof value !== 'object') return null;
+  const vector = /** @type {{ x?: unknown; y?: unknown; z?: unknown }} */ (value);
+  const x = Number(vector.x);
+  const y = Number(vector.y);
+  const z = Number(vector.z);
+  return [x, y, z].every(Number.isFinite) ? { x, y, z } : null;
+}
+
+/**
+ * @param {Vector3Like} vector
+ * @param {Vector3Like} normal
+ * @returns {Vector3Like}
+ */
+function projectOnPlane(vector, normal) {
+  const amount = vector.x * normal.x + vector.y * normal.y + vector.z * normal.z;
+  return {
+    x: vector.x - normal.x * amount,
+    y: vector.y - normal.y * amount,
+    z: vector.z - normal.z * amount,
+  };
+}
+
+/**
+ * @param {unknown} payload
+ * @returns {Record<string, unknown>}
+ */
+function payloadOptions(payload) {
+  if (!payload || typeof payload !== 'object') return {};
+  const options = /** @type {Record<string, unknown>} */ ({ ...payload });
+  if ('angularSpeedRadPerSec' in options) {
+    options.angularSpeed = options.angularSpeedRadPerSec;
+    delete options.angularSpeedRadPerSec;
+  }
+  if ('normal' in options) {
+    options.orbitNormal = options.normal;
+    delete options.normal;
+  }
+  delete options.x;
+  delete options.y;
+  delete options.z;
+  delete options.raDeg;
+  delete options.raHours;
+  delete options.decDeg;
+  delete options.distancePc;
+  delete options.position;
+  delete options.targetPc;
+  delete options.center;
+  delete options.points;
+  delete options.bookmarkId;
+  return options;
+}
+
+/** @param {unknown} payload */
+function resolveOnArrive(payload) {
+  return payload && typeof payload === 'object' && typeof /** @type {{ onArrive?: unknown }} */ (payload).onArrive === 'function'
+    ? /** @type {() => void} */ (/** @type {{ onArrive: unknown }} */ (payload).onArrive)
+    : null;
+}
+
+/** @param {PromiseSettledResult<unknown>[]} results */
+function hasActionResult(results) {
+  return results.some((result) => result.status === 'fulfilled' && result.value != null);
+}
+
+/** @param {Record<string, unknown>} targetSource */
+function resolveTransitionPositionInput(targetSource) {
+  if (targetSource.observerPc !== undefined) return targetSource.observerPc;
+  if (targetSource.position !== undefined) return targetSource.position;
+  if (targetSource.targetPc !== undefined) return targetSource.targetPc;
+  if (targetSource.target !== undefined) return targetSource.target;
+  return isSpatialTargetLike(targetSource) ? targetSource : undefined;
+}
+
+/** @param {unknown} value */
+function isSpatialTargetLike(value) {
+  if (!value || typeof value !== 'object') return false;
+  const source = /** @type {Record<string, unknown>} */ (value);
+  if ([source.x, source.y, source.z].every((component) => Number.isFinite(Number(component)))) return true;
+  if ((Number.isFinite(Number(source.raDeg)) || Number.isFinite(Number(source.raHours)))
+    && Number.isFinite(Number(source.decDeg))
+    && Number.isFinite(Number(source.distancePc))) return true;
+  if (typeof source.bookmarkId === 'string') return true;
+  if (source.kind === 'bookmark' && typeof source.id === 'string') return true;
+  return Array.isArray(value) && value.length >= 3;
+}
+
+/** @param {unknown} payload */
+function resolveSceneId(payload) {
+  if (typeof payload === 'string') return payload;
+  if (!payload || typeof payload !== 'object') return null;
+  const source = /** @type {Record<string, unknown>} */ (payload);
+  const value = source.chapterId ?? source.sceneId ?? source.id;
+  return typeof value === 'string' ? value : null;
+}
+
+/** @param {unknown} payload */
+function resolveTimeSecs(payload) {
+  if (Number.isFinite(Number(payload))) return Number(payload);
+  if (!payload || typeof payload !== 'object') return 0;
+  const value = /** @type {Record<string, unknown>} */ (payload).timeSecs
+    ?? /** @type {Record<string, unknown>} */ (payload).sceneTimeSecs
+    ?? /** @type {Record<string, unknown>} */ (payload).time;
+  return finiteNumber(value, 0);
+}
+
+/** @param {number} timeSecs @param {number} durationSecs */
+function clampTime(timeSecs, durationSecs) {
+  return Math.min(Math.max(0, finiteNumber(timeSecs, 0)), Math.max(0, finiteNumber(durationSecs, 0)));
+}
+
+/**
+ * @param {unknown} value
+ * @param {unknown} durationSecs
+ * @returns {{ durationSecs?: number } | undefined}
+ */
+function normalizeTransitionLane(value, durationSecs) {
+  if (value && typeof value === 'object' && 'durationSecs' in value) {
+    return { durationSecs: positiveFinite(/** @type {{ durationSecs?: unknown }} */ (value).durationSecs, finiteNumber(durationSecs, 1)) };
+  }
+  if (durationSecs !== undefined) {
+    return { durationSecs: positiveFinite(durationSecs, 1) };
+  }
+  return undefined;
+}
+
+/** @param {unknown} value */
+function isQuaternionLike(value) {
+  if (!value || typeof value !== 'object') return false;
+  const q = /** @type {Record<string, unknown>} */ (value);
+  return Number.isFinite(Number(q.x))
+    && Number.isFinite(Number(q.y))
+    && Number.isFinite(Number(q.z))
+    && Number.isFinite(Number(q.w));
+}
+
+/**
+ * @param {Vector3Like | null | undefined} left
+ * @param {Vector3Like | null | undefined} right
+ */
+function sameVector(left, right) {
+  if (!left || !right) return false;
+  return Math.abs(left.x - right.x) < 1e-12
+    && Math.abs(left.y - right.y) < 1e-12
+    && Math.abs(left.z - right.z) < 1e-12;
+}
+
+/**
+ * @param {import('./index.d.ts').QuaternionLike | null | undefined} left
+ * @param {import('./index.d.ts').QuaternionLike | null | undefined} right
+ */
+function sameQuaternion(left, right) {
+  if (!left || !right) return false;
+  return Math.abs(left.x - right.x) < 1e-12
+    && Math.abs(left.y - right.y) < 1e-12
+    && Math.abs(left.z - right.z) < 1e-12
+    && Math.abs(left.w - right.w) < 1e-12;
+}
+
+/** @param {Event} event */
+function getEventKey(event) {
+  const keyboardEvent = /** @type {{ code?: unknown; key?: unknown }} */ (event);
+  const code = typeof keyboardEvent.code === 'string' ? keyboardEvent.code : '';
+  const key = typeof keyboardEvent.key === 'string' ? keyboardEvent.key : '';
+  return code || key || null;
+}
+
+/**
+ * @param {import('./index.d.ts').QuaternionLike | null | undefined} orientation
+ * @param {import('./index.d.ts').SkykitActionRegistry} actions
+ * @param {'view' | 'world'} verticalMode
+ * @returns {Vector3Like}
+ */
+function resolveMovementVector(orientation, actions, verticalMode) {
+  const q = normalizeQuaternion(orientation, IDENTITY_QUATERNION);
+  const quaternion = new THREE.Quaternion(q.x, q.y, q.z, q.w);
+  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quaternion);
+  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(quaternion);
+  const up = verticalMode === 'world'
+    ? new THREE.Vector3(0, 1, 0)
+    : new THREE.Vector3(0, 1, 0).applyQuaternion(quaternion);
+  const movement = new THREE.Vector3();
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.moveForward)) movement.add(forward);
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.moveBack)) movement.sub(forward);
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.moveRight)) movement.add(right);
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.moveLeft)) movement.sub(right);
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.moveUp)) movement.add(up);
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.moveDown)) movement.sub(up);
+  return normalizeVector3(movement, { x: 0, y: 0, z: 0 });
+}
+
+/**
+ * @param {import('./index.d.ts').SkykitActionRegistry} actions
+ * @returns {{ pitch: number; yaw: number; roll: number }}
+ */
+function resolveRotationInput(actions) {
+  const rotation = { pitch: 0, yaw: 0, roll: 0 };
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.pitchUp)) rotation.pitch += 1;
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.pitchDown)) rotation.pitch -= 1;
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.yawLeft)) rotation.yaw += 1;
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.yawRight)) rotation.yaw -= 1;
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.rollClockwise)) rotation.roll += 1;
+  if (actions.isPressed(SKYKIT_ACTIONS.ship.rollAnticlockwise)) rotation.roll -= 1;
+  return rotation;
+}
+
+/**
+ * @param {string} action
+ */
+function isHeldKeyboardAction(action) {
+  return action === SKYKIT_ACTIONS.ship.moveForward
+    || action === SKYKIT_ACTIONS.ship.moveBack
+    || action === SKYKIT_ACTIONS.ship.moveLeft
+    || action === SKYKIT_ACTIONS.ship.moveRight
+    || action === SKYKIT_ACTIONS.ship.moveUp
+    || action === SKYKIT_ACTIONS.ship.moveDown
+    || action === SKYKIT_ACTIONS.ship.pitchUp
+    || action === SKYKIT_ACTIONS.ship.pitchDown
+    || action === SKYKIT_ACTIONS.ship.yawLeft
+    || action === SKYKIT_ACTIONS.ship.yawRight
+    || action === SKYKIT_ACTIONS.ship.rollClockwise
+    || action === SKYKIT_ACTIONS.ship.rollAnticlockwise
+    || action === SKYKIT_ACTIONS.ship.boost;
+}
+
+/** @param {string} action */
+function normalizeKeyboardAction(action) {
+  return /** @type {Record<string, string>} */ (LEGACY_KEYBOARD_ACTION_ALIASES)[action] ?? action;
+}
+
+/** @param {string} key */
+function keyboardMetadata(key) {
+  return {
+    source: `keyboard:${key}`,
+    input: 'keyboard',
+    key,
+  };
+}
+
+/**
+ * @param {import('./index.d.ts').QuaternionLike | null | undefined} orientation
+ * @param {{ pitchRad: number; yawRad: number; rollRad: number }} input
+ * @returns {import('./index.d.ts').QuaternionLike}
+ */
+function rotateOrientationByKeyboard(orientation, input) {
+  let next = rotateOrientationInScreenSpace(
+    normalizeQuaternion(orientation, IDENTITY_QUATERNION),
+    input.yawRad,
+    input.pitchRad,
+  );
+  if (input.rollRad !== 0) {
+    const forward = normalizeVector3(rotateVectorByQuaternion({ x: 0, y: 0, z: -1 }, next), { x: 0, y: 0, z: -1 });
+    const roll = quaternionFromAxisAngle(forward, input.rollRad);
+    next = normalizeQuaternion(multiplyQuaternions(roll, next), IDENTITY_QUATERNION);
+  }
+  return next;
+}
+
+/**
+ * @param {import('./index.d.ts').QuaternionLike} orientation
+ * @param {number} horizontalRad
+ * @param {number} verticalRad
+ * @returns {import('./index.d.ts').QuaternionLike}
+ */
+function rotateOrientationInScreenSpace(orientation, horizontalRad, verticalRad) {
+  const current = normalizeQuaternion(orientation, IDENTITY_QUATERNION);
+  const localRight = normalizeVector3(rotateVectorByQuaternion({ x: 1, y: 0, z: 0 }, current), { x: 1, y: 0, z: 0 });
+  const localUp = normalizeVector3(rotateVectorByQuaternion({ x: 0, y: 1, z: 0 }, current), { x: 0, y: 1, z: 0 });
+  const horizontal = quaternionFromAxisAngle(localUp, horizontalRad);
+  const vertical = quaternionFromAxisAngle(localRight, verticalRad);
+  return normalizeQuaternion(
+    multiplyQuaternions(vertical, multiplyQuaternions(horizontal, current)),
+    IDENTITY_QUATERNION,
+  );
+}
+
+/**
+ * @param {Vector3Like} axis
+ * @param {number} angleRad
+ * @returns {import('./index.d.ts').QuaternionLike}
+ */
+function quaternionFromAxisAngle(axis, angleRad) {
+  const length = Math.hypot(axis.x, axis.y, axis.z) || 1;
+  const halfAngle = angleRad / 2;
+  const s = Math.sin(halfAngle);
+  return {
+    x: (axis.x / length) * s,
+    y: (axis.y / length) * s,
+    z: (axis.z / length) * s,
+    w: Math.cos(halfAngle),
+  };
+}
+
+/**
+ * @param {import('./index.d.ts').QuaternionLike} a
+ * @param {import('./index.d.ts').QuaternionLike} b
+ * @returns {import('./index.d.ts').QuaternionLike}
+ */
+function multiplyQuaternions(a, b) {
+  return {
+    x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+    y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+    z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+    w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+  };
+}
+
+/**
+ * @param {Vector3Like} vector
+ * @param {import('./index.d.ts').QuaternionLike} q
+ * @returns {Vector3Like}
+ */
+function rotateVectorByQuaternion(vector, q) {
+  const qVector = { x: vector.x, y: vector.y, z: vector.z, w: 0 };
+  const inverse = { x: -q.x, y: -q.y, z: -q.z, w: q.w };
+  const rotated = multiplyQuaternions(multiplyQuaternions(q, qVector), inverse);
+  return { x: rotated.x, y: rotated.y, z: rotated.z };
+}

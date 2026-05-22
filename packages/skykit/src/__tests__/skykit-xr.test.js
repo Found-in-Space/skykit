@@ -1,0 +1,451 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import * as THREE from 'three';
+
+import {
+  applySkykitXrDepthRange,
+  computeSkykitXrDepthRange,
+  createSkykitXrBodyTracker,
+  createSkykitXrControlBindings,
+  createSkykitXrNavigationPlugin,
+  createSkykitXrObserverRig,
+  createSkykitXrPickRouter,
+  createSkykitXrRaySource,
+  createSkykitXrRig,
+  createSkykitXrSessionPlugin,
+  createSkykitXrStarPickingPlugin,
+  enterSkykitXrSession,
+  exitSkykitXrSession,
+  isSkykitXrModeSupported,
+} from '../xr.js';
+import { createSkykitActionRegistry } from '../index.js';
+
+test('skykit/xr rig builds multi-root hierarchy', () => {
+  const camera = new THREE.PerspectiveCamera();
+  const rig = createSkykitXrRig({
+    camera,
+    navigationPose: {
+      position: { x: 1, y: 2, z: 3 },
+      orientation: { x: 0, y: 0, z: 0, w: 1 },
+    },
+    scaleBandIds: ['galaxy'],
+  });
+  assert.equal(rig.headRoot.children.includes(camera), true);
+  assert.notEqual(rig.originContentRoot, rig.observerContentRoot);
+  assert.notEqual(rig.originContentRoot, rig.navigationRoot);
+  assert.ok(rig.getScaleBandedContentRoot('galaxy'));
+  rig.syncObserverContentRoot();
+  assert.deepEqual(rig.observerContentRoot.position.toArray(), [1, 2, 3]);
+  rig.dispose();
+  rig.dispose();
+});
+
+test('skykit/xr control bindings read axes and button edges', () => {
+  const source = {
+    handedness: 'right',
+    gamepad: {
+      axes: [0.5, -0.75],
+      buttons: [{ pressed: true, touched: true, value: 1 }],
+    },
+  };
+  const controls = createSkykitXrControlBindings({
+    axes: { move: { hand: 'right', axes: [0, 1] } },
+    buttons: { select: { hand: 'right', button: 'trigger' } },
+  });
+  controls.update({ inputSources: [source] });
+  assert.equal(controls.getAxis('move').x, 0.5);
+  assert.equal(controls.getButton('select').pressed, true);
+  assert.equal(controls.getButton('select').pressedEdge, true);
+  controls.update({ inputSources: [source] });
+  assert.equal(controls.getButton('select').pressedEdge, false);
+  controls.dispose();
+});
+
+test('skykit/xr body, rays, and pick router compose generic route results', () => {
+  const rig = createSkykitXrRig();
+  const body = createSkykitXrBodyTracker().update({
+    rig,
+    shipPose: {
+      position: { x: 0, y: 0, z: 0 },
+      orientation: { x: 0, y: 0, z: 0, w: 1 },
+    },
+  });
+  const raySource = createSkykitXrRaySource({ kind: 'ship-forward', length: 12 });
+  const ray = raySource.getRay({ rig, body });
+  assert.ok(ray);
+  assert.equal(ray.direction.z, -1);
+
+  const router = createSkykitXrPickRouter({
+    raySource,
+    targets: [() => ({ distance: 3, object: 'target' })],
+  });
+  const route = router.route({ rig, body });
+  assert.equal(route.type, 'hit');
+  assert.equal(route.hit.object, 'target');
+});
+
+test('skykit/xr depth helpers compute and apply render state', () => {
+  const range = computeSkykitXrDepthRange({
+    visibleBounds: { min: { x: -1, y: -1, z: -20 }, max: { x: 1, y: 1, z: -10 } },
+    scale: { navigationUnits: 'pc', metersPerNavigationUnit: 10 },
+    observerCentricSpheres: [{ radiusNavigationUnits: 30 }],
+  });
+  assert.ok(range.depthFar >= 100);
+
+  let state = null;
+  const result = applySkykitXrDepthRange({
+    updateRenderState(next) {
+      state = next;
+    },
+  }, range);
+  assert.equal(result.applied, true);
+  assert.deepEqual(state, { depthNear: range.depthNear, depthFar: range.depthFar });
+});
+
+test('skykit/xr session helpers use injected navigator', async () => {
+  let ended = false;
+  const session = {
+    async requestReferenceSpace(type) {
+      return { type };
+    },
+    async end() {
+      ended = true;
+    },
+    addEventListener() {},
+  };
+  const navigator = {
+    xr: {
+      async isSessionSupported(mode) {
+        return mode === 'immersive-vr';
+      },
+      async requestSession() {
+        return session;
+      },
+    },
+  };
+  assert.equal(await isSkykitXrModeSupported('immersive-vr', { navigator }), true);
+  const handle = await enterSkykitXrSession({ navigator, mode: 'immersive-vr' });
+  assert.equal(handle.presenting, true);
+  await exitSkykitXrSession(handle);
+  assert.equal(ended, true);
+});
+
+test('skykit/xr observer rig bridges viewer state to an XR rig without camera reparenting', () => {
+  const rig = createSkykitXrRig();
+  const observer = createSkykitXrObserverRig({ rig, coordinateUnitsPerParsec: 0.5 });
+
+  observer.setObserverPc({ x: 2, y: 3, z: 4 });
+  observer.update?.({
+    deltaSeconds: 0.5,
+    view: { coordinateUnitsPerParsec: 2 },
+  });
+
+  assert.deepEqual(observer.getObserverPc(), { x: 2, y: 3, z: 4 });
+  assert.deepEqual(observer.getRenderObserverPosition(), { x: 4, y: 6, z: 8 });
+  assert.equal(rig.getScaleProfile().worldUnitsPerNavigationUnit, 2);
+});
+
+test('skykit/xr session plugin registers enter/exit actions and syncs snapshot state', async () => {
+  let activeSession = null;
+  const session = {
+    async requestReferenceSpace(type) {
+      return { type };
+    },
+    async end() {
+      this.ended = true;
+    },
+    addEventListener() {},
+  };
+  const renderer = {
+    xr: {
+      enabled: false,
+      isPresenting: false,
+      getSession() {
+        return activeSession;
+      },
+      async setSession(nextSession) {
+        activeSession = nextSession;
+        this.isPresenting = Boolean(nextSession);
+      },
+    },
+  };
+  const navigator = {
+    xr: {
+      async isSessionSupported() {
+        return true;
+      },
+      async requestSession() {
+        return session;
+      },
+    },
+  };
+  const actions = createSkykitActionRegistry();
+  let part = null;
+  const events = [];
+  const plugin = createSkykitXrSessionPlugin({ renderer, navigator });
+  plugin.setup(createPluginContext({
+    actions,
+    addPart(nextPart) {
+      part = nextPart;
+    },
+    emit(event) {
+      events.push(event.type);
+    },
+  }));
+
+  await actions.invoke('skykit:xr.enter');
+  assert.equal(renderer.xr.enabled, true);
+  assert.equal(activeSession, session);
+  assert.equal(plugin.getSnapshot().presenting, true);
+
+  const frame = createXrFrame({ renderer });
+  part.update(frame);
+  assert.equal(frame.xr.presenting, true);
+  assert.equal(frame.xr.session, session);
+
+  await actions.invoke('skykit:xr.exit');
+  assert.equal(activeSession, null);
+  assert.equal(session.ended, true);
+  assert.deepEqual(events, ['xr/session-start', 'xr/session-end']);
+});
+
+test('skykit/xr navigation plugin updates viewer state from controller axes', () => {
+  const actions = createSkykitActionRegistry();
+  let part = null;
+  const patches = [];
+  const plugin = createSkykitXrNavigationPlugin({ moveSpeedPcPerSec: 10 });
+  plugin.setup(createPluginContext({
+    actions,
+    addPart(nextPart) {
+      part = nextPart;
+    },
+  }));
+
+  part.update(createXrFrame({
+    actions,
+    inputSources: [{
+      handedness: 'right',
+      gamepad: {
+        axes: [0, -1],
+        buttons: [],
+      },
+    }],
+    requestViewState(patch) {
+      patches.push(patch);
+    },
+  }));
+
+  assert.equal(patches.length, 1);
+  assert.equal(patches[0].observerPc.z, -0.16);
+  assert.deepEqual(actions.getControlValue('skykit:ship.control.move'), { x: 0, y: 0, z: -10 });
+});
+
+test('skykit/xr star picking fires only on trigger edge and registers attribute-only demand', () => {
+  const actions = createSkykitActionRegistry();
+  let part = null;
+  const demands = [];
+  const emitted = [];
+  const picks = [];
+  const renderer = {
+    pick(ray, options) {
+      picks.push({ ray, options });
+      return {
+        cellKey: 'cell-a',
+        objectIndex: 1,
+        position: { x: 1, y: 2, z: 3 },
+        magAbs: 4,
+      };
+    },
+  };
+  const plugin = createSkykitXrStarPickingPlugin({
+    renderer,
+    source: {
+      addDemand(demand) {
+        demands.push(demand);
+        return () => {};
+      },
+    },
+    raySource: {
+      getRay() {
+        return {
+          id: 'ray',
+          kind: 'target-ray',
+          handedness: 'right',
+          origin: { x: 0, y: 0, z: 0 },
+          direction: { x: 0, y: 0, z: -1 },
+          length: 10,
+        };
+      },
+    },
+    onPick(event) {
+      emitted.push(event);
+    },
+  });
+  plugin.setup(createPluginContext({
+    actions,
+    addPart(nextPart) {
+      part = nextPart;
+    },
+    emit(event) {
+      emitted.push(event);
+    },
+  }));
+
+  const frame = createXrFrame({
+    actions,
+    emit(event) {
+      emitted.push(event);
+    },
+    inputSources: [{
+      handedness: 'right',
+      gamepad: {
+        axes: [],
+        buttons: [{ pressed: true, touched: true, value: 1 }],
+      },
+    }],
+  });
+  part.update(frame);
+  part.update(frame);
+
+  assert.equal(picks.length, 1);
+  assert.deepEqual(demands[0], {
+    id: 'skykit-xr-star-picking:attributes',
+    attributes: ['position', 'teffLog8', 'magAbs'],
+  });
+  assert.equal(emitted.filter((event) => event.type === 'stars/xr-pick').length, 2);
+});
+
+test('skykit/xr star picking respects panel blockers before renderer picks', () => {
+  let part = null;
+  let pickCount = 0;
+  const emitted = [];
+  const plugin = createSkykitXrStarPickingPlugin({
+    renderer: {
+      pick() {
+        pickCount += 1;
+        return null;
+      },
+    },
+    raySource: {
+      getRay() {
+        return {
+          id: 'ray',
+          kind: 'target-ray',
+          handedness: 'right',
+          origin: { x: 0, y: 0, z: 0 },
+          direction: { x: 0, y: 0, z: -1 },
+          length: 10,
+        };
+      },
+    },
+    blockers: [{
+      blockRay() {
+        return { blocked: true, hit: { componentId: 'panel' } };
+      },
+    }],
+  });
+  plugin.setup(createPluginContext({
+    addPart(nextPart) {
+      part = nextPart;
+    },
+    emit(event) {
+      emitted.push(event);
+    },
+  }));
+
+  part.update(createXrFrame({
+    emit(event) {
+      emitted.push(event);
+    },
+    inputSources: [{
+      handedness: 'right',
+      gamepad: {
+        axes: [],
+        buttons: [{ pressed: true, touched: true, value: 1 }],
+      },
+    }],
+  }));
+
+  assert.equal(pickCount, 0);
+  assert.equal(emitted[0].type, 'stars/xr-pick-blocked');
+});
+
+function createPluginContext(overrides = {}) {
+  const actions = overrides.actions ?? createSkykitActionRegistry();
+  return {
+    mode: 'three',
+    viewer: { id: 'test-viewer', actions },
+    actions,
+    scene: new THREE.Scene(),
+    renderer: overrides.renderer ?? {},
+    camera: new THREE.PerspectiveCamera(),
+    roots: {},
+    contentRoot: new THREE.Group(),
+    navigationRoot: new THREE.Group(),
+    observerRig: {},
+    addPart: overrides.addPart ?? (() => () => {}),
+    addDisposable() {
+      return () => {};
+    },
+    getViewState() {
+      return {
+        revision: 0,
+        observerPc: { x: 0, y: 0, z: 0 },
+        renderObserverPosition: { x: 0, y: 0, z: 0 },
+        limitingMagnitude: 6,
+        coordinateUnitsPerParsec: 1,
+      };
+    },
+    requestViewState() {},
+    on() {
+      return () => {};
+    },
+    emit: overrides.emit ?? (() => {}),
+    useStore(_key, factory) {
+      return factory();
+    },
+    useResource(_key, factory) {
+      return factory();
+    },
+    scheduleTask() {
+      return () => {};
+    },
+  };
+}
+
+function createXrFrame(overrides = {}) {
+  const actions = overrides.actions ?? createSkykitActionRegistry();
+  const renderer = overrides.renderer ?? {};
+  return {
+    viewer: {
+      id: 'test-viewer',
+      actions,
+      requestViewState: overrides.requestViewState ?? (() => {}),
+      emit: overrides.emit ?? (() => {}),
+    },
+    deltaSeconds: 0.016,
+    elapsedSeconds: 1,
+    view: {
+      revision: 0,
+      observerPc: { x: 0, y: 0, z: 0 },
+      renderObserverPosition: { x: 0, y: 0, z: 0 },
+      orientationIcrs: { x: 0, y: 0, z: 0, w: 1 },
+      limitingMagnitude: 6,
+      coordinateUnitsPerParsec: 1,
+      verticalFovDeg: 60,
+    },
+    renderer,
+    scene: new THREE.Scene(),
+    camera: new THREE.PerspectiveCamera(),
+    roots: {},
+    observerRig: {},
+    xr: {
+      presenting: true,
+      frame: overrides.xrFrame ?? {},
+      session: {
+        inputSources: overrides.inputSources ?? [],
+      },
+      referenceSpace: overrides.referenceSpace ?? {},
+    },
+  };
+}

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit Lesson: Free Roam</title>
+    <link rel="stylesheet" href="../../../../demos/shared.css" />
+    <link rel="stylesheet" href="./free-roam-lesson.css" />
+  </head>
+  <body>
+    <aside>
+      <p class="breadcrumb"><a href="../../../../index.html">SkyKit lessons</a> <span>/ Free roam</span></p>
+      <h1>Free Roam Lesson</h1>
+      <p>
+        A small SkyKit viewer: streamed Gaia stars, keyboard navigation, status,
+        and a browser debug bridge.
+      </p>
+      <ul>
+        <li>WASD or arrows move through parsecs.</li>
+        <li>Drag in the viewer to look around.</li>
+        <li>Q/E move down/up.</li>
+        <li>Shift boosts movement.</li>
+        <li>Try <code>skykitDebug.snapshot()</code> in the console.</li>
+      </ul>
+      <p class="aside-section-title">Status</p>
+      <pre data-status>starting...</pre>
+    </aside>
+    <main>
+      <div class="viewer-shell" data-viewer></div>
+    </main>
+    <script type="module" src="./free-roam-lesson.js"></script>
+  </body>
+</html>
