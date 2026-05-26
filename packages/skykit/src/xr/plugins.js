@@ -403,6 +403,134 @@ export function createSkykitXrNavigationPlugin(options = {}) {
 }
 
 /**
+ * @param {import('../xr.d.ts').SkykitXrRayVisualPluginOptions} options
+ * @returns {import('../index.d.ts').SkykitPlugin & { getSnapshot(): unknown }}
+ */
+export function createSkykitXrRayVisualPlugin(options) {
+  if (!options?.raySource || typeof options.raySource.getRay !== 'function') {
+    throw new TypeError('createSkykitXrRayVisualPlugin() requires a raySource.');
+  }
+  const id = options.id ?? 'skykit-xr-ray-visual';
+  const root = new THREE.Group();
+  root.name = id;
+  root.visible = false;
+  const positions = new Float32Array(6);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const material = options.material ?? new THREE.LineBasicMaterial({
+    color: options.color ?? 0x66ffe8,
+    transparent: true,
+    opacity: options.opacity ?? 0.72,
+    depthTest: options.depthTest ?? false,
+    depthWrite: false,
+  });
+  const ownsMaterial = options.material == null;
+  const line = new THREE.Line(geometry, material);
+  line.name = `${id}:line`;
+  line.frustumCulled = false;
+  line.renderOrder = finiteNumber(options.renderOrder, 10_000);
+  root.add(line);
+
+  /** @type {THREE.Object3D | null} */
+  let parent = null;
+  let disposed = false;
+  let visible = false;
+  let blocked = false;
+  let lastLength = 0;
+
+  const part = {
+    id,
+    priority: options.priority ?? 45,
+    object3d: root,
+    /** @param {import('../index.d.ts').SkykitThreePluginContext} context */
+    attach(context) {
+      parent = resolveRayVisualParent(options.parent, context);
+      parent.add(root);
+    },
+    /** @param {import('../index.d.ts').SkykitThreeFrame} frame */
+    update(frame) {
+      if (disposed || frame.xr?.presenting !== true) {
+        setVisible(false);
+        return;
+      }
+      const session = frame.xr.session && typeof frame.xr.session === 'object'
+        ? /** @type {{ inputSources?: Iterable<unknown> }} */ (frame.xr.session)
+        : null;
+      const ray = options.raySource.getRay({
+        frame: frame.xr.frame,
+        referenceSpace: frame.xr.referenceSpace,
+        session: /** @type {any} */ (frame.xr.session),
+        inputSources: session?.inputSources ?? [],
+        rig: options.rig,
+        viewer: frame.viewer,
+      });
+      if (!ray) {
+        setVisible(false);
+        return;
+      }
+
+      const resolved = resolveRayVisualLength(ray, frame, options);
+      blocked = resolved.blocked;
+      if (!(resolved.length > 0)) {
+        setVisible(false);
+        return;
+      }
+
+      const direction = new THREE.Vector3(ray.direction.x, ray.direction.y, ray.direction.z).normalize();
+      positions[0] = ray.origin.x;
+      positions[1] = ray.origin.y;
+      positions[2] = ray.origin.z;
+      positions[3] = ray.origin.x + direction.x * resolved.length;
+      positions[4] = ray.origin.y + direction.y * resolved.length;
+      positions[5] = ray.origin.z + direction.z * resolved.length;
+      geometry.attributes.position.needsUpdate = true;
+      geometry.computeBoundingSphere();
+      lastLength = resolved.length;
+      setVisible(true);
+    },
+    detach() {
+      parent?.remove(root);
+      parent = null;
+    },
+    dispose() {
+      disposed = true;
+      parent?.remove(root);
+      parent = null;
+      geometry.dispose();
+      if (ownsMaterial) {
+        material.dispose();
+      }
+      options.raySource.dispose?.();
+    },
+    getSnapshot() {
+      return {
+        id,
+        disposed,
+        visible,
+        blocked,
+        lastLength,
+        parentName: parent?.name ?? null,
+        raySource: options.raySource.getSnapshot?.() ?? null,
+      };
+    },
+  };
+
+  return {
+    id,
+    setup(context) {
+      context.addPart(part);
+    },
+    getSnapshot: () => part.getSnapshot(),
+  };
+
+  /** @param {boolean} nextVisible */
+  function setVisible(nextVisible) {
+    visible = nextVisible;
+    root.visible = nextVisible;
+  }
+}
+
+/**
  * @param {import('../xr.d.ts').SkykitXrStarPickingPluginOptions} options
  * @returns {import('../index.d.ts').SkykitPlugin & { getSnapshot(): unknown }}
  */
@@ -623,4 +751,50 @@ function callBlocker(blocker, ray, context) {
     return blocker(ray, context);
   }
   return blocker.blockRay?.(ray, context) ?? blocker.pick?.(ray, context) ?? null;
+}
+
+/**
+ * @param {import('../xr.d.ts').SkykitXrRay} ray
+ * @param {import('../index.d.ts').SkykitThreeFrame} frame
+ * @param {import('../xr.d.ts').SkykitXrRayVisualPluginOptions} options
+ */
+function resolveRayVisualLength(ray, frame, options) {
+  const fallbackLength = positiveFinite(options.length, 12);
+  let length = positiveFinite(ray.length, fallbackLength);
+  let blocked = false;
+  for (const blocker of options.blockers ?? []) {
+    const result = callBlocker(blocker, ray, {
+      frame: frame.xr?.frame,
+      referenceSpace: frame.xr?.referenceSpace,
+      session: /** @type {any} */ (frame.xr?.session),
+      ray,
+      viewer: frame.viewer,
+      maxDistance: length,
+    });
+    if (!result) continue;
+    const hitDistance = finiteNumber(
+      result.distance
+        ?? result.maxDistance
+        ?? /** @type {{ length?: unknown }} */ (result.hit ?? {}).length,
+      Number.NaN,
+    );
+    if (Number.isFinite(hitDistance) && hitDistance >= 0) {
+      length = Math.min(length, hitDistance);
+    } else if (result.consumed === true || result.blocked === true) {
+      length = 0;
+    }
+    blocked = blocked || result.consumed === true || result.blocked === true;
+  }
+  return { length, blocked };
+}
+
+/**
+ * @param {import('../xr.d.ts').SkykitXrRayVisualPluginOptions['parent']} parent
+ * @param {import('../index.d.ts').SkykitThreePluginContext} context
+ */
+function resolveRayVisualParent(parent, context) {
+  if (typeof parent === 'function') {
+    return parent(context) ?? context.scene;
+  }
+  return parent ?? context.scene;
 }

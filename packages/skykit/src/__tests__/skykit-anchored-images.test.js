@@ -161,6 +161,34 @@ test('anchored image sky plugin preloads controller selection and mounts fixed-a
   await viewer.dispose();
 });
 
+test('anchored image sky plugin can mount art into a named scale band', async () => {
+  const catalog = await createAnchoredImageCatalog({ manifest: MANIFEST });
+  const requests = [];
+  const scaleRoot = new THREE.Group();
+  const plugin = createAnchoredImageSkyPlugin({
+    id: 'banded-art',
+    catalog,
+    controller: createManualAnchoredImageController({ selection: 'alpha' }),
+    loading: 'preload',
+    textureLoader: createTextureLoader(requests),
+    anchorMode: 'scale-banded',
+    scaleBandId: 'constellation-art',
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    roots: {
+      scaleBandedContentRoots: new Map([['constellation-art', scaleRoot]]),
+    },
+    view: { directionIcrs: { x: 1, y: 0, z: 0 } },
+    plugins: [plugin],
+  });
+
+  assert.deepEqual(requests, ['alpha.png']);
+  assert.equal(scaleRoot.children.some((child) => child.name === 'banded-art'), true);
+
+  await viewer.dispose();
+});
+
 test('anchored image sky plugin lazy-loads active controller entries and caches them', async () => {
   const catalog = await createAnchoredImageCatalog({ manifest: MANIFEST });
   const requests = [];

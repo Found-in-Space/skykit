@@ -553,6 +553,8 @@ export interface AnchoredImageSkyPluginOptions {
   catalog: AnchoredImageCatalog;
   controller: AnchoredImageController;
   loading?: AnchoredImageSkyLoading;
+  anchorMode?: SkykitLayerAnchorMode;
+  scaleBandId?: string;
   fixedAtInfinity?: boolean;
   radius?: number;
   opacity?: number;

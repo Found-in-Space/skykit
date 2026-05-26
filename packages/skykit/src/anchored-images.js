@@ -308,7 +308,8 @@ export function createAnchoredImageSkyPlugin(options) {
         id,
         priority: options.priority,
         object3d: root,
-        anchorMode: fixedAtInfinity ? 'observer-centric' : 'world-space',
+        anchorMode: options.anchorMode ?? (fixedAtInfinity ? 'observer-centric' : 'world-space'),
+        scaleBandId: options.scaleBandId,
       });
       pluginContext.addPart({
         ...layer,

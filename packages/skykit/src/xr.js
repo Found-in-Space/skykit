@@ -16,6 +16,7 @@ export { createSkykitXrPickRouter } from './xr/pick-router.js';
 export {
   createSkykitXrNavigationPlugin,
   createSkykitXrObserverRig,
+  createSkykitXrRayVisualPlugin,
   createSkykitXrSessionPlugin,
   createSkykitXrStarPickingPlugin,
 } from './xr/plugins.js';

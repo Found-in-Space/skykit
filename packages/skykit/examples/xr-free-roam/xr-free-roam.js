@@ -23,15 +23,17 @@ import {
   createSkykitXrNavigationPlugin,
   createSkykitXrObserverRig,
   createSkykitXrRaySource,
+  createSkykitXrRayVisualPlugin,
   createSkykitXrRig,
   createSkykitXrSessionPlugin,
   createSkykitXrStarPickingPlugin,
 } from '@found-in-space/skykit/xr';
 import {
+  createActionCard,
   createButton,
   createChoiceGroup,
-  createColumn,
   createSlider,
+  createSurfaceShell,
   createTextLabel,
   createToggle,
   createValueReadout,
@@ -43,7 +45,7 @@ import {
 } from '@found-in-space/star-octree-provider';
 import {
   createThreeStarField,
-  createVrThreeStarFieldMaterialProfile,
+  createDefaultThreeStarFieldMaterialProfile,
 } from '@found-in-space/three-star-field';
 
 const WESTERN_SKYCULTURE_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stellarium-skycultures-western@0.1.0/dist/manifest.json';
@@ -57,8 +59,31 @@ const DEFAULT_LIMITING_MAGNITUDE = 7.5;
 const DEFAULT_EXPOSURE_LOG10 = 5;
 const DEFAULT_EXPOSURE = 10 ** DEFAULT_EXPOSURE_LOG10;
 const XR_CONSTELLATION_RADIUS_PC = 8;
+const XR_PANEL_SURFACE = Object.freeze({ width: 420, height: 560, pixelDensity: 1 });
+const XR_PANEL_THEME = Object.freeze({
+  backgroundColor: '#07111e',
+  surfaceColor: '#101b2a',
+  textColor: '#eef8ff',
+  mutedTextColor: '#8aa7b4',
+  accentColor: '#35d6c8',
+  accentTextColor: '#031416',
+  borderColor: 'rgba(120, 210, 220, 0.28)',
+  focusColor: '#79ffe8',
+  overlayColor: 'rgba(4, 12, 23, 0.65)',
+  controlHeight: 28,
+  spacing: 5,
+  padding: 7,
+  radius: 6,
+  typography: {
+    fontFamily: 'ui-sans-serif',
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: 500,
+  },
+});
 const XR_DEMO_ACTIONS = Object.freeze({
   goSelected: 'xr-demo:selected.go',
+  clearSelected: 'xr-demo:selected.clear',
   pages: Object.freeze({
     home: 'xr-demo:page.home',
     waypoints: 'xr-demo:page.waypoints',
@@ -69,9 +94,9 @@ const XR_DEMO_ACTIONS = Object.freeze({
 });
 const PAGE_OPTIONS = Object.freeze([
   { value: 'home', label: 'Home' },
-  { value: 'waypoints', label: 'Waypoints' },
+  { value: 'waypoints', label: 'Routes' },
   { value: 'selected', label: 'Target' },
-  { value: 'rendering', label: 'Rendering' },
+  { value: 'rendering', label: 'Render' },
 ]);
 const WAYPOINTS = Object.freeze([
   { id: 'sol', label: 'Sol', targetPc: { x: 0, y: 0, z: 0 }, approachPc: 2 },
@@ -109,7 +134,6 @@ async function main() {
       position: SOL_PC,
       orientation: initialOrientation,
     },
-    scaleBandIds: ['constellation-art'],
   });
   const shipDeck = createShipDeckSlab();
   shipDeck.visible = false;
@@ -121,14 +145,14 @@ async function main() {
     limitingMagnitude: DEFAULT_LIMITING_MAGNITUDE,
     coordinateUnitsPerParsec: DEFAULT_WORLD_SCALE,
     exposure: DEFAULT_EXPOSURE,
-    materialProfile: createVrThreeStarFieldMaterialProfile({
+    materialProfile: createDefaultThreeStarFieldMaterialProfile({
       limitingMagnitude: DEFAULT_LIMITING_MAGNITUDE,
       coordinateUnitsPerParsec: DEFAULT_WORLD_SCALE,
       exposure: DEFAULT_EXPOSURE,
     }),
   });
   const selectedTarget = createSelectedStarTarget();
-  starField.object3d.add(selectedTarget.object3d);
+  xrRig.originContentRoot.add(selectedTarget.object3d);
   const rightRaySource = createWorldXrRaySource(
     createSkykitXrRaySource({ kind: 'target-ray', handedness: 'right', length: 2000000 }),
     xrRig.xrOrigin,
@@ -166,15 +190,20 @@ async function main() {
     priority: 20,
     driver: 'pose-anchored',
     root: createPanelRoot,
-    surfaceMetrics: { width: 392, height: 430, pixelDensity: 1 },
+    surfaceMetrics: XR_PANEL_SURFACE,
+    runtimeOptions: {
+      theme: XR_PANEL_THEME,
+      dragThreshold: 4,
+      longPressDelay: 360,
+    },
     pointerSources: [touchPointerSource],
     anchorPose(frame) {
       latestPanelFrame = frame;
       return resolveLeftHandPanelPose(frame, xrRig.xrOrigin);
     },
     driverOptions: {
-      panelWidth: 0.34,
-      panelHeight: 0.42,
+      panelWidth: 0.32,
+      panelHeight: 0.44,
       offset: { x: 0.04, y: 0.02, z: -0.08 },
       tiltRadians: -0.22,
       transparent: true,
@@ -226,10 +255,25 @@ async function main() {
       source,
       createStreamingStarsPlugin({ id: 'xr-stars', source, renderer: starField }),
       ...(artPlugin ? [artPlugin] : []),
+      createXrFreeRoamFrameSyncPlugin({
+        update() {
+          selectedTarget.update(camera);
+          updateXrDepthRange(activeXrHandle);
+        },
+      }),
       createKeyboardNavigationPlugin({ speedPcPerSec: 2, rotationSpeedDegPerSec: 55 }),
       createSkyGrabPlugin({ target: host, sensitivityRadiansPerPixel: 0.0007 }),
       touchPanel,
       createSkykitXrNavigationPlugin({ moveSpeedPcPerSec: 4 }),
+      createSkykitXrRayVisualPlugin({
+        id: 'xr-free-roam-right-ray',
+        raySource: rightRaySource,
+        blockers: [touchPanel],
+        color: 0x78ffe7,
+        opacity: 0.82,
+        length: 2000000,
+        renderOrder: 60,
+      }),
       createSkykitXrStarPickingPlugin({
         renderer: starField,
         source,
@@ -297,10 +341,15 @@ async function main() {
 
   async function createConstellationArtPlugin() {
     const catalog = await createAnchoredImageCatalog({ manifestUrl: WESTERN_SKYCULTURE_MANIFEST_URL });
+    debug.recordDiagnostic({
+      level: 'info',
+      type: 'xr-free-roam/constellation-art-catalog',
+      message: `Constellation art catalog loaded with ${catalog.list().length} entries.`,
+    });
     artController = createViewAnchoredImageController({
-      strategy: 'nearest',
-      maxAngleDeg: 32,
-      hysteresisSeconds: 0.25,
+      strategy: 'within-angle',
+      maxAngleDeg: 34,
+      hysteresisSeconds: 0,
     });
     return createAnchoredImageSkyPlugin({
       id: 'xr-constellation-art',
@@ -312,43 +361,63 @@ async function main() {
       opacity: 0.38,
       fadeInSeconds: 0.25,
       fadeOutSeconds: 0.25,
-      scaleBandId: 'constellation-art',
-      skipTextureErrors: true,
+      skipTextureErrors: false,
+      onTextureError(event) {
+        debug.recordDiagnostic({
+          level: 'warn',
+          type: 'xr-free-roam/constellation-art-texture-error',
+          message: `Constellation art texture failed for ${event.entry.label}.`,
+          data: {
+            key: event.entry.key,
+            imageUrl: event.imageUrl,
+          },
+          error: event.error,
+        });
+      },
     });
   }
 
   function createPanelRoot() {
     if (cachedPanelRoot && cachedPanelRevision === panelRevision) return cachedPanelRoot;
     cachedPanelRevision = panelRevision;
-    cachedPanelRoot = createColumn('xr-free-roam-panel', {
-      gap: 8,
-      padding: 10,
+    cachedPanelRoot = createSurfaceShell('xr-free-roam-panel', {
+      pointerOpaque: true,
+      gap: 6,
+      padding: 6,
+      bodyGap: 5,
+      bodyPadding: 0,
+      scrollId: 'xr-free-roam-panel-scroll',
       backgroundColor: 'rgba(4, 12, 23, 0.82)',
-      children: [
-        createChoiceGroup('xr-panel-page', {
-          field: 'xrPage',
-          selectionMode: 'single',
-          value: panelState.page,
-          orientation: 'horizontal',
-          options: PAGE_OPTIONS,
-        }),
-        ...createPanelPageChildren(),
-      ],
+      header: createChoiceGroup('xr-panel-page', {
+        field: 'xrPage',
+        selectionMode: 'single',
+        value: panelState.page,
+        orientation: 'horizontal',
+        columns: 2,
+        options: PAGE_OPTIONS,
+      }),
+      children: createPanelPageChildren(),
     });
     return cachedPanelRoot;
   }
 
   function createPanelPageChildren() {
     if (panelState.page === 'waypoints') {
-      return WAYPOINTS.map((waypoint) => createButton(`xr-waypoint-${waypoint.id}`, {
-        label: waypoint.label,
-        actionId: `${XR_DEMO_ACTIONS.waypointPrefix}${waypoint.id}`,
-      }));
+      return [
+        ...WAYPOINTS.map((waypoint) => createButton(`xr-waypoint-${waypoint.id}`, {
+          label: waypoint.label,
+          actionId: `${XR_DEMO_ACTIONS.waypointPrefix}${waypoint.id}`,
+        })),
+        createButton('xr-waypoints-home', {
+          label: 'Home',
+          actionId: XR_DEMO_ACTIONS.pages.home,
+        }),
+      ];
     }
     if (panelState.page === 'rendering') {
       return [
         createSlider('xr-mag-limit', {
-          label: 'Magnitude',
+          label: 'Mag',
           field: 'limitingMagnitude',
           value: panelState.limitingMagnitude,
           min: 4,
@@ -366,7 +435,7 @@ async function main() {
           valueText: `${Math.round(10 ** panelState.exposureLog10).toLocaleString()}`,
         }),
         createSlider('xr-world-scale', {
-          label: 'World scale',
+          label: 'Scale',
           field: 'worldScaleLog10',
           value: panelState.worldScaleLog10,
           min: -3,
@@ -380,7 +449,7 @@ async function main() {
           value: panelState.nearFloor,
         }),
         createToggle('xr-constellation-art', {
-          label: 'Constellation art',
+          label: 'Constellations',
           field: 'constellationArt',
           value: panelState.constellationArt,
         }),
@@ -388,33 +457,31 @@ async function main() {
     }
     if (panelState.page === 'selected') {
       return [
-        createValueReadout('xr-selected-name', {
-          label: 'Target',
-          value: panelState.selected?.label ?? 'None',
-        }),
-        createButton('xr-go-selected', {
-          label: 'Go to selected',
-          actionId: XR_DEMO_ACTIONS.goSelected,
-          disabled: !panelState.selected,
+        createSelectedTargetCard('xr-selected-card'),
+        createButton('xr-selected-home', {
+          label: 'Home',
+          actionId: XR_DEMO_ACTIONS.pages.home,
         }),
       ];
     }
     return [
-      createValueReadout('xr-home-target', {
-        label: 'Target',
-        value: panelState.selected?.label ?? 'None',
-      }),
+      panelState.selected
+        ? createSelectedTargetCard('xr-home-selected-card', { compact: true })
+        : createValueReadout('xr-home-target', {
+          label: 'Target',
+          value: 'None',
+        }),
       createButton('xr-home-waypoints', {
-        label: 'Waypoints',
+        label: 'Routes',
         actionId: XR_DEMO_ACTIONS.pages.waypoints,
       }),
       createButton('xr-home-selected', {
-        label: 'Selected Target',
+        label: 'Target',
         actionId: XR_DEMO_ACTIONS.pages.selected,
         disabled: !panelState.selected,
       }),
       createButton('xr-home-rendering', {
-        label: 'Rendering',
+        label: 'Render',
         actionId: XR_DEMO_ACTIONS.pages.rendering,
       }),
       createTextLabel('xr-home-mode', {
@@ -422,6 +489,30 @@ async function main() {
         tone: 'muted',
       }),
     ];
+  }
+
+  function createSelectedTargetCard(id, options = {}) {
+    const selected = panelState.selected;
+    if (!selected) {
+      return createActionCard(id, {
+        title: 'Selected',
+        emptyStateText: 'No star selected',
+      });
+    }
+    return createActionCard(id, {
+      title: options.compact ? 'Selected' : selected.label,
+      lines: options.compact
+        ? [selected.label]
+        : [
+          `x ${formatCoordinate(selected.targetPc.x)} pc`,
+          `y ${formatCoordinate(selected.targetPc.y)} pc`,
+          `z ${formatCoordinate(selected.targetPc.z)} pc`,
+        ],
+      primaryActionId: XR_DEMO_ACTIONS.goSelected,
+      primaryActionLabel: 'Go',
+      dismissible: true,
+      dismissActionId: XR_DEMO_ACTIONS.clearSelected,
+    });
   }
 
   function handlePanelOutput(output) {
@@ -496,6 +587,11 @@ async function main() {
         goToTarget(activeViewer, panelState.selected.targetPc, 0.65);
       }
     }, { label: 'Go to selected star' });
+    activeViewer.actions.registerAction(XR_DEMO_ACTIONS.clearSelected, () => {
+      panelState.selected = null;
+      selectedTarget.clear();
+      invalidatePanel();
+    }, { label: 'Clear selected star' });
     for (const waypoint of WAYPOINTS) {
       activeViewer.actions.registerAction(`${XR_DEMO_ACTIONS.waypointPrefix}${waypoint.id}`, () => {
         goToTarget(activeViewer, waypoint.targetPc, waypoint.approachPc);
@@ -526,9 +622,13 @@ async function main() {
   function updateXrDepthRange(handle) {
     if (!handle) return;
     const worldScale = 10 ** panelState.worldScaleLog10;
+    const view = viewer.getViewState();
+    const visibleBounds = starField.getVisibleBounds({ units: 'parsec' });
     const range = computeSkykitXrDepthRange({
+      observer: view.observerPc,
+      visibleBounds,
       observerCentricSpheres: [
-        { radiusNavigationUnits: Math.max(500, XR_CONSTELLATION_RADIUS_PC * 2) },
+        { radiusNavigationUnits: XR_CONSTELLATION_RADIUS_PC * 2 },
       ],
       scale: {
         navigationUnits: 'pc',
@@ -557,6 +657,21 @@ async function main() {
   }
 
   touchPointerSource.getLatestPanelFrame = getLatestPanelFrame;
+}
+
+function createXrFreeRoamFrameSyncPlugin(options) {
+  return {
+    id: 'xr-free-roam-frame-sync',
+    setup(context) {
+      context.addPart({
+        id: 'xr-free-roam-frame-sync',
+        priority: 80,
+        update(frame) {
+          options.update?.(frame);
+        },
+      });
+    },
+  };
 }
 
 function createPreflightController(options) {
@@ -696,6 +811,12 @@ function formatWorldScale(value) {
   return `${value.toLocaleString('en-US', { maximumSignificantDigits: 3 })} m/pc`;
 }
 
+function formatCoordinate(value) {
+  return Number(value).toLocaleString('en-US', {
+    maximumFractionDigits: Math.abs(value) >= 100 ? 1 : 3,
+  });
+}
+
 function createRightHandTouchPointerSource(raySource) {
   const controls = createSkykitXrControlBindings({
     buttons: {
@@ -824,20 +945,12 @@ function createSelectedStarTarget() {
   const context = canvas.getContext('2d');
   const center = canvas.width / 2;
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.strokeStyle = 'rgba(255, 218, 136, 0.98)';
-  context.lineWidth = 5;
+  context.strokeStyle = 'rgba(84, 255, 172, 0.96)';
+  context.lineWidth = 7;
+  context.shadowColor = 'rgba(84, 255, 172, 0.48)';
+  context.shadowBlur = 10;
   context.beginPath();
-  context.arc(center, center, 34, 0, Math.PI * 2);
-  context.stroke();
-  context.beginPath();
-  context.moveTo(center - 52, center);
-  context.lineTo(center - 22, center);
-  context.moveTo(center + 22, center);
-  context.lineTo(center + 52, center);
-  context.moveTo(center, center - 52);
-  context.lineTo(center, center - 22);
-  context.moveTo(center, center + 22);
-  context.lineTo(center, center + 52);
+  context.arc(center, center, 42, 0, Math.PI * 2);
   context.stroke();
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -846,19 +959,32 @@ function createSelectedStarTarget() {
     transparent: true,
     depthTest: false,
     depthWrite: false,
-    sizeAttenuation: false,
+    sizeAttenuation: true,
   });
   const object3d = new THREE.Sprite(material);
   object3d.name = 'xr-selected-star-target';
   object3d.visible = false;
   object3d.renderOrder = 10_000;
-  object3d.scale.set(0.085, 0.085, 1);
+  object3d.scale.set(1, 1, 1);
+  const worldPosition = new THREE.Vector3();
+  const cameraPosition = new THREE.Vector3();
 
   return {
     object3d,
     setPosition(position) {
       object3d.position.set(position.x, position.y, position.z);
       object3d.visible = true;
+    },
+    clear() {
+      object3d.visible = false;
+    },
+    update(camera) {
+      if (!object3d.visible) return;
+      object3d.getWorldPosition(worldPosition);
+      camera.getWorldPosition(cameraPosition);
+      const distance = Math.max(worldPosition.distanceTo(cameraPosition), 0.001);
+      const diameter = Math.max(distance * 0.032, 0.035);
+      object3d.scale.set(diameter, diameter, 1);
     },
     dispose() {
       object3d.parent?.remove(object3d);

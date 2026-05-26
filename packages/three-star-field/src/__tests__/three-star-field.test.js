@@ -103,6 +103,35 @@ test('aggregate geometry is deterministic by cellKey', () => {
   assert.equal(geometry.drawRange.count, 2);
 });
 
+test('field exposes visible bounds in render and parsec units', () => {
+  const field = createThreeStarField({
+    coordinateUnitsPerParsec: 2,
+    materialProfile: createMaterialProfile(),
+  });
+  field.setCells([
+    createCell({ keyOrdinal: 1, count: 2, x: 20 }),
+    createCell({ keyOrdinal: 2, count: 1, x: -4 }),
+  ]);
+
+  assert.deepEqual(field.getVisibleBounds({ units: 'render' }), {
+    units: 'render',
+    coordinateUnitsPerParsec: 2,
+    starCount: 3,
+    min: { x: -4, y: 0, z: 0 },
+    max: { x: 21, y: 0, z: 0 },
+  });
+  assert.deepEqual(field.getVisibleBounds({ units: 'parsec' }), {
+    units: 'parsec',
+    coordinateUnitsPerParsec: 2,
+    starCount: 3,
+    min: { x: -2, y: 0, z: 0 },
+    max: { x: 10.5, y: 0, z: 0 },
+  });
+
+  field.clear();
+  assert.equal(field.getVisibleBounds(), null);
+});
+
 test('picking returns cell identity and object metadata', () => {
   const cell = createCell({ keyOrdinal: 3, x: 10, refs: true });
   const result = pickThreeStarFieldData(
