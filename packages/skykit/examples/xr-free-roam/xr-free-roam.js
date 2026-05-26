@@ -50,7 +50,9 @@ const WESTERN_SKYCULTURE_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stell
 const PROXIMA_CENTAURI_PC = { x: -0.47, y: -0.36, z: -1.16 };
 const SIRIUS_PC = { x: -0.49, y: 2.48, z: -0.76 };
 const BETELGEUSE_PC = { x: 4.2, y: 198.3, z: 25.8 };
-const DEFAULT_WORLD_SCALE = 0.001;
+const SOL_PC = { x: 0, y: 0, z: 0 };
+const ORION_CENTER_PC = { x: 62.775, y: 602.667, z: -12.713 };
+const DEFAULT_WORLD_SCALE = 1;
 const DEFAULT_LIMITING_MAGNITUDE = 7.5;
 const DEFAULT_EXPOSURE_LOG10 = 5;
 const DEFAULT_EXPOSURE = 10 ** DEFAULT_EXPOSURE_LOG10;
@@ -101,8 +103,17 @@ async function main() {
   renderer.xr.enabled = true;
 
   const camera = new THREE.PerspectiveCamera(60, 1, 0.02, 2000000);
-  const xrRig = createSkykitXrRig({ scaleBandIds: ['constellation-art'] });
-  xrRig.deckRoot.add(createShipDeckSlab());
+  const initialOrientation = orientationLookingAt(SOL_PC, ORION_CENTER_PC);
+  const xrRig = createSkykitXrRig({
+    navigationPose: {
+      position: SOL_PC,
+      orientation: initialOrientation,
+    },
+    scaleBandIds: ['constellation-art'],
+  });
+  const shipDeck = createShipDeckSlab();
+  shipDeck.visible = false;
+  xrRig.deckRoot.add(shipDeck);
 
   const provider = createStarOctreeProviderService({ url: OCTREE_DEFAULT });
   const source = createSkykitStarSourcePlugin({ provider });
@@ -138,6 +149,7 @@ async function main() {
   let latestPanelFrame = null;
   let activeXrHandle = null;
   let artController = null;
+  let preflightController = null;
 
   const artPlugin = await createConstellationArtPlugin().catch((error) => {
     debug.recordDiagnostic({
@@ -191,9 +203,11 @@ async function main() {
       scaleBandedContentRoots: new Map(Object.entries(xrRig.scaleBandedContentRoots)),
     },
     view: {
+      observerPc: SOL_PC,
+      targetPc: ORION_CENTER_PC,
       limitingMagnitude: DEFAULT_LIMITING_MAGNITUDE,
       coordinateUnitsPerParsec: DEFAULT_WORLD_SCALE,
-      orientationIcrs: { x: 0, y: 0, z: 0, w: 1 },
+      orientationIcrs: initialOrientation,
     },
     plugins: [
       createSkykitXrSessionPlugin({
@@ -201,6 +215,9 @@ async function main() {
         referenceSpaceType: 'local-floor',
         onSessionStarted(handle) {
           activeXrHandle = handle;
+          shipDeck.visible = true;
+          preflightController?.setSessionStatus('XR session active');
+          preflightController?.sync();
           invalidatePanel();
           updateXrDepthRange(handle);
         },
@@ -238,12 +255,26 @@ async function main() {
   });
   viewer.on('xr/session-end', () => {
     activeXrHandle = null;
+    shipDeck.visible = false;
+    preflightController?.setSessionStatus('Session ended');
+    preflightController?.sync();
     invalidatePanel();
   });
 
   registerDemoActions(viewer);
-  wireDomActions(viewer);
   applyRenderState(viewer, starField, source);
+  preflightController = createPreflightController({
+    viewer,
+    panelState,
+    starField,
+    source,
+    applyRenderState,
+    invalidatePanel,
+    setConstellationArtEnabled,
+    isPresenting: () => activeXrHandle?.presenting === true,
+  });
+  preflightController.sync();
+  void preflightController.refreshXrSupport();
   resize();
   window.addEventListener('resize', resize);
   window.addEventListener('beforeunload', () => {
@@ -341,7 +372,7 @@ async function main() {
           min: -3,
           max: 0,
           step: 0.05,
-          valueText: `${(10 ** panelState.worldScaleLog10).toPrecision(2)} u/pc`,
+          valueText: formatWorldScale(10 ** panelState.worldScaleLog10),
         }),
         createToggle('xr-near-floor', {
           label: 'Near floor',
@@ -425,10 +456,14 @@ async function main() {
       return;
     }
     if (output.field === 'constellationArt') {
-      panelState.constellationArt = output.value === true;
-      artController?.setSelection?.(panelState.constellationArt ? undefined : () => false);
+      setConstellationArtEnabled(output.value === true);
       invalidatePanel();
     }
+  }
+
+  function setConstellationArtEnabled(enabled) {
+    panelState.constellationArt = enabled;
+    artController?.setSelection?.(enabled ? undefined : () => false);
   }
 
   function applyRenderState(activeViewer, activeStarField, activeSource) {
@@ -524,13 +559,141 @@ async function main() {
   touchPointerSource.getLatestPanelFrame = getLatestPanelFrame;
 }
 
-function wireDomActions(viewer) {
-  document.querySelector('[data-action="enter-xr"]')?.addEventListener('click', () => {
-    void viewer.actions.invoke(SKYKIT_ACTIONS.xr.enter, null, { source: 'xr-free-roam-dom' });
+function createPreflightController(options) {
+  const shell = document.querySelector('.xr-free-roam-shell');
+  const enterButton = document.querySelector('[data-action="enter-xr"]');
+  const exitButton = document.querySelector('[data-action="exit-xr"]');
+  const supportValue = document.querySelector('[data-xr-supported]');
+  const sessionStatus = document.querySelector('[data-session-status]');
+  const settingInputs = Array.from(document.querySelectorAll('[data-setting]'))
+    .filter((input) => input instanceof HTMLInputElement);
+  let xrSupported = null;
+
+  for (const input of settingInputs) {
+    input.addEventListener('input', () => {
+      readSettingInput(input, options.panelState, options.setConstellationArtEnabled);
+      syncSettingOutputs(options.panelState);
+    });
+    input.addEventListener('change', () => {
+      readSettingInput(input, options.panelState, options.setConstellationArtEnabled);
+      options.applyRenderState(options.viewer, options.starField, options.source);
+      options.invalidatePanel();
+      sync();
+    });
+  }
+
+  enterButton?.addEventListener('click', async () => {
+    setSessionStatus('Opening XR session');
+    sync();
+    const results = await options.viewer.actions.invoke(SKYKIT_ACTIONS.xr.enter, null, {
+      source: 'xr-free-roam-dom',
+    });
+    const rejected = results.find((result) => result.status === 'rejected');
+    if (rejected) {
+      const reason = rejected.reason instanceof Error ? rejected.reason.message : String(rejected.reason);
+      setSessionStatus(reason || 'XR session failed');
+    } else {
+      setSessionStatus('XR session requested');
+    }
+    sync();
   });
-  document.querySelector('[data-action="exit-xr"]')?.addEventListener('click', () => {
-    void viewer.actions.invoke(SKYKIT_ACTIONS.xr.exit, null, { source: 'xr-free-roam-dom' });
+
+  exitButton?.addEventListener('click', async () => {
+    setSessionStatus('Ending XR session');
+    await options.viewer.actions.invoke(SKYKIT_ACTIONS.xr.exit, null, {
+      source: 'xr-free-roam-dom',
+    });
+    sync();
   });
+
+  return {
+    sync,
+    setSessionStatus,
+    refreshXrSupport,
+  };
+
+  function sync() {
+    const presenting = options.isPresenting();
+    shell?.classList.toggle('is-presenting', presenting);
+    if (enterButton instanceof HTMLButtonElement) {
+      enterButton.hidden = presenting;
+      enterButton.disabled = xrSupported === false || presenting;
+    }
+    if (exitButton instanceof HTMLButtonElement) {
+      exitButton.hidden = !presenting;
+      exitButton.disabled = !presenting;
+    }
+    syncSettingInputs(options.panelState, settingInputs);
+    syncSettingOutputs(options.panelState);
+  }
+
+  function setSessionStatus(text) {
+    if (sessionStatus) {
+      sessionStatus.textContent = text;
+    }
+  }
+
+  async function refreshXrSupport() {
+    try {
+      xrSupported = await globalThis.navigator?.xr?.isSessionSupported?.('immersive-vr') ?? false;
+    } catch {
+      xrSupported = false;
+    }
+    if (supportValue) {
+      supportValue.textContent = xrSupported ? 'Available' : 'Unavailable';
+    }
+    sync();
+    return xrSupported;
+  }
+}
+
+function readSettingInput(input, panelState, setConstellationArtEnabled) {
+  const field = input.dataset.setting;
+  if (field === 'limitingMagnitude') {
+    panelState.limitingMagnitude = clampNumber(input.value, 4, 10, panelState.limitingMagnitude);
+  } else if (field === 'exposureLog10') {
+    panelState.exposureLog10 = clampNumber(input.value, 3.5, 5.5, panelState.exposureLog10);
+  } else if (field === 'worldScaleLog10') {
+    panelState.worldScaleLog10 = clampNumber(input.value, -3, 0, panelState.worldScaleLog10);
+  } else if (field === 'nearFloor') {
+    panelState.nearFloor = input.checked;
+  } else if (field === 'constellationArt') {
+    setConstellationArtEnabled(input.checked);
+  }
+}
+
+function syncSettingInputs(panelState, inputs) {
+  for (const input of inputs) {
+    const field = input.dataset.setting;
+    if (field === 'limitingMagnitude') {
+      input.value = String(panelState.limitingMagnitude);
+    } else if (field === 'exposureLog10') {
+      input.value = String(panelState.exposureLog10);
+    } else if (field === 'worldScaleLog10') {
+      input.value = String(panelState.worldScaleLog10);
+    } else if (field === 'nearFloor') {
+      input.checked = panelState.nearFloor;
+    } else if (field === 'constellationArt') {
+      input.checked = panelState.constellationArt;
+    }
+  }
+}
+
+function syncSettingOutputs(panelState) {
+  for (const output of document.querySelectorAll('[data-setting-value]')) {
+    const field = output.dataset.settingValue;
+    if (field === 'limitingMagnitude') {
+      output.textContent = `Mag ${panelState.limitingMagnitude.toFixed(1)}`;
+    } else if (field === 'exposureLog10') {
+      output.textContent = Math.round(10 ** panelState.exposureLog10).toLocaleString();
+    } else if (field === 'worldScaleLog10') {
+      output.textContent = formatWorldScale(10 ** panelState.worldScaleLog10);
+    }
+  }
+}
+
+function formatWorldScale(value) {
+  return `${value.toLocaleString('en-US', { maximumSignificantDigits: 3 })} m/pc`;
 }
 
 function createRightHandTouchPointerSource(raySource) {
