@@ -18,6 +18,7 @@ test('field starts with one stable aggregate render object', () => {
   assert.equal(snapshot.starCount, 0);
   assert.equal(snapshot.renderObjectCount, 1);
   assert.equal(field.object3d.children.length, 1);
+  assert.equal(field.object3d.children[0].visible, false);
 });
 
 test('cell upserts replace by cellKey and keep one aggregate Points object', () => {
@@ -31,6 +32,7 @@ test('cell upserts replace by cellKey and keep one aggregate Points object', () 
   assert.equal(field.getSnapshot().cellCount, 2);
   assert.equal(field.getSnapshot().starCount, 5);
   assert.equal(field.object3d.children[0], points);
+  assert.equal(points.visible, true);
 
   field.apply({ type: 'stars/cells-upsert', providerId: 'provider-a', cells: [cellA2] });
   assert.equal(field.getSnapshot().cellCount, 2);
@@ -40,6 +42,28 @@ test('cell upserts replace by cellKey and keep one aggregate Points object', () 
   field.apply({ type: 'stars/cells-remove', providerId: 'provider-a', cellKeys: [cellB.cellKey] });
   assert.equal(field.getSnapshot().cellCount, 1);
   assert.equal(field.getSnapshot().starCount, 1);
+});
+
+test('field hides aggregate render objects while there are no drawable stars', () => {
+  const field = createThreeStarField({ materialProfile: createMaterialProfile({ halo: true }) });
+  const points = field.object3d.children[0];
+  const halo = field.object3d.children[1];
+  const cell = createCell({ keyOrdinal: 1, count: 2 });
+
+  assert.equal(points.visible, false);
+  assert.equal(halo.visible, false);
+
+  field.apply({ type: 'stars/cells-upsert', providerId: 'provider-a', cells: [cell] });
+  assert.equal(points.visible, true);
+  assert.equal(halo.visible, true);
+
+  field.setView({ halo: false });
+  assert.equal(points.visible, true);
+  assert.equal(halo.visible, false);
+
+  field.clear();
+  assert.equal(points.visible, false);
+  assert.equal(halo.visible, false);
 });
 
 test('current and error deltas update status without deleting visible cells', () => {
@@ -140,14 +164,16 @@ function createCell(options = {}) {
   });
 }
 
-function createMaterialProfile() {
+function createMaterialProfile(options = {}) {
   const material = new THREE.PointsMaterial();
+  const haloMaterial = options.halo ? new THREE.PointsMaterial() : null;
   return {
     material,
-    haloMaterial: null,
+    haloMaterial,
     updateUniforms() {},
     dispose() {
       material.dispose();
+      haloMaterial?.dispose();
     },
   };
 }

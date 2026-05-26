@@ -137,6 +137,10 @@ export function createSkykitXrSessionPlugin(options = {}) {
   let disposed = false;
   /** @type {boolean | null} */
   let supported = null;
+  /** @type {string} */
+  let enterStage = 'idle';
+  /** @type {string | null} */
+  let lastError = null;
 
   const part = {
     id,
@@ -198,15 +202,40 @@ export function createSkykitXrSessionPlugin(options = {}) {
     const activeRenderer = renderer ?? context?.renderer;
     const rendererXr = resolveRendererXr(activeRenderer);
     if (rendererXr) rendererXr.enabled = true;
-    handle = await enterSkykitXrSession({
-      navigator: options.navigator,
-      mode,
-      referenceSpaceType,
-      sessionInit: options.sessionInit,
-      onSessionStarted: options.onSessionStarted,
-    });
-    if (rendererXr && typeof rendererXr.setSession === 'function') {
-      await rendererXr.setSession(handle.session);
+    rendererXr?.setReferenceSpaceType?.(referenceSpaceType);
+    enterStage = 'requesting-session';
+    lastError = null;
+    /** @type {import('../xr.d.ts').SkykitXrSessionHandle | null} */
+    let nextHandle = null;
+    try {
+      nextHandle = await enterSkykitXrSession({
+        navigator: options.navigator,
+        mode,
+        referenceSpaceType,
+        sessionInit: options.sessionInit,
+        requestReferenceSpace: false,
+      });
+      enterStage = 'binding-renderer';
+      if (rendererXr && typeof rendererXr.setSession === 'function') {
+        await rendererXr.setSession(nextHandle.session);
+      }
+      handle = nextHandle;
+      enterStage = 'presenting';
+      options.onSessionStarted?.(handle);
+    } catch (error) {
+      enterStage = 'failed';
+      lastError = error instanceof Error ? error.message : String(error);
+      if (nextHandle) {
+        await exitSkykitXrSession(nextHandle).catch(() => {});
+      }
+      const activeSession = rendererXr?.getSession?.();
+      if (activeSession && typeof /** @type {{ end?: unknown }} */ (activeSession).end === 'function') {
+        const endResult = /** @type {{ end: () => Promise<void> | void }} */ (activeSession).end();
+        if (endResult && typeof /** @type {Promise<void>} */ (endResult).catch === 'function') {
+          await /** @type {Promise<void>} */ (endResult).catch(() => {});
+        }
+      }
+      throw error;
     }
     context?.emit?.({
       type: 'xr/session-start',
@@ -220,14 +249,20 @@ export function createSkykitXrSessionPlugin(options = {}) {
   async function exit() {
     const previous = handle;
     handle = null;
+    enterStage = 'exiting';
     const activeRenderer = renderer ?? context?.renderer;
     const rendererXr = resolveRendererXr(activeRenderer);
-    if (rendererXr && typeof rendererXr.setSession === 'function' && rendererXr.getSession?.()) {
-      await rendererXr.setSession(null);
-    }
     if (previous) {
       await exitSkykitXrSession(previous);
+    } else {
+      const activeSession = rendererXr?.getSession?.();
+      if (activeSession && typeof /** @type {{ end?: unknown }} */ (activeSession).end === 'function') {
+        await /** @type {{ end: () => Promise<void> | void }} */ (activeSession).end();
+      } else if (rendererXr && typeof rendererXr.setSession === 'function' && rendererXr.getSession?.()) {
+        await rendererXr.setSession(null);
+      }
     }
+    enterStage = 'idle';
     context?.emit?.({
       type: 'xr/session-end',
       id,
@@ -246,7 +281,9 @@ export function createSkykitXrSessionPlugin(options = {}) {
       referenceSpaceType,
       supported,
       presenting: isPresenting(),
+      enterStage,
       session: handle?.getSnapshot?.() ?? null,
+      lastError,
       disposed,
     };
   }
@@ -505,7 +542,7 @@ export function createSkykitXrStarPickingPlugin(options) {
  */
 function resolveRendererXr(renderer) {
   return renderer && typeof renderer === 'object'
-    ? /** @type {{ enabled?: boolean; isPresenting?: boolean; getSession?: () => unknown; getReferenceSpace?: () => unknown; setSession?: (session: unknown) => Promise<void> | void }} */ (
+    ? /** @type {{ enabled?: boolean; isPresenting?: boolean; getSession?: () => unknown; getReferenceSpace?: () => unknown; setReferenceSpaceType?: (type: string) => void; setSession?: (session: unknown) => Promise<void> | void }} */ (
         /** @type {{ xr?: unknown }} */ (renderer).xr
       )
     : null;

@@ -118,7 +118,8 @@ test('skykit/xr session helpers use injected navigator', async () => {
       async isSessionSupported(mode) {
         return mode === 'immersive-vr';
       },
-      async requestSession() {
+      async requestSession(_mode, init) {
+        this.lastInit = init;
         return session;
       },
     },
@@ -126,6 +127,7 @@ test('skykit/xr session helpers use injected navigator', async () => {
   assert.equal(await isSkykitXrModeSupported('immersive-vr', { navigator }), true);
   const handle = await enterSkykitXrSession({ navigator, mode: 'immersive-vr' });
   assert.equal(handle.presenting, true);
+  assert.deepEqual(navigator.xr.lastInit.optionalFeatures, ['local-floor']);
   await exitSkykitXrSession(handle);
   assert.equal(ended, true);
 });
@@ -147,21 +149,29 @@ test('skykit/xr observer rig bridges viewer state to an XR rig without camera re
 
 test('skykit/xr session plugin registers enter/exit actions and syncs snapshot state', async () => {
   let activeSession = null;
+  let requestedReferenceSpaceCount = 0;
   const session = {
     async requestReferenceSpace(type) {
+      requestedReferenceSpaceCount += 1;
       return { type };
     },
     async end() {
       this.ended = true;
+      activeSession = null;
+      renderer.xr.isPresenting = false;
     },
     addEventListener() {},
   };
+  let rendererReferenceSpaceType = null;
   const renderer = {
     xr: {
       enabled: false,
       isPresenting: false,
       getSession() {
         return activeSession;
+      },
+      setReferenceSpaceType(type) {
+        rendererReferenceSpaceType = type;
       },
       async setSession(nextSession) {
         activeSession = nextSession;
@@ -174,7 +184,8 @@ test('skykit/xr session plugin registers enter/exit actions and syncs snapshot s
       async isSessionSupported() {
         return true;
       },
-      async requestSession() {
+      async requestSession(_mode, init) {
+        this.lastInit = init;
         return session;
       },
     },
@@ -195,8 +206,12 @@ test('skykit/xr session plugin registers enter/exit actions and syncs snapshot s
 
   await actions.invoke('skykit:xr.enter');
   assert.equal(renderer.xr.enabled, true);
+  assert.equal(rendererReferenceSpaceType, 'local-floor');
+  assert.deepEqual(navigator.xr.lastInit.optionalFeatures, ['local-floor']);
+  assert.equal(requestedReferenceSpaceCount, 0);
   assert.equal(activeSession, session);
   assert.equal(plugin.getSnapshot().presenting, true);
+  assert.equal(plugin.getSnapshot().enterStage, 'presenting');
 
   const frame = createXrFrame({ renderer });
   part.update(frame);

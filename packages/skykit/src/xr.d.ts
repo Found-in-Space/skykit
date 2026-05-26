@@ -326,6 +326,7 @@ export interface EnterSkykitXrSessionOptions {
   referenceSpaceType?: string;
   sessionInit?: unknown;
   navigator?: unknown;
+  requestReferenceSpace?: boolean;
   onSessionStarted?: (handle: SkykitXrSessionHandle) => void;
 }
 

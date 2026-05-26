@@ -26,20 +26,35 @@ export async function enterSkykitXrSession(options = {}) {
   if (!xr || typeof xr.requestSession !== 'function') {
     throw new Error('WebXR is not available.');
   }
-  const session = /** @type {{ requestReferenceSpace?: (type: string) => Promise<unknown> }} */ (
-    await xr.requestSession(mode, options.sessionInit)
-  );
-  const referenceSpace = typeof session.requestReferenceSpace === 'function'
-    ? await session.requestReferenceSpace(referenceSpaceType)
-    : null;
-  const handle = createSessionHandle({
-    mode,
-    referenceSpaceType,
-    session,
-    referenceSpace,
-  });
-  options.onSessionStarted?.(handle);
-  return handle;
+  /** @type {{ requestReferenceSpace?: (type: string) => Promise<unknown>; end?: () => Promise<void> | void } | null} */
+  let session = null;
+  try {
+    session = /** @type {{ requestReferenceSpace?: (type: string) => Promise<unknown>; end?: () => Promise<void> | void }} */ (
+      await xr.requestSession(mode, createSessionInit(options.sessionInit, referenceSpaceType))
+    );
+    const referenceSpace = options.requestReferenceSpace === false
+      ? null
+      : typeof session.requestReferenceSpace === 'function'
+        ? await session.requestReferenceSpace(referenceSpaceType)
+        : null;
+    const handle = createSessionHandle({
+      mode,
+      referenceSpaceType,
+      session,
+      referenceSpace,
+    });
+    options.onSessionStarted?.(handle);
+    return handle;
+  } catch (error) {
+    if (session && typeof session.end === 'function') {
+      try {
+        await session.end();
+      } catch {
+        // Preserve the original session-enter error.
+      }
+    }
+    throw error;
+  }
 }
 
 /**
@@ -105,4 +120,35 @@ function createSessionHandle(options) {
 function resolveSkykitXr(navigatorLike) {
   const nav = navigatorLike ?? globalThis.navigator;
   return /** @type {{ xr?: { isSessionSupported?: (mode: string) => Promise<boolean>; requestSession?: (mode: string, init?: unknown) => Promise<unknown> } }} */ (nav)?.xr ?? null;
+}
+
+/**
+ * @param {unknown} sessionInit
+ * @param {string} referenceSpaceType
+ */
+function createSessionInit(sessionInit, referenceSpaceType) {
+  const base = sessionInit && typeof sessionInit === 'object'
+    ? /** @type {Record<string, unknown>} */ (sessionInit)
+    : {};
+  const requiredFeatures = normalizeFeatureList(base.requiredFeatures);
+  const optionalFeatures = normalizeFeatureList(base.optionalFeatures);
+  if (
+    referenceSpaceType &&
+    !requiredFeatures.includes(referenceSpaceType) &&
+    !optionalFeatures.includes(referenceSpaceType)
+  ) {
+    optionalFeatures.push(referenceSpaceType);
+  }
+  return {
+    ...base,
+    ...(requiredFeatures.length > 0 ? { requiredFeatures } : {}),
+    ...(optionalFeatures.length > 0 ? { optionalFeatures } : {}),
+  };
+}
+
+/** @param {unknown} value */
+function normalizeFeatureList(value) {
+  return Array.isArray(value)
+    ? Array.from(new Set(value.filter((entry) => typeof entry === 'string' && entry.trim())))
+    : [];
 }
