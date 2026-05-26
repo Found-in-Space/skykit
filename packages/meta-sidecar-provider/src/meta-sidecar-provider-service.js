@@ -25,6 +25,17 @@ export const ERR_META_SIDECAR_INVALID_ARTIFACT =
 export const ERR_META_SIDECAR_INVALID_KIND =
   'ERR_META_SIDECAR_INVALID_KIND';
 
+/**
+ * @typedef {{
+ *   properName: string;
+ *   bayer: string;
+ *   hd: string;
+ *   hip: string;
+ *   gaia: string;
+ *   primaryLabel: string;
+ * }} MetaSidecarDisplayFields
+ */
+
 const HEADER_SIZE = 64;
 const DESCRIPTOR_SIZE = 128;
 const HEADER_BLOCK_BYTES = HEADER_SIZE + DESCRIPTOR_SIZE;
@@ -536,6 +547,81 @@ export function createMetaSidecarProviderService(options) {
       throw new Error(`Meta sidecar provider "${providerId}" is disposed.`);
     }
   }
+}
+
+/**
+ * Normalized catalog strings for UI (empty string when absent).
+ *
+ * @param {MetaSidecarEntry | null | undefined} entry
+ * @returns {MetaSidecarDisplayFields}
+ */
+export function metaSidecarEntryDisplayFields(entry) {
+  const fields = {
+    properName: '',
+    bayer: '',
+    hd: '',
+    hip: '',
+    gaia: '',
+    primaryLabel: '',
+  };
+  if (!entry || typeof entry !== 'object') {
+    return fields;
+  }
+
+  const source = normalizeMetaString(entry.source).toLowerCase();
+  const sourceId = normalizeMetaString(entry.source_id);
+  fields.properName = normalizeMetaString(entry.proper_name);
+  fields.bayer = formatBayerDesignation(entry);
+  fields.hd = normalizeMetaString(entry.hd);
+  fields.hip = normalizeMetaString(entry.hip_id)
+    || (source === 'hip' && sourceId ? sourceId : '');
+  fields.gaia = normalizeMetaString(entry.gaia_source_id)
+    || (source === 'gaia' && sourceId ? sourceId : '');
+  fields.primaryLabel = primaryLabelFromDisplayFields(fields, entry);
+  return fields;
+}
+
+/** @param {unknown} value */
+function normalizeMetaString(value) {
+  if (value == null) return '';
+  return String(value).trim();
+}
+
+/** @param {MetaSidecarEntry} entry */
+function formatBayerDesignation(entry) {
+  const bayer = normalizeMetaString(entry.bayer);
+  if (!bayer) return '';
+  const constellation = normalizeMetaString(entry.constellation);
+  if (!constellation || bayerAlreadyEndsWithConstellation(bayer, constellation)) {
+    return bayer;
+  }
+  return `${bayer} ${constellation}`;
+}
+
+/**
+ * @param {string} bayer
+ * @param {string} constellation
+ */
+function bayerAlreadyEndsWithConstellation(bayer, constellation) {
+  const normalizedBayer = bayer.toLowerCase();
+  const normalizedConstellation = constellation.toLowerCase();
+  return normalizedBayer === normalizedConstellation
+    || normalizedBayer.endsWith(` ${normalizedConstellation}`);
+}
+
+/**
+ * @param {Omit<MetaSidecarDisplayFields, 'primaryLabel'>} fields
+ * @param {MetaSidecarEntry} entry
+ */
+function primaryLabelFromDisplayFields(fields, entry) {
+  if (fields.properName) return fields.properName;
+  if (fields.bayer) return fields.bayer;
+  if (fields.hd) return `HD ${fields.hd}`;
+  if (fields.hip) return `HIP ${fields.hip}`;
+  if (fields.gaia) return `Gaia ${fields.gaia}`;
+  const source = normalizeMetaString(entry.source);
+  const sourceId = normalizeMetaString(entry.source_id);
+  return source && sourceId ? `${source} ${sourceId}` : '';
 }
 
 /**

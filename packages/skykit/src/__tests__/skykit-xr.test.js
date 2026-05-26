@@ -29,8 +29,20 @@ test('xr free-roam demo uses restored alpha XR regressions defaults', () => {
   assert.doesNotMatch(source, /createVrThreeStarFieldMaterialProfile/);
   assert.match(source, /createSkykitXrRayVisualPlugin/);
   assert.match(source, /createSurfaceShell/);
-  assert.match(source, /columns:\s*2/);
-  assert.match(source, /createActionCard/);
+  assert.match(source, /createMetaSidecarProviderService/);
+  assert.match(source, /deriveMetaSidecarUrlFromRenderUrl/);
+  assert.match(source, /metaSidecarEntryDisplayFields/);
+  assert.match(source, /datasetId:\s*DATASET_ID_c56103/);
+  assert.match(source, /attributes:\s*\[\s*'objectRef'\s*,\s*'pickMeta'\s*\]/);
+  assert.match(source, /selectSun:\s*'xr-demo:selected\.sun'/);
+  assert.match(source, /primaryActionId:\s*XR_DEMO_ACTIONS\.goSelected/);
+  assert.match(source, /primaryActionLabel:\s*'Fly to'/);
+  assert.doesNotMatch(source, /createChoiceGroup/);
+  assert.doesNotMatch(source, /createSlider/);
+  assert.doesNotMatch(source, /createToggle/);
+  assert.doesNotMatch(source, /createStack/);
+  assert.doesNotMatch(source, /waypointPrefix/);
+  assert.doesNotMatch(source, /panelState\.page/);
 });
 
 test('skykit/xr rig builds multi-root hierarchy', () => {

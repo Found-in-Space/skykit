@@ -6,4 +6,5 @@ export {
   META_SIDECAR_c56103,
   createMetaSidecarProviderService,
   deriveMetaSidecarUrlFromRenderUrl,
+  metaSidecarEntryDisplayFields,
 } from './meta-sidecar-provider-service.js';

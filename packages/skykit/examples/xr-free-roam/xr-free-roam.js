@@ -31,12 +31,7 @@ import {
 import {
   createActionCard,
   createButton,
-  createChoiceGroup,
-  createSlider,
   createSurfaceShell,
-  createTextLabel,
-  createToggle,
-  createValueReadout,
 } from '@found-in-space/touch-os';
 import { createXrRayPointerSource } from '@found-in-space/touch-os/hosts/three';
 import {
@@ -44,14 +39,17 @@ import {
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
 import {
+  createMetaSidecarProviderService,
+  deriveMetaSidecarUrlFromRenderUrl,
+  metaSidecarEntryDisplayFields,
+} from '@found-in-space/meta-sidecar-provider';
+import {
   createThreeStarField,
   createDefaultThreeStarFieldMaterialProfile,
 } from '@found-in-space/three-star-field';
 
 const WESTERN_SKYCULTURE_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stellarium-skycultures-western@0.1.0/dist/manifest.json';
-const PROXIMA_CENTAURI_PC = { x: -0.47, y: -0.36, z: -1.16 };
-const SIRIUS_PC = { x: -0.49, y: 2.48, z: -0.76 };
-const BETELGEUSE_PC = { x: 4.2, y: 198.3, z: 25.8 };
+const DATASET_ID_c56103 = 'c56103e6-ad4c-41f9-be06-048b48ec632b';
 const SOL_PC = { x: 0, y: 0, z: 0 };
 const ORION_CENTER_PC = { x: 62.775, y: 602.667, z: -12.713 };
 const DEFAULT_WORLD_SCALE = 1;
@@ -83,27 +81,8 @@ const XR_PANEL_THEME = Object.freeze({
 });
 const XR_DEMO_ACTIONS = Object.freeze({
   goSelected: 'xr-demo:selected.go',
-  clearSelected: 'xr-demo:selected.clear',
-  pages: Object.freeze({
-    home: 'xr-demo:page.home',
-    waypoints: 'xr-demo:page.waypoints',
-    selected: 'xr-demo:page.selected',
-    rendering: 'xr-demo:page.rendering',
-  }),
-  waypointPrefix: 'xr-demo:waypoint.',
+  selectSun: 'xr-demo:selected.sun',
 });
-const PAGE_OPTIONS = Object.freeze([
-  { value: 'home', label: 'Home' },
-  { value: 'waypoints', label: 'Routes' },
-  { value: 'selected', label: 'Target' },
-  { value: 'rendering', label: 'Render' },
-]);
-const WAYPOINTS = Object.freeze([
-  { id: 'sol', label: 'Sol', targetPc: { x: 0, y: 0, z: 0 }, approachPc: 2 },
-  { id: 'proxima', label: 'Proxima', targetPc: PROXIMA_CENTAURI_PC, approachPc: 1.6 },
-  { id: 'sirius', label: 'Sirius', targetPc: SIRIUS_PC, approachPc: 1.6 },
-  { id: 'betelgeuse', label: 'Betelgeuse', targetPc: BETELGEUSE_PC, approachPc: 8 },
-]);
 
 const debug = createSkykitDebugBridge();
 installSkykitDebugGlobal(debug);
@@ -139,7 +118,14 @@ async function main() {
   shipDeck.visible = false;
   xrRig.deckRoot.add(shipDeck);
 
-  const provider = createStarOctreeProviderService({ url: OCTREE_DEFAULT });
+  const provider = createStarOctreeProviderService({
+    url: OCTREE_DEFAULT,
+    datasetId: DATASET_ID_c56103,
+  });
+  const metaProvider = createMetaSidecarProviderService({
+    url: deriveMetaSidecarUrlFromRenderUrl(OCTREE_DEFAULT),
+    parentDatasetId: DATASET_ID_c56103,
+  });
   const source = createSkykitStarSourcePlugin({ provider });
   const starField = createThreeStarField({
     limitingMagnitude: DEFAULT_LIMITING_MAGNITUDE,
@@ -159,7 +145,6 @@ async function main() {
   );
   const touchPointerSource = createRightHandTouchPointerSource(rightRaySource);
   const panelState = {
-    page: 'home',
     limitingMagnitude: DEFAULT_LIMITING_MAGNITUDE,
     exposureLog10: DEFAULT_EXPOSURE_LOG10,
     worldScaleLog10: Math.log10(DEFAULT_WORLD_SCALE),
@@ -174,6 +159,7 @@ async function main() {
   let activeXrHandle = null;
   let artController = null;
   let preflightController = null;
+  let selectionGeneration = 0;
 
   const artPlugin = await createConstellationArtPlugin().catch((error) => {
     debug.recordDiagnostic({
@@ -209,9 +195,6 @@ async function main() {
       transparent: true,
       depthTest: false,
       renderOrder: 50,
-    },
-    onOutput(output) {
-      handlePanelOutput(output);
     },
   });
 
@@ -279,14 +262,9 @@ async function main() {
         source,
         raySource: rightRaySource,
         blockers: [touchPanel],
+        attributes: ['objectRef', 'pickMeta'],
         onPick(event) {
-          panelState.selected = {
-            label: event.label,
-            position: { ...event.pick.position },
-            targetPc: renderPositionToPc(event.pick.position, viewer.getViewState().coordinateUnitsPerParsec),
-          };
-          selectedTarget.setPosition(event.pick.position);
-          invalidatePanel();
+          selectPickedStar(event);
         },
       }),
     ],
@@ -326,6 +304,7 @@ async function main() {
     selectedTarget.dispose();
     void viewer.dispose();
     void provider.dispose?.();
+    void metaProvider.dispose?.();
   });
   loop.start();
 
@@ -388,173 +367,119 @@ async function main() {
       bodyPadding: 0,
       scrollId: 'xr-free-roam-panel-scroll',
       backgroundColor: 'rgba(4, 12, 23, 0.82)',
-      header: createChoiceGroup('xr-panel-page', {
-        field: 'xrPage',
-        selectionMode: 'single',
-        value: panelState.page,
-        orientation: 'horizontal',
-        columns: 2,
-        options: PAGE_OPTIONS,
+      children: createSelectedTargetReadout(),
+      footer: createButton('xr-selected-sun', {
+        label: 'Sun',
+        actionId: XR_DEMO_ACTIONS.selectSun,
       }),
-      children: createPanelPageChildren(),
     });
     return cachedPanelRoot;
   }
 
-  function createPanelPageChildren() {
-    if (panelState.page === 'waypoints') {
+  function createSelectedTargetReadout() {
+    const selected = panelState.selected;
+    if (!selected) {
       return [
-        ...WAYPOINTS.map((waypoint) => createButton(`xr-waypoint-${waypoint.id}`, {
-          label: waypoint.label,
-          actionId: `${XR_DEMO_ACTIONS.waypointPrefix}${waypoint.id}`,
-        })),
-        createButton('xr-waypoints-home', {
-          label: 'Home',
-          actionId: XR_DEMO_ACTIONS.pages.home,
-        }),
-      ];
-    }
-    if (panelState.page === 'rendering') {
-      return [
-        createSlider('xr-mag-limit', {
-          label: 'Mag',
-          field: 'limitingMagnitude',
-          value: panelState.limitingMagnitude,
-          min: 4,
-          max: 10,
-          step: 0.1,
-          valueText: panelState.limitingMagnitude.toFixed(1),
-        }),
-        createSlider('xr-exposure', {
-          label: 'Exposure',
-          field: 'exposureLog10',
-          value: panelState.exposureLog10,
-          min: 3.5,
-          max: 5.5,
-          step: 0.05,
-          valueText: `${Math.round(10 ** panelState.exposureLog10).toLocaleString()}`,
-        }),
-        createSlider('xr-world-scale', {
-          label: 'Scale',
-          field: 'worldScaleLog10',
-          value: panelState.worldScaleLog10,
-          min: -3,
-          max: 0,
-          step: 0.05,
-          valueText: formatWorldScale(10 ** panelState.worldScaleLog10),
-        }),
-        createToggle('xr-near-floor', {
-          label: 'Near floor',
-          field: 'nearFloor',
-          value: panelState.nearFloor,
-        }),
-        createToggle('xr-constellation-art', {
-          label: 'Constellations',
-          field: 'constellationArt',
-          value: panelState.constellationArt,
-        }),
-      ];
-    }
-    if (panelState.page === 'selected') {
-      return [
-        createSelectedTargetCard('xr-selected-card'),
-        createButton('xr-selected-home', {
-          label: 'Home',
-          actionId: XR_DEMO_ACTIONS.pages.home,
+        createActionCard('xr-selected-empty', {
+          title: 'Target',
+          emptyStateText: 'Pick a star or select Sun',
         }),
       ];
     }
     return [
-      panelState.selected
-        ? createSelectedTargetCard('xr-home-selected-card', { compact: true })
-        : createValueReadout('xr-home-target', {
-          label: 'Target',
-          value: 'None',
-        }),
-      createButton('xr-home-waypoints', {
-        label: 'Routes',
-        actionId: XR_DEMO_ACTIONS.pages.waypoints,
-      }),
-      createButton('xr-home-selected', {
-        label: 'Target',
-        actionId: XR_DEMO_ACTIONS.pages.selected,
-        disabled: !panelState.selected,
-      }),
-      createButton('xr-home-rendering', {
-        label: 'Render',
-        actionId: XR_DEMO_ACTIONS.pages.rendering,
-      }),
-      createTextLabel('xr-home-mode', {
-        text: activeXrHandle?.presenting ? 'XR active' : 'Desktop',
-        tone: 'muted',
+      createActionCard('xr-selected-details', {
+        title: selected.label || 'Selected star',
+        lines: createSelectedIdentifierLines(selected),
+        primaryActionId: XR_DEMO_ACTIONS.goSelected,
+        primaryActionLabel: 'Fly to',
       }),
     ];
-  }
-
-  function createSelectedTargetCard(id, options = {}) {
-    const selected = panelState.selected;
-    if (!selected) {
-      return createActionCard(id, {
-        title: 'Selected',
-        emptyStateText: 'No star selected',
-      });
-    }
-    return createActionCard(id, {
-      title: options.compact ? 'Selected' : selected.label,
-      lines: options.compact
-        ? [selected.label]
-        : [
-          `x ${formatCoordinate(selected.targetPc.x)} pc`,
-          `y ${formatCoordinate(selected.targetPc.y)} pc`,
-          `z ${formatCoordinate(selected.targetPc.z)} pc`,
-        ],
-      primaryActionId: XR_DEMO_ACTIONS.goSelected,
-      primaryActionLabel: 'Go',
-      dismissible: true,
-      dismissActionId: XR_DEMO_ACTIONS.clearSelected,
-    });
-  }
-
-  function handlePanelOutput(output) {
-    if (!output || output.type !== 'change-request') return;
-    if (output.field === 'xrPage' && typeof output.value === 'string') {
-      panelState.page = output.value;
-      invalidatePanel();
-      return;
-    }
-    if (output.field === 'limitingMagnitude') {
-      panelState.limitingMagnitude = clampNumber(output.value, 4, 10, panelState.limitingMagnitude);
-      applyRenderState(viewer, starField, source);
-      invalidatePanel();
-      return;
-    }
-    if (output.field === 'exposureLog10') {
-      panelState.exposureLog10 = clampNumber(output.value, 3.5, 5.5, panelState.exposureLog10);
-      applyRenderState(viewer, starField, source);
-      invalidatePanel();
-      return;
-    }
-    if (output.field === 'worldScaleLog10') {
-      panelState.worldScaleLog10 = clampNumber(output.value, -3, 0, panelState.worldScaleLog10);
-      applyRenderState(viewer, starField, source);
-      invalidatePanel();
-      return;
-    }
-    if (output.field === 'nearFloor') {
-      panelState.nearFloor = output.value === true;
-      applyRenderState(viewer, starField, source);
-      invalidatePanel();
-      return;
-    }
-    if (output.field === 'constellationArt') {
-      setConstellationArtEnabled(output.value === true);
-      invalidatePanel();
-    }
   }
 
   function setConstellationArtEnabled(enabled) {
     panelState.constellationArt = enabled;
     artController?.setSelection?.(enabled ? undefined : () => false);
+  }
+
+  function selectPickedStar(event) {
+    const targetPc = renderPositionToPc(event.pick.position, viewer.getViewState().coordinateUnitsPerParsec);
+    const generation = selectTarget({
+      label: 'Selected star',
+      position: { ...event.pick.position },
+      targetPc,
+      identifiers: createEmptyIdentifierFields(),
+      identifierStatus: 'loading',
+    }, event.pick.position);
+    void resolveSelectedStarIdentifiers(event.pick, generation);
+  }
+
+  function selectSunTarget() {
+    const generation = selectTarget({
+      label: 'Sun',
+      position: {
+        x: SOL_PC.x * viewer.getViewState().coordinateUnitsPerParsec,
+        y: SOL_PC.y * viewer.getViewState().coordinateUnitsPerParsec,
+        z: SOL_PC.z * viewer.getViewState().coordinateUnitsPerParsec,
+      },
+      targetPc: { ...SOL_PC },
+      identifiers: {
+        ...createEmptyIdentifierFields(),
+        properName: 'Sol',
+        primaryLabel: 'Sun',
+      },
+      identifierStatus: 'synthetic',
+    }, SOL_PC);
+    selectionGeneration = generation;
+  }
+
+  function selectTarget(selection, renderPosition) {
+    selectionGeneration += 1;
+    panelState.selected = selection;
+    selectedTarget.setPosition(renderPosition);
+    invalidatePanel();
+    return selectionGeneration;
+  }
+
+  async function resolveSelectedStarIdentifiers(pick, generation) {
+    const ref = pick.objectRef ?? pick.pickMeta ?? null;
+    if (!ref) {
+      debug.recordDiagnostic({
+        level: 'warn',
+        type: 'xr-free-roam/star-pick-missing-sidecar-ref',
+        message: 'Selected star did not include sidecar lookup metadata.',
+      });
+      updateSelectedIdentifiers(generation, null, 'unavailable');
+      return;
+    }
+
+    try {
+      const entry = await metaProvider.getMeta(ref);
+      updateSelectedIdentifiers(
+        generation,
+        metaSidecarEntryDisplayFields(entry),
+        entry ? 'ready' : 'unavailable',
+      );
+    } catch (error) {
+      debug.recordDiagnostic({
+        level: 'warn',
+        type: 'xr-free-roam/star-sidecar-lookup-error',
+        message: 'Selected star identifiers could not be loaded from the metadata sidecar.',
+        error,
+      });
+      updateSelectedIdentifiers(generation, null, 'error');
+    }
+  }
+
+  function updateSelectedIdentifiers(generation, fields, status) {
+    if (generation !== selectionGeneration || !panelState.selected) return;
+    const identifiers = fields ?? createEmptyIdentifierFields();
+    panelState.selected = {
+      ...panelState.selected,
+      label: identifiers.primaryLabel || 'Selected star',
+      identifiers,
+      identifierStatus: status,
+    };
+    invalidatePanel();
   }
 
   function applyRenderState(activeViewer, activeStarField, activeSource) {
@@ -578,30 +503,14 @@ async function main() {
   }
 
   function registerDemoActions(activeViewer) {
-    activeViewer.actions.registerAction(XR_DEMO_ACTIONS.pages.home, () => setPanelPage('home'), { label: 'Panel home' });
-    activeViewer.actions.registerAction(XR_DEMO_ACTIONS.pages.waypoints, () => setPanelPage('waypoints'), { label: 'Panel waypoints' });
-    activeViewer.actions.registerAction(XR_DEMO_ACTIONS.pages.selected, () => setPanelPage('selected'), { label: 'Panel selected target' });
-    activeViewer.actions.registerAction(XR_DEMO_ACTIONS.pages.rendering, () => setPanelPage('rendering'), { label: 'Panel rendering' });
     activeViewer.actions.registerAction(XR_DEMO_ACTIONS.goSelected, () => {
       if (panelState.selected) {
         goToTarget(activeViewer, panelState.selected.targetPc, 0.65);
       }
     }, { label: 'Go to selected star' });
-    activeViewer.actions.registerAction(XR_DEMO_ACTIONS.clearSelected, () => {
-      panelState.selected = null;
-      selectedTarget.clear();
-      invalidatePanel();
-    }, { label: 'Clear selected star' });
-    for (const waypoint of WAYPOINTS) {
-      activeViewer.actions.registerAction(`${XR_DEMO_ACTIONS.waypointPrefix}${waypoint.id}`, () => {
-        goToTarget(activeViewer, waypoint.targetPc, waypoint.approachPc);
-      }, { label: waypoint.label });
-    }
-  }
-
-  function setPanelPage(page) {
-    panelState.page = page;
-    invalidatePanel();
+    activeViewer.actions.registerAction(XR_DEMO_ACTIONS.selectSun, () => {
+      selectSunTarget();
+    }, { label: 'Select Sun' });
   }
 
   function goToTarget(activeViewer, targetPc, approachPc) {
@@ -811,10 +720,34 @@ function formatWorldScale(value) {
   return `${value.toLocaleString('en-US', { maximumSignificantDigits: 3 })} m/pc`;
 }
 
-function formatCoordinate(value) {
-  return Number(value).toLocaleString('en-US', {
-    maximumFractionDigits: Math.abs(value) >= 100 ? 1 : 3,
-  });
+function createEmptyIdentifierFields() {
+  return {
+    properName: '',
+    bayer: '',
+    hd: '',
+    hip: '',
+    gaia: '',
+    primaryLabel: '',
+  };
+}
+
+function createSelectedIdentifierLines(selected) {
+  const fields = selected.identifiers ?? createEmptyIdentifierFields();
+  const lines = [
+    `Proper: ${fields.properName || '-'}`,
+    `Bayer: ${fields.bayer || '-'}`,
+    `HD: ${fields.hd || '-'}`,
+    `HIP: ${fields.hip || '-'}`,
+    `Gaia: ${fields.gaia || '-'}`,
+  ];
+  if (selected.identifierStatus === 'loading') {
+    lines.push('Loading identifiers...');
+  } else if (selected.identifierStatus === 'error') {
+    lines.push('Identifiers unavailable');
+  } else if (selected.identifierStatus === 'unavailable') {
+    lines.push('No catalog identifiers');
+  }
+  return lines;
 }
 
 function createRightHandTouchPointerSource(raySource) {

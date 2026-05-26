@@ -14,6 +14,15 @@ export interface MetaSidecarCellRef extends StarCellRef {
 
 export type MetaSidecarEntry = Record<string, unknown>;
 
+export interface MetaSidecarDisplayFields {
+  properName: string;
+  bayer: string;
+  hd: string;
+  hip: string;
+  gaia: string;
+  primaryLabel: string;
+}
+
 export interface MetaSidecarProviderServiceOptions {
   id?: string;
   url: string;
@@ -83,6 +92,10 @@ export interface MetaSidecarProviderService {
 export declare function deriveMetaSidecarUrlFromRenderUrl(
   renderUrl?: string | null
 ): string;
+
+export declare function metaSidecarEntryDisplayFields(
+  entry?: MetaSidecarEntry | null
+): MetaSidecarDisplayFields;
 
 export declare function createMetaSidecarProviderService(
   options: MetaSidecarProviderServiceOptions
