@@ -32,6 +32,7 @@ export type SkykitBrowserHost = string | {
 export type SkykitBrowserStatusTarget = string | { textContent?: string | null };
 export type SkykitBrowserMouseMode = 'grab' | 'look' | 'strafe' | 'none';
 export type SkykitConstellationArtMode = 'off' | 'lazy' | 'preload';
+export type SkykitPersistentCacheMode = 'on' | 'off';
 
 export interface SkykitBrowserAddonContext {
   id?: string;
@@ -111,6 +112,7 @@ export interface SkykitBrowserOptions {
   provider?: StarOctreeProviderService;
   starField?: ThreeStarField;
   octreeUrl?: string;
+  persistentCache?: SkykitPersistentCacheMode | string;
   strategy?: StarCellStrategy;
   session?: StarOctreeSessionOptions;
   keyboard?: false | SkykitKeyboardNavigationOptions;

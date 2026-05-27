@@ -67,6 +67,7 @@ function readOptions(host) {
     ...(data.skykitSpeed ? { speedPcPerSec: Number(data.skykitSpeed) } : {}),
     ...(data.skykitExposure ? { exposure: Number(data.skykitExposure) } : {}),
     ...(data.skykitMouseMode ? { mouseMode: data.skykitMouseMode } : {}),
+    ...(data.skykitPersistentCache ? { persistentCache: data.skykitPersistentCache } : {}),
     ...(lookAt ? { view: { lookAt } } : {}),
   };
 }

@@ -28,6 +28,13 @@ existing `skykit-browser-ready` DOM event is still emitted for compatibility.
 Multiple viewers are supported. With no argument, `whenReady()` resolves to the
 first started browser. Pass a selector or element when a page has more than one.
 
+The embed enables persistent browser Cache API storage for octree range and
+decoded payload reuse by default. Static pages can opt out per viewer:
+
+```html
+<div data-skykit-browser data-skykit-persistent-cache="off"></div>
+```
+
 ## Browser Add-On Contract
 
 A browser add-on is plain code:

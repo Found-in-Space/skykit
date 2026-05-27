@@ -52,6 +52,7 @@ export async function createSkykitBrowser(input = {}) {
   );
   const provider = options.provider ?? createStarOctreeProviderService({
     url: options.octreeUrl ?? OCTREE_DEFAULT,
+    persistentCache: normalizePersistentCacheMode(options.persistentCache),
   });
   const starField = options.starField ?? createThreeStarField({
     limitingMagnitude,
@@ -315,6 +316,13 @@ function normalizeMouseMode(value) {
   }
   if (mode === 'none' || mode === 'off' || mode === 'false') return 'none';
   return 'grab';
+}
+
+function normalizePersistentCacheMode(value) {
+  const mode = String(value ?? 'on').trim().toLowerCase();
+  return mode === 'off' || mode === 'false' || mode === 'no' || mode === '0' || mode === 'disabled'
+    ? 'off'
+    : 'on';
 }
 
 function createStatusPlugin(target) {

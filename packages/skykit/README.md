@@ -71,6 +71,7 @@ Optional attributes keep small tweaks HTML-only:
   data-skykit-exposure="2600"
   data-skykit-look-at="ra=4.496h, dec=16.948"
   data-skykit-mouse-mode="strafe"
+  data-skykit-persistent-cache="off"
   style="width: 100%; height: 520px; background: #02040b"
 ></div>
 ```
@@ -79,7 +80,9 @@ Optional attributes keep small tweaks HTML-only:
 `ra=4.496h, dec=16.948`, decimal degrees such as `67.447,16.948`, or a
 parsec-space `x,y,z` target for exact generated coordinates. `data-skykit-mouse-mode`
 defaults to `grab`; use `look` or `strafe` for the first-person mouse-look
-direction, or `none` to disable mouse drag controls.
+direction, or `none` to disable mouse drag controls. Persistent browser Cache API
+storage is enabled by default for octree ranges; set
+`data-skykit-persistent-cache="off"` to keep caching session-only.
 
 The host dispatches `skykit-browser-ready` with `{ browser, viewer }` in
 `event.detail` after startup, and `skykit-browser-error` if startup fails. The

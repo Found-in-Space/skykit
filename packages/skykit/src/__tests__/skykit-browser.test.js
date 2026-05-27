@@ -160,6 +160,37 @@ test('createSkykitBrowser can disable mouse drag controls', async () => {
   });
 });
 
+test('createSkykitBrowser enables persistent provider cache by default and can opt out', async () => {
+  await withFakeWindow(async () => {
+    await withFakeCaches(async () => {
+      const cached = await createSkykitBrowser({
+        host: createHost(),
+        status: false,
+        renderer: createRenderer(),
+        starField: createStarField(),
+        autoResize: false,
+        autoDispose: false,
+        autoStart: false,
+      });
+      assert.equal(cached.provider.describe().capabilities.persistentCache, true);
+      await cached.dispose();
+
+      const uncached = await createSkykitBrowser({
+        host: createHost(),
+        status: false,
+        renderer: createRenderer(),
+        starField: createStarField(),
+        persistentCache: 'off',
+        autoResize: false,
+        autoDispose: false,
+        autoStart: false,
+      });
+      assert.equal(uncached.provider.describe().capabilities.persistentCache, false);
+      await uncached.dispose();
+    });
+  });
+});
+
 test('browser.install adds plugins after startup and cleans returned teardowns', async () => {
   await withFakeWindow(async () => {
     const calls = [];
@@ -333,6 +364,65 @@ async function withFakeWindow(callback) {
       Object.defineProperty(globalThis, 'window', {
         configurable: true,
         value: previousWindow,
+      });
+    }
+  }
+}
+
+async function withFakeCaches(callback) {
+  const previousCaches = globalThis.caches;
+  const previousFetch = globalThis.fetch;
+  const cache = {
+    async match() {
+      return null;
+    },
+    async put() {},
+  };
+
+  Object.defineProperty(globalThis, 'caches', {
+    configurable: true,
+    value: {
+      async open() {
+        return cache;
+      },
+    },
+  });
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    value(_url, options = {}) {
+      return new Promise((_resolve, reject) => {
+        if (options.signal?.aborted) {
+          const error = new Error('Range fetch aborted.');
+          error.name = 'AbortError';
+          reject(error);
+          return;
+        }
+        options.signal?.addEventListener?.('abort', () => {
+          const error = new Error('Range fetch aborted.');
+          error.name = 'AbortError';
+          reject(error);
+        }, { once: true });
+      });
+    },
+  });
+
+  try {
+    await callback();
+  } finally {
+    if (previousCaches === undefined) {
+      delete globalThis.caches;
+    } else {
+      Object.defineProperty(globalThis, 'caches', {
+        configurable: true,
+        value: previousCaches,
+      });
+    }
+    if (previousFetch === undefined) {
+      delete globalThis.fetch;
+    } else {
+      Object.defineProperty(globalThis, 'fetch', {
+        configurable: true,
+        value: previousFetch,
       });
     }
   }
