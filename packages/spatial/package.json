@@ -4,6 +4,11 @@
   "description": "Dependency-free coordinates, pose, route, and navigation helpers for Found in Space experiences",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Found-in-Space/skykit",
+    "directory": "packages/spatial"
+  },
   "publishConfig": {
     "access": "public"
   },

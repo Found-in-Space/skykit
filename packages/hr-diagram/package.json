@@ -4,6 +4,11 @@
   "description": "Reusable HR diagram data, canvas, WebGL, and touch-os helpers for Found in Space star cells",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Found-in-Space/skykit",
+    "directory": "packages/hr-diagram"
+  },
   "publishConfig": {
     "access": "public"
   },
