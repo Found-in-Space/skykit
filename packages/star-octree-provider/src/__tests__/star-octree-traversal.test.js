@@ -713,7 +713,7 @@ test('target-frustum motion lookahead decorator adds future-only prefetch demand
           revision: 1,
           observerPc: { x: -125, y: -75, z: -75 },
           limitingMagnitude: 6.5,
-          directionIcrs: { x: 1, y: 0, z: 0 },
+          targetPc: { x: -25, y: -75, z: -75 },
           verticalFovDeg: 120,
           aspectRatio: 1,
         },
@@ -735,7 +735,7 @@ test('target-frustum motion lookahead decorator adds future-only prefetch demand
           revision: 2,
           observerPc: { x: -125, y: -75, z: -75 },
           limitingMagnitude: 6.5,
-          directionIcrs: { x: 1, y: 0, z: 0 },
+          targetPc: { x: -25, y: -75, z: -75 },
           verticalFovDeg: 120,
           aspectRatio: 1,
           motion: {

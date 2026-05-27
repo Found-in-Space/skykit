@@ -1,6 +1,6 @@
 {
   "name": "@found-in-space/spatial",
-  "version": "0.2.0-alpha.0",
+  "version": "0.2.0-dev.20260527.1",
   "description": "Dependency-free coordinates, pose, route, and navigation helpers for Found in Space experiences",
   "license": "MIT",
   "type": "module",

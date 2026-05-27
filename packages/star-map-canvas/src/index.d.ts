@@ -189,7 +189,7 @@ export interface GnomonicProjectionOptions {
   centerRaDeg: number;
   centerDecDeg: number;
   fovDeg: number;
-  rollDeg?: number;
+  positionAngleDeg?: number;
   clip?: boolean;
   id?: string;
 }

@@ -1,6 +1,6 @@
 {
   "name": "@found-in-space/skykit",
-  "version": "0.2.0-alpha.2",
+  "version": "0.2.0-dev.20260527.2",
   "description": "Slim composition and teaching layer for Found in Space packages",
   "license": "MIT",
   "type": "module",
@@ -23,6 +23,14 @@
       "types": "./src/browser.d.ts",
       "default": "./src/browser.js"
     },
+    "./browser-addons": {
+      "types": "./src/browser-addons.d.ts",
+      "default": "./src/browser-addons.js"
+    },
+    "./browser-constellations": {
+      "types": "./src/browser-constellations.d.ts",
+      "default": "./src/browser-constellations.js"
+    },
     "./embed": {
       "types": "./src/embed.d.ts",
       "default": "./src/embed.js"
@@ -34,10 +42,6 @@
     "./data": {
       "types": "./src/data.d.ts",
       "default": "./src/data.js"
-    },
-    "./story": {
-      "types": "./src/story.d.ts",
-      "default": "./src/story.js"
     },
     "./parallax": {
       "types": "./src/parallax.d.ts",
@@ -58,8 +62,7 @@
     "README.md"
   ],
   "sideEffects": [
-    "./src/embed.js",
-    "./src/story.js"
+    "./src/embed.js"
   ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -68,18 +71,17 @@
   "dependencies": {
     "@found-in-space/anchored-image": "0.2.0-alpha.0",
     "@found-in-space/hr-diagram": "0.2.0-alpha.0",
-    "@found-in-space/journey": "0.2.0-alpha.0",
     "@found-in-space/meta-sidecar-provider": "0.2.0-alpha.0",
-    "@found-in-space/spatial": "0.2.0-alpha.0",
+    "@found-in-space/spatial": "0.2.0-dev.20260527.1",
     "@found-in-space/star-octree-provider": "0.2.0-alpha.0",
     "@found-in-space/star-trees": "0.2.0-alpha.0",
     "@found-in-space/three-star-field": "0.2.0-alpha.0"
   },
   "devDependencies": {
-    "@found-in-space/touch-os": "0.2.0-dev.1"
+    "@found-in-space/touch-os": "0.2.0"
   },
   "peerDependencies": {
-    "@found-in-space/touch-os": ">=0.2.0-dev.1 <1",
+    "@found-in-space/touch-os": ">=0.2.0 <1",
     "three": "^0.170.0"
   },
   "peerDependenciesMeta": {

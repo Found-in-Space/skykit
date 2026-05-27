@@ -37,6 +37,9 @@ test('xr free-roam demo uses restored alpha XR regressions defaults', () => {
   assert.match(source, /selectSun:\s*'xr-demo:selected\.sun'/);
   assert.match(source, /primaryActionId:\s*XR_DEMO_ACTIONS\.goSelected/);
   assert.match(source, /primaryActionLabel:\s*'Fly to'/);
+  assert.match(source, /homeControl:\s*'button'/);
+  assert.match(source, /pointerType:\s*'ray'/);
+  assert.doesNotMatch(source, /dragThreshold/);
   assert.doesNotMatch(source, /createChoiceGroup/);
   assert.doesNotMatch(source, /createSlider/);
   assert.doesNotMatch(source, /createToggle/);

@@ -21,7 +21,6 @@ export {
   createKeyboardNavigationPlugin,
   createMouseLookPlugin,
   createObject3dPlugin,
-  createSkykitJourneyPlugin,
   createSkykitNavigationPlugin,
   createSkykitStarPreloadRequestsFromSpatialHints,
   createSkykitStarStrategiesFromSpatialHints,

@@ -8,6 +8,7 @@ import {
   createSkyGrabPlugin,
   createSkykitAnimationLoop,
   createSkykitDebugBridge,
+  createSkykitHrDiagramPlugin,
   createSkykitNavigationPlugin,
   createSkykitStarSourcePlugin,
   createSkykitViewer,
@@ -15,7 +16,11 @@ import {
   createViewAnchoredImageController,
   installSkykitDebugGlobal,
 } from '@found-in-space/skykit';
-import { createTouchOsPanelPlugin } from '@found-in-space/skykit/touch-os';
+import {
+  createSkykitSurfaceApp,
+  createSkykitTabletRoot,
+  createTouchOsPanelPlugin,
+} from '@found-in-space/skykit/touch-os';
 import {
   applySkykitXrDepthRange,
   computeSkykitXrDepthRange,
@@ -32,6 +37,8 @@ import {
   createActionCard,
   createButton,
   createSurfaceShell,
+  defineControlsApp,
+  defineTouchApp,
 } from '@found-in-space/touch-os';
 import { createXrRayPointerSource } from '@found-in-space/touch-os/hosts/three';
 import {
@@ -83,6 +90,12 @@ const XR_DEMO_ACTIONS = Object.freeze({
   goSelected: 'xr-demo:selected.go',
   selectSun: 'xr-demo:selected.sun',
 });
+const XR_TABLET_APP_IDS = Object.freeze({
+  target: 'space.found.skykit.xr-free-roam.target',
+  rendering: 'space.found.skykit.xr-free-roam.rendering',
+  hrDiagram: 'space.found.skykit.xr-free-roam.hr-diagram',
+});
+const HR_SURFACE_SIZE = Object.freeze({ width: 1024, height: 640 });
 
 const debug = createSkykitDebugBridge();
 installSkykitDebugGlobal(debug);
@@ -159,7 +172,27 @@ async function main() {
   let activeXrHandle = null;
   let artController = null;
   let preflightController = null;
+  let touchPanel = null;
   let selectionGeneration = 0;
+  const hrDiagram = createSkykitHrDiagramPlugin({
+    id: 'xr-free-roam-hr-diagram',
+    source,
+    mode: 'frustum',
+    limitingMagnitude: DEFAULT_LIMITING_MAGNITUDE,
+    width: HR_SURFACE_SIZE.width,
+    height: HR_SURFACE_SIZE.height,
+    touchOs: {
+      sourceId: 'xr-free-roam-hr-diagram:surface',
+      componentId: 'xr-free-roam-hr-diagram:node',
+      surfaces: () => touchPanel?.getRuntime()?.getServices().surfaces,
+      width: HR_SURFACE_SIZE.width,
+      height: HR_SURFACE_SIZE.height,
+    },
+  });
+  const tabletApps = createXrTabletApps({
+    hrDiagram,
+    renderTargetReadout: createSelectedTargetReadout,
+  });
 
   const artPlugin = await createConstellationArtPlugin().catch((error) => {
     debug.recordDiagnostic({
@@ -171,7 +204,7 @@ async function main() {
     return null;
   });
 
-  const touchPanel = createTouchOsPanelPlugin({
+  touchPanel = createTouchOsPanelPlugin({
     id: 'xr-free-roam-touch-panel',
     priority: 20,
     driver: 'pose-anchored',
@@ -179,7 +212,6 @@ async function main() {
     surfaceMetrics: XR_PANEL_SURFACE,
     runtimeOptions: {
       theme: XR_PANEL_THEME,
-      dragThreshold: 4,
       longPressDelay: 360,
     },
     pointerSources: [touchPointerSource],
@@ -219,7 +251,7 @@ async function main() {
       targetPc: ORION_CENTER_PC,
       limitingMagnitude: DEFAULT_LIMITING_MAGNITUDE,
       coordinateUnitsPerParsec: DEFAULT_WORLD_SCALE,
-      orientationIcrs: initialOrientation,
+      lookAt: { orientationIcrs: initialOrientation },
     },
     plugins: [
       createSkykitXrSessionPlugin({
@@ -237,6 +269,7 @@ async function main() {
       createSkykitNavigationPlugin(),
       source,
       createStreamingStarsPlugin({ id: 'xr-stars', source, renderer: starField }),
+      hrDiagram,
       ...(artPlugin ? [artPlugin] : []),
       createXrFreeRoamFrameSyncPlugin({
         update() {
@@ -359,25 +392,33 @@ async function main() {
   function createPanelRoot() {
     if (cachedPanelRoot && cachedPanelRevision === panelRevision) return cachedPanelRoot;
     cachedPanelRevision = panelRevision;
-    cachedPanelRoot = createSurfaceShell('xr-free-roam-panel', {
-      pointerOpaque: true,
-      gap: 6,
-      padding: 6,
-      bodyGap: 5,
-      bodyPadding: 0,
-      scrollId: 'xr-free-roam-panel-scroll',
-      backgroundColor: 'rgba(4, 12, 23, 0.82)',
-      children: createSelectedTargetReadout(),
-      footer: createButton('xr-selected-sun', {
-        label: 'Sun',
-        actionId: XR_DEMO_ACTIONS.selectSun,
-      }),
+    cachedPanelRoot = createSkykitTabletRoot({
+      id: 'xr-free-roam-tablet',
+      apps: tabletApps,
+      appStates: {
+        [XR_TABLET_APP_IDS.target]: panelState,
+        [XR_TABLET_APP_IDS.rendering]: panelState,
+        [XR_TABLET_APP_IDS.hrDiagram]: panelState,
+      },
+      homeControl: 'button',
+      taskSwitcher: 'cards',
+      taskCloseControl: 'button',
+      launcherLayout: {
+        tileWidth: 82,
+        tileHeight: 86,
+        gap: 9,
+        bodyPadding: 9,
+        iconMinSize: 36,
+        iconMaxSize: 44,
+        labelGap: 5,
+      },
+      onAppEvent: handleTabletAppEvent,
     });
     return cachedPanelRoot;
   }
 
-  function createSelectedTargetReadout() {
-    const selected = panelState.selected;
+  function createSelectedTargetReadout(state = panelState) {
+    const selected = state.selected;
     if (!selected) {
       return [
         createActionCard('xr-selected-empty', {
@@ -394,6 +435,52 @@ async function main() {
         primaryActionLabel: 'Fly to',
       }),
     ];
+  }
+
+  function handleTabletAppEvent(event) {
+    if (event.type === 'app-change') {
+      if (applyTabletStateChange(event.payload)) {
+        applyRenderState(viewer, starField, source);
+        preflightController?.sync();
+        invalidatePanel();
+      }
+      return;
+    }
+
+    if (event.type !== 'app-action') return;
+    if (event.name === XR_DEMO_ACTIONS.goSelected) {
+      if (panelState.selected) {
+        goToTarget(viewer, panelState.selected.targetPc, 0.65);
+      }
+    } else if (event.name === XR_DEMO_ACTIONS.selectSun) {
+      selectSunTarget();
+    }
+  }
+
+  function applyTabletStateChange(payload) {
+    const field = payload?.field;
+    const value = payload?.value;
+    if (field === 'limitingMagnitude') {
+      panelState.limitingMagnitude = clampNumber(value, 4, 10, panelState.limitingMagnitude);
+      return true;
+    }
+    if (field === 'exposureLog10') {
+      panelState.exposureLog10 = clampNumber(value, 3.5, 5.5, panelState.exposureLog10);
+      return true;
+    }
+    if (field === 'worldScaleLog10') {
+      panelState.worldScaleLog10 = clampNumber(value, -3, 0, panelState.worldScaleLog10);
+      return true;
+    }
+    if (field === 'nearFloor') {
+      panelState.nearFloor = Boolean(value);
+      return true;
+    }
+    if (field === 'constellationArt') {
+      setConstellationArtEnabled(Boolean(value));
+      return true;
+    }
+    return false;
   }
 
   function setConstellationArtEnabled(enabled) {
@@ -520,7 +607,7 @@ async function main() {
       view: {
         observerPc,
         targetPc,
-        orientationIcrs: orientationLookingAt(observerPc, targetPc),
+        lookAt: { orientationIcrs: orientationLookingAt(observerPc, targetPc) },
       },
       durationSecs: 2.4,
       movement: 'smoothstep',
@@ -581,6 +668,124 @@ function createXrFreeRoamFrameSyncPlugin(options) {
       });
     },
   };
+}
+
+function createXrTabletApps(options) {
+  return [
+    createTargetTabletApp(options),
+    createRenderingTabletApp(),
+    createSkykitSurfaceApp({
+      id: XR_TABLET_APP_IDS.hrDiagram,
+      name: 'HR',
+      icon: { kind: 'symbol', value: 'HR' },
+      node: () => options.hrDiagram.getNode(),
+      preferredWindow: {
+        width: 420,
+        height: 526,
+        minWidth: 360,
+        minHeight: 300,
+        resizable: false,
+      },
+      backgroundColor: '#050c16',
+      emptyLabel: 'HR diagram unavailable',
+    }),
+  ];
+}
+
+function createTargetTabletApp(options) {
+  return defineTouchApp({
+    manifest: {
+      id: XR_TABLET_APP_IDS.target,
+      name: 'Target',
+      version: '1.0.0',
+      icon: { kind: 'symbol', value: 'TG' },
+      preferredWindow: {
+        width: 420,
+        height: 526,
+        minWidth: 320,
+        minHeight: 260,
+        resizable: false,
+      },
+    },
+    createApp(ctx) {
+      return {
+        render(state) {
+          return createSurfaceShell('xr-target-app', {
+            pointerOpaque: true,
+            gap: 6,
+            padding: 6,
+            bodyGap: 5,
+            bodyPadding: 0,
+            scrollId: 'xr-target-app-scroll',
+            backgroundColor: 'rgba(4, 12, 23, 0.86)',
+            children: options.renderTargetReadout(state),
+            footer: createButton('xr-selected-sun', {
+              label: 'Sun',
+              actionId: XR_DEMO_ACTIONS.selectSun,
+            }),
+          });
+        },
+        handleOutput(output) {
+          emitTabletAppOutput(ctx, output);
+        },
+      };
+    },
+  });
+}
+
+function createRenderingTabletApp() {
+  return defineControlsApp({
+    id: XR_TABLET_APP_IDS.rendering,
+    name: 'Render',
+    icon: { kind: 'symbol', value: 'RD' },
+    preferredSurface: {
+      width: 420,
+      height: 526,
+      minWidth: 320,
+      minHeight: 280,
+      resizable: false,
+    },
+    controls: ({ section, slider, status, toggle }) => [
+      section('Stars', [
+        slider('Limit', 'limitingMagnitude', {
+          min: 4,
+          max: 10,
+          step: 0.1,
+          valueText: (state) => `Mag ${state.limitingMagnitude.toFixed(1)}`,
+        }),
+        slider('Exposure', 'exposureLog10', {
+          min: 3.5,
+          max: 5.5,
+          step: 0.1,
+          valueText: (state) => Math.round(10 ** state.exposureLog10).toLocaleString(),
+        }),
+        slider('Scale', 'worldScaleLog10', {
+          min: -3,
+          max: 0,
+          step: 0.1,
+          valueText: (state) => formatWorldScale(10 ** state.worldScaleLog10),
+        }),
+      ]),
+      section('Context', [
+        toggle('Nearby glow', 'nearFloor'),
+        toggle('Constellation art', 'constellationArt'),
+        status('Target', (state) => state.selected?.label ?? 'None', { tone: 'muted' }),
+      ]),
+    ],
+  });
+}
+
+function emitTabletAppOutput(ctx, output) {
+  if (output?.type === 'action') {
+    ctx.actions.emit({
+      type: 'app-action',
+      appId: ctx.appId,
+      instanceId: ctx.instanceId,
+      windowId: ctx.windowId,
+      name: output.actionId,
+      ...(output.payload === undefined ? {} : { payload: output.payload }),
+    });
+  }
 }
 
 function createPreflightController(options) {
@@ -774,10 +979,10 @@ function createRightHandTouchPointerSource(raySource) {
 
     const select = controls.getButton('select');
     const phase = select.pressedEdge ? 'down' : select.releasedEdge ? 'up' : 'move';
-    return {
-      pointerId: 'right-trigger',
-      pointerType: 'xr',
-      handedness: 'right',
+      return {
+        pointerId: 'right-trigger',
+        pointerType: 'ray',
+        handedness: 'right',
       phase,
       timestamp: skykitFrame.elapsedSeconds * 1000,
       sourceId: 'right-controller',

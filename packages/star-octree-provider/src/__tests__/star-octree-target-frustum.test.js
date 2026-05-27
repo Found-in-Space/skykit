@@ -15,13 +15,13 @@ test('quaternionToCameraBasis follows SkyKit camera orientation convention', () 
   assert.deepEqual(roundVector(basis.forward), { x: 0, y: 0, z: -1 });
 });
 
-test('target-frustum view validation requires orientation, target, or direction', () => {
+test('target-frustum view validation requires a target or orientation', () => {
   assert.throws(
     () => normalizeTargetFrustumView(
       { verticalFovDeg: 70, aspectRatio: 1 },
       {},
     ),
-    /orientationIcrs, targetPc, or directionIcrs/,
+    /targetPc or orientationIcrs/,
   );
 
   assert.throws(
@@ -57,18 +57,19 @@ test('target-frustum derives a POC-parity target frustum with defaults', () => {
   assert.equal(frustum.intersectsCell(createNode({ centerZ: 10 })), false);
 });
 
-test('target-frustum can derive from directionIcrs without a target distance', () => {
+test('target-frustum can derive from orientation without a target distance', () => {
   const view = normalizeTargetFrustumView(
     {
       observerPc: { x: 0, y: 0, z: 0 },
-      directionIcrs: { x: 1, y: 0, z: 0 },
+      orientationIcrs: { x: 0, y: -0.7071067811865475, z: 0, w: 0.7071067811865476 },
       verticalFovDeg: 60,
+      aspectRatio: 1,
     },
     {},
   );
   const frustum = createFrustumTester(view);
 
-  assert.equal(view.frustumMode, 'direction');
+  assert.equal(view.frustumMode, 'orientation');
   assert.equal(view.farPc, undefined);
   assert.deepEqual(roundVector(frustum.basis.forward), { x: 1, y: 0, z: 0 });
   assert.equal(frustum.intersectsCell(createNode({ centerX: 10 })), true);
@@ -99,7 +100,7 @@ test('frustum tester measures the closest visible witness instead of raw box dis
   const view = normalizeTargetFrustumView(
     {
       observerPc: { x: 0, y: 0, z: 0 },
-      directionIcrs: { x: 0, y: 1, z: 0 },
+      targetPc: { x: 0, y: 100, z: 0 },
       verticalFovDeg: 60,
       aspectRatio: 1,
       nearPc: 0,
@@ -145,8 +146,12 @@ function createNode(overrides = {}) {
 
 function roundVector(vector) {
   return {
-    x: Math.round(vector.x * 1e6) / 1e6,
-    y: Math.round(vector.y * 1e6) / 1e6,
-    z: Math.round(vector.z * 1e6) / 1e6,
+    x: roundNumber(vector.x),
+    y: roundNumber(vector.y),
+    z: roundNumber(vector.z),
   };
+}
+
+function roundNumber(value) {
+  return Math.round(value * 1e6) / 1e6 || 0;
 }

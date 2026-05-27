@@ -28,11 +28,11 @@ The beginner website entries are use-case bounded:
 | --- | --- | --- |
 | Viewer | "Put stars on my page and let me customize the scene." | `embed.js`, `viewer.js` |
 | Data | "Give me star data so I can render, list, map, or game it myself." | `data.js` |
-| Story | "Let me tell a curated story through space." | `story.js` |
 
 `embed.js` is the no-code viewer entry. It is not a separate use-case.
 `viewer.js` is the JavaScript-customizable viewer entry. `data.js` is renderer
-independent. `story.js` is authored chapters plus a viewer.
+independent. Authored chapters stay in website or lesson code and call SkyKit
+navigation actions directly.
 
 ## Paste into a static page or CMS
 
@@ -69,17 +69,71 @@ Optional attributes keep small tweaks HTML-only:
   data-skykit-magnitude="7"
   data-skykit-speed="4"
   data-skykit-exposure="2600"
+  data-skykit-look-at="ra=4.496h, dec=16.948"
+  data-skykit-mouse-mode="strafe"
+  data-skykit-persistent-cache="off"
   style="width: 100%; height: 520px; background: #02040b"
 ></div>
 ```
 
+`data-skykit-look-at` accepts RA/Dec text such as
+`ra=4.496h, dec=16.948`, decimal degrees such as `67.447,16.948`, or a
+parsec-space `x,y,z` target for exact generated coordinates. `data-skykit-mouse-mode`
+defaults to `grab`; use `look` or `strafe` for the first-person mouse-look
+direction, or `none` to disable mouse drag controls. Persistent browser Cache API
+storage is enabled by default for octree ranges; set
+`data-skykit-persistent-cache="off"` to keep caching session-only.
+
 The host dispatches `skykit-browser-ready` with `{ browser, viewer }` in
 `event.detail` after startup, and `skykit-browser-error` if startup fails. The
-embed does not install a global object, so pages can host multiple viewers.
+embed also installs a small `Skykit` global for noob-path scripts:
+
+```js
+const browser = await Skykit.whenReady();
+```
+
+Pages can host multiple viewers. Pass a selector or element to choose one:
+
+```js
+const browser = await Skykit.whenReady('#orion-viewer');
+```
 
 Pin the package CDN URL to a released SkyKit version when publishing long-lived
 pages, for example
 `https://esm.sh/@found-in-space/skykit@x.y.z/embed?bundle&deps=three@0.170.0`.
+
+Optional first-party capabilities stay out of the initial browser until they are
+requested. This keeps the one-script noob path while avoiding bundle bloat.
+
+```html
+<div
+  data-skykit-browser
+  data-skykit-constellations="western"
+  data-skykit-constellation-art="off"
+  style="width:100%;height:520px;background:#02040b"
+></div>
+```
+
+For small scripted interactions, use the browser handle:
+
+```html
+<script type="module">
+  import {
+    SKYKIT_ACTIONS,
+    createSkykitNavigationPlugin,
+  } from 'https://esm.sh/@found-in-space/skykit';
+
+  const browser = await Skykit.whenReady();
+  await browser.install(createSkykitNavigationPlugin());
+
+  document.querySelector('#orion').addEventListener('click', () => {
+    browser.viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+      view: { lookAt: 'ra=5.919h, dec=7.407' },
+      movement: { durationSecs: 3 },
+    });
+  });
+</script>
+```
 
 ## Create a Viewer from JavaScript
 
@@ -145,25 +199,11 @@ const stars = await loadStarRows({
 });
 ```
 
-## Create a Guided Story
+## Author Chapters
 
-Use `story.js` when the page is an authored article or tour:
-
-```html
-<div data-skykit-story style="height:600px;background:#02040b">
-  <section data-skykit-chapter data-title="The Sun" data-target-pc="0,0,0">
-    We start at the Sun.
-  </section>
-  <section data-skykit-chapter data-title="The Hyades" data-target-pc="17.574,42.316,13.963">
-    Now jump to the Hyades cluster.
-  </section>
-</div>
-
-<script
-  type="module"
-  src="https://esm.sh/@found-in-space/skykit@0.2.0-alpha.2/story?bundle&deps=three@0.170.0"
-></script>
-```
+Keep named chapters in the website or lesson script. Each chapter can call
+navigation actions such as `skykit:navigation.transitionTo` and
+`skykit:navigation.orbit` from its own `goTo(id)` dispatcher.
 
 Use the lower-level factories when a lesson is teaching composition or replacing
 a part of the stack:
@@ -278,7 +318,7 @@ names, not renderer or loader factory names:
 SKYKIT_ACTIONS.ship.moveForward; // "skykit:ship.move.forward"
 SKYKIT_CONTROLS.observer.parallaxOffset; // "skykit:observer.control.parallaxOffset"
 SKYKIT_ACTIONS.viewer.reset; // "skykit:viewer.reset"
-SKYKIT_ACTIONS.journey.goToChapter; // "skykit:journey.goToChapter"
+SKYKIT_ACTIONS.navigation.transitionTo; // "skykit:navigation.transitionTo"
 ```
 
 Plugins can add their own namespaces:
@@ -291,13 +331,13 @@ const firePlugin = (ctx) => {
 };
 ```
 
-DOM buttons, touch surfaces, keyboard bindings, XR controls, journeys, and debug
-tools can all call the same action:
+DOM buttons, touch surfaces, keyboard bindings, XR controls, app-owned chapters,
+and debug tools can all call the same action:
 
 ```js
 button.addEventListener('click', () => {
-  viewer.actions.invoke(SKYKIT_ACTIONS.journey.goToChapter, {
-    chapterId: 'hyades-arrival',
+  viewer.actions.invoke('website:chapter.goTo', {
+    id: 'hyades-arrival',
   });
 });
 ```
@@ -332,6 +372,27 @@ const viewer = await createSkykitViewer({
 For a slightly more playful example, see `examples/plugin-lab.js`. It builds
 app-owned Three objects and action-driven annotations from the same public hooks
 a learner would use.
+
+The pasteable browser embed has a smaller add-on convention for noob pages:
+
+```js
+Skykit.registerBrowserAddon({
+  id: 'lesson:marker',
+  install({ browser, THREE }) {
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.02),
+      new THREE.MeshBasicMaterial({ color: 0xffcc00 }),
+    );
+    const handle = browser.addObject(marker, {
+      positionPc: { x: 17.574, y: 42.316, z: 13.963 },
+    });
+    return () => handle.dispose();
+  },
+});
+```
+
+See `docs/skykit-browser-plugins.md` for the browser add-on spec,
+`Skykit.whenReady()`, and first-party constellation support.
 
 Browser lessons:
 

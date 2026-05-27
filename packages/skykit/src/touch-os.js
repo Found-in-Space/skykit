@@ -1,12 +1,19 @@
 import {
+  createAppShell,
   createButton,
   createColumn,
   createDPad,
   createDockLayout,
   createHoldButton,
+  createNode,
+  createRect,
   createRuntime,
+  createTabletHomePresentation,
   createTextLabel,
+  createTouchAppRegistry,
   createValueReadout,
+  defineTouchApp,
+  rectContainsPoint,
 } from '@found-in-space/touch-os';
 import {
   createHudPanelDriver,
@@ -31,6 +38,185 @@ const DEFAULT_PANEL_DRIVER_OPTIONS = Object.freeze({
   pointerClaimPolicy: 'block-on-hit',
   transparent: true,
 });
+const DEFAULT_TABLET_LAUNCHER_LAYOUT = Object.freeze({
+  tileWidth: 84,
+  tileHeight: 88,
+  gap: 10,
+  bodyPadding: 10,
+  iconMinSize: 38,
+  iconMaxSize: 46,
+  iconScale: 0.55,
+  iconTop: 2,
+  labelGap: 5,
+});
+
+const SkykitSurfaceAppFrameComponent = {
+  kind: 'skykit-surface-app-frame',
+  getChildren(ctx) {
+    return ctx.props.child ? [ctx.props.child] : [];
+  },
+  measure(ctx) {
+    const padding = positiveFinite(ctx.props.padding, 0);
+    const width = Math.max(0, ctx.constraints.maxWidth - padding * 2);
+    const height = Math.max(0, ctx.constraints.maxHeight - padding * 2);
+    if (ctx.props.child) {
+      ctx.measureChild(ctx.props.child.id, {
+        minWidth: 0,
+        minHeight: 0,
+        maxWidth: width,
+        maxHeight: height,
+      });
+    }
+    return {
+      width: ctx.constraints.maxWidth,
+      height: ctx.constraints.maxHeight,
+    };
+  },
+  layout(ctx) {
+    const padding = positiveFinite(ctx.props.padding, 0);
+    const content = createRect(
+      ctx.bounds.x + padding,
+      ctx.bounds.y + padding,
+      Math.max(0, ctx.bounds.width - padding * 2),
+      Math.max(0, ctx.bounds.height - padding * 2),
+    );
+    if (ctx.props.child) {
+      ctx.setChildBounds(ctx.props.child.id, content);
+    }
+    ctx.setContentBounds(content);
+  },
+  render(ctx) {
+    const theme = ctx.services.theme.getTokens();
+    return [{
+      type: 'rect',
+      componentId: ctx.id,
+      role: 'skykit-surface-app-frame',
+      rect: ctx.bounds,
+      fill: ctx.props.backgroundColor ?? theme.backgroundColor,
+      strokeWidth: 0,
+      radius: 0,
+    }];
+  },
+  hitTest(ctx) {
+    if (ctx.props.pointerOpaque === false || !rectContainsPoint(ctx.bounds, ctx.point)) {
+      return null;
+    }
+    return {
+      targetId: `${ctx.id}:background`,
+      role: 'surface-app-background',
+    };
+  },
+};
+
+/**
+ * Build a SkyKit-flavored touch-os tablet shell from ordinary touch apps.
+ *
+ * @param {import('./touch-os.d.ts').SkykitTabletRootOptions} [options]
+ * @returns {import('@found-in-space/touch-os').DisplayNode}
+ */
+export function createSkykitTabletRoot(options = {}) {
+  if (!options || typeof options !== 'object') {
+    throw new TypeError('createSkykitTabletRoot requires an options object.');
+  }
+
+  const id = options.id ?? 'skykit-tablet';
+  const registry = options.registry ?? createTouchAppRegistry(options.apps ?? []);
+  const presentation = options.presentation ?? createTabletHomePresentation({
+    homeControl: options.homeControl ?? 'button',
+    taskSwitcher: options.taskSwitcher ?? 'cards',
+    taskCloseControl: options.taskCloseControl ?? 'button',
+    launcherLayout: {
+      ...DEFAULT_TABLET_LAUNCHER_LAYOUT,
+      ...(options.launcherLayout ?? {}),
+    },
+  });
+
+  return createAppShell(id, {
+    registry,
+    presentation,
+    appHostMode: options.appHostMode ?? 'same-runtime',
+    homeKey: options.homeKey ?? true,
+    keepAlive: options.keepAlive ?? true,
+    ...(options.initialSessions === undefined ? {} : { initialSessions: options.initialSessions }),
+    ...(options.appStates === undefined ? {} : { appStates: options.appStates }),
+    ...(options.getAppState === undefined ? {} : { getAppState: options.getAppState }),
+    ...(options.forwardAppOutputs === undefined ? {} : { forwardAppOutputs: options.forwardAppOutputs }),
+    ...(options.storage === undefined ? {} : { storage: options.storage }),
+    ...(options.surfaces === undefined ? {} : { surfaces: options.surfaces }),
+    ...(options.onAppEvent === undefined ? {} : { onAppEvent: options.onAppEvent }),
+    ...(options.onShellChange === undefined ? {} : { onShellChange: options.onShellChange }),
+  });
+}
+
+/**
+ * Wrap a display node as a full-screen tablet app. This is useful for surface
+ * consumers such as HR diagrams, camera mirrors, or other panel-hosted views.
+ *
+ * @template TState
+ * @param {import('./touch-os.d.ts').SkykitSurfaceAppOptions<TState>} options
+ * @returns {import('@found-in-space/touch-os').TouchAppModule<TState>}
+ */
+export function createSkykitSurfaceApp(options) {
+  if (!options || typeof options !== 'object') {
+    throw new TypeError('createSkykitSurfaceApp requires options.');
+  }
+  const id = requiredString(options.id, 'createSkykitSurfaceApp id');
+  const name = requiredString(options.name, 'createSkykitSurfaceApp name');
+  const rootId = options.rootId ?? `${id}:root`;
+
+  return defineTouchApp({
+    manifest: {
+      id,
+      name,
+      version: options.version ?? '1.0.0',
+      icon: options.icon ?? createSymbolIcon(name),
+      capabilities: options.capabilities ?? ['surfaces'],
+      preferredWindow: {
+        width: options.preferredWindow?.width ?? 360,
+        height: options.preferredWindow?.height ?? 300,
+        minWidth: options.preferredWindow?.minWidth ?? 260,
+        minHeight: options.preferredWindow?.minHeight ?? 180,
+        resizable: options.preferredWindow?.resizable ?? false,
+      },
+    },
+    createApp(ctx) {
+      return {
+        render(state) {
+          const child = resolveSurfaceAppNode(options.node, {
+            context: ctx,
+            state,
+          });
+          if (!child) {
+            return createTextLabel(`${rootId}:empty`, {
+              text: options.emptyLabel ?? `${name} unavailable`,
+              tone: 'muted',
+              align: 'center',
+            });
+          }
+          return createSkykitSurfaceAppFrame(rootId, {
+            child,
+            padding: options.padding ?? 0,
+            pointerOpaque: options.pointerOpaque !== false,
+            backgroundColor: options.backgroundColor,
+          });
+        },
+        handleOutput(output) {
+          options.onOutput?.(output, { context: ctx });
+          emitSkykitSurfaceAppOutput(ctx, output);
+        },
+      };
+    },
+  });
+}
+
+/**
+ * @param {string} id
+ * @param {{ child: import('@found-in-space/touch-os').DisplayNode; padding?: number; pointerOpaque?: boolean; backgroundColor?: string }} props
+ * @returns {import('@found-in-space/touch-os').DisplayNode}
+ */
+function createSkykitSurfaceAppFrame(id, props) {
+  return createNode(id, SkykitSurfaceAppFrameComponent, props);
+}
 
 /**
  * Create a SkyKit plugin that mounts a touch-os HUD and routes action outputs
@@ -899,6 +1085,95 @@ function positiveFinite(value, fallback) {
  */
 function finiteNumber(value, fallback) {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} context
+ * @returns {string}
+ */
+function requiredString(value, context) {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new TypeError(`${context} must be a non-empty string.`);
+  }
+  return value;
+}
+
+/**
+ * @param {import('./touch-os.d.ts').SkykitSurfaceAppOptions['node']} node
+ * @param {import('./touch-os.d.ts').SkykitSurfaceAppRenderContext} context
+ * @returns {import('@found-in-space/touch-os').DisplayNode | null}
+ */
+function resolveSurfaceAppNode(node, context) {
+  const resolved = typeof node === 'function' ? node(context) : node;
+  if (resolved == null) return null;
+  if (!resolved || typeof resolved !== 'object' || typeof resolved.id !== 'string') {
+    throw new TypeError('SkyKit surface app nodes must be display nodes.');
+  }
+  return resolved;
+}
+
+/**
+ * @param {import('@found-in-space/touch-os').TouchAppContext} context
+ * @param {unknown} output
+ */
+function emitSkykitSurfaceAppOutput(context, output) {
+  if (isTouchOsActionOutput(output)) {
+    context.actions.emit({
+      type: 'app-action',
+      appId: context.appId,
+      instanceId: context.instanceId,
+      windowId: context.windowId,
+      name: output.actionId,
+      ...(output.payload === undefined ? {} : { payload: output.payload }),
+      componentId: output.componentId,
+    });
+    return;
+  }
+  if (isTouchOsChangeOutput(output)) {
+    context.actions.emit({
+      type: 'app-change',
+      appId: context.appId,
+      instanceId: context.instanceId,
+      windowId: context.windowId,
+      name: `${output.field}.change`,
+      payload: {
+        field: output.field,
+        value: output.value,
+      },
+      componentId: output.componentId,
+    });
+  }
+}
+
+/**
+ * @param {unknown} output
+ * @returns {output is { type: 'change-request'; componentId: string; field: string; value: unknown }}
+ */
+function isTouchOsChangeOutput(output) {
+  return Boolean(output)
+    && typeof output === 'object'
+    && output.type === 'change-request'
+    && typeof output.componentId === 'string'
+    && typeof output.field === 'string';
+}
+
+/**
+ * @param {string} name
+ * @returns {{ kind: 'symbol'; value: string }}
+ */
+function createSymbolIcon(name) {
+  const letters = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+  return {
+    kind: 'symbol',
+    value: letters || 'SK',
+  };
 }
 
 function now() {

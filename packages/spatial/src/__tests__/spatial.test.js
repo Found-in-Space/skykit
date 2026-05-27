@@ -3,6 +3,9 @@ import test from 'node:test';
 
 import {
   IDENTITY_QUATERNION,
+  LOCAL_FORWARD,
+  LOCAL_UP,
+  applyQuaternion,
   buildSpatialPolylineRoute,
   createSpatialOrientationTrack,
   createSpatialPoseTransition,
@@ -22,9 +25,11 @@ import {
   materializeSpatialPathSamples,
   materializeSpatialPreloadHints,
   icrsToRaDec,
+  parseSpatialLookAtText,
   projectEquirectangular,
   raDecDistanceToIcrs,
   raDecToIcrsDirection,
+  resolveSpatialLookAt,
   resolveSpatialTarget,
   sampleSpatialPolylineRoutePosition,
 } from '../index.js';
@@ -46,6 +51,26 @@ test('coordinates convert RA/Dec/distance to ICRS and back', () => {
   });
 });
 
+test('parseSpatialLookAtText accepts RA/Dec text, vectors, and JSON look specs', () => {
+  assert.deepEqual(parseSpatialLookAtText('ra=4.496h, dec=16.948'), {
+    raHours: 4.496,
+    decDeg: 16.948,
+  });
+  assert.deepEqual(parseSpatialLookAtText('67.447, 16.948'), {
+    raDeg: 67.447,
+    decDeg: 16.948,
+  });
+  assert.deepEqual(parseSpatialLookAtText('17.574,42.316,13.963'), {
+    targetPc: { x: 17.574, y: 42.316, z: 13.963 },
+  });
+  assert.deepEqual(parseSpatialLookAtText('{"raHours":4.496,"decDeg":16.948,"positionAngleDeg":12}'), {
+    raHours: 4.496,
+    decDeg: 16.948,
+    positionAngleDeg: 12,
+  });
+  assert.equal(parseSpatialLookAtText('not coordinates'), null);
+});
+
 test('resolveSpatialTarget handles vectors, RA/Dec, and bookmark resolvers', async () => {
   assert.deepEqual(resolveSpatialTarget([1, 2, 3]), { x: 1, y: 2, z: 3 });
   assert.deepEqual(resolveSpatialTarget({ targetPc: { x: 4, y: 5, z: 6 } }), { x: 4, y: 5, z: 6 });
@@ -57,6 +82,29 @@ test('resolveSpatialTarget handles vectors, RA/Dec, and bookmark resolvers', asy
   });
   assert.ok(bookmark);
   assert.ok(Math.abs(bookmark.z - 4) < 1e-12);
+});
+
+test('resolveSpatialLookAt derives target, RA/Dec, position angle, and star looks', async () => {
+  const targetLook = resolveSpatialLookAt({
+    targetPc: { x: 10, y: 0, z: 0 },
+    positionAngleDeg: 0,
+  });
+  assert.deepEqual(targetLook.targetPc, { x: 10, y: 0, z: 0 });
+  assert.ok(targetLook.orientationIcrs);
+  assertVectorApprox(applyQuaternion(LOCAL_FORWARD, targetLook.orientationIcrs), { x: 1, y: 0, z: 0 });
+  assertVectorApprox(applyQuaternion(LOCAL_UP, targetLook.orientationIcrs), { x: 0, y: 0, z: 1 });
+
+  const rotated = resolveSpatialLookAt({ raDeg: 0, decDeg: 0, positionAngleDeg: 90 });
+  assert.ok(rotated.orientationIcrs);
+  assert.equal(rotated.targetPc, null);
+  assertVectorApprox(applyQuaternion(LOCAL_UP, rotated.orientationIcrs), { x: 0, y: 1, z: 0 });
+
+  const star = await resolveSpatialLookAt({ star: 'hyades', positionAngleDeg: 0 }, {
+    resolveStar: (id) => id === 'hyades' ? { targetPc: { x: 4, y: 5, z: 6 } } : null,
+  });
+  assert.equal(star.lookAt.star, 'hyades');
+  assert.deepEqual(star.targetPc, { x: 4, y: 5, z: 6 });
+  assert.ok(star.orientationIcrs);
 });
 
 test('polyline route builds and samples deterministic route positions', () => {
@@ -442,4 +490,10 @@ function vectorAngle(a, b) {
   const bLength = Math.hypot(b.x, b.y, b.z);
   if (!(aLength > 0) || !(bLength > 0)) return 0;
   return Math.acos(Math.max(-1, Math.min(1, dot(a, b) / (aLength * bLength))));
+}
+
+function assertVectorApprox(actual, expected, epsilon = 1e-9) {
+  assert.ok(Math.abs(actual.x - expected.x) < epsilon, `x ${actual.x} !== ${expected.x}`);
+  assert.ok(Math.abs(actual.y - expected.y) < epsilon, `y ${actual.y} !== ${expected.y}`);
+  assert.ok(Math.abs(actual.z - expected.z) < epsilon, `z ${actual.z} !== ${expected.z}`);
 }

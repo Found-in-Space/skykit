@@ -268,7 +268,7 @@ Verification:
 - `node --check src/scripts/hr-diagram-viewer.js`
 - `node --check src/scripts/hr-diagram-omega-route.js`
 - `node --test src/scripts/__tests__/hr-diagram-omega-route.test.js`
-- `node --test packages/journey/src/__tests__/journey.test.js packages/skykit/src/__tests__/skykit.test.js`
+- `node --test packages/skykit/src/__tests__/skykit.test.js`
 - `node --test packages/star-octree-provider/src/__tests__/*.test.js`
 - `npm run typecheck`
 - `SKYKIT_LOCAL_PATH=../skykit TOUCH_OS_LOCAL_PATH=../touch-os npm run build`

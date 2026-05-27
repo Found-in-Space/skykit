@@ -12,17 +12,6 @@ import type {
   SpatialVector3,
 } from '@found-in-space/spatial';
 import type {
-  CreateTimedJourneyEvaluatorOptions,
-  JourneyController,
-  JourneyDefinition,
-  JourneyGraph,
-  JourneySceneSpec,
-  TimedJourney,
-  TimedJourneyCue,
-  TimedJourneyEvaluator,
-  TimedJourneyFrame,
-} from '@found-in-space/journey';
-import type {
   StarCellDelta,
   StarCellStore,
   StarObjectRef,
@@ -67,6 +56,18 @@ export interface QuaternionLike {
   w: number;
 }
 
+export interface SkykitLookAtInput {
+  targetPc?: Vector3Like | [number, number, number];
+  raDeg?: number;
+  raHours?: number;
+  decDeg?: number;
+  distancePc?: number;
+  star?: string | StarObjectRef | StarPickMeta | unknown;
+  orientationIcrs?: QuaternionLike;
+  positionAngleDeg?: number;
+  [key: string]: unknown;
+}
+
 export interface SkykitObserverMotion {
   velocityPcPerSec: Vector3Like;
   speedPcPerSec: number;
@@ -76,8 +77,8 @@ export interface SkykitViewState {
   revision: number;
   observerPc: Vector3Like;
   renderObserverPosition: Vector3Like;
+  lookAt?: SkykitLookAtInput | null;
   targetPc?: Vector3Like | null;
-  directionIcrs?: Vector3Like | null;
   orientationIcrs?: QuaternionLike | null;
   limitingMagnitude: number;
   verticalFovDeg?: number;
@@ -370,6 +371,8 @@ export interface SkykitViewerOptions {
   parts?: Iterable<SkykitThreePart>;
   plugins?: Iterable<SkykitPluginInput>;
   view?: Partial<SkykitViewState>;
+  resolveLookAtStar?: (star: unknown, lookAt: SkykitLookAtInput) => SkykitLookAtInput | Vector3Like | [number, number, number] | Promise<SkykitLookAtInput | Vector3Like | [number, number, number] | null> | null;
+  resolveLookAtBookmark?: (bookmarkId: string, lookAt: unknown) => SkykitLookAtInput | Vector3Like | [number, number, number] | Promise<SkykitLookAtInput | Vector3Like | [number, number, number] | null> | null;
   autoMountRenderer?: boolean;
 }
 
@@ -412,6 +415,7 @@ export interface SkykitViewer {
   readonly observerRig: SkykitObserverRig;
   readonly actions: SkykitActionRegistry;
   addPart(part: SkykitThreePart): SkykitPluginTeardown;
+  addPlugin(plugin: SkykitPluginInput): Promise<SkykitPluginTeardown>;
   getViewState(): SkykitViewState;
   requestViewState(patch: Partial<SkykitViewState>, reason?: string): void;
   update(deltaSeconds?: number, frameOptions?: SkykitFrameOptions): void;
@@ -501,11 +505,11 @@ export interface AnchoredImageCatalog {
   resolveTargetPc(key: string, options?: AnchoredImageTargetOptions): Vector3Like | null;
   resolveLookAt(key: string, options?: AnchoredImageLookAtOptions): AnchoredImageLookAtResult | null;
   resolveNearest(
-    directionIcrs: Vector3Like | [number, number, number],
+    lookDirection: Vector3Like | [number, number, number],
     options?: AnchoredImageResolveNearestOptions
   ): AnchoredImageMatch | null;
   resolveWithinAngle(
-    directionIcrs: Vector3Like | [number, number, number],
+    lookDirection: Vector3Like | [number, number, number],
     options: AnchoredImageResolveWithinAngleOptions
   ): AnchoredImageMatch[];
 }
@@ -676,7 +680,7 @@ export interface SkykitStarSourceRestartRetentionPolicy {
 }
 
 export interface SkykitHrDiagramTouchOsOptions {
-  surfaces?: EmbeddedSurfaceService;
+  surfaces?: EmbeddedSurfaceService | (() => EmbeddedSurfaceService | null | undefined);
   sourceId?: string;
   componentId?: string;
   width?: number;
@@ -893,53 +897,6 @@ export interface SkykitNavigationPluginOptions extends SpatialNavigationAutomati
   ) => SpatialTargetInput | Promise<SpatialTargetInput | null> | null;
 }
 
-export interface SkykitJourneyPluginOptions {
-  id?: string;
-  priority?: number;
-  journey?: JourneyDefinition;
-  controller?: JourneyController | null;
-  graph?: JourneyGraph;
-  scenes?: Record<string, JourneySceneSpec>;
-  transitions?: Iterable<Record<string, unknown>>;
-  initialSceneId?: string | null;
-  timedJourney?: TimedJourney | Record<string, unknown>;
-  evaluator?: TimedJourneyEvaluator | null;
-  evaluatorOptions?: CreateTimedJourneyEvaluatorOptions;
-  autoPlay?: boolean;
-  loop?: boolean;
-  startTimeSecs?: number;
-  disposeController?: boolean;
-  applyFrame?: (
-    frame: TimedJourneyFrame,
-    context: SkykitThreePluginContext | null,
-    skykitFrame: { viewer: SkykitViewer; view: SkykitViewState }
-  ) => boolean | void;
-  onScene?: (
-    scene: JourneySceneSpec | Record<string, unknown> | null,
-    context: SkykitThreePluginContext,
-    event: unknown
-  ) => void;
-  onSceneArrive?: (
-    scene: JourneySceneSpec | Record<string, unknown>,
-    context: SkykitThreePluginContext,
-    event: unknown
-  ) => void | Promise<void>;
-  onCue?: (
-    cue: TimedJourneyCue,
-    frame: TimedJourneyFrame,
-    context: SkykitThreePluginContext | null
-  ) => void;
-  onPreloadHints?: (
-    hints: SpatialPreloadHint[],
-    source: TimedJourneyFrame | JourneySceneSpec | Record<string, unknown>,
-    context: SkykitThreePluginContext | null
-  ) => void;
-  onLayerState?: (
-    scene: JourneySceneSpec | Record<string, unknown>,
-    context: SkykitThreePluginContext
-  ) => void;
-}
-
 export interface SkykitSpatialPreloadStrategyOptions {
   combine?: boolean;
   baseStrategy?: StarCellStrategy;
@@ -1109,14 +1066,6 @@ export declare const SKYKIT_ACTIONS: {
     readonly flyToSelected: 'skykit:selection.flyToSelected';
     readonly openExternal: 'skykit:selection.openExternal';
   };
-  readonly journey: {
-    readonly goToChapter: 'skykit:journey.goToChapter';
-    readonly next: 'skykit:journey.next';
-    readonly previous: 'skykit:journey.previous';
-    readonly seek: 'skykit:journey.seek';
-    readonly play: 'skykit:journey.play';
-    readonly pause: 'skykit:journey.pause';
-  };
   readonly xr: {
     readonly enter: 'skykit:xr.enter';
     readonly exit: 'skykit:xr.exit';
@@ -1170,9 +1119,6 @@ export declare function createKeyboardNavigationPlugin(options?: SkykitKeyboardN
   getSnapshot(): unknown;
 };
 export declare function createSkykitNavigationPlugin(options?: SkykitNavigationPluginOptions): SkykitPlugin & {
-  getSnapshot(): unknown;
-};
-export declare function createSkykitJourneyPlugin(options?: SkykitJourneyPluginOptions): SkykitPlugin & {
   getSnapshot(): unknown;
 };
 export declare function createSkykitStarPreloadRequestsFromSpatialHints(

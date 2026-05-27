@@ -107,16 +107,16 @@ export async function createAnchoredImageCatalog(options = {}) {
         }),
       };
     },
-    resolveNearest(directionIcrs, nearestOptions = {}) {
-      const matches = scoreEntries(directionIcrs, selectEntries(entries, nearestOptions.selection, catalog));
+    resolveNearest(lookDirection, nearestOptions = {}) {
+      const matches = scoreEntries(lookDirection, selectEntries(entries, nearestOptions.selection, catalog));
       if (matches.length === 0) return null;
       const maxAngleRad = optionalAngleRad(nearestOptions.maxAngleDeg);
       return matches.find((match) => maxAngleRad == null || match.viewDistanceRad <= maxAngleRad) ?? null;
     },
-    resolveWithinAngle(directionIcrs, withinOptions) {
+    resolveWithinAngle(lookDirection, withinOptions) {
       const maxAngleRad = requiredAngleRad(withinOptions?.maxAngleDeg);
       if (!Number.isFinite(maxAngleRad)) return [];
-      return scoreEntries(directionIcrs, selectEntries(entries, withinOptions?.selection, catalog))
+      return scoreEntries(lookDirection, selectEntries(entries, withinOptions?.selection, catalog))
         .filter((match) => match.viewDistanceRad <= maxAngleRad);
     },
   };
@@ -662,26 +662,24 @@ function targetDirectionAt(solved, x, y) {
 
 /** @param {SkykitViewState} view @returns {Vector3Like} */
 function resolveViewDirection(view) {
-  const explicitDirection = normalizeVector3(view.directionIcrs, null);
-  if (explicitDirection) return explicitDirection;
-  const orientation = normalizeQuaternion(view.orientationIcrs);
-  if (orientation) return normalizeVector3(rotateVectorByQuaternion(LOCAL_FORWARD, orientation), LOCAL_FORWARD) ?? { ...LOCAL_FORWARD };
   const targetPc = normalizeVector3(view.targetPc, null);
   const observerPc = normalizeVector3(view.observerPc, { x: 0, y: 0, z: 0 }) ?? { x: 0, y: 0, z: 0 };
   if (targetPc) {
     const direction = normalizeVector3(subtractVectors(targetPc, observerPc), null);
     if (direction) return direction;
   }
+  const orientation = normalizeQuaternion(view.orientationIcrs);
+  if (orientation) return normalizeVector3(rotateVectorByQuaternion(LOCAL_FORWARD, orientation), LOCAL_FORWARD) ?? { ...LOCAL_FORWARD };
   return { ...LOCAL_FORWARD };
 }
 
 /**
- * @param {Vector3Like | [number, number, number]} directionIcrs
+ * @param {Vector3Like | [number, number, number]} lookDirection
  * @param {AnchoredImageCatalogEntry[]} entries
  * @returns {AnchoredImageMatch[]}
  */
-function scoreEntries(directionIcrs, entries) {
-  const direction = vector3FromArray(normalizeDirection(directionIcrs));
+function scoreEntries(lookDirection, entries) {
+  const direction = vector3FromArray(normalizeDirection(lookDirection));
   if (!direction) return [];
   return entries
     .map((entry) => scoreEntry(direction, entry))
@@ -690,13 +688,13 @@ function scoreEntries(directionIcrs, entries) {
 }
 
 /**
- * @param {Vector3Like | [number, number, number]} directionIcrs
+ * @param {Vector3Like | [number, number, number]} lookDirection
  * @param {AnchoredImageCatalogEntry | null | undefined} entry
  * @returns {AnchoredImageMatch | null}
  */
-function scoreEntry(directionIcrs, entry) {
+function scoreEntry(lookDirection, entry) {
   if (!entry) return null;
-  const direction = vector3FromArray(normalizeDirection(directionIcrs));
+  const direction = vector3FromArray(normalizeDirection(lookDirection));
   if (!direction) return null;
   const angleRad = angularDistance(direction, entry.centroidIcrs);
   const viewDistanceRad = Math.max(0, angleRad - entry.boundsConeRadiusRad);

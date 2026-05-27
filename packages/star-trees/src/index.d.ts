@@ -126,7 +126,6 @@ export interface StarTreeViewPatch {
   mDesired?: number;
   limitingMagnitude?: number;
   targetPc?: StarTreePointPc;
-  directionIcrs?: StarTreePointPc;
   orientationIcrs?: { x: number; y: number; z: number; w: number };
   verticalFovDeg?: number;
   aspectRatio?: number;

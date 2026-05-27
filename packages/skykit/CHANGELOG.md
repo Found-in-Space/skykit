@@ -4,7 +4,7 @@
 
 ### Minor Changes
 
-- Add beginner viewer, data, and story subpath entries for website use-cases.
+- Add beginner viewer and data subpath entries for website use-cases.
 
 ## 0.2.0-alpha.1
 
