@@ -876,16 +876,60 @@ export function normalizeTargetFrustumView(view = {}, options = {}) {
   );
   const orientationIcrs = normalizeQuaternion(view.orientationIcrs);
   const targetPc = normalizeOptionalPoint(view.targetPc);
-  const directionIcrs = normalizeOptionalVector(view.directionIcrs);
   const targetVector = targetPc ? subtractVectors(targetPc, observerPc) : null;
   const targetDistancePc = targetVector ? vectorLength(targetVector) : null;
-  const targetDirection =
-    directionIcrs ??
-    (
-      targetVector && targetDistancePc && targetDistancePc > 0
-        ? scaleVector(targetVector, 1 / targetDistancePc)
-        : null
+
+  if (targetVector && targetDistancePc && targetDistancePc > 0) {
+    const targetDirection = scaleVector(targetVector, 1 / targetDistancePc);
+    const verticalFovDeg = normalizeFinitePositiveNumber(
+      view.verticalFovDeg ?? options.verticalFovDeg,
+      DEFAULT_TARGET_VERTICAL_FOV_DEG,
+      'verticalFovDeg',
     );
+    const aspectRatio = normalizeFinitePositiveNumber(
+      view.aspectRatio,
+      DEFAULT_TARGET_ASPECT_RATIO,
+      'aspectRatio',
+    );
+    const nearPc = normalizeNonNegativeNumber(
+      view.nearPc ?? options.nearPc ?? DEFAULT_TARGET_NEAR_PC,
+      'nearPc',
+    );
+    const explicitFarPc = view.farPc ?? options.farPc;
+    const targetRadiusPc = normalizeFinitePositiveNumber(
+      options.targetRadiusPc,
+      DEFAULT_TARGET_RADIUS_PC,
+      'targetRadiusPc',
+    );
+    const preloadDistancePc = normalizeFiniteNumber(view.preloadDistancePc, 0);
+    const farPc = explicitFarPc !== undefined
+      ? Number(explicitFarPc)
+      : targetDistancePc + targetRadiusPc + Math.max(0, preloadDistancePc);
+
+    if (!Number.isFinite(farPc) || farPc <= nearPc) {
+      throw createInvalidViewError('target-frustum farPc must be greater than nearPc.');
+    }
+
+    return {
+      ...view,
+      observerPc,
+      limitingMagnitude,
+      frustumBasis: cameraBasisFromForward(targetDirection),
+      frustumMode: 'target',
+      verticalFovDeg,
+      aspectRatio,
+      nearPc,
+      overscanDeg: normalizeFiniteNumber(
+        options.overscanDeg,
+        DEFAULT_TARGET_OVERSCAN_DEG,
+      ),
+      targetPc,
+      targetDistancePc,
+      targetRadiusPc,
+      farPc: Number(farPc),
+      ...(orientationIcrs ? { orientationIcrs } : {}),
+    };
+  }
 
   if (orientationIcrs) {
     const verticalFovDeg = normalizePositiveNumber(
@@ -920,63 +964,9 @@ export function normalizeTargetFrustumView(view = {}, options = {}) {
     };
   }
 
-  if (!targetDirection) {
-    throw createInvalidViewError(
-      'target-frustum requires orientationIcrs, targetPc, or directionIcrs.',
-    );
-  }
-
-  const verticalFovDeg = normalizeFinitePositiveNumber(
-    view.verticalFovDeg ?? options.verticalFovDeg,
-    DEFAULT_TARGET_VERTICAL_FOV_DEG,
-    'verticalFovDeg',
+  throw createInvalidViewError(
+    'target-frustum requires targetPc or orientationIcrs.',
   );
-  const aspectRatio = normalizeFinitePositiveNumber(
-    view.aspectRatio,
-    DEFAULT_TARGET_ASPECT_RATIO,
-    'aspectRatio',
-  );
-  const nearPc = normalizeNonNegativeNumber(
-    view.nearPc ?? options.nearPc ?? DEFAULT_TARGET_NEAR_PC,
-    'nearPc',
-  );
-  const explicitFarPc = view.farPc ?? options.farPc;
-  const targetRadiusPc = normalizeFinitePositiveNumber(
-    options.targetRadiusPc,
-    DEFAULT_TARGET_RADIUS_PC,
-    'targetRadiusPc',
-  );
-  const preloadDistancePc = normalizeFiniteNumber(view.preloadDistancePc, 0);
-  const farPc = explicitFarPc !== undefined
-    ? Number(explicitFarPc)
-    : (
-        targetDistancePc !== null
-          ? targetDistancePc + targetRadiusPc + Math.max(0, preloadDistancePc)
-          : undefined
-      );
-
-  if (farPc !== undefined && (!Number.isFinite(farPc) || farPc <= nearPc)) {
-    throw createInvalidViewError('target-frustum farPc must be greater than nearPc.');
-  }
-
-  return {
-    ...view,
-    observerPc,
-    limitingMagnitude,
-    frustumBasis: cameraBasisFromForward(targetDirection),
-    frustumMode: targetPc ? 'target' : 'direction',
-    verticalFovDeg,
-    aspectRatio,
-    nearPc,
-    overscanDeg: normalizeFiniteNumber(
-      options.overscanDeg,
-      DEFAULT_TARGET_OVERSCAN_DEG,
-    ),
-    ...(targetPc ? { targetPc } : {}),
-    ...(targetDistancePc !== null ? { targetDistancePc } : {}),
-    targetRadiusPc,
-    ...(farPc !== undefined ? { farPc: Number(farPc) } : {}),
-  };
 }
 
 /**
@@ -1594,16 +1584,6 @@ function evaluateTargetFrustumGate(options) {
   }
 
   if (
-    directionChanged(
-      previousView.directionIcrs,
-      nextView.directionIcrs,
-      thresholds.directionAngleDeg,
-    )
-  ) {
-    reasons.push('view-volume');
-  }
-
-  if (
     orientationForwardChanged(
       previousView.orientationIcrs,
       nextView.orientationIcrs,
@@ -1695,19 +1675,6 @@ function roundSignatureNumber(value) {
     : 'nan';
 }
 
-function directionChanged(previous, next, thresholdDeg) {
-  const previousDirection = normalizeOptionalVector(previous);
-  const nextDirection = normalizeOptionalVector(next);
-  if (!previousDirection && !nextDirection) return false;
-  if (!previousDirection || !nextDirection) return true;
-
-  if (thresholdDeg === undefined) {
-    return pointDifferenceExceeds(previousDirection, nextDirection, undefined);
-  }
-
-  return angleDegBetween(previousDirection, nextDirection) > thresholdDeg;
-}
-
 function orientationForwardChanged(previous, next, thresholdDeg) {
   const previousQuaternion = normalizeQuaternion(previous);
   const nextQuaternion = normalizeQuaternion(next);
@@ -1734,12 +1701,12 @@ function targetScalarChanged(field, previousView, nextView, options = {}) {
 function targetScalar(field, view, options = {}) {
   if (field === 'verticalFovDeg') {
     return view.verticalFovDeg ?? options.verticalFovDeg ??
-      (view.orientationIcrs ? undefined : DEFAULT_TARGET_VERTICAL_FOV_DEG);
+      (view.targetPc ? DEFAULT_TARGET_VERTICAL_FOV_DEG : undefined);
   }
 
   if (field === 'aspectRatio') {
     return view.aspectRatio ??
-      (view.orientationIcrs ? undefined : DEFAULT_TARGET_ASPECT_RATIO);
+      (view.targetPc ? DEFAULT_TARGET_ASPECT_RATIO : undefined);
   }
 
   if (field === 'nearPc') {
@@ -1758,7 +1725,7 @@ function targetScalar(field, view, options = {}) {
 }
 
 function implicitTargetFarPc(view, options = {}) {
-  if (view.orientationIcrs || !view.targetPc) {
+  if (!view.targetPc) {
     return undefined;
   }
 

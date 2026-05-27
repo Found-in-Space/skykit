@@ -7,6 +7,7 @@ import {
   encodeMorton3D,
 } from '@found-in-space/star-trees';
 import {
+  createGnomonicProjection,
   createRaDecEquirectangularProjection,
   drawProjectedStarMap,
   icrsDirectionToRaDec,
@@ -106,6 +107,23 @@ test('direction to RA/Dec remains stable', () => {
   });
 });
 
+test('gnomonic projection uses positionAngleDeg for sky rotation', () => {
+  const projection = createGnomonicProjection({
+    centerRaDeg: 0,
+    centerDecDeg: 0,
+    fovDeg: 90,
+    positionAngleDeg: 90,
+  });
+  const projected = projection.projectRaDec?.(
+    { raDeg: 0, raHours: 0, decDeg: 10 },
+    createProjectionContext(),
+  );
+
+  assert.ok(projected);
+  assert.ok(projected.x > 50);
+  assert.ok(Math.abs(projected.y - 50) < 1e-9);
+});
+
 function createCell() {
   const node = {
     level: 2,
@@ -148,5 +166,17 @@ function createPoint(overrides = {}) {
       objectIndex: 0,
       position: { x: 0, y: 0, z: 0 },
     },
+  };
+}
+
+function createProjectionContext() {
+  return {
+    observerPc: { x: 0, y: 0, z: 0 },
+    limitingMagnitude: 20,
+    width: 100,
+    height: 100,
+    rect: { x: 0, y: 0, w: 100, h: 100 },
+    timeMs: 0,
+    deltaMs: 0,
   };
 }

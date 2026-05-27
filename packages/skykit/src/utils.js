@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import {
+  resolveSpatialLookAt,
+} from '@found-in-space/spatial';
 
 export const DEFAULT_MAG_LIMIT = 6.5;
 export const IDENTITY_QUATERNION = Object.freeze({ x: 0, y: 0, z: 0, w: 1 });
@@ -86,16 +89,17 @@ export function resolveAnchorRoot(roots, anchorMode, scaleBandId) {
  * @param {number} revision
  * @returns {SkykitViewState}
  */
-export function normalizeViewState(input = {}, revision = 0) {
+export function normalizeViewState(input = {}, revision = 0, options = {}) {
   const observerPc = normalizeVector3(input.observerPc, { x: 0, y: 0, z: 0 });
   const coordinateUnitsPerParsec = positiveFinite(input.coordinateUnitsPerParsec, 1);
+  const look = resolveViewLook(input, observerPc, options);
   return {
     revision,
     observerPc,
     renderObserverPosition: normalizeVector3(input.renderObserverPosition, observerPc),
-    targetPc: input.targetPc == null ? null : normalizeVector3(input.targetPc, { x: 0, y: 0, z: 0 }),
-    directionIcrs: input.directionIcrs == null ? null : normalizeVector3(input.directionIcrs, { x: 0, y: 0, z: -1 }),
-    orientationIcrs: input.orientationIcrs == null ? null : normalizeQuaternion(input.orientationIcrs, IDENTITY_QUATERNION),
+    lookAt: look.lookAt,
+    targetPc: look.targetPc,
+    orientationIcrs: look.orientationIcrs,
     limitingMagnitude: finiteNumber(input.limitingMagnitude, DEFAULT_MAG_LIMIT),
     ...(input.verticalFovDeg !== undefined ? { verticalFovDeg: positiveFinite(input.verticalFovDeg, 40) } : {}),
     ...(input.aspectRatio !== undefined ? { aspectRatio: positiveFinite(input.aspectRatio, 1) } : {}),
@@ -110,8 +114,8 @@ export function cloneViewState(view) {
     ...view,
     observerPc: cloneVector3(view.observerPc),
     renderObserverPosition: cloneVector3(view.renderObserverPosition),
+    lookAt: cloneLookAt(view.lookAt),
     targetPc: view.targetPc ? cloneVector3(view.targetPc) : null,
-    directionIcrs: view.directionIcrs ? cloneVector3(view.directionIcrs) : null,
     orientationIcrs: view.orientationIcrs ? cloneQuaternion(view.orientationIcrs) : null,
     motion: view.motion ? cloneMotion(view.motion) : null,
   };
@@ -125,13 +129,99 @@ export function toStarOctreeViewPatch(view) {
     limitingMagnitude: view.limitingMagnitude,
     mDesired: view.limitingMagnitude,
     ...(view.targetPc ? { targetPc: view.targetPc } : {}),
-    ...(view.directionIcrs ? { directionIcrs: view.directionIcrs } : {}),
     ...(view.orientationIcrs ? { orientationIcrs: view.orientationIcrs } : {}),
     ...(view.verticalFovDeg !== undefined ? { verticalFovDeg: view.verticalFovDeg } : {}),
     ...(view.aspectRatio !== undefined ? { aspectRatio: view.aspectRatio } : {}),
     ...(view.motion ? { motion: view.motion } : {}),
   };
   return patch;
+}
+
+/**
+ * @param {Partial<SkykitViewState>} input
+ * @param {Record<string, unknown>} [options]
+ * @returns {Promise<Partial<SkykitViewState>>}
+ */
+export async function resolveViewLookAtInput(input = {}, options = {}) {
+  const observerPc = normalizeVector3(
+    input.observerPc ?? /** @type {{ observerPc?: unknown }} */ (options).observerPc,
+    { x: 0, y: 0, z: 0 },
+  );
+  const lookInput = input.lookAt
+    ?? (input.orientationIcrs ? { orientationIcrs: input.orientationIcrs } : null);
+  if (!lookInput) return input;
+  const resolved = await resolveSpatialLookAt(lookInput, {
+    observerPc,
+    resolveStar: typeof options.resolveStar === 'function'
+      ? /** @type {import('@found-in-space/spatial').ResolveSpatialLookAtOptions['resolveStar']} */ (options.resolveStar)
+      : undefined,
+    resolveBookmark: typeof options.resolveBookmark === 'function'
+      ? /** @type {import('@found-in-space/spatial').ResolveSpatialLookAtOptions['resolveBookmark']} */ (options.resolveBookmark)
+      : undefined,
+  });
+  const resolvedLook = /** @type {import('@found-in-space/spatial').SpatialResolvedLookAt} */ (resolved);
+  return {
+    ...input,
+    lookAt: /** @type {import('./index.d.ts').SkykitLookAtInput | null} */ (resolvedLook.lookAt),
+    targetPc: resolvedLook.targetPc,
+    orientationIcrs: resolvedLook.orientationIcrs,
+  };
+}
+
+/**
+ * @param {Partial<SkykitViewState>} input
+ * @param {Vector3Like} observerPc
+ * @param {Record<string, unknown>} [options]
+ * @returns {{ lookAt: import('./index.d.ts').SkykitLookAtInput | null; targetPc: Vector3Like | null; orientationIcrs: QuaternionLike | null }}
+ */
+function resolveViewLook(input, observerPc, options = {}) {
+  const lookInput = input.lookAt
+    ?? (input.orientationIcrs ? { orientationIcrs: input.orientationIcrs } : null);
+  if (!lookInput) {
+    return {
+      lookAt: null,
+      targetPc: null,
+      orientationIcrs: null,
+    };
+  }
+  const resolved = resolveSpatialLookAt(lookInput, {
+    observerPc,
+    resolveStar: typeof options.resolveStar === 'function'
+      ? /** @type {import('@found-in-space/spatial').ResolveSpatialLookAtOptions['resolveStar']} */ (options.resolveStar)
+      : undefined,
+    resolveBookmark: typeof options.resolveBookmark === 'function'
+      ? /** @type {import('@found-in-space/spatial').ResolveSpatialLookAtOptions['resolveBookmark']} */ (options.resolveBookmark)
+      : undefined,
+  });
+  if (resolved && typeof /** @type {Promise<unknown>} */ (resolved).then === 'function') {
+    throw new TypeError('normalizeViewState() received an async lookAt resolver result.');
+  }
+  const resolvedLook = /** @type {import('@found-in-space/spatial').SpatialResolvedLookAt} */ (resolved);
+  return {
+    lookAt: /** @type {import('./index.d.ts').SkykitLookAtInput | null} */ (cloneLookAt(resolvedLook.lookAt)),
+    targetPc: resolvedLook.targetPc
+      ? cloneVector3(resolvedLook.targetPc)
+      : (input.targetPc == null ? null : normalizeVector3(input.targetPc, { x: 0, y: 0, z: 0 })),
+    orientationIcrs: resolvedLook.orientationIcrs ? cloneQuaternion(resolvedLook.orientationIcrs) : null,
+  };
+}
+
+/**
+ * @param {unknown} lookAt
+ * @returns {import('./index.d.ts').SkykitLookAtInput | null}
+ */
+function cloneLookAt(lookAt) {
+  if (!lookAt || typeof lookAt !== 'object') return null;
+  const source = /** @type {Record<string, unknown>} */ (lookAt);
+  return {
+    ...source,
+    ...(source.targetPc && typeof source.targetPc === 'object'
+      ? { targetPc: cloneVector3(/** @type {Vector3Like} */ (source.targetPc)) }
+      : {}),
+    ...(source.orientationIcrs && typeof source.orientationIcrs === 'object'
+      ? { orientationIcrs: cloneQuaternion(/** @type {QuaternionLike} */ (source.orientationIcrs)) }
+      : {}),
+  };
 }
 
 /**

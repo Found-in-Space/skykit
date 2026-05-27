@@ -42,6 +42,7 @@ export {
 export {
   buildSpatialPolylineRoute,
   computeSpatialLookAtOrientation,
+  computeSpatialLookDirectionOrientation,
   createLookAtSpatialMotionModel,
   createOrbitSpatialMotionModel,
   createOrbitTransferRoute,
@@ -51,6 +52,11 @@ export {
   deriveSpatialOrbitAngle,
   sampleSpatialPolylineRoutePosition,
 } from './navigation.js';
+export {
+  normalizeSpatialLookAt,
+  parseSpatialLookAtText,
+  resolveSpatialLookAt,
+} from './look-at.js';
 export {
   createSpatialOrientationTrack,
   createSpatialPoseTransition,

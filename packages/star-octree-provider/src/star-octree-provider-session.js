@@ -1137,7 +1137,6 @@ function createViewState(view, revision) {
     ...view,
     ...(view.observerPc ? { observerPc: { ...view.observerPc } } : {}),
     ...(view.targetPc ? { targetPc: { ...view.targetPc } } : {}),
-    ...(view.directionIcrs ? { directionIcrs: { ...view.directionIcrs } } : {}),
     ...(view.orientationIcrs
       ? { orientationIcrs: { ...view.orientationIcrs } }
       : {}),

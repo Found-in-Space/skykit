@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import * as THREE from 'three';
 
@@ -11,6 +12,7 @@ import {
   createSkykitXrObserverRig,
   createSkykitXrPickRouter,
   createSkykitXrRaySource,
+  createSkykitXrRayVisualPlugin,
   createSkykitXrRig,
   createSkykitXrSessionPlugin,
   createSkykitXrStarPickingPlugin,
@@ -19,6 +21,32 @@ import {
   isSkykitXrModeSupported,
 } from '../xr.js';
 import { createSkykitActionRegistry } from '../index.js';
+
+test('xr free-roam demo uses restored alpha XR regressions defaults', () => {
+  const source = readFileSync(new URL('../../examples/xr-free-roam/xr-free-roam.js', import.meta.url), 'utf8');
+
+  assert.match(source, /createDefaultThreeStarFieldMaterialProfile/);
+  assert.doesNotMatch(source, /createVrThreeStarFieldMaterialProfile/);
+  assert.match(source, /createSkykitXrRayVisualPlugin/);
+  assert.match(source, /createSurfaceShell/);
+  assert.match(source, /createMetaSidecarProviderService/);
+  assert.match(source, /deriveMetaSidecarUrlFromRenderUrl/);
+  assert.match(source, /metaSidecarEntryDisplayFields/);
+  assert.match(source, /datasetId:\s*DATASET_ID_c56103/);
+  assert.match(source, /attributes:\s*\[\s*'objectRef'\s*,\s*'pickMeta'\s*\]/);
+  assert.match(source, /selectSun:\s*'xr-demo:selected\.sun'/);
+  assert.match(source, /primaryActionId:\s*XR_DEMO_ACTIONS\.goSelected/);
+  assert.match(source, /primaryActionLabel:\s*'Fly to'/);
+  assert.match(source, /homeControl:\s*'button'/);
+  assert.match(source, /pointerType:\s*'ray'/);
+  assert.doesNotMatch(source, /dragThreshold/);
+  assert.doesNotMatch(source, /createChoiceGroup/);
+  assert.doesNotMatch(source, /createSlider/);
+  assert.doesNotMatch(source, /createToggle/);
+  assert.doesNotMatch(source, /createStack/);
+  assert.doesNotMatch(source, /waypointPrefix/);
+  assert.doesNotMatch(source, /panelState\.page/);
+});
 
 test('skykit/xr rig builds multi-root hierarchy', () => {
   const camera = new THREE.PerspectiveCamera();
@@ -102,6 +130,32 @@ test('skykit/xr depth helpers compute and apply render state', () => {
   assert.deepEqual(state, { depthNear: range.depthNear, depthFar: range.depthFar });
 });
 
+test('skykit/xr depth helpers include distant visible star bounds', () => {
+  const range = computeSkykitXrDepthRange({
+    observer: { x: 0, y: 0, z: 0 },
+    visibleBounds: {
+      min: { x: 62, y: 602, z: -13 },
+      max: { x: 64, y: 604, z: -11 },
+    },
+    observerCentricSpheres: [{ radiusNavigationUnits: 16 }],
+    scale: {
+      navigationUnits: 'pc',
+      metersPerNavigationUnit: 1,
+      worldUnitsPerNavigationUnit: 1,
+    },
+    policy: {
+      near: 0.03,
+      minFar: 100,
+      maxFar: 2000000,
+      marginFactor: 1.2,
+    },
+  });
+
+  assert.ok(range.far > 720);
+  assert.ok(range.telemetry.farthestVisibleBoundsDistance > 600);
+  assert.equal(range.telemetry.farthestObserverCentricSphereDistance, 16);
+});
+
 test('skykit/xr session helpers use injected navigator', async () => {
   let ended = false;
   const session = {
@@ -118,7 +172,8 @@ test('skykit/xr session helpers use injected navigator', async () => {
       async isSessionSupported(mode) {
         return mode === 'immersive-vr';
       },
-      async requestSession() {
+      async requestSession(_mode, init) {
+        this.lastInit = init;
         return session;
       },
     },
@@ -126,6 +181,7 @@ test('skykit/xr session helpers use injected navigator', async () => {
   assert.equal(await isSkykitXrModeSupported('immersive-vr', { navigator }), true);
   const handle = await enterSkykitXrSession({ navigator, mode: 'immersive-vr' });
   assert.equal(handle.presenting, true);
+  assert.deepEqual(navigator.xr.lastInit.optionalFeatures, ['local-floor']);
   await exitSkykitXrSession(handle);
   assert.equal(ended, true);
 });
@@ -147,21 +203,29 @@ test('skykit/xr observer rig bridges viewer state to an XR rig without camera re
 
 test('skykit/xr session plugin registers enter/exit actions and syncs snapshot state', async () => {
   let activeSession = null;
+  let requestedReferenceSpaceCount = 0;
   const session = {
     async requestReferenceSpace(type) {
+      requestedReferenceSpaceCount += 1;
       return { type };
     },
     async end() {
       this.ended = true;
+      activeSession = null;
+      renderer.xr.isPresenting = false;
     },
     addEventListener() {},
   };
+  let rendererReferenceSpaceType = null;
   const renderer = {
     xr: {
       enabled: false,
       isPresenting: false,
       getSession() {
         return activeSession;
+      },
+      setReferenceSpaceType(type) {
+        rendererReferenceSpaceType = type;
       },
       async setSession(nextSession) {
         activeSession = nextSession;
@@ -174,7 +238,8 @@ test('skykit/xr session plugin registers enter/exit actions and syncs snapshot s
       async isSessionSupported() {
         return true;
       },
-      async requestSession() {
+      async requestSession(_mode, init) {
+        this.lastInit = init;
         return session;
       },
     },
@@ -195,8 +260,12 @@ test('skykit/xr session plugin registers enter/exit actions and syncs snapshot s
 
   await actions.invoke('skykit:xr.enter');
   assert.equal(renderer.xr.enabled, true);
+  assert.equal(rendererReferenceSpaceType, 'local-floor');
+  assert.deepEqual(navigator.xr.lastInit.optionalFeatures, ['local-floor']);
+  assert.equal(requestedReferenceSpaceCount, 0);
   assert.equal(activeSession, session);
   assert.equal(plugin.getSnapshot().presenting, true);
+  assert.equal(plugin.getSnapshot().enterStage, 'presenting');
 
   const frame = createXrFrame({ renderer });
   part.update(frame);
@@ -238,6 +307,58 @@ test('skykit/xr navigation plugin updates viewer state from controller axes', ()
   assert.equal(patches.length, 1);
   assert.equal(patches[0].observerPc.z, -0.16);
   assert.deepEqual(actions.getControlValue('skykit:ship.control.move'), { x: 0, y: 0, z: -10 });
+});
+
+test('skykit/xr ray visual shows the controller ray and shortens at blockers', () => {
+  let part = null;
+  let disposedRaySource = false;
+  const plugin = createSkykitXrRayVisualPlugin({
+    raySource: {
+      getRay() {
+        return {
+          id: 'ray',
+          kind: 'target-ray',
+          handedness: 'right',
+          origin: { x: 1, y: 2, z: 3 },
+          direction: { x: 0, y: 0, z: -1 },
+          length: 10,
+        };
+      },
+      getSnapshot() {
+        return { id: 'ray-source' };
+      },
+      dispose() {
+        disposedRaySource = true;
+      },
+    },
+    blockers: [{
+      blockRay() {
+        return { blocked: true, distance: 3, hit: { componentId: 'panel' } };
+      },
+    }],
+  });
+  const context = createPluginContext({
+    addPart(nextPart) {
+      part = nextPart;
+    },
+  });
+  plugin.setup(context);
+  part.attach(context);
+
+  part.update(createXrFrame());
+
+  assert.equal(part.object3d.visible, true);
+  assert.equal(plugin.getSnapshot().blocked, true);
+  assert.equal(plugin.getSnapshot().lastLength, 3);
+  assert.deepEqual(
+    Array.from(part.object3d.children[0].geometry.getAttribute('position').array),
+    [1, 2, 3, 1, 2, 0],
+  );
+
+  part.update({ ...createXrFrame(), xr: { presenting: false } });
+  assert.equal(part.object3d.visible, false);
+  part.dispose();
+  assert.equal(disposedRaySource, true);
 });
 
 test('skykit/xr star picking fires only on trigger edge and registers attribute-only demand', () => {

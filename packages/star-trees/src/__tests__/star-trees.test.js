@@ -337,7 +337,7 @@ test('target-frustum strategy uses the nearest visible witness', () => {
     createTargetFrustumStrategy({ overscanDeg: 0 }),
     {
       observerPc: { x: 0, y: 0, z: 0 },
-      directionIcrs: { x: 0, y: 1, z: 0 },
+      targetPc: { x: 0, y: 100, z: 0 },
       verticalFovDeg: 60,
       aspectRatio: 1,
       nearPc: 0,
@@ -360,7 +360,7 @@ test('target-frustum strategy uses the nearest visible witness', () => {
 test('target-frustum radial bounds keep far-plane corners visible', () => {
   const view = normalizeTargetFrustumView({
     observerPc: { x: 0, y: 0, z: 0 },
-    directionIcrs: { x: 1, y: 0, z: 0 },
+    orientationIcrs: { x: 0, y: -0.7071067811865475, z: 0, w: 0.7071067811865476 },
     verticalFovDeg: 60,
     aspectRatio: 1,
     nearPc: 0,

@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
 
+import {
+  installSkykitBrowserGlobal,
+  registerBrowserInstance,
+} from '../browser-addons.js';
 import { createSkykitBrowser } from '../browser.js';
 
 test('createSkykitBrowser wires the starter viewer and extra plugins', async () => {
@@ -43,6 +47,20 @@ test('createSkykitBrowser wires the starter viewer and extra plugins', async () 
     assert.equal(provider.sessions[0].updateViewCalls.length, 2);
     assert.deepEqual(extraPartCalls, ['attach', 'start']);
     assert.match(status.textContent, /"starsLoaded": 0/);
+
+    const marker = new THREE.Object3D();
+    const markerHandle = browser.addObject(marker, {
+      id: 'hyades-marker',
+      positionPc: { x: 17.574, y: 42.316, z: 13.963 },
+    });
+    await Promise.resolve();
+    assert.ok(Math.abs(marker.position.x - 0.017574) < 1e-12);
+    assert.ok(Math.abs(marker.position.y - 0.042316) < 1e-12);
+    assert.ok(Math.abs(marker.position.z - 0.013963) < 1e-12);
+    assert.equal(browser.viewer.roots.originContentRoot.children.includes(marker), true);
+    markerHandle.remove();
+    await Promise.resolve();
+    assert.equal(browser.viewer.roots.originContentRoot.children.includes(marker), false);
 
     browser.resize();
     assert.equal(fakeWindow.addedEvents.length, 0);
@@ -88,6 +106,196 @@ test('createSkykitBrowser registers resize and page-lifecycle cleanup by default
   });
 });
 
+test('createSkykitBrowser accepts startup lookAt and mouse look mode', async () => {
+  await withFakeWindow(async () => {
+    const browser = await createSkykitBrowser({
+      host: createHost(),
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+      mouseMode: 'strafe',
+      lookAt: { targetPc: { x: 10, y: 0, z: 0 } },
+    });
+
+    const view = browser.viewer.getViewState();
+    assert.deepEqual(view.targetPc, { x: 10, y: 0, z: 0 });
+    assert.ok(view.orientationIcrs);
+    assert.equal(
+      browser.viewer.getSnapshot().parts.some((part) => part.id === 'mouse-look'),
+      true,
+    );
+    assert.equal(
+      browser.viewer.getSnapshot().parts.some((part) => part.id === 'sky-grab'),
+      false,
+    );
+
+    await browser.dispose();
+  });
+});
+
+test('createSkykitBrowser can disable mouse drag controls', async () => {
+  await withFakeWindow(async () => {
+    const browser = await createSkykitBrowser({
+      host: createHost(),
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+      mouseMode: 'none',
+    });
+
+    assert.equal(
+      browser.viewer.getSnapshot().parts.some((part) => part.id === 'mouse-look' || part.id === 'sky-grab'),
+      false,
+    );
+
+    await browser.dispose();
+  });
+});
+
+test('createSkykitBrowser enables persistent provider cache by default and can opt out', async () => {
+  await withFakeWindow(async () => {
+    await withFakeCaches(async () => {
+      const cached = await createSkykitBrowser({
+        host: createHost(),
+        status: false,
+        renderer: createRenderer(),
+        starField: createStarField(),
+        autoResize: false,
+        autoDispose: false,
+        autoStart: false,
+      });
+      assert.equal(cached.provider.describe().capabilities.persistentCache, true);
+      await cached.dispose();
+
+      const uncached = await createSkykitBrowser({
+        host: createHost(),
+        status: false,
+        renderer: createRenderer(),
+        starField: createStarField(),
+        persistentCache: 'off',
+        autoResize: false,
+        autoDispose: false,
+        autoStart: false,
+      });
+      assert.equal(uncached.provider.describe().capabilities.persistentCache, false);
+      await uncached.dispose();
+    });
+  });
+});
+
+test('browser.install adds plugins after startup and cleans returned teardowns', async () => {
+  await withFakeWindow(async () => {
+    const calls = [];
+    const browser = await createSkykitBrowser({
+      host: createHost(),
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+    });
+
+    const uninstall = await browser.install((context) => {
+      context.addPart({
+        id: 'late-part',
+        attach() { calls.push('attach'); },
+        start() { calls.push('start'); },
+      });
+      return () => calls.push('teardown');
+    });
+
+    await Promise.resolve();
+    assert.deepEqual(calls, ['attach', 'start']);
+    assert.equal(browser.viewer.getSnapshot().parts.some((part) => part.id === 'late-part'), true);
+    uninstall();
+    assert.deepEqual(calls, ['attach', 'start', 'teardown']);
+
+    await browser.dispose();
+  });
+});
+
+test('browser constellations capability loads manifest boundaries without art', async () => {
+  await withFakeWindow(async () => {
+    const browser = await createSkykitBrowser({
+      host: createHost(),
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+    });
+
+    const constellations = await browser.constellations.load({
+      art: 'off',
+      manifest: {
+        id: 'test-skyculture',
+        boundaries: {
+          edges: ['001:002 M+ 00:00:00 +00:00:00 01:00:00 +00:00:00 AAA BBB'],
+        },
+        constellations: [],
+      },
+    });
+
+    assert.equal(constellations.getSnapshot().lineCount, 1);
+    assert.equal(browser.capabilities.has('skykit:browser.constellations'), true);
+    assert.equal(browser.viewer.roots.observerContentRoot.children.some((child) => child.name === 'constellation-boundaries'), true);
+    assert.equal(constellations.hide(), false);
+    assert.equal(constellations.show(), true);
+
+    await browser.dispose();
+  });
+});
+
+test('Skykit browser global resolves existing and future browsers and installs add-ons once', async () => {
+  await withFakeWindow(async () => {
+    const service = installSkykitBrowserGlobal(/** @type {typeof globalThis} */ ({}));
+    const host = createHost();
+    const browser = await createSkykitBrowser({
+      host,
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+    });
+    let installs = 0;
+    service.registerBrowserAddon({
+      id: 'test-addon',
+      install({ browser: installedBrowser }) {
+        installs += 1;
+        assert.equal(installedBrowser, browser);
+      },
+    });
+
+    const unregister = registerBrowserInstance(service, host, browser);
+    assert.equal(await service.whenReady(), browser);
+    assert.equal(installs, 1);
+    service.registerBrowserAddon({
+      id: 'test-addon',
+      install() {
+        installs += 1;
+      },
+    });
+    assert.equal(installs, 1);
+    unregister();
+    await browser.dispose();
+  });
+});
+
 async function withFakeWindow(callback) {
   const previousWindow = globalThis.window;
   const fakeWindow = {
@@ -116,6 +324,65 @@ async function withFakeWindow(callback) {
       Object.defineProperty(globalThis, 'window', {
         configurable: true,
         value: previousWindow,
+      });
+    }
+  }
+}
+
+async function withFakeCaches(callback) {
+  const previousCaches = globalThis.caches;
+  const previousFetch = globalThis.fetch;
+  const cache = {
+    async match() {
+      return null;
+    },
+    async put() {},
+  };
+
+  Object.defineProperty(globalThis, 'caches', {
+    configurable: true,
+    value: {
+      async open() {
+        return cache;
+      },
+    },
+  });
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    value(_url, options = {}) {
+      return new Promise((_resolve, reject) => {
+        if (options.signal?.aborted) {
+          const error = new Error('Range fetch aborted.');
+          error.name = 'AbortError';
+          reject(error);
+          return;
+        }
+        options.signal?.addEventListener?.('abort', () => {
+          const error = new Error('Range fetch aborted.');
+          error.name = 'AbortError';
+          reject(error);
+        }, { once: true });
+      });
+    },
+  });
+
+  try {
+    await callback();
+  } finally {
+    if (previousCaches === undefined) {
+      delete globalThis.caches;
+    } else {
+      Object.defineProperty(globalThis, 'caches', {
+        configurable: true,
+        value: previousCaches,
+      });
+    }
+    if (previousFetch === undefined) {
+      delete globalThis.fetch;
+    } else {
+      Object.defineProperty(globalThis, 'fetch', {
+        configurable: true,
+        value: previousFetch,
       });
     }
   }

@@ -145,7 +145,7 @@ function createInitialViewState() {
     observerPc: { x: 0, y: 0, z: 0 },
     coordinateUnitsPerParsec: UNITS_PER_PARSEC,
     limitingMagnitude: 7.5,
-    orientationIcrs: lookAtFromOriginWithNorthUp(HYADES_CENTER_PC),
+    lookAt: { targetPc: HYADES_CENTER_PC },
   };
 }
 
@@ -330,29 +330,6 @@ function toRenderPosition(pointPc) {
     pointPc.y * UNITS_PER_PARSEC,
     pointPc.z * UNITS_PER_PARSEC,
   );
-}
-
-function lookAtFromOriginWithNorthUp(targetPc) {
-  const forward = new THREE.Vector3(targetPc.x, targetPc.y, targetPc.z).normalize();
-  const north = new THREE.Vector3(0, 0, 1);
-  let up = north.clone().sub(forward.clone().multiplyScalar(north.dot(forward)));
-  if (up.lengthSq() < 1e-8) {
-    up = new THREE.Vector3(0, 1, 0);
-  }
-  up.normalize();
-
-  const backward = forward.clone().negate();
-  const right = up.clone().cross(backward).normalize();
-  up = backward.clone().cross(right).normalize();
-
-  const matrix = new THREE.Matrix4().makeBasis(right, up, backward);
-  const quaternion = new THREE.Quaternion().setFromRotationMatrix(matrix);
-  return {
-    x: quaternion.x,
-    y: quaternion.y,
-    z: quaternion.z,
-    w: quaternion.w,
-  };
 }
 
 function directionFromRaDec(raDeg, decDeg) {

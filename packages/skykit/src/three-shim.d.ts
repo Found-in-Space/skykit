@@ -17,6 +17,8 @@ declare module 'three' {
     updateMatrixWorld(force?: boolean): void;
   }
 
+  export type ColorRepresentation = number | string;
+
   export class Group extends Object3D {}
   export class Scene extends Object3D {}
   export class Camera extends Object3D {
@@ -105,8 +107,38 @@ declare module 'three' {
 
   export class ShaderMaterial extends Material {}
 
+  export class LineBasicMaterial extends Material {
+    constructor(parameters?: {
+      color?: ColorRepresentation;
+      transparent?: boolean;
+      opacity?: number;
+      depthTest?: boolean;
+      depthWrite?: boolean;
+    });
+  }
+
+  export class BufferAttribute {
+    array: ArrayLike<number>;
+    itemSize: number;
+    needsUpdate: boolean;
+    count: number;
+    constructor(array: ArrayLike<number>, itemSize: number, normalized?: boolean);
+  }
+
   export class BufferGeometry {
+    attributes: Record<string, BufferAttribute>;
+    setAttribute(name: string, attribute: BufferAttribute): this;
+    getAttribute(name: string): BufferAttribute | undefined;
+    computeBoundingSphere(): void;
     dispose(): void;
+  }
+
+  export class Line extends Object3D {
+    geometry: BufferGeometry;
+    material: Material | Material[];
+    frustumCulled: boolean;
+    renderOrder: number;
+    constructor(geometry?: BufferGeometry, material?: Material | Material[]);
   }
 
   export class Mesh extends Object3D {

@@ -1,7 +1,17 @@
+import { parseSpatialLookAtText } from '@found-in-space/spatial';
+
+import {
+  installSkykitBrowserGlobal,
+  registerBrowserAddon,
+  registerBrowserInstance,
+} from './browser-addons.js';
 import { createSkykitBrowser } from './browser.js';
 
 const DEFAULT_SELECTOR = '[data-skykit-browser]';
 const started = new WeakSet();
+const skykitGlobal = typeof globalThis !== 'undefined'
+  ? installSkykitBrowserGlobal(globalThis)
+  : null;
 
 if (typeof document !== 'undefined') {
   ready(() => {
@@ -9,6 +19,17 @@ if (typeof document !== 'undefined') {
       if (started.has(host)) continue;
       started.add(host);
       void createSkykitBrowser(readOptions(host))
+        .then(async (browser) => {
+          await installRequestedCapabilities(host, browser);
+          if (skykitGlobal) {
+            const unregister = registerBrowserInstance(skykitGlobal, host, browser);
+            await browser.install({
+              id: 'skykit-browser-global-record',
+              install: () => unregister,
+            });
+          }
+          return browser;
+        })
         .then((browser) => {
           reportReady(host, browser);
         })
@@ -19,15 +40,35 @@ if (typeof document !== 'undefined') {
   });
 }
 
+/**
+ * @param {Element} host
+ * @param {import('./browser.d.ts').SkykitBrowser} browser
+ */
+async function installRequestedCapabilities(host, browser) {
+  const data = isHtmlElement(host) ? host.dataset : {};
+  if (data.skykitConstellations != null || data.skykitConstellationManifest != null) {
+    await browser.constellations.load({
+      skyculture: data.skykitConstellations,
+      manifestUrl: data.skykitConstellationManifest,
+      assetBaseUrl: data.skykitConstellationAssets,
+      art: data.skykitConstellationArt,
+    });
+  }
+}
+
 /** @param {Element} host */
 function readOptions(host) {
-  const data = host instanceof HTMLElement ? host.dataset : {};
+  const data = isHtmlElement(host) ? host.dataset : {};
+  const lookAt = data.skykitLookAt ? parseSpatialLookAtText(data.skykitLookAt) : null;
   return {
     host,
     ...(data.skykitStatus ? { status: data.skykitStatus } : {}),
     ...(data.skykitMagnitude ? { limitingMagnitude: Number(data.skykitMagnitude) } : {}),
     ...(data.skykitSpeed ? { speedPcPerSec: Number(data.skykitSpeed) } : {}),
     ...(data.skykitExposure ? { exposure: Number(data.skykitExposure) } : {}),
+    ...(data.skykitMouseMode ? { mouseMode: data.skykitMouseMode } : {}),
+    ...(data.skykitPersistentCache ? { persistentCache: data.skykitPersistentCache } : {}),
+    ...(lookAt ? { view: { lookAt } } : {}),
   };
 }
 
@@ -51,10 +92,15 @@ function reportError(host, error) {
     detail: { error },
     bubbles: true,
   }));
-  const data = host instanceof HTMLElement ? host.dataset : {};
+  const data = isHtmlElement(host) ? host.dataset : {};
   if (!data.skykitStatus) return;
   const status = document.querySelector(data.skykitStatus);
   if (status) status.textContent = error instanceof Error ? error.stack ?? error.message : String(error);
+}
+
+/** @param {Element} host */
+function isHtmlElement(host) {
+  return typeof HTMLElement !== 'undefined' && host instanceof HTMLElement;
 }
 
 /** @param {() => void} callback */
@@ -67,3 +113,8 @@ function ready(callback) {
 }
 
 export { createSkykitBrowser } from './browser.js';
+export {
+  installSkykitBrowserGlobal,
+  registerBrowserAddon,
+  registerBrowserInstance,
+} from './browser-addons.js';

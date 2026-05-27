@@ -9,6 +9,7 @@ import {
   META_SIDECAR_DEFAULT,
   createMetaSidecarProviderService,
   deriveMetaSidecarUrlFromRenderUrl,
+  metaSidecarEntryDisplayFields,
 } from '../index.js';
 
 const HEADER_SIZE = 64;
@@ -31,6 +32,38 @@ test('deriveMetaSidecarUrlFromRenderUrl mirrors render octree names', () => {
     deriveMetaSidecarUrlFromRenderUrl('https://example.test/data/stars'),
     'https://example.test/data/stars.meta.octree',
   );
+});
+
+test('meta sidecar display fields normalize catalog identifiers and labels', () => {
+  assert.deepEqual(metaSidecarEntryDisplayFields({
+    proper_name: ' Sirius ',
+    bayer: 'alpha',
+    constellation: 'CMa',
+    hd: 48915,
+    hip_id: 32349,
+    gaia_source_id: '2947050466531873024',
+  }), {
+    properName: 'Sirius',
+    bayer: 'alpha CMa',
+    hd: '48915',
+    hip: '32349',
+    gaia: '2947050466531873024',
+    primaryLabel: 'Sirius',
+  });
+
+  assert.equal(metaSidecarEntryDisplayFields({ bayer: 'beta Ori' }).primaryLabel, 'beta Ori');
+  assert.equal(metaSidecarEntryDisplayFields({ hd: 39801 }).primaryLabel, 'HD 39801');
+  assert.equal(metaSidecarEntryDisplayFields({ hip_id: 27989 }).primaryLabel, 'HIP 27989');
+  assert.equal(metaSidecarEntryDisplayFields({ gaia_source_id: '3131481481815810432' }).primaryLabel, 'Gaia 3131481481815810432');
+  assert.deepEqual(metaSidecarEntryDisplayFields({ source: 'hip', source_id: 123 }), {
+    properName: '',
+    bayer: '',
+    hd: '',
+    hip: '123',
+    gaia: '',
+    primaryLabel: 'HIP 123',
+  });
+  assert.equal(metaSidecarEntryDisplayFields({ source: 'wise', source_id: 'J1' }).primaryLabel, 'wise J1');
 });
 
 test('meta sidecar provider resolves raw metadata from URL-backed sidecar cells', async (t) => {

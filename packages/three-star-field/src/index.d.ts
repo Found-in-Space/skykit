@@ -77,6 +77,18 @@ export interface ThreeStarFieldSnapshot {
   } | null;
 }
 
+export interface ThreeStarFieldBounds {
+  units: 'render' | 'parsec';
+  coordinateUnitsPerParsec: number;
+  starCount: number;
+  min: ThreeStarFieldVector;
+  max: ThreeStarFieldVector;
+}
+
+export interface ThreeStarFieldBoundsOptions {
+  units?: 'render' | 'parsec';
+}
+
 export interface ThreeStarFieldPickOptions extends Partial<ThreeStarFieldView> {
   toleranceDeg?: number;
   minClickRadiusDeg?: number;
@@ -116,6 +128,7 @@ export interface ThreeStarField {
     ray: THREE.Ray | { origin: ThreeStarFieldVector; direction: ThreeStarFieldVector },
     options?: ThreeStarFieldPickOptions
   ): ThreeStarFieldPickResult | null;
+  getVisibleBounds(options?: ThreeStarFieldBoundsOptions): ThreeStarFieldBounds | null;
   getSnapshot(): ThreeStarFieldSnapshot;
   dispose(): void;
 }

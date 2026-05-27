@@ -326,6 +326,7 @@ export interface EnterSkykitXrSessionOptions {
   referenceSpaceType?: string;
   sessionInit?: unknown;
   navigator?: unknown;
+  requestReferenceSpace?: boolean;
   onSessionStarted?: (handle: SkykitXrSessionHandle) => void;
 }
 
@@ -389,6 +390,26 @@ export interface SkykitXrNavigationPlugin extends SkykitPlugin {
   getSnapshot(): unknown;
 }
 
+export interface SkykitXrRayVisualPluginOptions {
+  id?: string;
+  priority?: number;
+  raySource: SkykitXrRaySource;
+  rig?: SkykitXrRig;
+  blockers?: Iterable<SkykitXrPickBlocker>;
+  parent?: THREE.Object3D | ((context: import('./index.js').SkykitThreePluginContext) => THREE.Object3D | null | undefined);
+  material?: THREE.Material;
+  color?: THREE.ColorRepresentation;
+  opacity?: number;
+  depthTest?: boolean;
+  renderOrder?: number;
+  length?: number;
+}
+
+export interface SkykitXrRayVisualPlugin extends SkykitPlugin {
+  readonly id: string;
+  getSnapshot(): unknown;
+}
+
 export interface SkykitXrStarPickEvent extends SkykitEvent {
   type: 'stars/xr-pick';
   id: string;
@@ -432,6 +453,7 @@ export declare function createSkykitXrPickRouter(options?: SkykitXrPickRouterOpt
 export declare function createSkykitXrObserverRig(options: CreateSkykitXrObserverRigOptions): import('./index.js').SkykitObserverRig;
 export declare function createSkykitXrSessionPlugin(options?: SkykitXrSessionPluginOptions): SkykitXrSessionPlugin;
 export declare function createSkykitXrNavigationPlugin(options?: SkykitXrNavigationPluginOptions): SkykitXrNavigationPlugin;
+export declare function createSkykitXrRayVisualPlugin(options: SkykitXrRayVisualPluginOptions): SkykitXrRayVisualPlugin;
 export declare function createSkykitXrStarPickingPlugin(options: SkykitXrStarPickingPluginOptions): SkykitPlugin & {
   getSnapshot(): unknown;
 };

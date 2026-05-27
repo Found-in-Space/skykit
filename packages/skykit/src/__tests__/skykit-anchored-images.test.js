@@ -147,7 +147,7 @@ test('anchored image sky plugin preloads controller selection and mounts fixed-a
   });
   const viewer = await createSkykitViewer({
     renderer: createRenderer(),
-    view: { directionIcrs: { x: 1, y: 0, z: 0 } },
+    view: { lookAt: { raDeg: 0, decDeg: 0 } },
     plugins: [plugin],
   });
 
@@ -157,6 +157,34 @@ test('anchored image sky plugin preloads controller selection and mounts fixed-a
   assert.equal(root.children.length, 2);
   assert.equal(plugin.getSnapshot().cachedCount, 2);
   assert.deepEqual(plugin.getActive().map((entry) => entry.key), ['alpha', 'beta']);
+
+  await viewer.dispose();
+});
+
+test('anchored image sky plugin can mount art into a named scale band', async () => {
+  const catalog = await createAnchoredImageCatalog({ manifest: MANIFEST });
+  const requests = [];
+  const scaleRoot = new THREE.Group();
+  const plugin = createAnchoredImageSkyPlugin({
+    id: 'banded-art',
+    catalog,
+    controller: createManualAnchoredImageController({ selection: 'alpha' }),
+    loading: 'preload',
+    textureLoader: createTextureLoader(requests),
+    anchorMode: 'scale-banded',
+    scaleBandId: 'constellation-art',
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    roots: {
+      scaleBandedContentRoots: new Map([['constellation-art', scaleRoot]]),
+    },
+    view: { lookAt: { raDeg: 0, decDeg: 0 } },
+    plugins: [plugin],
+  });
+
+  assert.deepEqual(requests, ['alpha.png']);
+  assert.equal(scaleRoot.children.some((child) => child.name === 'banded-art'), true);
 
   await viewer.dispose();
 });
@@ -174,13 +202,13 @@ test('anchored image sky plugin lazy-loads active controller entries and caches 
   });
   const viewer = await createSkykitViewer({
     renderer: createRenderer(),
-    view: { directionIcrs: { x: 1, y: 0, z: 0 } },
+    view: { lookAt: { raDeg: 0, decDeg: 0 } },
     plugins: [plugin],
   });
   await flushPromises();
 
   assert.deepEqual(requests, ['alpha.png']);
-  viewer.requestViewState({ directionIcrs: { x: 0, y: 1, z: 0 } }, 'test-active-change');
+  viewer.requestViewState({ lookAt: { raDeg: 90, decDeg: 0 } }, 'test-active-change');
   viewer.update(0);
   await flushPromises();
   assert.deepEqual(requests, ['alpha.png', 'beta.png']);
@@ -208,7 +236,7 @@ test('anchored image sky plugin fades opacity by seconds and keeps fading object
   });
   const viewer = await createSkykitViewer({
     renderer: createRenderer(),
-    view: { directionIcrs: { x: 1, y: 0, z: 0 } },
+    view: { lookAt: { raDeg: 0, decDeg: 0 } },
     plugins: [plugin],
   });
   await flushPromises();

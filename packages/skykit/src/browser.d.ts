@@ -7,13 +7,18 @@ import type { ThreeStarField } from '@found-in-space/three-star-field';
 import type * as THREE from 'three';
 
 import type {
+  Object3dLayerOptions,
   SkykitAnimationLoop,
   SkykitAnimationLoopOptions,
   SkykitDragLookOptions,
+  SkykitLookAtInput,
   SkykitKeyboardNavigationOptions,
   SkykitPluginInput,
+  SkykitPluginTeardown,
+  SkykitThreePart,
   SkykitViewState,
   SkykitViewer,
+  Vector3Like,
 } from './index.js';
 
 export type SkykitBrowserHost = string | {
@@ -25,6 +30,61 @@ export type SkykitBrowserHost = string | {
 };
 
 export type SkykitBrowserStatusTarget = string | { textContent?: string | null };
+export type SkykitBrowserMouseMode = 'grab' | 'look' | 'strafe' | 'none';
+export type SkykitConstellationArtMode = 'off' | 'lazy' | 'preload';
+export type SkykitPersistentCacheMode = 'on' | 'off';
+
+export interface SkykitBrowserAddonContext {
+  id?: string;
+  host: SkykitBrowserHost | Element;
+  browser: SkykitBrowser;
+  viewer: SkykitViewer;
+  THREE: typeof THREE;
+  skykit: Record<string, unknown>;
+}
+
+export interface SkykitBrowserAddon {
+  id?: string;
+  install(
+    context: SkykitBrowserAddonContext
+  ): void | Promise<void> | SkykitPluginTeardown | Promise<SkykitPluginTeardown | void>;
+}
+
+export type SkykitBrowserInstallInput = SkykitPluginInput | SkykitBrowserAddon;
+
+export interface SkykitBrowserGlobal {
+  browserAddons: SkykitBrowserAddon[];
+  registerBrowserAddon(addon: SkykitBrowserAddon): SkykitPluginTeardown;
+  whenReady(target?: string | Element): Promise<SkykitBrowser>;
+  getBrowsers(): SkykitBrowser[];
+}
+
+export interface SkykitBrowserConstellationsOptions {
+  skyculture?: string;
+  manifest?: Record<string, unknown>;
+  manifestUrl?: string;
+  assetBaseUrl?: string;
+  art?: SkykitConstellationArtMode | string;
+  visible?: boolean;
+  priority?: number;
+  boundaryRadius?: number;
+  boundaryColor?: THREE.ColorRepresentation;
+  boundaryOpacity?: number;
+  renderOrder?: number;
+  artOpacity?: number;
+  artMaxAngleDeg?: number;
+  skipTextureErrors?: boolean;
+}
+
+export interface SkykitBrowserConstellationsFacade {
+  load(options?: SkykitBrowserConstellationsOptions): Promise<SkykitBrowserConstellationsFacade>;
+  show(): boolean | Promise<boolean>;
+  hide(): boolean | Promise<boolean>;
+  toggle(force?: boolean): boolean | Promise<boolean>;
+  setArt(mode: SkykitConstellationArtMode | string): SkykitConstellationArtMode | Promise<SkykitConstellationArtMode>;
+  getSnapshot(): unknown | Promise<unknown>;
+  dispose?(): void;
+}
 
 export interface SkykitBrowserOptions {
   host?: SkykitBrowserHost;
@@ -34,12 +94,15 @@ export interface SkykitBrowserOptions {
   provider?: StarOctreeProviderService;
   starField?: ThreeStarField;
   octreeUrl?: string;
+  persistentCache?: SkykitPersistentCacheMode | string;
   strategy?: StarCellStrategy;
   session?: StarOctreeSessionOptions;
   keyboard?: false | SkykitKeyboardNavigationOptions;
   grab?: false | SkykitDragLookOptions;
+  mouseMode?: SkykitBrowserMouseMode;
   plugins?: Iterable<SkykitPluginInput>;
   view?: Partial<SkykitViewState>;
+  lookAt?: SkykitLookAtInput;
   loop?: SkykitAnimationLoopOptions;
   limitingMagnitude?: number;
   exposure?: number;
@@ -64,8 +127,26 @@ export interface SkykitBrowser {
   provider: StarOctreeProviderService;
   starField: ThreeStarField;
   loop: SkykitAnimationLoop;
+  capabilities: Set<string>;
+  constellations: SkykitBrowserConstellationsFacade;
+  install(input: SkykitBrowserInstallInput): Promise<SkykitPluginTeardown>;
+  addObject(
+    object3d: THREE.Object3D,
+    options?: SkykitBrowserObjectOptions
+  ): SkykitBrowserObjectHandle;
   resize(): void;
   dispose(): Promise<void>;
+}
+
+export interface SkykitBrowserObjectOptions extends Omit<Object3dLayerOptions, 'object3d'> {
+  positionPc?: Vector3Like;
+}
+
+export interface SkykitBrowserObjectHandle {
+  object3d: THREE.Object3D;
+  part: SkykitThreePart;
+  remove: SkykitPluginTeardown;
+  dispose: SkykitPluginTeardown;
 }
 
 export declare function createSkykitBrowser(host: SkykitBrowserHost): Promise<SkykitBrowser>;

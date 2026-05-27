@@ -1,9 +1,24 @@
 import type {
+  AppShellChange,
+  AppShellPresentation,
+  AppShellSession,
+  AppShellSessionSeed,
   DisplayNode,
   DisplayRuntime,
+  EmbeddedSurfaceService,
   RuntimeOutput,
   RuntimeOptions,
   SurfaceMetrics,
+  TabletHomeLauncherLayoutOptions,
+  TouchAppCapability,
+  TouchAppContext,
+  TouchAppEvent,
+  TouchAppModule,
+  TouchAppPreferredWindow,
+  TouchAppRegistry,
+  TouchAppStorage,
+  TouchIconDescriptor,
+  WindowManagerAppHostMode,
 } from '@found-in-space/touch-os';
 import type {
   HudPanelDriverOptions,
@@ -96,6 +111,55 @@ export interface TouchOsHudPlugin extends SkykitPlugin {
 }
 
 export type TouchOsPanelDriverKind = 'hud' | 'pose-anchored' | 'scene';
+
+export interface SkykitTabletRootOptions {
+  id?: string;
+  apps?: readonly TouchAppModule<unknown>[];
+  registry?: TouchAppRegistry;
+  presentation?: AppShellPresentation;
+  appHostMode?: WindowManagerAppHostMode;
+  homeKey?: boolean;
+  keepAlive?: boolean;
+  initialSessions?: readonly AppShellSessionSeed[];
+  appStates?: Readonly<Record<string, unknown>>;
+  getAppState?: (session: AppShellSession) => unknown;
+  forwardAppOutputs?: boolean;
+  storage?: TouchAppStorage;
+  surfaces?: EmbeddedSurfaceService;
+  onAppEvent?: (event: TouchAppEvent) => void;
+  onShellChange?: (change: AppShellChange) => void;
+  homeControl?: 'button' | 'bar' | 'none';
+  taskSwitcher?: 'cards' | 'list' | 'none';
+  taskCloseControl?: 'button' | 'none';
+  launcherLayout?: TabletHomeLauncherLayoutOptions;
+}
+
+export interface SkykitSurfaceAppRenderContext<TState = unknown> {
+  context: TouchAppContext;
+  state: TState;
+}
+
+export interface SkykitSurfaceAppOutputContext {
+  context: TouchAppContext;
+}
+
+export interface SkykitSurfaceAppOptions<TState = unknown> {
+  id: string;
+  name: string;
+  version?: string;
+  icon?: TouchIconDescriptor;
+  capabilities?: readonly TouchAppCapability[];
+  preferredWindow?: TouchAppPreferredWindow;
+  rootId?: string;
+  node:
+    | DisplayNode
+    | ((context: SkykitSurfaceAppRenderContext<TState>) => DisplayNode | null | undefined);
+  padding?: number;
+  pointerOpaque?: boolean;
+  backgroundColor?: string;
+  emptyLabel?: string;
+  onOutput?: (output: RuntimeOutput, context: SkykitSurfaceAppOutputContext) => void;
+}
 
 export interface TouchOsPanelRootContext {
   id: string;
@@ -211,6 +275,12 @@ export interface CreateTouchOsHostFrameOptions {
   parent?: THREE.Object3D | ((frame: SkykitThreeFrame) => THREE.Object3D | undefined);
   events?: readonly ThreePanelHostInputEvent[];
 }
+
+export declare function createSkykitTabletRoot(options?: SkykitTabletRootOptions): DisplayNode;
+
+export declare function createSkykitSurfaceApp<TState = unknown>(
+  options: SkykitSurfaceAppOptions<TState>
+): TouchAppModule<TState>;
 
 export declare function createTouchOsHudPlugin(options: TouchOsHudPluginOptions): TouchOsHudPlugin;
 export declare function createTouchOsPanelPlugin(options: TouchOsPanelPluginOptions): TouchOsPanelPlugin;

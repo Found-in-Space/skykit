@@ -185,7 +185,7 @@ test('parallax observer moves in the target-relative plane without accumulating 
   const viewer = await createSkykitViewer({
     view: {
       observerPc: { x: 0, y: 0, z: 0 },
-      targetPc: { x: 0, y: 0, z: -10 },
+      lookAt: { targetPc: { x: 0, y: 0, z: -10 } },
     },
     plugins: [
       createParallaxObserverPlugin({
@@ -223,7 +223,7 @@ test('parallax observer smoothing approaches the requested offset', async () => 
   const viewer = await createSkykitViewer({
     view: {
       observerPc: { x: 0, y: 0, z: 0 },
-      targetPc: { x: 0, y: 0, z: -10 },
+      lookAt: { targetPc: { x: 0, y: 0, z: -10 } },
     },
     plugins: [
       createParallaxObserverPlugin({
@@ -253,7 +253,7 @@ test('parallax observer static upIcrs controls the target-relative up plane', as
   const viewer = await createSkykitViewer({
     view: {
       observerPc: { x: 0, y: 0, z: 0 },
-      targetPc: { x: 0, y: -10, z: 0 },
+      lookAt: { targetPc: { x: 0, y: -10, z: 0 } },
     },
     plugins: [
       createParallaxObserverPlugin({
@@ -285,7 +285,7 @@ test('parallax observer resolveUpIcrs overrides static up and can change at runt
   const viewer = await createSkykitViewer({
     view: {
       observerPc: { x: 0, y: 0, z: 0 },
-      targetPc: { x: 0, y: -10, z: 0 },
+      lookAt: { targetPc: { x: 0, y: -10, z: 0 } },
     },
     plugins: [
       createParallaxObserverPlugin({

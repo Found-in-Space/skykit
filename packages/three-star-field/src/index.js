@@ -84,6 +84,7 @@ export function createThreeStarField(options = {}) {
   points.name = `${fieldId}:points`;
   points.frustumCulled = frustumCulled;
   points.userData.cellStore = true;
+  points.visible = false;
   object3d.add(points);
 
   const haloPoints = materialProfile.haloMaterial
@@ -92,7 +93,7 @@ export function createThreeStarField(options = {}) {
   if (haloPoints) {
     haloPoints.name = `${fieldId}:halo`;
     haloPoints.frustumCulled = frustumCulled;
-    haloPoints.visible = view.halo;
+    haloPoints.visible = false;
     haloPoints.userData.cellStore = true;
     object3d.add(haloPoints);
   }
@@ -114,6 +115,7 @@ export function createThreeStarField(options = {}) {
     clear,
     setView,
     pick,
+    getVisibleBounds,
     getSnapshot,
     dispose,
   };
@@ -193,7 +195,7 @@ export function createThreeStarField(options = {}) {
     });
     object3d.scale.setScalar(view.renderScale);
     materialProfile.updateUniforms?.({ view });
-    syncHaloVisibility();
+    syncRenderVisibility();
   }
 
   /**
@@ -208,6 +210,32 @@ export function createThreeStarField(options = {}) {
       object3d,
       view,
     }, pickOptions);
+  }
+
+  /**
+   * @param {{ units?: 'render' | 'parsec' }} [options]
+   * @returns {import('./index.d.ts').ThreeStarFieldBounds | null}
+   */
+  function getVisibleBounds(options = {}) {
+    assertActive();
+    if (!hasDrawableGeometry(geometry)) return null;
+    if (!geometry.boundingBox) {
+      geometry.computeBoundingBox();
+    }
+    if (!geometry.boundingBox) return null;
+
+    object3d.updateMatrix();
+    const box = geometry.boundingBox.clone().applyMatrix4(object3d.matrix);
+    const units = options.units === 'render' ? 'render' : 'parsec';
+    const divisor = units === 'parsec' ? view.coordinateUnitsPerParsec : 1;
+    if (!(Number.isFinite(divisor) && divisor > 0)) return null;
+    return {
+      units,
+      coordinateUnitsPerParsec: view.coordinateUnitsPerParsec,
+      starCount: Number(geometry.getAttribute('position')?.count ?? 0),
+      min: vectorFromBoxPoint(box.min, divisor),
+      max: vectorFromBoxPoint(box.max, divisor),
+    };
   }
 
   function getSnapshot() {
@@ -269,9 +297,11 @@ export function createThreeStarField(options = {}) {
     }
   }
 
-  function syncHaloVisibility() {
+  function syncRenderVisibility() {
+    const visible = hasDrawableGeometry(geometry);
+    points.visible = visible;
     if (haloPoints) {
-      haloPoints.visible = view.halo;
+      haloPoints.visible = visible && view.halo;
     }
   }
 
@@ -283,6 +313,7 @@ export function createThreeStarField(options = {}) {
     if (haloPoints) {
       haloPoints.geometry = nextGeometry;
     }
+    syncRenderVisibility();
     previousGeometry.dispose();
   }
 
@@ -636,6 +667,28 @@ function normalizeMaterialProfile(profile) {
         profile.material.dispose();
         haloMaterial?.dispose();
       },
+  };
+}
+
+/**
+ * @param {THREE.BufferGeometry} geometry
+ */
+function hasDrawableGeometry(geometry) {
+  const position = geometry.getAttribute('position');
+  const attributeCount = Number(position?.count ?? 0);
+  const drawCount = Number(geometry.drawRange?.count ?? attributeCount);
+  return attributeCount > 0 && drawCount > 0;
+}
+
+/**
+ * @param {THREE.Vector3} point
+ * @param {number} divisor
+ */
+function vectorFromBoxPoint(point, divisor) {
+  return {
+    x: point.x / divisor,
+    y: point.y / divisor,
+    z: point.z / divisor,
   };
 }
 

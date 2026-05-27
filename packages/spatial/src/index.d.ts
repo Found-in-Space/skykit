@@ -387,10 +387,48 @@ export interface SpatialOrbitalInsertMotionModel extends SpatialMotionModel {
   getSnapshot(): SpatialNavigationAutomationSnapshot;
 }
 
-export interface SpatialLookAtInput {
+export interface SpatialLookAtOrientationInput {
   position: SpatialVector3;
   target: SpatialVector3;
   up?: SpatialVector3;
+  positionAngleDeg?: number;
+}
+
+export type SpatialLookAtInput = SpatialLookAtOrientationInput;
+
+export interface SpatialLookAtTargetSpec {
+  targetPc: SpatialVector3 | [number, number, number];
+  positionAngleDeg?: number;
+}
+
+export interface SpatialLookAtRaDecSpec {
+  raDeg?: number;
+  raHours?: number;
+  decDeg: number;
+  distancePc?: number;
+  positionAngleDeg?: number;
+}
+
+export interface SpatialLookAtStarSpec {
+  star: unknown;
+  positionAngleDeg?: number;
+}
+
+export interface SpatialLookAtOrientationSpec {
+  orientationIcrs: SpatialQuaternion;
+}
+
+export type SpatialLookAtSpec =
+  | SpatialLookAtTargetSpec
+  | SpatialLookAtRaDecSpec
+  | SpatialLookAtStarSpec
+  | SpatialLookAtOrientationSpec;
+
+export interface SpatialResolvedLookAt {
+  lookAt: SpatialLookAtSpec | null;
+  targetPc: SpatialVector3 | null;
+  orientationIcrs: SpatialQuaternion | null;
+  unresolved: string | null;
 }
 
 export interface SpatialLookAtOptions {
@@ -483,6 +521,10 @@ export interface ResolveSpatialTargetOptions {
   resolveBookmark?: (bookmarkId: string, input: SpatialTargetInput) => SpatialTargetInput | Promise<SpatialTargetInput | null> | null;
 }
 
+export interface ResolveSpatialLookAtOptions extends ResolveSpatialTargetOptions {
+  resolveStar?: (star: unknown, input: SpatialLookAtStarSpec) => SpatialLookAtSpec | SpatialTargetInput | Promise<SpatialLookAtSpec | SpatialTargetInput | null> | null;
+}
+
 export declare const DEFAULT_SPATIAL_SCALE_PROFILE: Required<SpatialScaleProfile>;
 export declare const IDENTITY_QUATERNION: SpatialQuaternion;
 export declare const LOCAL_FORWARD: SpatialVector3;
@@ -525,7 +567,11 @@ export declare function buildSpatialPolylineRoute(points?: Iterable<unknown>): S
 export declare function sampleSpatialPolylineRoutePosition(route: SpatialPolylineRoute | null | undefined, distance: number): SpatialVector3 | null;
 export declare function deriveSpatialOrbitAngle(input: SpatialOrbitAngleInput): number;
 export declare function createOrbitTransferRoute(options?: SpatialOrbitTransferOptions): SpatialOrbitTransferRoute | null;
-export declare function computeSpatialLookAtOrientation(input: SpatialLookAtInput): SpatialQuaternion | null;
+export declare function computeSpatialLookAtOrientation(input: SpatialLookAtOrientationInput): SpatialQuaternion | null;
+export declare function computeSpatialLookDirectionOrientation(input: { direction: SpatialVector3; positionAngleDeg?: number; up?: SpatialVector3 }): SpatialQuaternion | null;
+export declare function normalizeSpatialLookAt(input: unknown): SpatialLookAtSpec | null;
+export declare function parseSpatialLookAtText(text: string): SpatialLookAtSpec | null;
+export declare function resolveSpatialLookAt(input: unknown, options?: ResolveSpatialLookAtOptions): SpatialResolvedLookAt | Promise<SpatialResolvedLookAt>;
 export declare function createRouteFollowSpatialMotionModel(options?: SpatialRouteFollowOptions & { points?: Iterable<SpatialVector3> }): SpatialRouteFollowMotionModel;
 export declare function createOrbitSpatialMotionModel(options?: SpatialOrbitOptions & { center?: SpatialVector3 }): SpatialOrbitMotionModel;
 export declare function createOrbitalInsertSpatialMotionModel(options?: SpatialOrbitalInsertOptions): SpatialOrbitalInsertMotionModel;

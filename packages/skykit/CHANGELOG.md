@@ -1,5 +1,11 @@
 # @found-in-space/skykit
 
+## 0.2.0-alpha.2
+
+### Minor Changes
+
+- Add beginner viewer, data, and story subpath entries for website use-cases.
+
 ## 0.2.0-alpha.1
 
 ### Patch Changes

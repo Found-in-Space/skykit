@@ -4,7 +4,6 @@ set -euo pipefail
 packages=(
   "@found-in-space/anchored-image"
   "@found-in-space/hr-diagram"
-  "@found-in-space/journey"
   "@found-in-space/meta-sidecar-provider"
   "@found-in-space/skykit"
   "@found-in-space/spatial"
