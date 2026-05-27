@@ -8,9 +8,13 @@ if (typeof document !== 'undefined') {
     for (const host of document.querySelectorAll(DEFAULT_SELECTOR)) {
       if (started.has(host)) continue;
       started.add(host);
-      void createSkykitBrowser(readOptions(host)).catch((error) => {
-        reportError(host, error);
-      });
+      void createSkykitBrowser(readOptions(host))
+        .then((browser) => {
+          reportReady(host, browser);
+        })
+        .catch((error) => {
+          reportError(host, error);
+        });
     }
   });
 }
@@ -25,6 +29,17 @@ function readOptions(host) {
     ...(data.skykitSpeed ? { speedPcPerSec: Number(data.skykitSpeed) } : {}),
     ...(data.skykitExposure ? { exposure: Number(data.skykitExposure) } : {}),
   };
+}
+
+/**
+ * @param {Element} host
+ * @param {import('./browser.d.ts').SkykitBrowser} browser
+ */
+function reportReady(host, browser) {
+  host.dispatchEvent(new CustomEvent('skykit-browser-ready', {
+    detail: { browser, viewer: browser.viewer },
+    bubbles: true,
+  }));
 }
 
 /**

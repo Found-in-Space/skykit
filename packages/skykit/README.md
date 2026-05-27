@@ -59,8 +59,13 @@ Optional attributes keep small tweaks HTML-only:
 ></div>
 ```
 
+The host dispatches `skykit-browser-ready` with `{ browser, viewer }` in
+`event.detail` after startup, and `skykit-browser-error` if startup fails. The
+embed does not install a global object, so pages can host multiple viewers.
+
 Pin the CDN URL to a released SkyKit version when publishing long-lived pages,
-for example `https://esm.sh/@found-in-space/skykit@x.y.z/embed?bundle`.
+for example
+`https://esm.sh/@found-in-space/skykit@x.y.z/embed?bundle&deps=three@0.170.0`.
 
 ## Create a browser from JavaScript
 
