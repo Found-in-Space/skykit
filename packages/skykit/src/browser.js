@@ -30,9 +30,10 @@ const DEFAULT_MAX_DEVICE_PIXEL_RATIO = 2;
 export async function createSkykitBrowser(input = {}) {
   const options = normalizeOptions(input);
   const host = resolveTarget(options.host ?? '#viewer', 'SkyKit browser host');
-  const statusTarget = options.status === false || options.status == null
+  const statusInput = options.status === true ? '#status' : options.status;
+  const statusTarget = statusInput === false || statusInput == null
     ? null
-    : resolveTarget(options.status, 'SkyKit status target');
+    : resolveTarget(statusInput, 'SkyKit status target');
   const limitingMagnitude = positive(options.limitingMagnitude, DEFAULT_LIMITING_MAGNITUDE);
   const renderer = options.renderer ?? new THREE.WebGLRenderer({
     antialias: options.antialias !== false,
