@@ -14,6 +14,7 @@ import {
   createSkykitStatusPlugin,
   createStreamingStarsPlugin,
 } from './plugins.js';
+import { createObject3dLayer } from './layers.js';
 import { createSkykitViewer } from './viewer.js';
 
 const DEFAULT_LIMITING_MAGNITUDE = 6.5;
@@ -125,7 +126,48 @@ export async function createSkykitBrowser(input = {}) {
   resize();
   if (options.autoStart !== false) loop.start();
 
-  return { viewer, renderer, camera, provider, starField, loop, resize, dispose };
+  return {
+    viewer,
+    renderer,
+    camera,
+    provider,
+    starField,
+    loop,
+    addObject,
+    resize,
+    dispose,
+  };
+
+  /**
+   * @param {THREE.Object3D} object3d
+   * @param {import('./browser.d.ts').SkykitBrowserObjectOptions} [objectOptions]
+   * @returns {import('./browser.d.ts').SkykitBrowserObjectHandle}
+   */
+  function addObject(object3d, objectOptions = {}) {
+    if (!object3d) {
+      throw new TypeError('SkykitBrowser.addObject() requires a THREE.Object3D.');
+    }
+    const { positionPc, ...layerOptions } = objectOptions;
+    if (positionPc) {
+      setObjectPositionPc(
+        object3d,
+        positionPc,
+        viewer.getViewState().coordinateUnitsPerParsec,
+      );
+    }
+    const part = createObject3dLayer({
+      ...layerOptions,
+      object3d,
+      anchorMode: layerOptions.anchorMode ?? 'world-space',
+    });
+    const remove = viewer.addPart(part);
+    return {
+      object3d,
+      part,
+      remove,
+      dispose: remove,
+    };
+  }
 }
 
 function createStatusPlugin(target) {
@@ -164,4 +206,17 @@ function isElementLike(value) {
 function positive(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+/**
+ * @param {THREE.Object3D} object3d
+ * @param {{ x: number; y: number; z: number }} positionPc
+ * @param {number} unitsPerParsec
+ */
+function setObjectPositionPc(object3d, positionPc, unitsPerParsec) {
+  object3d.position?.set?.(
+    positionPc.x * unitsPerParsec,
+    positionPc.y * unitsPerParsec,
+    positionPc.z * unitsPerParsec,
+  );
 }

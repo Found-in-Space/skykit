@@ -20,8 +20,11 @@ learner opens a lesson
 ```
 
 Core `@found-in-space/skykit` should stay slim. It composes focused packages
-into teachable viewers and examples; it should not absorb data loading,
-rendering, XR, sidecars, or scientific star interpretation.
+into teachable viewers and examples; it should not take ownership of data
+loading, rendering, XR, sidecars, or scientific star interpretation. Beginner
+subpaths such as `@found-in-space/skykit/data` may re-export and lightly compose
+focused packages for website use-cases, but the durable package boundaries stay
+with the focused packages.
 
 ## Teaching Principles
 
@@ -114,6 +117,14 @@ viewer
   + small custom plugin
 ```
 
+Website-facing lessons are use-case bounded rather than lesson-bundle bounded:
+
+```txt
+Viewer: embed.js for no-code, viewer.js for JavaScript customization
+Data: data.js for rows, labels, lists, maps, and renderer-independent games
+Story: story.js for authored chapters, targets, and guided tours
+```
+
 Root `demos/` pages in this repository are transition sandboxes. New package
 learning work should prefer:
 
@@ -174,8 +185,9 @@ packages/skykit/examples/
   lifecycle, streaming star plugin/layer, object3d plugin/layer, keyboard
   navigation helper, sky-grab and mouse-look helpers, parallax subpath plugins,
   status helper, navigation actions/plugin backed by spatial, journey
-  plugin/action bridge, animation loop, desktop observer rig, debug bridge, and
-  optional `skykit/xr` WebXR rig/input/ray/session/depth helpers
+  plugin/action bridge, animation loop, desktop observer rig, debug bridge,
+  beginner `viewer`, `data`, and `story` subpaths for public website use-cases,
+  and optional `skykit/xr` WebXR rig/input/ray/session/depth helpers
 ```
 
 Historical H-alpha tiled-volume and Dust Map NG experiments remain in the

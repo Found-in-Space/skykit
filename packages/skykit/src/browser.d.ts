@@ -7,13 +7,17 @@ import type { ThreeStarField } from '@found-in-space/three-star-field';
 import type * as THREE from 'three';
 
 import type {
+  Object3dLayerOptions,
   SkykitAnimationLoop,
   SkykitAnimationLoopOptions,
   SkykitDragLookOptions,
   SkykitKeyboardNavigationOptions,
   SkykitPluginInput,
+  SkykitPluginTeardown,
+  SkykitThreePart,
   SkykitViewState,
   SkykitViewer,
+  Vector3Like,
 } from './index.js';
 
 export type SkykitBrowserHost = string | {
@@ -64,8 +68,23 @@ export interface SkykitBrowser {
   provider: StarOctreeProviderService;
   starField: ThreeStarField;
   loop: SkykitAnimationLoop;
+  addObject(
+    object3d: THREE.Object3D,
+    options?: SkykitBrowserObjectOptions
+  ): SkykitBrowserObjectHandle;
   resize(): void;
   dispose(): Promise<void>;
+}
+
+export interface SkykitBrowserObjectOptions extends Omit<Object3dLayerOptions, 'object3d'> {
+  positionPc?: Vector3Like;
+}
+
+export interface SkykitBrowserObjectHandle {
+  object3d: THREE.Object3D;
+  part: SkykitThreePart;
+  remove: SkykitPluginTeardown;
+  dispose: SkykitPluginTeardown;
 }
 
 export declare function createSkykitBrowser(host: SkykitBrowserHost): Promise<SkykitBrowser>;

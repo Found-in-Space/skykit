@@ -20,6 +20,20 @@ strategies. SkyKit passes strategies through to provider sessions; it does not
 redefine planning, inspect strategy kinds, or hide loader registries behind
 string names.
 
+## Website Use-Cases
+
+The beginner website entries are use-case bounded:
+
+| Use-case | Website owner says | Public entry |
+| --- | --- | --- |
+| Viewer | "Put stars on my page and let me customize the scene." | `embed.js`, `viewer.js` |
+| Data | "Give me star data so I can render, list, map, or game it myself." | `data.js` |
+| Story | "Let me tell a curated story through space." | `story.js` |
+
+`embed.js` is the no-code viewer entry. It is not a separate use-case.
+`viewer.js` is the JavaScript-customizable viewer entry. `data.js` is renderer
+independent. `story.js` is authored chapters plus a viewer.
+
 ## Paste into a static page or CMS
 
 For the beginner path, use the auto-booting embed. Paste this into a static HTML
@@ -36,7 +50,7 @@ page or a CMS custom HTML block:
 
 <script
   type="module"
-  src="https://esm.sh/@found-in-space/skykit/embed?bundle"
+  src="https://esm.sh/@found-in-space/skykit@0.2.0-alpha.2/embed?bundle&deps=three@0.170.0"
 ></script>
 ```
 
@@ -63,11 +77,11 @@ The host dispatches `skykit-browser-ready` with `{ browser, viewer }` in
 `event.detail` after startup, and `skykit-browser-error` if startup fails. The
 embed does not install a global object, so pages can host multiple viewers.
 
-Pin the CDN URL to a released SkyKit version when publishing long-lived pages,
-for example
+Pin the package CDN URL to a released SkyKit version when publishing long-lived
+pages, for example
 `https://esm.sh/@found-in-space/skykit@x.y.z/embed?bundle&deps=three@0.170.0`.
 
-## Create a browser from JavaScript
+## Create a Viewer from JavaScript
 
 If your site has a module script, npm, or a bundler, call the helper directly:
 
@@ -76,7 +90,7 @@ If your site has a module script, npm, or a bundler, call the helper directly:
 <pre id="status">Loading stars...</pre>
 
 <script type="module">
-  import { createSkykitBrowser } from '@found-in-space/skykit/browser';
+  import { createSkykitBrowser } from 'https://esm.sh/@found-in-space/skykit@0.2.0-alpha.2/viewer?bundle&deps=three@0.170.0';
 
   await createSkykitBrowser({
     host: '#viewer',
@@ -91,8 +105,64 @@ The helper still returns the pieces when a lesson wants to grow:
 const sky = await createSkykitBrowser('#viewer');
 
 sky.viewer.requestViewState({ observerPc: { x: 4, y: 0, z: -8 } });
+sky.addObject(marker, {
+  positionPc: { x: 17.574, y: 42.316, z: 13.963 },
+});
 sky.loop.stop();
 await sky.dispose();
+```
+
+For npm or bundlers, use the same beginner entry:
+
+```js
+import { THREE, createSkykitBrowser } from '@found-in-space/skykit/viewer';
+```
+
+## Use Star Data Without a Viewer
+
+Use `data.js` when SkyKit should supply rows and your app should own rendering:
+
+```js
+import { loadStarRows } from 'https://esm.sh/@found-in-space/skykit@0.2.0-alpha.2/data?bundle';
+
+const stars = await loadStarRows({
+  limitingMagnitude: 6.5,
+  maxStars: 100,
+  sortBy: 'apparentMagnitude',
+});
+
+console.table(stars);
+```
+
+For games and maps, load a local volume and hand rows to Canvas, PixiJS,
+Phaser, SVG, or your own renderer:
+
+```js
+const stars = await loadStarRows({
+  centerPc: { x: 0, y: 0, z: 0 },
+  radiusPc: 50,
+  maxStars: 2000,
+});
+```
+
+## Create a Guided Story
+
+Use `story.js` when the page is an authored article or tour:
+
+```html
+<div data-skykit-story style="height:600px;background:#02040b">
+  <section data-skykit-chapter data-title="The Sun" data-target-pc="0,0,0">
+    We start at the Sun.
+  </section>
+  <section data-skykit-chapter data-title="The Hyades" data-target-pc="17.574,42.316,13.963">
+    Now jump to the Hyades cluster.
+  </section>
+</div>
+
+<script
+  type="module"
+  src="https://esm.sh/@found-in-space/skykit@0.2.0-alpha.2/story?bundle&deps=three@0.170.0"
+></script>
 ```
 
 Use the lower-level factories when a lesson is teaching composition or replacing

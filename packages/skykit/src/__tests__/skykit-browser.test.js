@@ -44,6 +44,20 @@ test('createSkykitBrowser wires the starter viewer and extra plugins', async () 
     assert.deepEqual(extraPartCalls, ['attach', 'start']);
     assert.match(status.textContent, /"starsLoaded": 0/);
 
+    const marker = new THREE.Object3D();
+    const markerHandle = browser.addObject(marker, {
+      id: 'hyades-marker',
+      positionPc: { x: 17.574, y: 42.316, z: 13.963 },
+    });
+    await Promise.resolve();
+    assert.ok(Math.abs(marker.position.x - 0.017574) < 1e-12);
+    assert.ok(Math.abs(marker.position.y - 0.042316) < 1e-12);
+    assert.ok(Math.abs(marker.position.z - 0.013963) < 1e-12);
+    assert.equal(browser.viewer.roots.originContentRoot.children.includes(marker), true);
+    markerHandle.remove();
+    await Promise.resolve();
+    assert.equal(browser.viewer.roots.originContentRoot.children.includes(marker), false);
+
     browser.resize();
     assert.equal(fakeWindow.addedEvents.length, 0);
 
