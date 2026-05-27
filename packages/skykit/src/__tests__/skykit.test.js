@@ -77,6 +77,57 @@ function createRenderer() {
   };
 }
 
+function createTextureRenderer() {
+  const renderer = createRenderer();
+  return {
+    ...renderer,
+    xr: { enabled: true },
+    currentTarget: null,
+    viewport: new THREE.Vector4(0, 0, 1, 1),
+    scissor: new THREE.Vector4(0, 0, 1, 1),
+    scissorTest: false,
+    getRenderTarget() {
+      return this.currentTarget;
+    },
+    setRenderTarget(target) {
+      this.currentTarget = target;
+    },
+    getViewport(target) {
+      return target.copy(this.viewport);
+    },
+    setViewport(value) {
+      if (value?.isVector4) this.viewport.copy(value);
+    },
+    getScissor(target) {
+      return target.copy(this.scissor);
+    },
+    setScissor(value) {
+      if (value?.isVector4) this.scissor.copy(value);
+    },
+    getScissorTest() {
+      return this.scissorTest;
+    },
+    setScissorTest(value) {
+      this.scissorTest = Boolean(value);
+    },
+  };
+}
+
+function createEmbeddedSurfaceSpy() {
+  const publishCalls = [];
+  const unpublishCalls = [];
+  return {
+    publishCalls,
+    unpublishCalls,
+    publish(sourceId, update) {
+      publishCalls.push({ sourceId, update });
+    },
+    unpublish(sourceId) {
+      unpublishCalls.push(sourceId);
+    },
+  };
+}
+
 async function flushMicrotasks(count = 10) {
   for (let index = 0; index < count; index += 1) {
     await Promise.resolve();
@@ -680,6 +731,41 @@ test('HR diagram mode changes refresh shared demand and update the renderer view
   assertStrategyBehavior(sessions[1].options.strategy);
 
   await viewer.dispose();
+});
+
+test('HR diagram touch-os surfaces can be resolved lazily from panel runtimes', async () => {
+  const session = createFakeSession();
+  const provider = {
+    id: 'provider',
+    createSession() {
+      return session;
+    },
+  };
+  const source = createSkykitStarSourcePlugin({ provider });
+  const surfaces = createEmbeddedSurfaceSpy();
+  let activeSurfaces = null;
+  const hr = createSkykitHrDiagramPlugin({
+    id: 'hr',
+    source,
+    touchOs: {
+      sourceId: 'hr:surface',
+      surfaces: () => activeSurfaces,
+    },
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createTextureRenderer(),
+    plugins: [source, hr],
+  });
+
+  activeSurfaces = surfaces;
+  viewer.frame(0.016);
+
+  assert.equal(surfaces.publishCalls.length, 1);
+  assert.equal(surfaces.publishCalls[0].sourceId, 'hr:surface');
+  assert.equal(surfaces.publishCalls[0].update.available, true);
+
+  await viewer.dispose();
+  assert.deepEqual(surfaces.unpublishCalls, ['hr:surface']);
 });
 
 test('HR diagram demand strategy override can be supplied and restored at runtime', async () => {

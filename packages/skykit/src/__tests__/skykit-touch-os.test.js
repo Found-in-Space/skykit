@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
+import { createRuntime } from '@found-in-space/touch-os';
 
 import {
   SKYKIT_ACTIONS,
@@ -8,6 +9,8 @@ import {
 } from '../index.js';
 import {
   createSkykitShipControlsRoot,
+  createSkykitSurfaceApp,
+  createSkykitTabletRoot,
   createTouchOsHudPlugin,
   createTouchOsPanelPlugin,
   dispatchTouchOsActionOutputs,
@@ -70,6 +73,74 @@ test('createSkykitShipControlsRoot builds reusable pseudo-key controls and statu
       ['boost', 'hold-button'],
     ],
   );
+});
+
+test('createSkykitTabletRoot builds a tablet app shell from touch apps', () => {
+  const app = createSkykitSurfaceApp({
+    id: 'app.surface',
+    name: 'Surface',
+    node: createSkykitShipControlsRoot({ id: 'surface-child', movePad: false, verticalControls: false }),
+  });
+  const root = createSkykitTabletRoot({
+    id: 'test-tablet',
+    apps: [app],
+    appStates: { 'app.surface': { ready: true } },
+  });
+
+  assert.equal(root.id, 'test-tablet');
+  assert.equal(root.component.kind, 'app-shell');
+  assert.equal(root.props.presentation.kind, 'tablet-home');
+  assert.equal(root.props.appHostMode, 'same-runtime');
+  assert.equal(root.props.homeKey, true);
+  assert.deepEqual(root.props.registry.list().map((manifest) => manifest.id), ['app.surface']);
+
+  const runtime = createRuntime({
+    root,
+    surface: { width: 320, height: 240 },
+  });
+  const snapshot = runtime.render();
+  assert.equal(snapshot.commands.some((command) => command.role === 'tablet-home-button'), true);
+  assert.equal(snapshot.commands.some((command) => command.role === 'tablet-home-bar'), false);
+});
+
+test('createSkykitSurfaceApp wraps display nodes and emits app events', () => {
+  const emitted = [];
+  const app = createSkykitSurfaceApp({
+    id: 'app.hr',
+    name: 'HR',
+    node: () => createSkykitShipControlsRoot({ id: 'hr-child', movePad: false, verticalControls: false }),
+  });
+  const instance = app.createApp({
+    appId: 'app.hr',
+    instanceId: 'app-1',
+    windowId: 'app-1-window',
+    surface: { width: 420, height: 300, pixelDensity: 1, safeArea: { top: 0, right: 0, bottom: 0, left: 0 } },
+    theme: { getTokens() { return {}; } },
+    actions: { emit(event) { emitted.push(event); } },
+    windows: {
+      setTitle() {},
+      requestClose() {},
+      requestResize() {},
+      openApp() {},
+    },
+  });
+
+  const root = instance.render({});
+  assert.equal(app.manifest.id, 'app.hr');
+  assert.deepEqual(app.manifest.capabilities, ['surfaces']);
+  assert.equal(root.component.kind, 'skykit-surface-app-frame');
+  assert.equal(root.props.child.id, 'hr-child');
+
+  instance.handleOutput({ type: 'action', actionId: 'app.fly', componentId: 'fly', payload: { target: 'sun' } });
+  assert.deepEqual(emitted, [{
+    type: 'app-action',
+    appId: 'app.hr',
+    instanceId: 'app-1',
+    windowId: 'app-1-window',
+    name: 'app.fly',
+    payload: { target: 'sun' },
+    componentId: 'fly',
+  }]);
 });
 
 test('touch-os pointer helpers resolve screen input and surface metrics', () => {

@@ -76,10 +76,10 @@
     "@found-in-space/three-star-field": "0.2.0-alpha.0"
   },
   "devDependencies": {
-    "@found-in-space/touch-os": "0.2.0-dev.1"
+    "@found-in-space/touch-os": "0.2.0-dev.3"
   },
   "peerDependencies": {
-    "@found-in-space/touch-os": ">=0.2.0-dev.1 <1",
+    "@found-in-space/touch-os": ">=0.2.0-dev.3 <1",
     "three": "^0.170.0"
   },
   "peerDependenciesMeta": {

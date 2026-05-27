@@ -79,6 +79,8 @@ export function createSkykitHrDiagramPlugin(options) {
   let renderedFrames = 0;
   let publishedFrames = 0;
   let surfaceDirty = true;
+  /** @type {import('@found-in-space/touch-os').EmbeddedSurfaceService | null} */
+  let lastPublishedSurfaces = null;
   /** @type {string | null} */
   let lastFrameSurfaceViewKey = null;
   /** @type {SkykitViewState | null} */
@@ -121,9 +123,15 @@ export function createSkykitHrDiagramPlugin(options) {
         surfaceDirty = false;
         renderedThisFrame = true;
       }
-      if (renderedThisFrame && options.touchOs?.surfaces) {
-        surfaceSource.publish(options.touchOs.surfaces, frame.elapsedSeconds);
+      const surfaces = resolveTouchOsSurfaces(options.touchOs?.surfaces);
+      if (surfaces !== lastPublishedSurfaces && lastPublishedSurfaces) {
+        surfaceSource.unpublish(lastPublishedSurfaces);
+        lastPublishedSurfaces = null;
+      }
+      if (renderedThisFrame && surfaces) {
+        surfaceSource.publish(surfaces, frame.elapsedSeconds);
         publishedFrames += 1;
+        lastPublishedSurfaces = surfaces;
       }
     },
     dispose() {
@@ -131,8 +139,9 @@ export function createSkykitHrDiagramPlugin(options) {
       disposed = true;
       unsubscribeSource?.();
       unregisterDemand?.();
-      if (options.touchOs?.surfaces) {
-        surfaceSource.unpublish(options.touchOs.surfaces);
+      const surfaces = lastPublishedSurfaces ?? resolveTouchOsSurfaces(options.touchOs?.surfaces);
+      if (surfaces) {
+        surfaceSource.unpublish(surfaces);
       }
       surfaceSource.dispose();
     },
@@ -338,6 +347,15 @@ function normalizeDemandStrategy(value) {
   return typeof value === 'function'
     ? /** @type {SkykitHrDiagramDemandStrategy} */ (value)
     : null;
+}
+
+/**
+ * @param {import('./index.d.ts').SkykitHrDiagramTouchOsOptions['surfaces']} surfaces
+ * @returns {import('@found-in-space/touch-os').EmbeddedSurfaceService | null}
+ */
+function resolveTouchOsSurfaces(surfaces) {
+  const resolved = typeof surfaces === 'function' ? surfaces() : surfaces;
+  return resolved ?? null;
 }
 
 /** @param {import('@found-in-space/hr-diagram').HrDiagramMode} mode */

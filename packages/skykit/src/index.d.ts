@@ -676,7 +676,7 @@ export interface SkykitStarSourceRestartRetentionPolicy {
 }
 
 export interface SkykitHrDiagramTouchOsOptions {
-  surfaces?: EmbeddedSurfaceService;
+  surfaces?: EmbeddedSurfaceService | (() => EmbeddedSurfaceService | null | undefined);
   sourceId?: string;
   componentId?: string;
   width?: number;
