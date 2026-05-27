@@ -20,9 +20,51 @@ strategies. SkyKit passes strategies through to provider sessions; it does not
 redefine planning, inspect strategy kinds, or hide loader registries behind
 string names.
 
-## Create a browser
+## Paste into a static page or CMS
 
-The beginner path is a host element plus one browser helper:
+For the beginner path, use the auto-booting embed. Paste this into a static HTML
+page or a CMS custom HTML block:
+
+```html
+<div
+  data-skykit-browser
+  data-skykit-status="#skykit-status"
+  style="width: 100%; height: 70vh; min-height: 420px; background: #02040b"
+></div>
+
+<pre id="skykit-status">Loading stars...</pre>
+
+<script
+  type="module"
+  src="https://esm.sh/@found-in-space/skykit/embed?bundle"
+></script>
+```
+
+The embed script finds every `[data-skykit-browser]` element and creates the
+standard star browser there. It owns the normal beginner plumbing: Three.js
+renderer and camera, the public star provider, the star-field renderer, streaming
+stars, keyboard navigation, drag-to-look controls, resize handling, the animation
+loop, and page-lifecycle cleanup.
+
+Optional attributes keep small tweaks HTML-only:
+
+```html
+<div
+  data-skykit-browser
+  data-skykit-status="#skykit-status"
+  data-skykit-magnitude="7"
+  data-skykit-speed="4"
+  data-skykit-exposure="2600"
+  style="width: 100%; height: 520px; background: #02040b"
+></div>
+```
+
+Pin the CDN URL to a released SkyKit version when publishing long-lived pages,
+for example `https://esm.sh/@found-in-space/skykit@x.y.z/embed?bundle`.
+
+## Create a browser from JavaScript
+
+If your site has a module script, npm, or a bundler, call the helper directly:
 
 ```html
 <div id="viewer" style="width: 100vw; height: 100vh"></div>
@@ -37,11 +79,6 @@ The beginner path is a host element plus one browser helper:
   });
 </script>
 ```
-
-`createSkykitBrowser()` creates the ordinary pieces most lessons need: a Three.js
-renderer and camera, the public star provider, the star-field renderer, streaming
-stars, keyboard navigation, drag-to-look controls, resize handling, the animation
-loop, and page-lifecycle cleanup.
 
 The helper still returns the pieces when a lesson wants to grow:
 
