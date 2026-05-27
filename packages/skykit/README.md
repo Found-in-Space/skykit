@@ -28,11 +28,11 @@ The beginner website entries are use-case bounded:
 | --- | --- | --- |
 | Viewer | "Put stars on my page and let me customize the scene." | `embed.js`, `viewer.js` |
 | Data | "Give me star data so I can render, list, map, or game it myself." | `data.js` |
-| Story | "Let me tell a curated story through space." | `story.js` |
 
 `embed.js` is the no-code viewer entry. It is not a separate use-case.
 `viewer.js` is the JavaScript-customizable viewer entry. `data.js` is renderer
-independent. `story.js` is authored chapters plus a viewer.
+independent. Authored chapters stay in website or lesson code and call SkyKit
+navigation actions directly.
 
 ## Paste into a static page or CMS
 
@@ -199,25 +199,11 @@ const stars = await loadStarRows({
 });
 ```
 
-## Create a Guided Story
+## Author Chapters
 
-Use `story.js` when the page is an authored article or tour:
-
-```html
-<div data-skykit-story style="height:600px;background:#02040b">
-  <section data-skykit-chapter data-title="The Sun" data-target-pc="0,0,0">
-    We start at the Sun.
-  </section>
-  <section data-skykit-chapter data-title="The Hyades" data-target-pc="17.574,42.316,13.963">
-    Now jump to the Hyades cluster.
-  </section>
-</div>
-
-<script
-  type="module"
-  src="https://esm.sh/@found-in-space/skykit@0.2.0-alpha.2/story?bundle&deps=three@0.170.0"
-></script>
-```
+Keep named chapters in the website or lesson script. Each chapter can call
+navigation actions such as `skykit:navigation.transitionTo` and
+`skykit:navigation.orbit` from its own `goTo(id)` dispatcher.
 
 Use the lower-level factories when a lesson is teaching composition or replacing
 a part of the stack:

@@ -24,6 +24,7 @@ import {
 import {
   applySkykitXrDepthRange,
   computeSkykitXrDepthRange,
+  createSkykitXrBodyPlugin,
   createSkykitXrControlBindings,
   createSkykitXrNavigationPlugin,
   createSkykitXrObserverRig,
@@ -169,6 +170,7 @@ async function main() {
   let cachedPanelRevision = -1;
   let cachedPanelRoot = null;
   let latestPanelFrame = null;
+  let leftHandPanelTracked = false;
   let activeXrHandle = null;
   let artController = null;
   let preflightController = null;
@@ -207,7 +209,7 @@ async function main() {
   touchPanel = createTouchOsPanelPlugin({
     id: 'xr-free-roam-touch-panel',
     priority: 20,
-    driver: 'pose-anchored',
+    driver: 'scene',
     root: createPanelRoot,
     surfaceMetrics: XR_PANEL_SURFACE,
     runtimeOptions: {
@@ -215,18 +217,23 @@ async function main() {
       longPressDelay: 360,
     },
     pointerSources: [touchPointerSource],
-    anchorPose(frame) {
-      latestPanelFrame = frame;
-      return resolveLeftHandPanelPose(frame, xrRig.xrOrigin);
+    parent() {
+      return xrRig.leftHandRoot;
     },
     driverOptions: {
       panelWidth: 0.32,
       panelHeight: 0.44,
-      offset: { x: 0.04, y: 0.02, z: -0.08 },
-      tiltRadians: -0.22,
       transparent: true,
       depthTest: false,
       renderOrder: 50,
+      updatePlacement(mesh) {
+        if (!leftHandPanelTracked) return false;
+        applyLocalTabletPlacement(mesh, {
+          offset: { x: 0.04, y: 0.02, z: -0.08 },
+          tiltRadians: -0.22,
+        });
+        return true;
+      },
     },
   });
 
@@ -271,6 +278,12 @@ async function main() {
       createStreamingStarsPlugin({ id: 'xr-stars', source, renderer: starField }),
       hrDiagram,
       ...(artPlugin ? [artPlugin] : []),
+      createSkykitXrBodyPlugin({
+        rig: xrRig,
+        onBody(body) {
+          leftHandPanelTracked = Boolean(body.leftHand?.grip ?? body.leftHand?.targetRay);
+        },
+      }),
       createXrFreeRoamFrameSyncPlugin({
         update() {
           selectedTarget.update(camera);
@@ -389,7 +402,8 @@ async function main() {
     });
   }
 
-  function createPanelRoot() {
+  function createPanelRoot(rootContext) {
+    latestPanelFrame = rootContext?.frame ?? latestPanelFrame;
     if (cachedPanelRoot && cachedPanelRevision === panelRevision) return cachedPanelRoot;
     cachedPanelRevision = panelRevision;
     cachedPanelRoot = createSkykitTabletRoot({
@@ -1023,57 +1037,17 @@ function createWorldXrRaySource(source, transformRoot) {
   };
 }
 
-function resolveLeftHandPanelPose(frame, transformRoot) {
-  const gripPose = resolveInputPose(frame, 'left', 'gripSpace');
-  if (!gripPose) return undefined;
-  return transformPoseByObject(gripPose, transformRoot);
-}
-
-function resolveInputPose(frame, handedness, spaceKey) {
-  const xr = frame.xr;
-  const xrFrame = xr?.frame;
-  const referenceSpace = xr?.referenceSpace;
-  const inputSources = xr?.session && typeof xr.session === 'object'
-    ? xr.session.inputSources ?? []
-    : [];
-  if (!xrFrame || !referenceSpace || typeof xrFrame.getPose !== 'function') return null;
-  for (const inputSource of inputSources) {
-    if (inputSource?.handedness !== handedness || !inputSource[spaceKey]) continue;
-    const pose = xrFrame.getPose(inputSource[spaceKey], referenceSpace);
-    const transform = pose?.transform;
-    if (!transform) continue;
-    return {
-      position: {
-        x: Number(transform.position?.x ?? 0),
-        y: Number(transform.position?.y ?? 0),
-        z: Number(transform.position?.z ?? 0),
-      },
-      orientation: {
-        x: Number(transform.orientation?.x ?? 0),
-        y: Number(transform.orientation?.y ?? 0),
-        z: Number(transform.orientation?.z ?? 0),
-        w: Number(transform.orientation?.w ?? 1),
-      },
-    };
+function applyLocalTabletPlacement(mesh, options = {}) {
+  const offset = options.offset ?? {};
+  mesh.position.set(0, 0, 0);
+  mesh.quaternion.identity();
+  mesh.scale.set(1, 1, 1);
+  if (Number.isFinite(options.tiltRadians)) {
+    mesh.rotateX(options.tiltRadians);
   }
-  return null;
-}
-
-function transformPoseByObject(pose, object) {
-  object.updateMatrixWorld(true);
-  const position = new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z)
-    .applyMatrix4(object.matrixWorld);
-  const objectQuaternion = object.getWorldQuaternion(new THREE.Quaternion());
-  const orientation = new THREE.Quaternion(
-    pose.orientation.x,
-    pose.orientation.y,
-    pose.orientation.z,
-    pose.orientation.w,
-  ).premultiply(objectQuaternion).normalize();
-  return {
-    position: { x: position.x, y: position.y, z: position.z },
-    orientation: { x: orientation.x, y: orientation.y, z: orientation.z, w: orientation.w },
-  };
+  mesh.translateX(offset.x ?? 0);
+  mesh.translateY(offset.y ?? 0);
+  mesh.translateZ(offset.z ?? 0);
 }
 
 function createSelectedStarTarget() {

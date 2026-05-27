@@ -11,6 +11,7 @@ import {
   positiveFinite,
 } from '../utils.js';
 import { createSkykitXrControlBindings } from './controls.js';
+import { createSkykitXrBodyTracker } from './body.js';
 import { createSkykitXrRaySource } from './rays.js';
 import { enterSkykitXrSession, exitSkykitXrSession, isSkykitXrModeSupported } from './session.js';
 
@@ -118,6 +119,69 @@ export function createSkykitXrObserverRig(options) {
     if (disposed) {
       throw new Error('SkykitXrObserverRig has been disposed.');
     }
+  }
+}
+
+/**
+ * @param {import('../xr.d.ts').SkykitXrBodyPluginOptions} [options]
+ * @returns {import('../xr.d.ts').SkykitXrBodyPlugin}
+ */
+export function createSkykitXrBodyPlugin(options = {}) {
+  const id = options.id ?? 'skykit-xr-body';
+  const tracker = options.tracker ?? createSkykitXrBodyTracker();
+  const hideUntrackedHands = options.hideUntrackedHands !== false;
+  let disposed = false;
+  let body = tracker.getBody();
+
+  const part = {
+    id,
+    priority: options.priority ?? -900,
+    /** @param {import('../index.d.ts').SkykitThreeFrame} frame */
+    update(frame) {
+      if (disposed) return;
+      const session = frame.xr?.session && typeof frame.xr.session === 'object'
+        ? /** @type {{ inputSources?: Iterable<unknown> }} */ (frame.xr.session)
+        : null;
+      body = tracker.update({
+        frame: frame.xr?.frame,
+        referenceSpace: frame.xr?.referenceSpace,
+        session: /** @type {any} */ (frame.xr?.session),
+        inputSources: session?.inputSources ?? [],
+        rig: options.rig,
+        shipPose: options.rig?.getNavigationPose?.(),
+      });
+      if (hideUntrackedHands && options.rig) {
+        setObjectVisible(options.rig.leftHandRoot, Boolean(body.leftHand?.grip ?? body.leftHand?.targetRay));
+        setObjectVisible(options.rig.rightHandRoot, Boolean(body.rightHand?.grip ?? body.rightHand?.targetRay));
+      }
+      options.onBody?.(body, frame);
+    },
+    dispose() {
+      disposed = true;
+      if (options.disposeTracker !== false) {
+        tracker.dispose?.();
+      }
+    },
+    getSnapshot,
+  };
+
+  return {
+    id,
+    setup(context) {
+      context.addPart(part);
+    },
+    getBody() {
+      return body;
+    },
+    getSnapshot,
+  };
+
+  function getSnapshot() {
+    return {
+      id,
+      disposed,
+      body,
+    };
   }
 }
 
@@ -797,4 +861,14 @@ function resolveRayVisualParent(parent, context) {
     return parent(context) ?? context.scene;
   }
   return parent ?? context.scene;
+}
+
+/**
+ * @param {unknown} object
+ * @param {boolean} visible
+ */
+function setObjectVisible(object, visible) {
+  if (object && typeof object === 'object' && 'visible' in object) {
+    /** @type {{ visible: boolean }} */ (object).visible = visible;
+  }
 }

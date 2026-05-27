@@ -43,10 +43,6 @@
       "types": "./src/data.d.ts",
       "default": "./src/data.js"
     },
-    "./story": {
-      "types": "./src/story.d.ts",
-      "default": "./src/story.js"
-    },
     "./parallax": {
       "types": "./src/parallax.d.ts",
       "default": "./src/parallax.js"
@@ -66,8 +62,7 @@
     "README.md"
   ],
   "sideEffects": [
-    "./src/embed.js",
-    "./src/story.js"
+    "./src/embed.js"
   ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",

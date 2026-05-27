@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import {
   applySkykitXrDepthRange,
   computeSkykitXrDepthRange,
+  createSkykitXrBodyPlugin,
   createSkykitXrBodyTracker,
   createSkykitXrControlBindings,
   createSkykitXrNavigationPlugin,
@@ -28,6 +29,7 @@ test('xr free-roam demo uses restored alpha XR regressions defaults', () => {
   assert.match(source, /createDefaultThreeStarFieldMaterialProfile/);
   assert.doesNotMatch(source, /createVrThreeStarFieldMaterialProfile/);
   assert.match(source, /createSkykitXrRayVisualPlugin/);
+  assert.match(source, /createSkykitXrBodyPlugin/);
   assert.match(source, /createSurfaceShell/);
   assert.match(source, /createMetaSidecarProviderService/);
   assert.match(source, /deriveMetaSidecarUrlFromRenderUrl/);
@@ -39,7 +41,12 @@ test('xr free-roam demo uses restored alpha XR regressions defaults', () => {
   assert.match(source, /primaryActionLabel:\s*'Fly to'/);
   assert.match(source, /homeControl:\s*'button'/);
   assert.match(source, /pointerType:\s*'ray'/);
+  assert.match(source, /return xrRig\.leftHandRoot/);
+  assert.match(source, /latestPanelFrame = rootContext\?\.frame \?\? latestPanelFrame/);
   assert.doesNotMatch(source, /dragThreshold/);
+  assert.doesNotMatch(source, /driver:\s*'pose-anchored'/);
+  assert.doesNotMatch(source, /anchorPose/);
+  assert.doesNotMatch(source, /latestPanelFrame = frame/);
   assert.doesNotMatch(source, /createChoiceGroup/);
   assert.doesNotMatch(source, /createSlider/);
   assert.doesNotMatch(source, /createToggle/);
@@ -110,6 +117,55 @@ test('skykit/xr body, rays, and pick router compose generic route results', () =
   const route = router.route({ rig, body });
   assert.equal(route.type, 'hit');
   assert.equal(route.hit.object, 'target');
+});
+
+test('skykit/xr body plugin drives tracked hand roots before dependent parts', () => {
+  const rig = createSkykitXrRig();
+  const leftGripSpace = {};
+  const referenceSpace = {};
+  const bodyUpdates = [];
+  let part = null;
+  const plugin = createSkykitXrBodyPlugin({
+    rig,
+    onBody(body) {
+      bodyUpdates.push(body);
+    },
+  });
+  plugin.setup(createPluginContext({
+    addPart(nextPart) {
+      part = nextPart;
+    },
+  }));
+
+  part.update(createXrFrame({
+    referenceSpace,
+    inputSources: [{
+      handedness: 'left',
+      gripSpace: leftGripSpace,
+      gamepad: {
+        buttons: [{ pressed: false, touched: false, value: 0 }],
+        axes: [0, 0],
+      },
+    }],
+    xrFrame: {
+      getPose(space, ref) {
+        assert.equal(ref, referenceSpace);
+        if (space !== leftGripSpace) return null;
+        return {
+          transform: {
+            position: { x: 0.1, y: 0.2, z: 0.3 },
+            orientation: { x: 0, y: 0, z: 0, w: 1 },
+          },
+        };
+      },
+    },
+  }));
+
+  assert.deepEqual(rig.leftHandRoot.position.toArray(), [0.1, 0.2, 0.3]);
+  assert.equal(rig.leftHandRoot.visible, true);
+  assert.equal(rig.rightHandRoot.visible, false);
+  assert.equal(plugin.getBody().leftHand?.buttons, 1);
+  assert.equal(bodyUpdates.length, 1);
 });
 
 test('skykit/xr depth helpers compute and apply render state', () => {

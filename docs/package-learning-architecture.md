@@ -122,7 +122,6 @@ Website-facing lessons are use-case bounded rather than lesson-bundle bounded:
 ```txt
 Viewer: embed.js for no-code, viewer.js for JavaScript customization
 Data: data.js for rows, labels, lists, maps, and renderer-independent games
-Story: story.js for authored chapters, targets, and guided tours
 ```
 
 Root `demos/` pages in this repository are transition sandboxes. New package
@@ -181,7 +180,7 @@ packages/skykit/examples/
   navigation helper, sky-grab and mouse-look helpers, parallax subpath plugins,
   status helper, navigation actions/plugin backed by spatial, animation loop,
   desktop observer rig, debug bridge,
-  beginner `viewer`, `data`, and `story` subpaths for public website use-cases,
+  beginner `viewer` and `data` subpaths for public website use-cases,
   and optional `skykit/xr` WebXR rig/input/ray/session/depth helpers
 ```
 
