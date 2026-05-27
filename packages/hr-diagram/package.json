@@ -1,6 +1,6 @@
 {
   "name": "@found-in-space/hr-diagram",
-  "version": "0.2.0-alpha.0",
+  "version": "0.2.0-alpha.1",
   "description": "Reusable HR diagram data, canvas, WebGL, and touch-os helpers for Found in Space star cells",
   "license": "MIT",
   "type": "module",
