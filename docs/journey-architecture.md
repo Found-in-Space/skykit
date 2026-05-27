@@ -346,9 +346,13 @@ Still deferred:
 rich video export UI
 alternate codecs/containers
 editor-side overlay block authoring beyond cue text
-no-code static-page journey helper
 ```
 
 This keeps the package useful immediately while richer editorial tooling remains
 a later slice. Blender interchange and earlier benchmark/capture experiments are
 not live alpha paths.
+
+The noob browser path now exposes the smaller static-page helper through
+`browser.journey`: one-off transitions and loaded journey instances are
+lazy-loaded from the embed and still delegate to the SkyKit journey/navigation
+plugins.

@@ -426,6 +426,7 @@ export interface SkykitViewer {
   readonly observerRig: SkykitObserverRig;
   readonly actions: SkykitActionRegistry;
   addPart(part: SkykitThreePart): SkykitPluginTeardown;
+  addPlugin(plugin: SkykitPluginInput): Promise<SkykitPluginTeardown>;
   getViewState(): SkykitViewState;
   requestViewState(patch: Partial<SkykitViewState>, reason?: string): void;
   update(deltaSeconds?: number, frameOptions?: SkykitFrameOptions): void;
@@ -954,6 +955,16 @@ export interface SkykitJourneyPluginOptions {
   ) => void;
 }
 
+export interface SkykitJourneyPlugin extends SkykitPlugin {
+  goTo(payload: unknown): Promise<JourneySceneSpec | null>;
+  next(): Promise<JourneySceneSpec | null>;
+  previous(): Promise<JourneySceneSpec | null>;
+  seek(payload: unknown): number;
+  play(payload?: unknown): number;
+  pause(): number;
+  getSnapshot(): unknown;
+}
+
 export interface SkykitSpatialPreloadStrategyOptions {
   combine?: boolean;
   baseStrategy?: StarCellStrategy;
@@ -1186,9 +1197,7 @@ export declare function createKeyboardNavigationPlugin(options?: SkykitKeyboardN
 export declare function createSkykitNavigationPlugin(options?: SkykitNavigationPluginOptions): SkykitPlugin & {
   getSnapshot(): unknown;
 };
-export declare function createSkykitJourneyPlugin(options?: SkykitJourneyPluginOptions): SkykitPlugin & {
-  getSnapshot(): unknown;
-};
+export declare function createSkykitJourneyPlugin(options?: SkykitJourneyPluginOptions): SkykitJourneyPlugin;
 export declare function createSkykitStarPreloadRequestsFromSpatialHints(
   hints: Iterable<SpatialPreloadHint>,
   options?: SkykitSpatialPreloadStrategyOptions

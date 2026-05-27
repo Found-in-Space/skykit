@@ -570,6 +570,7 @@ export declare function createOrbitTransferRoute(options?: SpatialOrbitTransferO
 export declare function computeSpatialLookAtOrientation(input: SpatialLookAtOrientationInput): SpatialQuaternion | null;
 export declare function computeSpatialLookDirectionOrientation(input: { direction: SpatialVector3; positionAngleDeg?: number; up?: SpatialVector3 }): SpatialQuaternion | null;
 export declare function normalizeSpatialLookAt(input: unknown): SpatialLookAtSpec | null;
+export declare function parseSpatialLookAtText(text: string): SpatialLookAtSpec | null;
 export declare function resolveSpatialLookAt(input: unknown, options?: ResolveSpatialLookAtOptions): SpatialResolvedLookAt | Promise<SpatialResolvedLookAt>;
 export declare function createRouteFollowSpatialMotionModel(options?: SpatialRouteFollowOptions & { points?: Iterable<SpatialVector3> }): SpatialRouteFollowMotionModel;
 export declare function createOrbitSpatialMotionModel(options?: SpatialOrbitOptions & { center?: SpatialVector3 }): SpatialOrbitMotionModel;

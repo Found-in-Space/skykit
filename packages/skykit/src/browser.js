@@ -8,8 +8,13 @@ import { createObserverShellStrategy } from '@found-in-space/star-trees';
 import { createThreeStarField } from '@found-in-space/three-star-field';
 
 import { createSkykitAnimationLoop } from './animation-loop.js';
+import { SKYKIT_ACTIONS, SKYKIT_CONTROLS } from './actions.js';
 import {
   createKeyboardNavigationPlugin,
+  createObject3dPlugin,
+  createMouseLookPlugin,
+  createSkykitJourneyPlugin,
+  createSkykitNavigationPlugin,
   createSkyGrabPlugin,
   createSkykitStatusPlugin,
   createStreamingStarsPlugin,
@@ -64,6 +69,7 @@ export async function createSkykitBrowser(input = {}) {
       observerPc: { x: 0, y: 0, z: 0 },
       coordinateUnitsPerParsec: positive(options.coordinateUnitsPerParsec, DEFAULT_UNITS_PER_PARSEC),
       limitingMagnitude,
+      ...(options.lookAt ? { lookAt: options.lookAt } : {}),
       ...(options.view ?? {}),
     },
     plugins: [
@@ -82,41 +88,57 @@ export async function createSkykitBrowser(input = {}) {
           ...(options.keyboard ?? {}),
         }),
       ]),
-      ...(options.grab === false ? [] : [
-        createSkyGrabPlugin({
-          target: host,
-          sensitivityRadiansPerPixel: 0.00075,
-          ...(options.grab ?? {}),
-        }),
-      ]),
+      ...createPointerPlugins(options, host),
       ...(statusTarget ? [createStatusPlugin(statusTarget)] : []),
       ...(options.plugins ?? []),
     ],
   });
 
   const loop = createSkykitAnimationLoop(viewer, options.loop);
+  const capabilities = new Set();
+  /** @type {Array<() => void | Promise<void>>} */
+  const browserDisposables = [];
   let disposed = false;
+  /** @type {import('./browser.d.ts').SkykitBrowser} */
+  const browser = {
+    viewer,
+    renderer,
+    camera,
+    provider,
+    starField,
+    loop,
+    capabilities,
+    install,
+    addObject,
+    resize,
+    dispose,
+  };
+  browser.journey = createLazyJourneyFacade(browser);
+  browser.constellations = createLazyConstellationsFacade(browser, host);
 
-  const resize = () => {
+  function resize() {
     viewer.resize({
       devicePixelRatio: Math.min(
         window.devicePixelRatio || 1,
         positive(options.maxDevicePixelRatio, DEFAULT_MAX_DEVICE_PIXEL_RATIO),
       ),
     });
-  };
-  const dispose = async () => {
+  }
+  async function dispose() {
     if (disposed) return;
     disposed = true;
     window.removeEventListener('resize', resize);
     window.removeEventListener('pagehide', disposeSoon);
     window.removeEventListener('beforeunload', disposeSoon);
+    for (const disposable of browserDisposables.splice(0).reverse()) {
+      await disposable();
+    }
     loop.dispose();
     await viewer.dispose();
     if (!options.provider) await provider.dispose?.();
     if (!options.renderer) renderer.dispose?.();
-  };
-  const disposeSoon = () => { void dispose(); };
+  }
+  function disposeSoon() { void dispose(); }
 
   if (options.autoResize !== false) window.addEventListener('resize', resize);
   if (options.autoDispose !== false) {
@@ -126,17 +148,46 @@ export async function createSkykitBrowser(input = {}) {
   resize();
   if (options.autoStart !== false) loop.start();
 
-  return {
-    viewer,
-    renderer,
-    camera,
-    provider,
-    starField,
-    loop,
-    addObject,
-    resize,
-    dispose,
-  };
+  return browser;
+
+  /**
+   * @param {import('./browser.d.ts').SkykitBrowserInstallInput} input
+   * @returns {Promise<import('./index.d.ts').SkykitPluginTeardown>}
+   */
+  async function install(input) {
+    if (!input) return () => {};
+    const teardown = isBrowserAddon(input)
+      ? await input.install(createBrowserAddonContext(input))
+      : await viewer.addPlugin(/** @type {import('./index.d.ts').SkykitPluginInput} */ (input));
+    if (typeof teardown !== 'function') return () => {};
+    browserDisposables.push(teardown);
+    return () => {
+      const index = browserDisposables.indexOf(teardown);
+      if (index >= 0) browserDisposables.splice(index, 1);
+      void teardown();
+    };
+  }
+
+  /**
+   * @param {import('./browser.d.ts').SkykitBrowserAddon} addon
+   * @returns {import('./browser.d.ts').SkykitBrowserAddonContext}
+   */
+  function createBrowserAddonContext(addon) {
+    return {
+      id: addon.id,
+      host,
+      browser,
+      viewer,
+      THREE,
+      skykit: {
+        SKYKIT_ACTIONS,
+        SKYKIT_CONTROLS,
+        createObject3dPlugin,
+        createSkykitJourneyPlugin,
+        createSkykitNavigationPlugin,
+      },
+    };
+  }
 
   /**
    * @param {THREE.Object3D} object3d
@@ -168,6 +219,102 @@ export async function createSkykitBrowser(input = {}) {
       dispose: remove,
     };
   }
+}
+
+/** @param {unknown} input */
+function isBrowserAddon(input) {
+  return Boolean(input && typeof input === 'object' && typeof /** @type {{ install?: unknown }} */ (input).install === 'function');
+}
+
+/**
+ * @param {import('./browser.d.ts').SkykitBrowser} browser
+ * @returns {import('./browser.d.ts').SkykitBrowserJourneyFacade}
+ */
+function createLazyJourneyFacade(browser) {
+  /** @type {Promise<import('./browser.d.ts').SkykitBrowserJourneyFacade> | null} */
+  let loaded = null;
+  const loadCapability = () => {
+    loaded ??= import('./browser-journey.js')
+      .then((module) => module.installSkykitJourneyBrowserCapability({ browser }));
+    return loaded;
+  };
+  return {
+    async transitionTo(viewOrScene, options) {
+      return (await loadCapability()).transitionTo(viewOrScene, options);
+    },
+    async applyScene(sceneSpec) {
+      return (await loadCapability()).applyScene(sceneSpec);
+    },
+    async load(input, options) {
+      return (await loadCapability()).load(input, options);
+    },
+    async getSnapshot() {
+      return (await loadCapability()).getSnapshot();
+    },
+  };
+}
+
+/**
+ * @param {import('./browser.d.ts').SkykitBrowser} browser
+ * @param {Element | import('./browser.d.ts').SkykitBrowserHost} host
+ * @returns {import('./browser.d.ts').SkykitBrowserConstellationsFacade}
+ */
+function createLazyConstellationsFacade(browser, host) {
+  /** @type {Promise<import('./browser.d.ts').SkykitBrowserConstellationsFacade> | null} */
+  let loaded = null;
+  const loadCapability = (options = {}) => {
+    loaded ??= import('./browser-constellations.js')
+      .then((module) => module.installSkykitConstellationsBrowserCapability({
+        browser,
+        host,
+        options,
+      }));
+    return loaded;
+  };
+  return {
+    async load(options) {
+      return loadCapability(options);
+    },
+    async show() {
+      return (await loadCapability()).show();
+    },
+    async hide() {
+      return (await loadCapability()).hide();
+    },
+    async toggle(force) {
+      return (await loadCapability()).toggle(force);
+    },
+    async setArt(mode) {
+      return (await loadCapability()).setArt(mode);
+    },
+    async getSnapshot() {
+      return (await loadCapability()).getSnapshot();
+    },
+  };
+}
+
+function createPointerPlugins(options, host) {
+  const mouseMode = normalizeMouseMode(options.mouseMode);
+  if (options.grab === false || mouseMode === 'none') return [];
+  const pointerOptions = {
+    target: host,
+    sensitivityRadiansPerPixel: 0.00075,
+    ...(options.grab ?? {}),
+  };
+  return [
+    mouseMode === 'look' || mouseMode === 'strafe'
+      ? createMouseLookPlugin(pointerOptions)
+      : createSkyGrabPlugin(pointerOptions),
+  ];
+}
+
+function normalizeMouseMode(value) {
+  const mode = String(value ?? 'grab').trim().toLowerCase();
+  if (mode === 'look' || mode === 'mouse-look' || mode === 'mouselook' || mode === 'game' || mode === 'strafe') {
+    return mode === 'strafe' ? 'strafe' : 'look';
+  }
+  if (mode === 'none' || mode === 'off' || mode === 'false') return 'none';
+  return 'grab';
 }
 
 function createStatusPlugin(target) {

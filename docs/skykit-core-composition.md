@@ -93,6 +93,12 @@ Named presets may exist as thin teaching conveniences, but they must wrap the
 same public factories. SkyKit should not become a central registry for every
 renderer, loader, surface, and data type.
 
+The browser embed also has a small noob-path add-on convention documented in
+[`skykit-browser-plugins.md`](./skykit-browser-plugins.md). Browser add-ons are
+script-tag conveniences that receive a browser handle and install ordinary core
+plugins. They do not replace the core plugin model or introduce string factory
+registries.
+
 ## Viewer Lifecycle
 
 The viewer owns a deterministic lifecycle:

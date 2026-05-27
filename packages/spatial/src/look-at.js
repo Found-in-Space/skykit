@@ -16,6 +16,30 @@ import {
 } from './navigation.js';
 
 /**
+ * @param {string} text
+ * @returns {import('./index.d.ts').SpatialLookAtSpec | null}
+ */
+export function parseSpatialLookAtText(text) {
+  const value = String(text ?? '').trim();
+  if (!value) return null;
+  const json = parseLookAtJson(value);
+  if (json) return json;
+  const named = parseNamedRaDec(value);
+  if (named) return named;
+  const parts = value.split(',').map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 2) {
+    const ra = parseRaValue(parts[0], 'ra');
+    const decDeg = parseDegrees(parts[1]);
+    return ra && Number.isFinite(decDeg) ? { ...ra, decDeg } : null;
+  }
+  if (parts.length === 3) {
+    const vector = vectorFromParts(parts);
+    return vector ? { targetPc: vector } : null;
+  }
+  return null;
+}
+
+/**
  * @param {unknown} input
  * @param {import('./index.d.ts').ResolveSpatialLookAtOptions} [options]
  * @returns {import('./index.d.ts').SpatialResolvedLookAt | Promise<import('./index.d.ts').SpatialResolvedLookAt>}
@@ -202,6 +226,79 @@ function normalizeLookAtInput(input) {
     };
   }
   return null;
+}
+
+/** @param {string} text */
+function parseLookAtJson(text) {
+  if (!text.startsWith('{') && !text.startsWith('[')) return null;
+  try {
+    return normalizeLookAtInput(JSON.parse(text));
+  } catch {
+    return null;
+  }
+}
+
+/** @param {string} text */
+function parseNamedRaDec(text) {
+  const result = {};
+  for (const part of text.split(/[;,]/)) {
+    const match = part.trim().match(/^([a-z][a-z0-9-]*)\s*[:=]\s*(.+)$/i);
+    if (!match) continue;
+    const key = match[1].toLowerCase();
+    const rawValue = match[2].trim();
+    if (key === 'ra' || key === 'radeg' || key === 'ra-deg' || key === 'rahours' || key === 'ra-hours') {
+      const ra = parseRaValue(rawValue, key);
+      if (ra) Object.assign(result, ra);
+    } else if (key === 'dec' || key === 'decdeg' || key === 'dec-deg') {
+      const decDeg = parseDegrees(rawValue);
+      if (Number.isFinite(decDeg)) result.decDeg = decDeg;
+    } else if (key === 'distance' || key === 'distancepc' || key === 'distance-pc') {
+      const distancePc = parsePlainNumber(rawValue);
+      if (Number.isFinite(distancePc)) result.distancePc = distancePc;
+    } else if (key === 'pa' || key === 'positionangle' || key === 'position-angle' || key === 'positionangledeg' || key === 'position-angle-deg') {
+      const positionAngleDeg = parseDegrees(rawValue);
+      if (Number.isFinite(positionAngleDeg)) result.positionAngleDeg = positionAngleDeg;
+    }
+  }
+  return isRaDecLookAt(result) ? result : null;
+}
+
+/**
+ * @param {string} value
+ * @param {string} key
+ */
+function parseRaValue(value, key) {
+  const number = parsePlainNumber(value);
+  if (!Number.isFinite(number)) return null;
+  const lower = value.trim().toLowerCase();
+  return lower.endsWith('h') || key.includes('hour')
+    ? { raHours: number }
+    : { raDeg: number };
+}
+
+/** @param {string} value */
+function parseDegrees(value) {
+  return parsePlainNumber(value);
+}
+
+/** @param {string} value */
+function parsePlainNumber(value) {
+  return Number(
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/^\+/, '')
+      .replace(/(?:deg|degrees|degree|°|h|hours|hour|pc)$/i, '')
+      .trim(),
+  );
+}
+
+/** @param {string[]} parts */
+function vectorFromParts(parts) {
+  const x = Number(parts[0]);
+  const y = Number(parts[1]);
+  const z = Number(parts[2]);
+  return [x, y, z].every(Number.isFinite) ? { x, y, z } : null;
 }
 
 /** @param {unknown} value */

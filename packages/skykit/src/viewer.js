@@ -116,6 +116,7 @@ export async function createSkykitViewer(options = {}) {
     observerRig,
     actions,
     addPart,
+    addPlugin,
     getViewState,
     requestViewState,
     update,
@@ -143,10 +144,7 @@ export async function createSkykitViewer(options = {}) {
   }
 
   for (const plugin of pluginInputs) {
-    const teardown = await setupPlugin(plugin, context);
-    if (typeof teardown === 'function') {
-      disposables.push(teardown);
-    }
+    await installPlugin(plugin);
   }
 
   for (const part of orderedParts()) {
@@ -181,6 +179,32 @@ export async function createSkykitViewer(options = {}) {
   }
 
   /**
+   * @param {import('./index.d.ts').SkykitPluginInput} plugin
+   * @returns {Promise<SkykitPluginTeardown>}
+   */
+  async function addPlugin(plugin) {
+    assertActive();
+    return installPlugin(plugin, true);
+  }
+
+  /**
+   * @param {import('./index.d.ts').SkykitPluginInput} plugin
+   * @param {boolean} [record]
+   * @returns {Promise<SkykitPluginTeardown>}
+   */
+  async function installPlugin(plugin, record = false) {
+    const teardown = await setupPlugin(plugin, context);
+    if (record) pluginInputs.push(plugin);
+    if (typeof teardown !== 'function') return () => {};
+    disposables.push(teardown);
+    return () => {
+      const index = disposables.indexOf(teardown);
+      if (index >= 0) disposables.splice(index, 1);
+      void teardown();
+    };
+  }
+
+  /**
    * @param {SkykitThreePart} part
    */
   function addPartRecord(part) {
@@ -196,9 +220,8 @@ export async function createSkykitViewer(options = {}) {
    */
   async function removePart(part) {
     const index = parts.indexOf(part);
-    if (index >= 0) {
-      parts.splice(index, 1);
-    }
+    if (index < 0) return;
+    parts.splice(index, 1);
     emit({ type: 'part/remove', part });
     await detachAndDisposePart(part);
   }
@@ -381,7 +404,7 @@ export async function createSkykitViewer(options = {}) {
       }
     }
     for (const part of [...orderedParts()].reverse()) {
-      await detachAndDisposePart(part);
+      await removePart(part);
     }
     for (const disposable of [...disposables].reverse()) {
       await disposable();

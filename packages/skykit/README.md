@@ -69,17 +69,62 @@ Optional attributes keep small tweaks HTML-only:
   data-skykit-magnitude="7"
   data-skykit-speed="4"
   data-skykit-exposure="2600"
+  data-skykit-look-at="ra=4.496h, dec=16.948"
+  data-skykit-mouse-mode="strafe"
   style="width: 100%; height: 520px; background: #02040b"
 ></div>
 ```
 
+`data-skykit-look-at` accepts RA/Dec text such as
+`ra=4.496h, dec=16.948`, decimal degrees such as `67.447,16.948`, or a
+parsec-space `x,y,z` target for exact generated coordinates. `data-skykit-mouse-mode`
+defaults to `grab`; use `look` or `strafe` for the first-person mouse-look
+direction, or `none` to disable mouse drag controls.
+
 The host dispatches `skykit-browser-ready` with `{ browser, viewer }` in
 `event.detail` after startup, and `skykit-browser-error` if startup fails. The
-embed does not install a global object, so pages can host multiple viewers.
+embed also installs a small `Skykit` global for noob-path scripts:
+
+```js
+const browser = await Skykit.whenReady();
+```
+
+Pages can host multiple viewers. Pass a selector or element to choose one:
+
+```js
+const browser = await Skykit.whenReady('#orion-viewer');
+```
 
 Pin the package CDN URL to a released SkyKit version when publishing long-lived
 pages, for example
 `https://esm.sh/@found-in-space/skykit@x.y.z/embed?bundle&deps=three@0.170.0`.
+
+Optional first-party capabilities stay out of the initial browser until they are
+requested. This keeps the one-script noob path while avoiding bundle bloat.
+
+```html
+<div
+  data-skykit-browser
+  data-skykit-constellations="western"
+  data-skykit-constellation-art="off"
+  style="width:100%;height:520px;background:#02040b"
+></div>
+```
+
+For small scripted interactions, use the browser handle:
+
+```html
+<script type="module">
+  const browser = await Skykit.whenReady();
+
+  document.querySelector('#orion').addEventListener('click', () => {
+    browser.journey.transitionTo({
+      lookAt: 'ra=5.919h, dec=7.407',
+      durationSecs: 3,
+    });
+  });
+</script>
+```
 
 ## Create a Viewer from JavaScript
 
@@ -332,6 +377,28 @@ const viewer = await createSkykitViewer({
 For a slightly more playful example, see `examples/plugin-lab.js`. It builds
 app-owned Three objects and action-driven annotations from the same public hooks
 a learner would use.
+
+The pasteable browser embed has a smaller add-on convention for noob pages:
+
+```js
+Skykit.registerBrowserAddon({
+  id: 'lesson:marker',
+  install({ browser, THREE }) {
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.02),
+      new THREE.MeshBasicMaterial({ color: 0xffcc00 }),
+    );
+    const handle = browser.addObject(marker, {
+      positionPc: { x: 17.574, y: 42.316, z: 13.963 },
+    });
+    return () => handle.dispose();
+  },
+});
+```
+
+See `docs/skykit-browser-plugins.md` for the browser add-on spec,
+`Skykit.whenReady()`, first-party constellation support, and the
+`browser.journey` API.
 
 Browser lessons:
 

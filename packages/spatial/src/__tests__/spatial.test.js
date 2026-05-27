@@ -25,6 +25,7 @@ import {
   materializeSpatialPathSamples,
   materializeSpatialPreloadHints,
   icrsToRaDec,
+  parseSpatialLookAtText,
   projectEquirectangular,
   raDecDistanceToIcrs,
   raDecToIcrsDirection,
@@ -48,6 +49,26 @@ test('coordinates convert RA/Dec/distance to ICRS and back', () => {
     x: 180,
     y: 90,
   });
+});
+
+test('parseSpatialLookAtText accepts RA/Dec text, vectors, and JSON look specs', () => {
+  assert.deepEqual(parseSpatialLookAtText('ra=4.496h, dec=16.948'), {
+    raHours: 4.496,
+    decDeg: 16.948,
+  });
+  assert.deepEqual(parseSpatialLookAtText('67.447, 16.948'), {
+    raDeg: 67.447,
+    decDeg: 16.948,
+  });
+  assert.deepEqual(parseSpatialLookAtText('17.574,42.316,13.963'), {
+    targetPc: { x: 17.574, y: 42.316, z: 13.963 },
+  });
+  assert.deepEqual(parseSpatialLookAtText('{"raHours":4.496,"decDeg":16.948,"positionAngleDeg":12}'), {
+    raHours: 4.496,
+    decDeg: 16.948,
+    positionAngleDeg: 12,
+  });
+  assert.equal(parseSpatialLookAtText('not coordinates'), null);
 });
 
 test('resolveSpatialTarget handles vectors, RA/Dec, and bookmark resolvers', async () => {

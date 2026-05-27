@@ -1,0 +1,133 @@
+# SkyKit Browser Plugins
+
+Status: alpha browser/noob extension contract for `@found-in-space/skykit/embed`.
+
+SkyKit has two plugin layers:
+
+- **Core plugins** are ordinary functions or objects passed to
+  `createSkykitViewer()` or `createSkykitBrowser({ plugins })`.
+- **Browser add-ons** are embed/noob conveniences. They discover browser handles
+  created by the pasteable script and install core plugins or expose small
+  beginner APIs.
+
+The core plugin model remains the durable package API. Browser add-ons are for
+static pages, CMS snippets, lessons, and one-script beginner examples.
+
+## Browser Global
+
+The embed script installs a small global:
+
+```js
+const browser = await Skykit.whenReady();
+const second = await Skykit.whenReady('#second-viewer');
+```
+
+`Skykit.whenReady(selectorOrElement?)` resolves to a `SkykitBrowser`. The
+existing `skykit-browser-ready` DOM event is still emitted for compatibility.
+
+Multiple viewers are supported. With no argument, `whenReady()` resolves to the
+first started browser. Pass a selector or element when a page has more than one.
+
+## Browser Add-On Contract
+
+A browser add-on is plain code:
+
+```js
+Skykit.registerBrowserAddon({
+  id: 'lesson:marker',
+  async install({ browser, THREE }) {
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.02),
+      new THREE.MeshBasicMaterial({ color: 0xffcc00 }),
+    );
+
+    const handle = browser.addObject(marker, {
+      id: 'lesson-marker',
+      positionPc: { x: 17.574, y: 42.316, z: 13.963 },
+    });
+
+    return () => handle.dispose();
+  },
+});
+```
+
+`install(context)` receives `{ host, browser, viewer, THREE, skykit }`.
+The optional `id` is only for diagnostics and per-browser de-duping; it is not a
+factory name or registry key.
+
+Add-ons may load before or after the base embed. If an add-on script needs to
+run first, it can queue itself:
+
+```js
+globalThis.Skykit ??= {};
+globalThis.Skykit.browserAddons ??= [];
+globalThis.Skykit.registerBrowserAddon ??= (addon) => {
+  globalThis.Skykit.browserAddons.push(addon);
+};
+
+Skykit.registerBrowserAddon(myAddon);
+```
+
+When the embed loads, it upgrades that queue into the real registry and applies
+queued add-ons to current and future browsers.
+
+## First-Party Capabilities
+
+First-party browser capabilities are lazy-loaded by the base embed/browser
+handle. The learner still uses one script include, while optional code and data
+load only when requested.
+
+Constellations:
+
+```html
+<div
+  data-skykit-browser
+  data-skykit-constellations="western"
+  data-skykit-constellation-art="off"
+></div>
+```
+
+The constellation capability fetches the skyculture manifest on demand, renders
+boundary lines, and can lazy-load anchored art when requested:
+
+```js
+const browser = await Skykit.whenReady();
+await browser.constellations.setArt('lazy');
+browser.constellations.hide();
+browser.constellations.show();
+```
+
+Journey:
+
+```js
+const browser = await Skykit.whenReady();
+
+await browser.journey.transitionTo({
+  lookAt: 'ra=5.919h, dec=7.407',
+  durationSecs: 3,
+});
+
+const orion = await browser.journey.load('/orion-tour.json');
+await orion.goTo('belt');
+orion.dispose();
+```
+
+`browser.journey` is a service. `load()` returns a journey instance, so loaded
+tours do not pollute the root namespace.
+
+## Core Plugin Installation
+
+The browser handle can install a core plugin after startup:
+
+```js
+const browser = await Skykit.whenReady();
+
+const uninstall = await browser.install((ctx) => {
+  ctx.actions.registerAction('lesson:reset-view', () => {
+    ctx.requestViewState({ lookAt: { raHours: 4.496, decDeg: 16.948 } });
+  });
+});
+```
+
+Use this when a lesson grows beyond the first-party browser capabilities but
+does not yet need to switch to the full `createSkykitViewer()` composition path.

@@ -54,6 +54,7 @@ export {
 } from './navigation.js';
 export {
   normalizeSpatialLookAt,
+  parseSpatialLookAtText,
   resolveSpatialLookAt,
 } from './look-at.js';
 export {

@@ -220,8 +220,12 @@ export function createSkykitNavigationPlugin(options = {}) {
     id,
     setup(context) {
       const threeContext = /** @type {import('./index.d.ts').SkykitThreePluginContext} */ (context);
-      threeContext.addPart(part);
-      threeContext.addDisposable(registerNavigationActions(threeContext));
+      const removePart = threeContext.addPart(part);
+      const unregisterActions = registerNavigationActions(threeContext);
+      return () => {
+        unregisterActions();
+        removePart();
+      };
     },
     getSnapshot: () => part.getSnapshot?.() ?? null,
   };
@@ -406,7 +410,7 @@ export function createSkykitNavigationPlugin(options = {}) {
 
 /**
  * @param {import('./index.d.ts').SkykitJourneyPluginOptions} [options]
- * @returns {SkykitPlugin & { getSnapshot(): unknown }}
+ * @returns {import('./index.d.ts').SkykitJourneyPlugin}
  */
 export function createSkykitJourneyPlugin(options = {}) {
   const id = options.id ?? 'journey';
@@ -473,56 +477,81 @@ export function createSkykitJourneyPlugin(options = {}) {
     id,
     setup(context) {
       const threeContext = /** @type {import('./index.d.ts').SkykitThreePluginContext} */ (context);
-      threeContext.addPart(part);
-      threeContext.addDisposable(registerJourneyActions(threeContext));
+      const removePart = threeContext.addPart(part);
+      const unregisterActions = registerJourneyActions(threeContext);
+      return () => {
+        unregisterActions();
+        removePart();
+      };
     },
+    goTo,
+    next,
+    previous,
+    seek,
+    play,
+    pause,
     getSnapshot,
   };
+
+  /** @param {unknown} payload */
+  async function goTo(payload) {
+    await pendingSceneApplication;
+    const sceneId = resolveSceneId(payload);
+    const spec = sceneId && controller ? controller.goTo(sceneId, { source: SKYKIT_ACTIONS.journey.goToChapter }) : null;
+    await pendingSceneApplication;
+    return spec;
+  }
+
+  async function next() {
+    await pendingSceneApplication;
+    const spec = controller?.next({ source: SKYKIT_ACTIONS.journey.next }) ?? null;
+    await pendingSceneApplication;
+    return spec;
+  }
+
+  async function previous() {
+    await pendingSceneApplication;
+    const spec = controller?.previous({ source: SKYKIT_ACTIONS.journey.previous }) ?? null;
+    await pendingSceneApplication;
+    return spec;
+  }
+
+  /** @param {unknown} payload */
+  function seek(payload) {
+    currentTimeSecs = clampTime(resolveTimeSecs(payload), evaluator?.durationSecs ?? Number.POSITIVE_INFINITY);
+    if (evaluator && pluginContext) applyTimedFrame(evaluator.evaluate(currentTimeSecs), { viewer: pluginContext.viewer, view: pluginContext.getViewState() });
+    if (pluginContext) emitTimedPreloadHints(pluginContext, 'seek');
+    return currentTimeSecs;
+  }
+
+  /** @param {unknown} [payload] */
+  function play(payload) {
+    if (payload && typeof payload === 'object' && 'timeSecs' in payload) {
+      currentTimeSecs = clampTime(resolveTimeSecs(payload), evaluator?.durationSecs ?? Number.POSITIVE_INFINITY);
+    }
+    playing = true;
+    if (pluginContext) emitTimedPreloadHints(pluginContext, 'play');
+    return currentTimeSecs;
+  }
+
+  function pause() {
+    playing = false;
+    return currentTimeSecs;
+  }
 
   /** @param {import('./index.d.ts').SkykitThreePluginContext} context */
   function registerJourneyActions(context) {
     const unregisters = [
-      context.actions.registerAction(SKYKIT_ACTIONS.journey.goToChapter, async ({ payload }) => {
-        await pendingSceneApplication;
-        const sceneId = resolveSceneId(payload);
-        const spec = sceneId && controller ? controller.goTo(sceneId, { source: SKYKIT_ACTIONS.journey.goToChapter }) : null;
-        await pendingSceneApplication;
-        return spec;
-      }, { label: 'Go to journey chapter' }),
-      context.actions.registerAction(SKYKIT_ACTIONS.journey.next, async () => {
-        await pendingSceneApplication;
-        const spec = controller?.next({ source: SKYKIT_ACTIONS.journey.next }) ?? null;
-        await pendingSceneApplication;
-        return spec;
-      }, {
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.goToChapter, ({ payload }) => goTo(payload), { label: 'Go to journey chapter' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.next, () => next(), {
         label: 'Next journey chapter',
       }),
-      context.actions.registerAction(SKYKIT_ACTIONS.journey.previous, async () => {
-        await pendingSceneApplication;
-        const spec = controller?.previous({ source: SKYKIT_ACTIONS.journey.previous }) ?? null;
-        await pendingSceneApplication;
-        return spec;
-      }, {
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.previous, () => previous(), {
         label: 'Previous journey chapter',
       }),
-      context.actions.registerAction(SKYKIT_ACTIONS.journey.seek, ({ payload }) => {
-        currentTimeSecs = clampTime(resolveTimeSecs(payload), evaluator?.durationSecs ?? Number.POSITIVE_INFINITY);
-        if (evaluator) applyTimedFrame(evaluator.evaluate(currentTimeSecs), { viewer: context.viewer, view: context.getViewState() });
-        emitTimedPreloadHints(context, 'seek');
-        return currentTimeSecs;
-      }, { label: 'Seek journey time' }),
-      context.actions.registerAction(SKYKIT_ACTIONS.journey.play, ({ payload }) => {
-        if (payload && typeof payload === 'object' && 'timeSecs' in payload) {
-          currentTimeSecs = clampTime(resolveTimeSecs(payload), evaluator?.durationSecs ?? Number.POSITIVE_INFINITY);
-        }
-        playing = true;
-        emitTimedPreloadHints(context, 'play');
-        return currentTimeSecs;
-      }, { label: 'Play journey' }),
-      context.actions.registerAction(SKYKIT_ACTIONS.journey.pause, () => {
-        playing = false;
-        return currentTimeSecs;
-      }, { label: 'Pause journey' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.seek, ({ payload }) => seek(payload), { label: 'Seek journey time' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.play, ({ payload }) => play(payload), { label: 'Play journey' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.journey.pause, () => pause(), { label: 'Pause journey' }),
     ];
     return () => {
       for (const unregister of unregisters.reverse()) unregister();

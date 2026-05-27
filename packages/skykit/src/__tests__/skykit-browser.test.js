@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
 
+import {
+  installSkykitBrowserGlobal,
+  registerBrowserInstance,
+} from '../browser-addons.js';
 import { createSkykitBrowser } from '../browser.js';
 
 test('createSkykitBrowser wires the starter viewer and extra plugins', async () => {
@@ -99,6 +103,205 @@ test('createSkykitBrowser registers resize and page-lifecycle cleanup by default
       'pagehide',
       'beforeunload',
     ]);
+  });
+});
+
+test('createSkykitBrowser accepts startup lookAt and mouse look mode', async () => {
+  await withFakeWindow(async () => {
+    const browser = await createSkykitBrowser({
+      host: createHost(),
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+      mouseMode: 'strafe',
+      lookAt: { targetPc: { x: 10, y: 0, z: 0 } },
+    });
+
+    const view = browser.viewer.getViewState();
+    assert.deepEqual(view.targetPc, { x: 10, y: 0, z: 0 });
+    assert.ok(view.orientationIcrs);
+    assert.equal(
+      browser.viewer.getSnapshot().parts.some((part) => part.id === 'mouse-look'),
+      true,
+    );
+    assert.equal(
+      browser.viewer.getSnapshot().parts.some((part) => part.id === 'sky-grab'),
+      false,
+    );
+
+    await browser.dispose();
+  });
+});
+
+test('createSkykitBrowser can disable mouse drag controls', async () => {
+  await withFakeWindow(async () => {
+    const browser = await createSkykitBrowser({
+      host: createHost(),
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+      mouseMode: 'none',
+    });
+
+    assert.equal(
+      browser.viewer.getSnapshot().parts.some((part) => part.id === 'mouse-look' || part.id === 'sky-grab'),
+      false,
+    );
+
+    await browser.dispose();
+  });
+});
+
+test('browser.install adds plugins after startup and cleans returned teardowns', async () => {
+  await withFakeWindow(async () => {
+    const calls = [];
+    const browser = await createSkykitBrowser({
+      host: createHost(),
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+    });
+
+    const uninstall = await browser.install((context) => {
+      context.addPart({
+        id: 'late-part',
+        attach() { calls.push('attach'); },
+        start() { calls.push('start'); },
+      });
+      return () => calls.push('teardown');
+    });
+
+    await Promise.resolve();
+    assert.deepEqual(calls, ['attach', 'start']);
+    assert.equal(browser.viewer.getSnapshot().parts.some((part) => part.id === 'late-part'), true);
+    uninstall();
+    assert.deepEqual(calls, ['attach', 'start', 'teardown']);
+
+    await browser.dispose();
+  });
+});
+
+test('browser journey capability transitions through navigation actions and loads instances', async () => {
+  await withFakeWindow(async () => {
+    const browser = await createSkykitBrowser({
+      host: createHost(),
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+    });
+
+    await browser.journey.transitionTo({
+      lookAt: { targetPc: { x: 10, y: 0, z: 0 } },
+      durationSecs: 1,
+    });
+    browser.viewer.update(1);
+    browser.viewer.update(0);
+    assert.ok(browser.viewer.getViewState().orientationIcrs);
+    assert.equal(browser.capabilities.has('skykit:navigation'), true);
+
+    const journey = await browser.journey.load({
+      initial: 'home',
+      scenes: {
+        home: { view: { observerPc: { x: 0, y: 0, z: 0 } } },
+        away: { view: { observerPc: { x: 1, y: 2, z: 3 } } },
+      },
+    });
+    await journey.goTo('away');
+    browser.viewer.update(0);
+    assert.deepEqual(browser.viewer.getViewState().observerPc, { x: 1, y: 2, z: 3 });
+    assert.equal(journey.getSnapshot().disposed, false);
+    journey.dispose();
+    assert.equal(journey.getSnapshot().disposed, true);
+
+    await browser.dispose();
+  });
+});
+
+test('browser constellations capability loads manifest boundaries without art', async () => {
+  await withFakeWindow(async () => {
+    const browser = await createSkykitBrowser({
+      host: createHost(),
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+    });
+
+    const constellations = await browser.constellations.load({
+      art: 'off',
+      manifest: {
+        id: 'test-skyculture',
+        boundaries: {
+          edges: ['001:002 M+ 00:00:00 +00:00:00 01:00:00 +00:00:00 AAA BBB'],
+        },
+        constellations: [],
+      },
+    });
+
+    assert.equal(constellations.getSnapshot().lineCount, 1);
+    assert.equal(browser.capabilities.has('skykit:browser.constellations'), true);
+    assert.equal(browser.viewer.roots.observerContentRoot.children.some((child) => child.name === 'constellation-boundaries'), true);
+    assert.equal(constellations.hide(), false);
+    assert.equal(constellations.show(), true);
+
+    await browser.dispose();
+  });
+});
+
+test('Skykit browser global resolves existing and future browsers and installs add-ons once', async () => {
+  await withFakeWindow(async () => {
+    const service = installSkykitBrowserGlobal(/** @type {typeof globalThis} */ ({}));
+    const host = createHost();
+    const browser = await createSkykitBrowser({
+      host,
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+    });
+    let installs = 0;
+    service.registerBrowserAddon({
+      id: 'test-addon',
+      install({ browser: installedBrowser }) {
+        installs += 1;
+        assert.equal(installedBrowser, browser);
+      },
+    });
+
+    const unregister = registerBrowserInstance(service, host, browser);
+    assert.equal(await service.whenReady(), browser);
+    assert.equal(installs, 1);
+    service.registerBrowserAddon({
+      id: 'test-addon',
+      install() {
+        installs += 1;
+      },
+    });
+    assert.equal(installs, 1);
+    unregister();
+    await browser.dispose();
   });
 });
 

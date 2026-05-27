@@ -11,6 +11,7 @@ import type {
   SkykitAnimationLoop,
   SkykitAnimationLoopOptions,
   SkykitDragLookOptions,
+  SkykitLookAtInput,
   SkykitKeyboardNavigationOptions,
   SkykitPluginInput,
   SkykitPluginTeardown,
@@ -29,6 +30,78 @@ export type SkykitBrowserHost = string | {
 };
 
 export type SkykitBrowserStatusTarget = string | { textContent?: string | null };
+export type SkykitBrowserMouseMode = 'grab' | 'look' | 'strafe' | 'none';
+export type SkykitConstellationArtMode = 'off' | 'lazy' | 'preload';
+
+export interface SkykitBrowserAddonContext {
+  id?: string;
+  host: SkykitBrowserHost | Element;
+  browser: SkykitBrowser;
+  viewer: SkykitViewer;
+  THREE: typeof THREE;
+  skykit: Record<string, unknown>;
+}
+
+export interface SkykitBrowserAddon {
+  id?: string;
+  install(
+    context: SkykitBrowserAddonContext
+  ): void | Promise<void> | SkykitPluginTeardown | Promise<SkykitPluginTeardown | void>;
+}
+
+export type SkykitBrowserInstallInput = SkykitPluginInput | SkykitBrowserAddon;
+
+export interface SkykitBrowserGlobal {
+  browserAddons: SkykitBrowserAddon[];
+  registerBrowserAddon(addon: SkykitBrowserAddon): SkykitPluginTeardown;
+  whenReady(target?: string | Element): Promise<SkykitBrowser>;
+  getBrowsers(): SkykitBrowser[];
+}
+
+export interface SkykitBrowserJourneyFacade {
+  transitionTo(viewOrScene: unknown, options?: Record<string, unknown>): Promise<PromiseSettledResult<unknown>[]>;
+  applyScene(sceneSpec: unknown): Promise<unknown>;
+  load(input: string | Record<string, unknown>, options?: Record<string, unknown>): Promise<SkykitBrowserJourneyInstance>;
+  getSnapshot(): unknown | Promise<unknown>;
+}
+
+export interface SkykitBrowserJourneyInstance {
+  goTo(sceneId: string): Promise<unknown>;
+  next(): Promise<unknown>;
+  previous(): Promise<unknown>;
+  play(payload?: unknown): number;
+  pause(): number;
+  seek(timeSecs: number): number;
+  getSnapshot(): unknown;
+  dispose(): void;
+}
+
+export interface SkykitBrowserConstellationsOptions {
+  skyculture?: string;
+  manifest?: Record<string, unknown>;
+  manifestUrl?: string;
+  assetBaseUrl?: string;
+  art?: SkykitConstellationArtMode | string;
+  visible?: boolean;
+  priority?: number;
+  boundaryRadius?: number;
+  boundaryColor?: THREE.ColorRepresentation;
+  boundaryOpacity?: number;
+  renderOrder?: number;
+  artOpacity?: number;
+  artMaxAngleDeg?: number;
+  skipTextureErrors?: boolean;
+}
+
+export interface SkykitBrowserConstellationsFacade {
+  load(options?: SkykitBrowserConstellationsOptions): Promise<SkykitBrowserConstellationsFacade>;
+  show(): boolean | Promise<boolean>;
+  hide(): boolean | Promise<boolean>;
+  toggle(force?: boolean): boolean | Promise<boolean>;
+  setArt(mode: SkykitConstellationArtMode | string): SkykitConstellationArtMode | Promise<SkykitConstellationArtMode>;
+  getSnapshot(): unknown | Promise<unknown>;
+  dispose?(): void;
+}
 
 export interface SkykitBrowserOptions {
   host?: SkykitBrowserHost;
@@ -42,8 +115,10 @@ export interface SkykitBrowserOptions {
   session?: StarOctreeSessionOptions;
   keyboard?: false | SkykitKeyboardNavigationOptions;
   grab?: false | SkykitDragLookOptions;
+  mouseMode?: SkykitBrowserMouseMode;
   plugins?: Iterable<SkykitPluginInput>;
   view?: Partial<SkykitViewState>;
+  lookAt?: SkykitLookAtInput;
   loop?: SkykitAnimationLoopOptions;
   limitingMagnitude?: number;
   exposure?: number;
@@ -68,6 +143,10 @@ export interface SkykitBrowser {
   provider: StarOctreeProviderService;
   starField: ThreeStarField;
   loop: SkykitAnimationLoop;
+  capabilities: Set<string>;
+  journey: SkykitBrowserJourneyFacade;
+  constellations: SkykitBrowserConstellationsFacade;
+  install(input: SkykitBrowserInstallInput): Promise<SkykitPluginTeardown>;
   addObject(
     object3d: THREE.Object3D,
     options?: SkykitBrowserObjectOptions

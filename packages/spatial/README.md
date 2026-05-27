@@ -9,6 +9,7 @@ experience without pulling in SkyKit or Three.js.
 ```js
 import {
   createSpatialNavigationAutomation,
+  parseSpatialLookAtText,
   raDecDistanceToIcrs,
 } from '@found-in-space/spatial';
 
@@ -21,9 +22,15 @@ const pleiades = raDecDistanceToIcrs({
 const navigation = createSpatialNavigationAutomation({ speed: 20 });
 navigation.flyTo(pleiades);
 
+const lookAt = parseSpatialLookAtText('ra=4.496h, dec=16.948');
+
 let pose = { position: { x: 0, y: 0, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } };
 pose = navigation.update({ pose, deltaSeconds: 1 / 60 });
 ```
+
+`parseSpatialLookAtText()` is useful at string-oriented boundaries such as HTML
+attributes or authored content. It returns ordinary spatial look-at specs from
+RA/Dec text, decimal RA/Dec pairs, parsec-space vectors, or JSON look specs.
 
 `@found-in-space/spatial` does not know about stars, octrees, renderers, DOM,
 WebXR sessions, or journeys. Those packages compose these primitives.
