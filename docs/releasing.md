@@ -33,9 +33,9 @@ npm run typecheck
 ```
 
 For ordinary package-change pull requests, `npm run release:status` should pass
-after the matching changeset has been committed. Metadata-only release
-infrastructure changes can use an empty changeset if a pull request needs a
-clean status check without publishing package code.
+after the matching changeset has been committed. Do not merge empty changesets
+into `main` during release recovery: `changesets/action` treats an empty
+changeset as handled release input and will skip the publish command.
 
 Publishing is normally handled by `.github/workflows/release-packages.yml` after
 changes are merged to `main`. The workflow runs `npm ci`, `npm test`,
