@@ -4,6 +4,11 @@
   "description": "Alpha star octree provider package for Found in Space datasets",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Found-in-Space/skykit",
+    "directory": "packages/star-octree-provider"
+  },
   "publishConfig": {
     "access": "public"
   },

@@ -20,17 +20,89 @@ strategies. SkyKit passes strategies through to provider sessions; it does not
 redefine planning, inspect strategy kinds, or hide loader registries behind
 string names.
 
-## Create A Viewer
+## Paste into a static page or CMS
+
+For the beginner path, use the auto-booting embed. Paste this into a static HTML
+page or a CMS custom HTML block:
+
+```html
+<div
+  data-skykit-browser
+  data-skykit-status="#skykit-status"
+  style="width: 100%; height: 70vh; min-height: 420px; background: #02040b"
+></div>
+
+<pre id="skykit-status">Loading stars...</pre>
+
+<script
+  type="module"
+  src="https://esm.sh/@found-in-space/skykit/embed?bundle"
+></script>
+```
+
+The embed script finds every `[data-skykit-browser]` element and creates the
+standard star browser there. It owns the normal beginner plumbing: Three.js
+renderer and camera, the public star provider, the star-field renderer, streaming
+stars, keyboard navigation, drag-to-look controls, resize handling, the animation
+loop, and page-lifecycle cleanup.
+
+Optional attributes keep small tweaks HTML-only:
+
+```html
+<div
+  data-skykit-browser
+  data-skykit-status="#skykit-status"
+  data-skykit-magnitude="7"
+  data-skykit-speed="4"
+  data-skykit-exposure="2600"
+  style="width: 100%; height: 520px; background: #02040b"
+></div>
+```
+
+The host dispatches `skykit-browser-ready` with `{ browser, viewer }` in
+`event.detail` after startup, and `skykit-browser-error` if startup fails. The
+embed does not install a global object, so pages can host multiple viewers.
+
+Pin the CDN URL to a released SkyKit version when publishing long-lived pages,
+for example
+`https://esm.sh/@found-in-space/skykit@x.y.z/embed?bundle&deps=three@0.170.0`.
+
+## Create a browser from JavaScript
+
+If your site has a module script, npm, or a bundler, call the helper directly:
+
+```html
+<div id="viewer" style="width: 100vw; height: 100vh"></div>
+<pre id="status">Loading stars...</pre>
+
+<script type="module">
+  import { createSkykitBrowser } from '@found-in-space/skykit/browser';
+
+  await createSkykitBrowser({
+    host: '#viewer',
+    status: '#status',
+  });
+</script>
+```
+
+The helper still returns the pieces when a lesson wants to grow:
+
+```js
+const sky = await createSkykitBrowser('#viewer');
+
+sky.viewer.requestViewState({ observerPc: { x: 4, y: 0, z: -8 } });
+sky.loop.stop();
+await sky.dispose();
+```
+
+Use the lower-level factories when a lesson is teaching composition or replacing
+a part of the stack:
 
 ```js
 import {
-  SKYKIT_ACTIONS,
-  SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS,
   createKeyboardNavigationPlugin,
-  createSkykitDefaultKeyboardNavigationBindings,
   createSkyGrabPlugin,
   createSkykitAnimationLoop,
-  createSkykitStatusPlugin,
   createSkykitViewer,
   createStreamingStarsPlugin,
 } from '@found-in-space/skykit';
@@ -41,11 +113,12 @@ import {
 import { createObserverShellStrategy } from '@found-in-space/star-trees';
 import { createThreeStarField } from '@found-in-space/three-star-field';
 
+const host = document.querySelector('#viewer');
 const provider = createStarOctreeProviderService({ url: OCTREE_DEFAULT });
 const starField = createThreeStarField();
 
 const viewer = await createSkykitViewer({
-  host: document.querySelector('#skykit'),
+  host,
   view: { coordinateUnitsPerParsec: 0.001 },
   plugins: [
     createStreamingStarsPlugin({
@@ -54,8 +127,7 @@ const viewer = await createSkykitViewer({
       session: { strategy: createObserverShellStrategy() },
     }),
     createKeyboardNavigationPlugin({ speedPcPerSec: 2 }),
-    createSkyGrabPlugin({ target: document.querySelector('#skykit') }),
-    createSkykitStatusPlugin({ target: document.querySelector('#status') }),
+    createSkyGrabPlugin({ target: host }),
   ],
 });
 
@@ -69,6 +141,12 @@ supplied, it is the complete key map. Multiple keys can still point to the same
 action:
 
 ```js
+import {
+  SKYKIT_ACTIONS,
+  createKeyboardNavigationPlugin,
+  createSkykitDefaultKeyboardNavigationBindings,
+} from '@found-in-space/skykit';
+
 createKeyboardNavigationPlugin({
   rotationSpeedDegPerSec: 45,
   bindings: createSkykitDefaultKeyboardNavigationBindings({

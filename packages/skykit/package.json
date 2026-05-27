@@ -1,9 +1,14 @@
 {
   "name": "@found-in-space/skykit",
-  "version": "0.2.0-alpha.0",
+  "version": "0.2.0-alpha.1",
   "description": "Slim composition and teaching layer for Found in Space packages",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Found-in-Space/skykit",
+    "directory": "packages/skykit"
+  },
   "publishConfig": {
     "access": "public"
   },
@@ -13,6 +18,14 @@
     ".": {
       "types": "./src/index.d.ts",
       "default": "./src/index.js"
+    },
+    "./browser": {
+      "types": "./src/browser.d.ts",
+      "default": "./src/browser.js"
+    },
+    "./embed": {
+      "types": "./src/embed.d.ts",
+      "default": "./src/embed.js"
     },
     "./parallax": {
       "types": "./src/parallax.d.ts",
@@ -32,7 +45,9 @@
     "examples",
     "README.md"
   ],
-  "sideEffects": false,
+  "sideEffects": [
+    "./src/embed.js"
+  ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test"

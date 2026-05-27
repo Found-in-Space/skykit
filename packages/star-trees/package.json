@@ -4,6 +4,11 @@
   "description": "Star tree identities, cell stores, Morton helpers, and star math for Found in Space packages",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Found-in-Space/skykit",
+    "directory": "packages/star-trees"
+  },
   "publishConfig": {
     "access": "public"
   },
