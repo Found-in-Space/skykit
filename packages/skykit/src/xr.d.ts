@@ -14,6 +14,7 @@ import type {
   SkykitEvent,
   SkykitPlugin,
   SkykitStarCellSource,
+  SkykitThreeFrame,
   SkykitViewState,
 } from './index.js';
 
@@ -103,6 +104,22 @@ export interface SkykitXrBodyTracker {
   getBody(): SkykitXrBodyModel;
   getSnapshot(): { id: string; disposed: boolean; body: SkykitXrBodyModel };
   dispose(): void;
+}
+
+export interface SkykitXrBodyPluginOptions {
+  id?: string;
+  priority?: number;
+  rig?: SkykitXrRig;
+  tracker?: SkykitXrBodyTracker;
+  hideUntrackedHands?: boolean;
+  disposeTracker?: boolean;
+  onBody?: (body: SkykitXrBodyModel, frame: SkykitThreeFrame) => void;
+}
+
+export interface SkykitXrBodyPlugin extends SkykitPlugin {
+  readonly id: string;
+  getBody(): SkykitXrBodyModel;
+  getSnapshot(): unknown;
 }
 
 export interface SkykitXrAxisBinding {
@@ -445,6 +462,7 @@ export interface SkykitXrStarPickingPluginOptions {
 
 export declare function createSkykitXrRig(options?: CreateSkykitXrRigOptions): SkykitXrRig;
 export declare function createSkykitXrBodyTracker(options?: CreateSkykitXrBodyTrackerOptions): SkykitXrBodyTracker;
+export declare function createSkykitXrBodyPlugin(options?: SkykitXrBodyPluginOptions): SkykitXrBodyPlugin;
 export declare function createSkykitXrControlBindings(options?: SkykitXrControlBindingsOptions): SkykitXrControlBindingsHandle;
 export declare function readSkykitXrAxis(inputSources: Iterable<any>, binding?: SkykitXrAxisBinding & { deadzone?: number }): SkykitXrAxisState;
 export declare function readSkykitXrButton(inputSources: Iterable<any>, binding?: SkykitXrButtonBinding, previous?: SkykitXrButtonState | null): SkykitXrButtonState;
