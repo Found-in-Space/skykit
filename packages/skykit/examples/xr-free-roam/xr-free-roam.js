@@ -251,7 +251,7 @@ async function main() {
       targetPc: ORION_CENTER_PC,
       limitingMagnitude: DEFAULT_LIMITING_MAGNITUDE,
       coordinateUnitsPerParsec: DEFAULT_WORLD_SCALE,
-      orientationIcrs: initialOrientation,
+      lookAt: { orientationIcrs: initialOrientation },
     },
     plugins: [
       createSkykitXrSessionPlugin({
@@ -607,7 +607,7 @@ async function main() {
       view: {
         observerPc,
         targetPc,
-        orientationIcrs: orientationLookingAt(observerPc, targetPc),
+        lookAt: { orientationIcrs: orientationLookingAt(observerPc, targetPc) },
       },
       durationSecs: 2.4,
       movement: 'smoothstep',

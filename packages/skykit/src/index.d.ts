@@ -67,6 +67,18 @@ export interface QuaternionLike {
   w: number;
 }
 
+export interface SkykitLookAtInput {
+  targetPc?: Vector3Like | [number, number, number];
+  raDeg?: number;
+  raHours?: number;
+  decDeg?: number;
+  distancePc?: number;
+  star?: string | StarObjectRef | StarPickMeta | unknown;
+  orientationIcrs?: QuaternionLike;
+  positionAngleDeg?: number;
+  [key: string]: unknown;
+}
+
 export interface SkykitObserverMotion {
   velocityPcPerSec: Vector3Like;
   speedPcPerSec: number;
@@ -76,8 +88,8 @@ export interface SkykitViewState {
   revision: number;
   observerPc: Vector3Like;
   renderObserverPosition: Vector3Like;
+  lookAt?: SkykitLookAtInput | null;
   targetPc?: Vector3Like | null;
-  directionIcrs?: Vector3Like | null;
   orientationIcrs?: QuaternionLike | null;
   limitingMagnitude: number;
   verticalFovDeg?: number;
@@ -370,6 +382,8 @@ export interface SkykitViewerOptions {
   parts?: Iterable<SkykitThreePart>;
   plugins?: Iterable<SkykitPluginInput>;
   view?: Partial<SkykitViewState>;
+  resolveLookAtStar?: (star: unknown, lookAt: SkykitLookAtInput) => SkykitLookAtInput | Vector3Like | [number, number, number] | Promise<SkykitLookAtInput | Vector3Like | [number, number, number] | null> | null;
+  resolveLookAtBookmark?: (bookmarkId: string, lookAt: unknown) => SkykitLookAtInput | Vector3Like | [number, number, number] | Promise<SkykitLookAtInput | Vector3Like | [number, number, number] | null> | null;
   autoMountRenderer?: boolean;
 }
 
@@ -501,11 +515,11 @@ export interface AnchoredImageCatalog {
   resolveTargetPc(key: string, options?: AnchoredImageTargetOptions): Vector3Like | null;
   resolveLookAt(key: string, options?: AnchoredImageLookAtOptions): AnchoredImageLookAtResult | null;
   resolveNearest(
-    directionIcrs: Vector3Like | [number, number, number],
+    lookDirection: Vector3Like | [number, number, number],
     options?: AnchoredImageResolveNearestOptions
   ): AnchoredImageMatch | null;
   resolveWithinAngle(
-    directionIcrs: Vector3Like | [number, number, number],
+    lookDirection: Vector3Like | [number, number, number],
     options: AnchoredImageResolveWithinAngleOptions
   ): AnchoredImageMatch[];
 }

@@ -149,7 +149,6 @@ export interface StarOctreeViewPatch {
   mDesired?: number;
   limitingMagnitude?: number;
   targetPc?: { x: number; y: number; z: number };
-  directionIcrs?: { x: number; y: number; z: number };
   orientationIcrs?: { x: number; y: number; z: number; w: number };
   verticalFovDeg?: number;
   aspectRatio?: number;

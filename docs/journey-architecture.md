@@ -115,7 +115,7 @@ const journey = createJourney({
     sol: {
       view: {
         observerPc: { x: 8, y: 0, z: 0 },
-        targetPc: { x: 0, y: 0, z: 0 },
+        lookAt: { targetPc: { x: 0, y: 0, z: 0 } },
       },
       camera: { type: 'orbit', center: 'sun', radiusPc: 8, angularSpeedRadPerSec: 0.26 },
     },
@@ -207,7 +207,7 @@ const frame = evaluator.evaluate(12.5);
 
 // frame:
 // observerPc
-// targetPc
+// lookAt.targetPc
 // cameraQuaternion
 // cameraForwardPc
 // cameraUpPc

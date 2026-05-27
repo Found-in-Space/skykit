@@ -293,6 +293,51 @@ test('viewer exposes action registry, emits action events, and resets to initial
   await viewer.dispose();
 });
 
+test('viewer derives camera orientation from lookAt targets, sky coordinates, and stars', async () => {
+  const targetViewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: {
+      observerPc: { x: 0, y: 0, z: 0 },
+      lookAt: { targetPc: { x: 10, y: 0, z: 0 }, positionAngleDeg: 0 },
+    },
+  });
+  let view = targetViewer.getViewState();
+  assert.deepEqual(view.targetPc, { x: 10, y: 0, z: 0 });
+  assertVectorApprox(localVectorFromView(view, { x: 0, y: 0, z: -1 }), { x: 1, y: 0, z: 0 });
+  assertVectorApprox(localVectorFromView(view, { x: 0, y: 1, z: 0 }), { x: 0, y: 0, z: 1 });
+  await targetViewer.dispose();
+
+  const skyViewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: {
+      lookAt: { raDeg: 0, decDeg: 0, positionAngleDeg: 90 },
+    },
+  });
+  view = skyViewer.getViewState();
+  assert.equal(view.targetPc, null);
+  assertVectorApprox(localVectorFromView(view, { x: 0, y: 0, z: -1 }), { x: 1, y: 0, z: 0 });
+  assertVectorApprox(localVectorFromView(view, { x: 0, y: 1, z: 0 }), { x: 0, y: 1, z: 0 });
+  await skyViewer.dispose();
+
+  const starViewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: { lookAt: { star: 'hyades' } },
+    resolveLookAtStar: async (star) => star === 'hyades'
+      ? { targetPc: { x: 4, y: 5, z: 6 } }
+      : null,
+  });
+  view = starViewer.getViewState();
+  assert.equal(view.lookAt?.star, 'hyades');
+  assert.deepEqual(view.targetPc, { x: 4, y: 5, z: 6 });
+  assert.ok(view.orientationIcrs);
+
+  starViewer.requestViewState({ lookAt: { star: 'orion' } }, 'test-star-look');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  starViewer.update(0);
+  assert.deepEqual(starViewer.getViewState().targetPc, null);
+  await starViewer.dispose();
+});
+
 test('requestViewState batches patches and observer-centric root follows translation without rotation', async () => {
   const viewer = await createSkykitViewer({
     renderer: createRenderer(),
@@ -1784,7 +1829,7 @@ test('journey plugin can route to non-orbit scenes before applying the arrival t
         },
       },
       local: {
-        view: { targetPc: { x: 1, y: 0, z: 0 } },
+        view: { lookAt: { targetPc: { x: 1, y: 0, z: 0 } } },
         navigation: {
           transitionTo: {
             observerPc: { x: 0, y: 0, z: 0 },
@@ -2407,6 +2452,12 @@ function localVectorFromView(view, vector) {
     new THREE.Quaternion(q.x, q.y, q.z, q.w),
   );
   return { x: result.x, y: result.y, z: result.z };
+}
+
+function assertVectorApprox(actual, expected, epsilon = 1e-9) {
+  assert.ok(Math.abs(actual.x - expected.x) < epsilon, `x ${actual.x} !== ${expected.x}`);
+  assert.ok(Math.abs(actual.y - expected.y) < epsilon, `y ${actual.y} !== ${expected.y}`);
+  assert.ok(Math.abs(actual.z - expected.z) < epsilon, `z ${actual.z} !== ${expected.z}`);
 }
 
 function createPointerTarget() {

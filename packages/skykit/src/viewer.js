@@ -15,6 +15,7 @@ import {
   mountRenderer,
   normalizeViewState,
   positiveFinite,
+  resolveViewLookAtInput,
   setupPlugin,
   snapshotPart,
   syncRootsFromView,
@@ -71,7 +72,7 @@ export async function createSkykitViewer(options = {}) {
   let started = false;
   let elapsedSeconds = 0;
   const initialProjectionView = resolveCameraProjectionView(camera);
-  let view = normalizeViewState({
+  const initialViewInput = await resolveViewLookAtInput({
     ...options.view,
     ...(options.view?.verticalFovDeg === undefined && initialProjectionView.verticalFovDeg !== undefined
       ? { verticalFovDeg: initialProjectionView.verticalFovDeg }
@@ -83,8 +84,11 @@ export async function createSkykitViewer(options = {}) {
     renderObserverPosition: options.view?.renderObserverPosition ?? observerRig.getRenderObserverPosition(),
     orientationIcrs: options.view?.orientationIcrs ?? observerRig.getOrientationIcrs?.() ?? null,
     motion: options.view?.motion ?? observerRig.getMotion?.() ?? null,
-  }, 0);
+  }, viewLookResolverOptions(options.view?.observerPc ?? observerRig.getObserverPc()));
+  let view = normalizeViewState(initialViewInput, 0, viewLookResolverOptions(initialViewInput.observerPc));
   const initialView = cloneViewState(view);
+  observerRig.setObserverPc?.(view.observerPc);
+  if (view.orientationIcrs) observerRig.setOrientationIcrs?.(view.orientationIcrs);
 
   addRootToScene(scene, roots.originContentRoot);
   addRootToScene(scene, roots.observerContentRoot);
@@ -209,11 +213,32 @@ export async function createSkykitViewer(options = {}) {
    */
   function requestViewState(patch, reason) {
     assertActive();
+    const normalizedPatch = normalizeRequestedViewPatch(patch);
+    if (lookAtNeedsAsyncResolution(normalizedPatch)) {
+      const observerPc = /** @type {Partial<SkykitViewState>} */ (normalizedPatch).observerPc ?? view.observerPc;
+      void resolveViewLookAtInput(normalizedPatch, viewLookResolverOptions(observerPc))
+        .then((resolvedPatch) => {
+          if (disposed) return;
+          pendingViewPatch = {
+            ...(pendingViewPatch ?? {}),
+            ...resolvedPatch,
+          };
+        })
+        .catch((error) => {
+          emit({
+            type: 'view/lookAt-error',
+            reason,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      emit({ type: 'view/request', reason, patch: normalizedPatch });
+      return;
+    }
     pendingViewPatch = {
       ...(pendingViewPatch ?? {}),
-      ...patch,
+      ...normalizedPatch,
     };
-    emit({ type: 'view/request', reason, patch });
+    emit({ type: 'view/request', reason, patch: normalizedPatch });
   }
 
   /**
@@ -452,6 +477,56 @@ export async function createSkykitViewer(options = {}) {
 
   function orderedParts() {
     return [...parts].sort(compareParts);
+  }
+
+  /** @param {Partial<SkykitViewState>} patch */
+  function normalizeRequestedViewPatch(patch) {
+    if (!patch || typeof patch !== 'object') return patch;
+    if ('lookAt' in patch) return patch;
+    if (patch.orientationIcrs) {
+      return {
+        ...patch,
+        lookAt: { orientationIcrs: patch.orientationIcrs },
+      };
+    }
+    if (patch.targetPc) {
+      return {
+        ...patch,
+        lookAt: { targetPc: patch.targetPc },
+      };
+    }
+    return patch;
+  }
+
+  /** @param {Partial<SkykitViewState>} patch */
+  function lookAtNeedsAsyncResolution(patch) {
+    if (!patch || typeof patch !== 'object' || !('lookAt' in patch)) return false;
+    const lookAt = /** @type {Record<string, unknown> | null} */ (patch.lookAt);
+    return !!lookAt
+      && typeof lookAt === 'object'
+      && 'star' in lookAt
+      && !('targetPc' in lookAt)
+      && typeof options.resolveLookAtStar === 'function';
+  }
+
+  /** @param {unknown} observerPc */
+  function viewLookResolverOptions(observerPc) {
+    return {
+      observerPc,
+      resolveStar: typeof options.resolveLookAtStar === 'function'
+        ? /** @type {import('@found-in-space/spatial').ResolveSpatialLookAtOptions['resolveStar']} */ (
+          (star, lookAt) => options.resolveLookAtStar?.(
+            star,
+            /** @type {import('./index.d.ts').SkykitLookAtInput} */ (lookAt),
+          )
+        )
+        : undefined,
+      resolveBookmark: typeof options.resolveLookAtBookmark === 'function'
+        ? /** @type {import('@found-in-space/spatial').ResolveSpatialLookAtOptions['resolveBookmark']} */ (
+          (bookmarkId, lookAt) => options.resolveLookAtBookmark?.(bookmarkId, lookAt)
+        )
+        : undefined,
+    };
   }
 
   /**

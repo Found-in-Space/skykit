@@ -447,21 +447,21 @@ export function createRaDecProjection(projectRaDec, options = {}) {
 }
 
 /**
- * @param {{ centerRaDeg: number; centerDecDeg: number; fovDeg: number; rollDeg?: number; clip?: boolean; id?: string }} options
+ * @param {{ centerRaDeg: number; centerDecDeg: number; fovDeg: number; positionAngleDeg?: number; clip?: boolean; id?: string }} options
  * @returns {StarMapProjection}
  */
 export function createGnomonicProjection(options) {
   const centerRaDeg = normalizeFiniteNumber(options?.centerRaDeg, 0);
   const centerDecDeg = clamp(normalizeFiniteNumber(options?.centerDecDeg, 0), -89.999, 89.999);
   const fovDeg = clamp(normalizeFiniteNumber(options?.fovDeg, 60), 0.0001, 179.999);
-  const rollDeg = normalizeFiniteNumber(options?.rollDeg, 0);
+  const positionAngleDeg = normalizeFiniteNumber(options?.positionAngleDeg, 0);
   const centerRa = degreesToRadians(centerRaDeg);
   const centerDec = degreesToRadians(centerDecDeg);
   const sinCenterDec = Math.sin(centerDec);
   const cosCenterDec = Math.cos(centerDec);
   const halfHorizontal = Math.tan(degreesToRadians(fovDeg) * 0.5);
   const clip = options?.clip !== false;
-  const roll = degreesToRadians(rollDeg);
+  const roll = degreesToRadians(positionAngleDeg);
   const cosRoll = Math.cos(roll);
   const sinRoll = Math.sin(roll);
 

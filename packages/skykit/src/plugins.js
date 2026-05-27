@@ -19,6 +19,7 @@ import {
   createOrbitTransferRoute,
   createSpatialPoseTransition,
   createSpatialNavigationAutomation,
+  resolveSpatialLookAt,
   resolveSpatialTarget,
 } from '@found-in-space/spatial';
 
@@ -366,10 +367,24 @@ export function createSkykitNavigationPlugin(options = {}) {
     const position = positionInput === undefined
       ? current.observerPc
       : await resolveTarget(positionInput, context) ?? current.observerPc;
+    const lookAtInput = targetSource.lookAt;
+    const resolvedLook = lookAtInput !== undefined
+      ? await resolveSpatialLookAt(lookAtInput, {
+        observerPc: position,
+        resolveBookmark: typeof options.resolveBookmark === 'function'
+          ? (bookmarkId, original) => options.resolveBookmark?.(
+            bookmarkId,
+            /** @type {import('@found-in-space/spatial').SpatialTargetInput} */ (original),
+            context,
+          ) ?? null
+          : undefined,
+      })
+      : null;
     const orientationInput = targetSource.orientationIcrs
       ?? (targetSource.orientation && isQuaternionLike(targetSource.orientation) ? targetSource.orientation : undefined)
       ?? source.orientationIcrs;
-    const orientation = normalizeQuaternion(orientationInput, current.orientationIcrs ?? IDENTITY_QUATERNION);
+    const orientation = resolvedLook?.orientationIcrs
+      ?? normalizeQuaternion(orientationInput, current.orientationIcrs ?? IDENTITY_QUATERNION);
     return createSpatialPoseTransition({
       from: {
         position: current.observerPc,

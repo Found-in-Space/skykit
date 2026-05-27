@@ -28,6 +28,7 @@ import {
 /** @typedef {{ x: number[]; y: number[]; z: number[]; durationSecs: number }} QuinticVectorCoefficients */
 
 const EPSILON = 1e-9;
+const ICRS_NORTH = Object.freeze({ x: 0, y: 0, z: 1 });
 const DEFAULT_ROUTE_SETTLE_SECS = 0.5;
 const ORBIT_INSERT_CANDIDATE_COUNT = 48;
 const ORBIT_INSERT_COST_SAMPLES = 32;
@@ -242,7 +243,23 @@ export function computeSpatialLookAtOrientation(input) {
   if (!isFiniteVector(position) || !isFiniteVector(target)) return null;
   const forward = subtractVectors(target, position);
   if (!(vectorLength(forward) > EPSILON)) return null;
-  return orientationTowardDirection(forward, input?.up);
+  return orientationTowardDirection(
+    forward,
+    input?.up ?? skyPositionAngleUp(forward, input?.positionAngleDeg),
+  );
+}
+
+/**
+ * @param {{ direction: SpatialVector3; positionAngleDeg?: number; up?: SpatialVector3 }} input
+ * @returns {SpatialQuaternion | null}
+ */
+export function computeSpatialLookDirectionOrientation(input) {
+  const direction = normalizeVector3(input?.direction, nullVector());
+  if (!isFiniteVector(direction) || !(vectorLength(direction) > EPSILON)) return null;
+  return orientationTowardDirection(
+    direction,
+    input?.up ?? skyPositionAngleUp(direction, input?.positionAngleDeg),
+  );
 }
 
 /**
@@ -1677,6 +1694,28 @@ function orientationTowardDirection(direction, upInput) {
   const xAxis = normalizeDirectionOrFallback(cross(up, zAxis), LOCAL_RIGHT);
   const yAxis = normalizeDirectionOrFallback(cross(zAxis, xAxis), LOCAL_UP);
   return quaternionFromBasis(xAxis, yAxis, zAxis);
+}
+
+/**
+ * @param {SpatialVector3} direction
+ * @param {unknown} positionAngleDeg
+ * @returns {SpatialVector3 | null}
+ */
+function skyPositionAngleUp(direction, positionAngleDeg) {
+  const angleDeg = Number(positionAngleDeg);
+  if (!Number.isFinite(angleDeg)) return null;
+  const forward = normalizeDirectionOrFallback(direction, LOCAL_FORWARD);
+  let east = cross(ICRS_NORTH, forward);
+  if (!(vectorLength(east) > EPSILON)) {
+    east = cross(LOCAL_RIGHT, forward);
+  }
+  east = normalizeDirectionOrFallback(east, LOCAL_RIGHT);
+  const north = normalizeDirectionOrFallback(cross(forward, east), ICRS_NORTH);
+  const angleRad = angleDeg * Math.PI / 180;
+  return normalizeDirectionOrFallback(
+    addVectors(scaleVector(north, Math.cos(angleRad)), scaleVector(east, Math.sin(angleRad))),
+    north,
+  );
 }
 
 /**

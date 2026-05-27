@@ -22,7 +22,7 @@ const journey = createJourney({
       title: 'Start at the Sun',
       view: {
         observerPc: { x: 8, y: 0, z: 0 },
-        targetPc: { x: 0, y: 0, z: 0 },
+        lookAt: { targetPc: { x: 0, y: 0, z: 0 } },
       },
       camera: { type: 'orbit', center: 'sun', radiusPc: 8, angularSpeedRadPerSec: 0.26 },
     },
