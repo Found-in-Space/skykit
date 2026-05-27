@@ -4,6 +4,11 @@
   "description": "Slim composition and teaching layer for Found in Space packages",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Found-in-Space/skykit",
+    "directory": "packages/skykit"
+  },
   "publishConfig": {
     "access": "public"
   },
