@@ -14,6 +14,10 @@
       "types": "./src/index.d.ts",
       "default": "./src/index.js"
     },
+    "./browser": {
+      "types": "./src/browser.d.ts",
+      "default": "./src/browser.js"
+    },
     "./parallax": {
       "types": "./src/parallax.d.ts",
       "default": "./src/parallax.js"
