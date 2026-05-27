@@ -13,7 +13,6 @@ import {
   createKeyboardNavigationPlugin,
   createObject3dPlugin,
   createMouseLookPlugin,
-  createSkykitJourneyPlugin,
   createSkykitNavigationPlugin,
   createSkyGrabPlugin,
   createSkykitStatusPlugin,
@@ -114,7 +113,6 @@ export async function createSkykitBrowser(input = {}) {
     resize,
     dispose,
   };
-  browser.journey = createLazyJourneyFacade(browser);
   browser.constellations = createLazyConstellationsFacade(browser, host);
 
   function resize() {
@@ -184,7 +182,6 @@ export async function createSkykitBrowser(input = {}) {
         SKYKIT_ACTIONS,
         SKYKIT_CONTROLS,
         createObject3dPlugin,
-        createSkykitJourneyPlugin,
         createSkykitNavigationPlugin,
       },
     };
@@ -225,34 +222,6 @@ export async function createSkykitBrowser(input = {}) {
 /** @param {unknown} input */
 function isBrowserAddon(input) {
   return Boolean(input && typeof input === 'object' && typeof /** @type {{ install?: unknown }} */ (input).install === 'function');
-}
-
-/**
- * @param {import('./browser.d.ts').SkykitBrowser} browser
- * @returns {import('./browser.d.ts').SkykitBrowserJourneyFacade}
- */
-function createLazyJourneyFacade(browser) {
-  /** @type {Promise<import('./browser.d.ts').SkykitBrowserJourneyFacade> | null} */
-  let loaded = null;
-  const loadCapability = () => {
-    loaded ??= import('./browser-journey.js')
-      .then((module) => module.installSkykitJourneyBrowserCapability({ browser }));
-    return loaded;
-  };
-  return {
-    async transitionTo(viewOrScene, options) {
-      return (await loadCapability()).transitionTo(viewOrScene, options);
-    },
-    async applyScene(sceneSpec) {
-      return (await loadCapability()).applyScene(sceneSpec);
-    },
-    async load(input, options) {
-      return (await loadCapability()).load(input, options);
-    },
-    async getSnapshot() {
-      return (await loadCapability()).getSnapshot();
-    },
-  };
 }
 
 /**

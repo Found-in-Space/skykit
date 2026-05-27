@@ -104,23 +104,20 @@ browser.constellations.hide();
 browser.constellations.show();
 ```
 
-Journey:
+Navigation:
 
 ```js
 const browser = await Skykit.whenReady();
+await browser.install(browser.skykit.createSkykitNavigationPlugin());
 
-await browser.journey.transitionTo({
-  lookAt: 'ra=5.919h, dec=7.407',
-  durationSecs: 3,
+await browser.viewer.actions.invoke('skykit:navigation.transitionTo', {
+  view: { lookAt: 'ra=5.919h, dec=7.407' },
+  movement: { durationSecs: 3 },
 });
-
-const orion = await browser.journey.load('/orion-tour.json');
-await orion.goTo('belt');
-orion.dispose();
 ```
 
-`browser.journey` is a service. `load()` returns a journey instance, so loaded
-tours do not pollute the root namespace.
+Named chapters belong to the website or lesson script. Keep the chapter table
+in app code and have each chapter call viewer actions directly.
 
 ## Core Plugin Installation
 

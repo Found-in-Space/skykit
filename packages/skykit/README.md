@@ -118,12 +118,18 @@ For small scripted interactions, use the browser handle:
 
 ```html
 <script type="module">
+  import {
+    SKYKIT_ACTIONS,
+    createSkykitNavigationPlugin,
+  } from 'https://esm.sh/@found-in-space/skykit';
+
   const browser = await Skykit.whenReady();
+  await browser.install(createSkykitNavigationPlugin());
 
   document.querySelector('#orion').addEventListener('click', () => {
-    browser.journey.transitionTo({
-      lookAt: 'ra=5.919h, dec=7.407',
-      durationSecs: 3,
+    browser.viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+      view: { lookAt: 'ra=5.919h, dec=7.407' },
+      movement: { durationSecs: 3 },
     });
   });
 </script>
@@ -326,7 +332,7 @@ names, not renderer or loader factory names:
 SKYKIT_ACTIONS.ship.moveForward; // "skykit:ship.move.forward"
 SKYKIT_CONTROLS.observer.parallaxOffset; // "skykit:observer.control.parallaxOffset"
 SKYKIT_ACTIONS.viewer.reset; // "skykit:viewer.reset"
-SKYKIT_ACTIONS.journey.goToChapter; // "skykit:journey.goToChapter"
+SKYKIT_ACTIONS.navigation.transitionTo; // "skykit:navigation.transitionTo"
 ```
 
 Plugins can add their own namespaces:
@@ -339,13 +345,13 @@ const firePlugin = (ctx) => {
 };
 ```
 
-DOM buttons, touch surfaces, keyboard bindings, XR controls, journeys, and debug
-tools can all call the same action:
+DOM buttons, touch surfaces, keyboard bindings, XR controls, app-owned chapters,
+and debug tools can all call the same action:
 
 ```js
 button.addEventListener('click', () => {
-  viewer.actions.invoke(SKYKIT_ACTIONS.journey.goToChapter, {
-    chapterId: 'hyades-arrival',
+  viewer.actions.invoke('website:chapter.goTo', {
+    id: 'hyades-arrival',
   });
 });
 ```
@@ -400,8 +406,7 @@ Skykit.registerBrowserAddon({
 ```
 
 See `docs/skykit-browser-plugins.md` for the browser add-on spec,
-`Skykit.whenReady()`, first-party constellation support, and the
-`browser.journey` API.
+`Skykit.whenReady()`, and first-party constellation support.
 
 Browser lessons:
 

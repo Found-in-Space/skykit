@@ -51,14 +51,6 @@ export const SKYKIT_ACTIONS = Object.freeze({
     exit: 'skykit:xr.exit',
     toggle: 'skykit:xr.toggle',
   }),
-  journey: Object.freeze({
-    goToChapter: 'skykit:journey.goToChapter',
-    next: 'skykit:journey.next',
-    previous: 'skykit:journey.previous',
-    seek: 'skykit:journey.seek',
-    play: 'skykit:journey.play',
-    pause: 'skykit:journey.pause',
-  }),
 });
 
 export const SKYKIT_CONTROLS = Object.freeze({

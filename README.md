@@ -28,7 +28,6 @@ demo shell; new architecture should be package-owned.
 Current package direction:
 
 - `@found-in-space/spatial`: dependency-free coordinates, poses, smooth paths, timed pose tracks, preload hints, routes, targets, and smooth navigation helpers
-- `@found-in-space/journey`: authored scene graphs, timed journeys, cues, tracks, and retiming helpers
 - `@found-in-space/star-trees`: star tree identities, cell stores, iteration, star math, and display helpers
 - `@found-in-space/star-octree-provider`: star octree loading, provider-owned planning, streaming sessions, and cell emission against shared strategy objects
 - `@found-in-space/meta-sidecar-provider`: metadata sidecar facts keyed by star refs
@@ -45,9 +44,9 @@ example, [`touch-os`](https://github.com/found-in-Space/touch-os/) is a Found in
 Space project that `skykit` can depend on for interactive surfaces, but it
 should not be folded back into core `skykit`.
 
-The journey video editor and deterministic export tooling now live in the
-sibling `../skykit-studio` project as `@found-in-space/skykit-studio`. It still
-consumes SkyKit packages, but it is not part of this workspace.
+Camera timeline authoring and deterministic export tooling live in the sibling
+`../skykit-studio` project as `@found-in-space/skykit-studio`. It still consumes
+SkyKit packages, but it is not part of this workspace.
 
 Historical H-alpha and dust experiments remain available in the sibling
 `../skykit-halpha` project. Future structural data packages should be designed
@@ -83,4 +82,4 @@ Override with `?constellationManifestUrl=...`. Dataset URLs can be overridden wi
 - [`docs/anchored-image.md`](./docs/anchored-image.md): current alpha contract for `@found-in-space/anchored-image`
 - [`docs/skykit-core-composition.md`](./docs/skykit-core-composition.md): current alpha direction for core `@found-in-space/skykit`
 - [`docs/xr-architecture.md`](./docs/xr-architecture.md): current alpha boundary for `@found-in-space/spatial` and `@found-in-space/skykit/xr`
-- [`docs/journey-architecture.md`](./docs/journey-architecture.md): current alpha boundary for authored journeys and future video/export tooling
+- [`docs/chapter-and-camera-timeline-architecture.md`](./docs/chapter-and-camera-timeline-architecture.md): current alpha boundary for website chapters and Studio camera timelines

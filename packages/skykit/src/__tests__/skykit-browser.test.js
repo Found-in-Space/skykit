@@ -224,46 +224,6 @@ test('browser.install adds plugins after startup and cleans returned teardowns',
   });
 });
 
-test('browser journey capability transitions through navigation actions and loads instances', async () => {
-  await withFakeWindow(async () => {
-    const browser = await createSkykitBrowser({
-      host: createHost(),
-      status: false,
-      renderer: createRenderer(),
-      provider: createProvider(),
-      starField: createStarField(),
-      autoResize: false,
-      autoDispose: false,
-      autoStart: false,
-    });
-
-    await browser.journey.transitionTo({
-      lookAt: { targetPc: { x: 10, y: 0, z: 0 } },
-      durationSecs: 1,
-    });
-    browser.viewer.update(1);
-    browser.viewer.update(0);
-    assert.ok(browser.viewer.getViewState().orientationIcrs);
-    assert.equal(browser.capabilities.has('skykit:navigation'), true);
-
-    const journey = await browser.journey.load({
-      initial: 'home',
-      scenes: {
-        home: { view: { observerPc: { x: 0, y: 0, z: 0 } } },
-        away: { view: { observerPc: { x: 1, y: 2, z: 3 } } },
-      },
-    });
-    await journey.goTo('away');
-    browser.viewer.update(0);
-    assert.deepEqual(browser.viewer.getViewState().observerPc, { x: 1, y: 2, z: 3 });
-    assert.equal(journey.getSnapshot().disposed, false);
-    journey.dispose();
-    assert.equal(journey.getSnapshot().disposed, true);
-
-    await browser.dispose();
-  });
-});
-
 test('browser constellations capability loads manifest boundaries without art', async () => {
   await withFakeWindow(async () => {
     const browser = await createSkykitBrowser({

@@ -12,17 +12,6 @@ import type {
   SpatialVector3,
 } from '@found-in-space/spatial';
 import type {
-  CreateTimedJourneyEvaluatorOptions,
-  JourneyController,
-  JourneyDefinition,
-  JourneyGraph,
-  JourneySceneSpec,
-  TimedJourney,
-  TimedJourneyCue,
-  TimedJourneyEvaluator,
-  TimedJourneyFrame,
-} from '@found-in-space/journey';
-import type {
   StarCellDelta,
   StarCellStore,
   StarObjectRef,
@@ -908,63 +897,6 @@ export interface SkykitNavigationPluginOptions extends SpatialNavigationAutomati
   ) => SpatialTargetInput | Promise<SpatialTargetInput | null> | null;
 }
 
-export interface SkykitJourneyPluginOptions {
-  id?: string;
-  priority?: number;
-  journey?: JourneyDefinition;
-  controller?: JourneyController | null;
-  graph?: JourneyGraph;
-  scenes?: Record<string, JourneySceneSpec>;
-  transitions?: Iterable<Record<string, unknown>>;
-  initialSceneId?: string | null;
-  timedJourney?: TimedJourney | Record<string, unknown>;
-  evaluator?: TimedJourneyEvaluator | null;
-  evaluatorOptions?: CreateTimedJourneyEvaluatorOptions;
-  autoPlay?: boolean;
-  loop?: boolean;
-  startTimeSecs?: number;
-  disposeController?: boolean;
-  applyFrame?: (
-    frame: TimedJourneyFrame,
-    context: SkykitThreePluginContext | null,
-    skykitFrame: { viewer: SkykitViewer; view: SkykitViewState }
-  ) => boolean | void;
-  onScene?: (
-    scene: JourneySceneSpec | Record<string, unknown> | null,
-    context: SkykitThreePluginContext,
-    event: unknown
-  ) => void;
-  onSceneArrive?: (
-    scene: JourneySceneSpec | Record<string, unknown>,
-    context: SkykitThreePluginContext,
-    event: unknown
-  ) => void | Promise<void>;
-  onCue?: (
-    cue: TimedJourneyCue,
-    frame: TimedJourneyFrame,
-    context: SkykitThreePluginContext | null
-  ) => void;
-  onPreloadHints?: (
-    hints: SpatialPreloadHint[],
-    source: TimedJourneyFrame | JourneySceneSpec | Record<string, unknown>,
-    context: SkykitThreePluginContext | null
-  ) => void;
-  onLayerState?: (
-    scene: JourneySceneSpec | Record<string, unknown>,
-    context: SkykitThreePluginContext
-  ) => void;
-}
-
-export interface SkykitJourneyPlugin extends SkykitPlugin {
-  goTo(payload: unknown): Promise<JourneySceneSpec | null>;
-  next(): Promise<JourneySceneSpec | null>;
-  previous(): Promise<JourneySceneSpec | null>;
-  seek(payload: unknown): number;
-  play(payload?: unknown): number;
-  pause(): number;
-  getSnapshot(): unknown;
-}
-
 export interface SkykitSpatialPreloadStrategyOptions {
   combine?: boolean;
   baseStrategy?: StarCellStrategy;
@@ -1134,14 +1066,6 @@ export declare const SKYKIT_ACTIONS: {
     readonly flyToSelected: 'skykit:selection.flyToSelected';
     readonly openExternal: 'skykit:selection.openExternal';
   };
-  readonly journey: {
-    readonly goToChapter: 'skykit:journey.goToChapter';
-    readonly next: 'skykit:journey.next';
-    readonly previous: 'skykit:journey.previous';
-    readonly seek: 'skykit:journey.seek';
-    readonly play: 'skykit:journey.play';
-    readonly pause: 'skykit:journey.pause';
-  };
   readonly xr: {
     readonly enter: 'skykit:xr.enter';
     readonly exit: 'skykit:xr.exit';
@@ -1197,7 +1121,6 @@ export declare function createKeyboardNavigationPlugin(options?: SkykitKeyboardN
 export declare function createSkykitNavigationPlugin(options?: SkykitNavigationPluginOptions): SkykitPlugin & {
   getSnapshot(): unknown;
 };
-export declare function createSkykitJourneyPlugin(options?: SkykitJourneyPluginOptions): SkykitJourneyPlugin;
 export declare function createSkykitStarPreloadRequestsFromSpatialHints(
   hints: Iterable<SpatialPreloadHint>,
   options?: SkykitSpatialPreloadStrategyOptions

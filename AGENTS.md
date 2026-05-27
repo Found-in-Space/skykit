@@ -61,8 +61,6 @@ rewriting it into the alpha package shape, never by importing old internals.
 - `@found-in-space/spatial`: dependency-free coordinates, poses, routes,
   target resolution, smooth paths, timed pose tracks, materialized preload
   hints, smooth navigation, orbit, look-at, and motion helpers.
-- `@found-in-space/journey`: authored scene graphs, timed journey evaluators,
-  cue/track evaluation, and retiming helpers built on spatial.
 - `@found-in-space/star-trees`: star tree identities, cell stores, iteration, and math.
 - `@found-in-space/star-octree-provider`: octree loading, provider planning,
   streaming, payload decode, and star cell emission against shared strategies.
@@ -77,9 +75,9 @@ rewriting it into the alpha package shape, never by importing old internals.
   `@found-in-space/skykit/xr` is the optional WebXR subpath for rig/input/body,
   rays, session, and depth helpers.
 
-Sibling project note: `../skykit-studio` owns the standalone alpha journey video
-editor, editor state/import/export helpers, and deterministic export tooling as
-`@found-in-space/skykit-studio`.
+Sibling project note: `../skykit-studio` owns the standalone alpha camera
+timeline editor, editor state/import/export helpers, and deterministic export
+tooling as `@found-in-space/skykit-studio`.
 
 Historical H-alpha and dust experiments remain in the sibling `../skykit-halpha`
 project as reference material. Do not carry an unused structural-layer package
@@ -120,7 +118,8 @@ package APIs when there is an active consumer.
 - `docs/skykit-core-composition.md`: core SkyKit composition contract.
 - `docs/xr-architecture.md`: spatial navigation and SkyKit XR subpath
   boundaries.
-- `docs/journey-architecture.md`: shared journey/runtime/editor boundary.
+- `docs/chapter-and-camera-timeline-architecture.md`: shared website chapter
+  and Studio camera timeline boundary.
 
 ## WebXR And Scene Graph Constraints
 

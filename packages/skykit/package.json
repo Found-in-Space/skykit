@@ -31,10 +31,6 @@
       "types": "./src/browser-constellations.d.ts",
       "default": "./src/browser-constellations.js"
     },
-    "./browser-journey": {
-      "types": "./src/browser-journey.d.ts",
-      "default": "./src/browser-journey.js"
-    },
     "./embed": {
       "types": "./src/embed.d.ts",
       "default": "./src/embed.js"
@@ -80,7 +76,6 @@
   "dependencies": {
     "@found-in-space/anchored-image": "0.2.0-alpha.0",
     "@found-in-space/hr-diagram": "0.2.0-alpha.0",
-    "@found-in-space/journey": "0.2.0-dev.20260527.1",
     "@found-in-space/meta-sidecar-provider": "0.2.0-alpha.0",
     "@found-in-space/spatial": "0.2.0-dev.20260527.1",
     "@found-in-space/star-octree-provider": "0.2.0-alpha.0",
@@ -88,10 +83,10 @@
     "@found-in-space/three-star-field": "0.2.0-alpha.0"
   },
   "devDependencies": {
-    "@found-in-space/touch-os": "0.2.0-dev.3"
+    "@found-in-space/touch-os": "0.2.0"
   },
   "peerDependencies": {
-    "@found-in-space/touch-os": ">=0.2.0-dev.3 <1",
+    "@found-in-space/touch-os": ">=0.2.0 <1",
     "three": "^0.170.0"
   },
   "peerDependenciesMeta": {

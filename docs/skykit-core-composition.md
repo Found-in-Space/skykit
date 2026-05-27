@@ -201,7 +201,7 @@ skykit:ship.move.forward
 skykit:ship.attitude.rollClockwise
 skykit:viewer.reset
 skykit:navigation.transitionTo
-skykit:journey.goToChapter
+website:chapter.goTo
 game:weapons.fire
 lesson:highlight.next
 ```
@@ -209,8 +209,8 @@ lesson:highlight.next
 Plugins register actions through `ctx.actions.registerAction()` or
 `ctx.actions.registerContext()`. Multiple handlers may share an action ID; they
 run in priority order. This lets keyboard, touch DOM, touch-os, WebXR, debug
-tools, and journey buttons call the same semantic action without faking
-keypresses.
+tools, and app-owned chapter buttons call the same semantic action without
+faking keypresses.
 
 ## Boundary
 
@@ -225,6 +225,6 @@ Keep the package responsibilities narrow:
 - `skykit` composes these pieces into viewers and lessons.
 
 If it is data loading, star interpretation, shader implementation, instrument
-logic, journey authoring, WebXR embodiment, touch UI, sidecar lookup, or app
-gameplay, it belongs outside core SkyKit unless there is a clear thin
-composition helper to expose.
+logic, chapter authoring, camera timelines, WebXR embodiment, touch UI, sidecar
+lookup, or app gameplay, it belongs outside core SkyKit unless there is a clear
+thin composition helper to expose.

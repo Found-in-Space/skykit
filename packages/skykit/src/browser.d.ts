@@ -59,24 +59,6 @@ export interface SkykitBrowserGlobal {
   getBrowsers(): SkykitBrowser[];
 }
 
-export interface SkykitBrowserJourneyFacade {
-  transitionTo(viewOrScene: unknown, options?: Record<string, unknown>): Promise<PromiseSettledResult<unknown>[]>;
-  applyScene(sceneSpec: unknown): Promise<unknown>;
-  load(input: string | Record<string, unknown>, options?: Record<string, unknown>): Promise<SkykitBrowserJourneyInstance>;
-  getSnapshot(): unknown | Promise<unknown>;
-}
-
-export interface SkykitBrowserJourneyInstance {
-  goTo(sceneId: string): Promise<unknown>;
-  next(): Promise<unknown>;
-  previous(): Promise<unknown>;
-  play(payload?: unknown): number;
-  pause(): number;
-  seek(timeSecs: number): number;
-  getSnapshot(): unknown;
-  dispose(): void;
-}
-
 export interface SkykitBrowserConstellationsOptions {
   skyculture?: string;
   manifest?: Record<string, unknown>;
@@ -146,7 +128,6 @@ export interface SkykitBrowser {
   starField: ThreeStarField;
   loop: SkykitAnimationLoop;
   capabilities: Set<string>;
-  journey: SkykitBrowserJourneyFacade;
   constellations: SkykitBrowserConstellationsFacade;
   install(input: SkykitBrowserInstallInput): Promise<SkykitPluginTeardown>;
   addObject(

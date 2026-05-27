@@ -62,8 +62,8 @@ add another strategy kind to SkyKit or a provider planner.
 Lesson controls should use semantic actions rather than fake keypresses. SkyKit
 reserves the `skykit:` namespace for built-in meanings such as
 `skykit:ship.move.forward`, `skykit:viewer.reset`, and
-`skykit:journey.goToChapter`; lessons and games can register their own
-namespaces such as `lesson:*` or `game:*`.
+`skykit:navigation.transitionTo`; lessons, games, and websites can register
+their own namespaces such as `lesson:*`, `game:*`, or `website:*`.
 
 ## Package Examples Versus SkyKit Lessons
 
@@ -142,13 +142,8 @@ packages/skykit/examples/
   fly-to/route-follow, orbit, orbital insertion, look-at, lock-at, and motion
   models
 
-@found-in-space/journey
-  implemented: authored interactive scene graphs, timed journey normalization
-  and evaluation, cues, generic tracks, preload hints that adapt into warm
-  strategy demand, and retiming helpers
-
 @found-in-space/skykit-studio (sibling project)
-  implemented: standalone alpha journey video editor, editor document/state
+  implemented: standalone alpha camera timeline editor, editor document/state
   helpers, JSON import/export, projection/perspective/SkyKit preview tiles,
   guide/timeline retiming workflows, deterministic browser export page,
   JavaScript sky-frame capture, cached overlay block rendering, ffmpeg composite
@@ -184,8 +179,8 @@ packages/skykit/examples/
   implemented alpha composition slice: slim Three.js viewer, plugin/part
   lifecycle, streaming star plugin/layer, object3d plugin/layer, keyboard
   navigation helper, sky-grab and mouse-look helpers, parallax subpath plugins,
-  status helper, navigation actions/plugin backed by spatial, journey
-  plugin/action bridge, animation loop, desktop observer rig, debug bridge,
+  status helper, navigation actions/plugin backed by spatial, animation loop,
+  desktop observer rig, debug bridge,
   beginner `viewer`, `data`, and `story` subpaths for public website use-cases,
   and optional `skykit/xr` WebXR rig/input/ray/session/depth helpers
 ```
