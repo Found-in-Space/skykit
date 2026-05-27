@@ -18,6 +18,10 @@
       "types": "./src/browser.d.ts",
       "default": "./src/browser.js"
     },
+    "./embed": {
+      "types": "./src/embed.d.ts",
+      "default": "./src/embed.js"
+    },
     "./parallax": {
       "types": "./src/parallax.d.ts",
       "default": "./src/parallax.js"
@@ -36,7 +40,9 @@
     "examples",
     "README.md"
   ],
-  "sideEffects": false,
+  "sideEffects": [
+    "./src/embed.js"
+  ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test"
