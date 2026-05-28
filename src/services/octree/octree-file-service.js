@@ -23,6 +23,7 @@ export const DEFAULT_PAYLOAD_MAX_BATCH_BYTES = 512000;
 const DEFAULT_MAX_INFLIGHT_PAYLOAD_BATCHES = 8;
 const DEFAULT_SHARD_PREFETCH_BYTES = DEFAULT_PAYLOAD_MAX_BATCH_BYTES;
 const PERSISTENT_CACHE_NAME = 'skykit-octree-v1';
+let hasWarnedPersistentCacheUnavailable = false;
 
 function rangeCacheUrl(url, start, end) {
   const sep = url.includes('?') ? '&' : '?';
@@ -554,6 +555,7 @@ export class OctreeFileService {
     this.bootstrapPromise = null;
     this.bootstrapAndRootPromise = null;
     this._persistentCachePromise = null;
+    this._persistentCacheDisabled = false;
     this.payloadMaxGapBytes = normalizePositiveInteger(
       options.payloadMaxGapBytes,
       DEFAULT_PAYLOAD_MAX_GAP_BYTES,
@@ -597,13 +599,42 @@ export class OctreeFileService {
   }
 
   _openPersistentCache() {
-    if (this.session.persistentCache === 'off' || typeof caches === 'undefined') {
+    if (this.session.persistentCache === 'off' || this._persistentCacheDisabled) {
+      return Promise.resolve(null);
+    }
+    const cacheStorage = this._getPersistentCacheStorage();
+    if (!cacheStorage) {
       return Promise.resolve(null);
     }
     if (!this._persistentCachePromise) {
-      this._persistentCachePromise = caches.open(PERSISTENT_CACHE_NAME).catch(() => null);
+      try {
+        if (typeof cacheStorage.open !== 'function') {
+          this._persistentCacheDisabled = true;
+          return Promise.resolve(null);
+        }
+        this._persistentCachePromise = Promise.resolve(cacheStorage.open(PERSISTENT_CACHE_NAME))
+          .catch((error) => {
+            this._persistentCacheDisabled = true;
+            warnPersistentCacheUnavailable(error);
+            return null;
+          });
+      } catch (error) {
+        this._persistentCacheDisabled = true;
+        warnPersistentCacheUnavailable(error);
+        return Promise.resolve(null);
+      }
     }
     return this._persistentCachePromise;
+  }
+
+  _getPersistentCacheStorage() {
+    try {
+      return globalThis.caches ?? null;
+    } catch (error) {
+      this._persistentCacheDisabled = true;
+      warnPersistentCacheUnavailable(error);
+      return null;
+    }
   }
 
   async _fetchRange(start, end) {
@@ -913,6 +944,22 @@ export class OctreeFileService {
       stats: { ...this.stats },
     };
   }
+}
+
+function warnPersistentCacheUnavailable(error) {
+  if (
+    hasWarnedPersistentCacheUnavailable ||
+    typeof console === 'undefined' ||
+    typeof console.warn !== 'function'
+  ) {
+    return;
+  }
+
+  hasWarnedPersistentCacheUnavailable = true;
+  console.warn(
+    '[SkyKit] Persistent browser cache is unavailable; continuing without Cache API storage.',
+    error,
+  );
 }
 
 export {

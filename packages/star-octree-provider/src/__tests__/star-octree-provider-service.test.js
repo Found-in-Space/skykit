@@ -149,9 +149,70 @@ test('ensureBootstrap reads real octree header bytes and updates snapshots', asy
   }
 });
 
+test('provider bootstrap treats forbidden Cache API access as disabled', async () => {
+  const datasetUuid = 'c56103e6-ad4c-41f9-be06-048b48ec632b';
+  const fileBytes = concatBytes([
+    createStarHeaderBytes({ indexOffset: 192 }),
+    createOdscDescriptorBytes({ datasetUuid }),
+  ]);
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fileBytes, requests);
+
+  try {
+    await withForbiddenCaches(async () => {
+      const provider = createStarOctreeProviderService({
+        id: 'provider-a',
+        persistentCache: 'on',
+        url: 'memory://stars.octree',
+      });
+
+      assert.equal(provider.describe().capabilities.persistentCache, false);
+      const bootstrap = await provider.ensureBootstrap();
+
+      assert.equal(bootstrap.datasetId, datasetUuid);
+      assert.equal(provider.describe().capabilities.persistentCache, false);
+      assert.equal(provider.getSnapshot().stats.persistentCacheHits, 0);
+      assert.equal(requests.length, 1);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('factory requires URL source configuration', () => {
   assert.throws(
     () => createStarOctreeProviderService({ url: '' }),
     /requires a URL/,
   );
 });
+
+async function withForbiddenCaches(callback) {
+  const previousCaches = Object.getOwnPropertyDescriptor(globalThis, 'caches');
+  const previousWarn = console.warn;
+
+  Object.defineProperty(globalThis, 'caches', {
+    configurable: true,
+    get() {
+      const error = new Error('Cache API storage is blocked.');
+      error.name = 'SecurityError';
+      throw error;
+    },
+  });
+  console.warn = () => {};
+
+  try {
+    await callback();
+  } finally {
+    console.warn = previousWarn;
+    restoreGlobalProperty('caches', previousCaches);
+  }
+}
+
+function restoreGlobalProperty(name, descriptor) {
+  if (descriptor) {
+    Object.defineProperty(globalThis, name, descriptor);
+  } else {
+    delete globalThis[name];
+  }
+}

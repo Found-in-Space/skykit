@@ -191,6 +191,25 @@ test('createSkykitBrowser enables persistent provider cache by default and can o
   });
 });
 
+test('createSkykitBrowser treats forbidden Cache API access as disabled', async () => {
+  await withFakeWindow(async () => {
+    await withForbiddenCaches(async () => {
+      const browser = await createSkykitBrowser({
+        host: createHost(),
+        status: false,
+        renderer: createRenderer(),
+        starField: createStarField(),
+        autoResize: false,
+        autoDispose: false,
+        autoStart: false,
+      });
+
+      assert.equal(browser.provider.describe().capabilities.persistentCache, false);
+      await browser.dispose();
+    });
+  });
+});
+
 test('browser.install adds plugins after startup and cleans returned teardowns', async () => {
   await withFakeWindow(async () => {
     const calls = [];
@@ -330,7 +349,7 @@ async function withFakeWindow(callback) {
 }
 
 async function withFakeCaches(callback) {
-  const previousCaches = globalThis.caches;
+  const previousCaches = Object.getOwnPropertyDescriptor(globalThis, 'caches');
   const previousFetch = globalThis.fetch;
   const cache = {
     async match() {
@@ -369,14 +388,7 @@ async function withFakeCaches(callback) {
   try {
     await callback();
   } finally {
-    if (previousCaches === undefined) {
-      delete globalThis.caches;
-    } else {
-      Object.defineProperty(globalThis, 'caches', {
-        configurable: true,
-        value: previousCaches,
-      });
-    }
+    restoreGlobalProperty('caches', previousCaches);
     if (previousFetch === undefined) {
       delete globalThis.fetch;
     } else {
@@ -385,6 +397,36 @@ async function withFakeCaches(callback) {
         value: previousFetch,
       });
     }
+  }
+}
+
+async function withForbiddenCaches(callback) {
+  const previousCaches = Object.getOwnPropertyDescriptor(globalThis, 'caches');
+  const previousWarn = console.warn;
+
+  Object.defineProperty(globalThis, 'caches', {
+    configurable: true,
+    get() {
+      const error = new Error('Cache API storage is blocked.');
+      error.name = 'SecurityError';
+      throw error;
+    },
+  });
+  console.warn = () => {};
+
+  try {
+    await callback();
+  } finally {
+    console.warn = previousWarn;
+    restoreGlobalProperty('caches', previousCaches);
+  }
+}
+
+function restoreGlobalProperty(name, descriptor) {
+  if (descriptor) {
+    Object.defineProperty(globalThis, name, descriptor);
+  } else {
+    delete globalThis[name];
   }
 }
 

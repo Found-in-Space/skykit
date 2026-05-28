@@ -1,3 +1,5 @@
+import { createBrowserPersistentCache } from './browser-persistent-cache.js';
+
 const DECODED_CACHE_VERSION = 2;
 const DEFAULT_DECODED_CACHE_BUDGET_BYTES = 64 * 1024 * 1024;
 const DEFAULT_DECODED_MEMORY_LEASE_TTL_MS = 60_000;
@@ -22,8 +24,10 @@ const DEFAULT_ATTRIBUTE_MASK = 'p+t+m';
 export function createDecodedPayloadCache(options) {
   /** @type {Map<string, { segment: DecodedStarSegment; bytes: number; lastUsed: number; leases: Map<string, number> }>} */
   const memory = new Map();
-  /** @type {Promise<Cache | null> | null} */
-  let persistentCachePromise = null;
+  const persistentCache = createBrowserPersistentCache({
+    cacheName: PERSISTENT_DECODED_CACHE_NAME,
+    mode: options.persistentCache,
+  });
   let hits = 0;
   let misses = 0;
   let writes = 0;
@@ -286,16 +290,7 @@ export function createDecodedPayloadCache(options) {
   }
 
   async function openPersistentCache() {
-    if (options.persistentCache !== 'on' || typeof caches === 'undefined') {
-      return null;
-    }
-
-    if (!persistentCachePromise) {
-      persistentCachePromise = caches.open(PERSISTENT_DECODED_CACHE_NAME)
-        .catch(() => null);
-    }
-
-    return persistentCachePromise;
+    return persistentCache.open();
   }
 
   /**

@@ -3,6 +3,7 @@ import {
   decodeMorton3D,
   encodeMorton3D,
 } from '@found-in-space/star-trees';
+import { createBrowserPersistentCache } from './browser-persistent-cache.js';
 
 /**
  * @typedef {import('@found-in-space/star-trees').StarObjectRef} StarObjectRef
@@ -1175,12 +1176,15 @@ async function readAllChunks(reader) {
  * }} options
  */
 function createUrlRangeSource(options) {
-  /** @type {Promise<Cache | null> | null} */
-  let persistentCachePromise = null;
+  const persistentCache = createBrowserPersistentCache({
+    cacheName: PERSISTENT_CACHE_NAME,
+    mode: options.persistentCache,
+  });
 
   return {
-    persistentCacheAvailable:
-      options.persistentCache === 'on' && typeof caches !== 'undefined',
+    get persistentCacheAvailable() {
+      return persistentCache.available;
+    },
 
     /**
      * @param {number} start
@@ -1189,7 +1193,7 @@ function createUrlRangeSource(options) {
     async fetchRange(start, end) {
       assertValidRange(start, end);
 
-      const cache = await openPersistentCache();
+      const cache = await persistentCache.open();
       if (cache) {
         const cacheUrl = createRangeCacheUrl(options.url, start, end);
 
@@ -1228,17 +1232,6 @@ function createUrlRangeSource(options) {
     },
   };
 
-  async function openPersistentCache() {
-    if (options.persistentCache !== 'on' || typeof caches === 'undefined') {
-      return null;
-    }
-
-    if (!persistentCachePromise) {
-      persistentCachePromise = caches.open(PERSISTENT_CACHE_NAME).catch(() => null);
-    }
-
-    return persistentCachePromise;
-  }
 }
 
 /**

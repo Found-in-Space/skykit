@@ -10,6 +10,7 @@ export const DEFAULT_HA_TILED_BATCH_MAX_BYTES = 32 * 1024 * 1024;
 export const HA_TILED_PERSISTENT_CACHE_NAME = 'skykit-h-alpha-tiled-v1';
 
 const decoder = new TextDecoder('ascii');
+let hasWarnedPersistentCacheUnavailable = false;
 
 function defaultFetch(...args) {
   return globalThis.fetch(...args);
@@ -337,6 +338,7 @@ class HaTiledVolumeRangeCache {
     this.fetchImpl = options.fetchImpl ?? defaultFetch;
     this.persistentCache = options.persistentCache ?? options.session?.persistentCache ?? 'on';
     this._persistentCachePromise = null;
+    this._persistentCacheDisabled = false;
     this.stats = {
       persistentCacheHits: 0,
       persistentCacheMisses: 0,
@@ -346,15 +348,42 @@ class HaTiledVolumeRangeCache {
   }
 
   _openPersistentCache() {
-    if (this.persistentCache === 'off' || typeof caches === 'undefined') {
+    if (this.persistentCache === 'off' || this._persistentCacheDisabled) {
+      return Promise.resolve(null);
+    }
+    const cacheStorage = this._getPersistentCacheStorage();
+    if (!cacheStorage) {
       return Promise.resolve(null);
     }
     if (!this._persistentCachePromise) {
-      this._persistentCachePromise = caches
-        .open(HA_TILED_PERSISTENT_CACHE_NAME)
-        .catch(() => null);
+      try {
+        if (typeof cacheStorage.open !== 'function') {
+          this._persistentCacheDisabled = true;
+          return Promise.resolve(null);
+        }
+        this._persistentCachePromise = Promise.resolve(cacheStorage.open(HA_TILED_PERSISTENT_CACHE_NAME))
+          .catch((error) => {
+            this._persistentCacheDisabled = true;
+            warnPersistentCacheUnavailable(error);
+            return null;
+          });
+      } catch (error) {
+        this._persistentCacheDisabled = true;
+        warnPersistentCacheUnavailable(error);
+        return Promise.resolve(null);
+      }
     }
     return this._persistentCachePromise;
+  }
+
+  _getPersistentCacheStorage() {
+    try {
+      return globalThis.caches ?? null;
+    } catch (error) {
+      this._persistentCacheDisabled = true;
+      warnPersistentCacheUnavailable(error);
+      return null;
+    }
   }
 
   async fetchRange(url, start, end, label) {
@@ -395,6 +424,22 @@ class HaTiledVolumeRangeCache {
       persistentCacheHit: false,
     };
   }
+}
+
+function warnPersistentCacheUnavailable(error) {
+  if (
+    hasWarnedPersistentCacheUnavailable ||
+    typeof console === 'undefined' ||
+    typeof console.warn !== 'function'
+  ) {
+    return;
+  }
+
+  hasWarnedPersistentCacheUnavailable = true;
+  console.warn(
+    '[SkyKit] Persistent browser cache is unavailable; continuing without Cache API storage.',
+    error,
+  );
 }
 
 export class HaTiledVolumeService {

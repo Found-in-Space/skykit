@@ -62,9 +62,54 @@ test('decoded cache reports lease pressure when retained payloads exceed budget'
   assert.equal(snapshot.decodedCacheLeasesByKey['omega-route'].payloads, 2);
 });
 
+test('decoded persistent cache lookup fails open when Cache API access is forbidden', async () => {
+  await withForbiddenCaches(async () => {
+    const cache = createDecodedPayloadCache({
+      sourceIdentity: 'test-source',
+      persistentCache: 'on',
+    });
+
+    assert.equal(await cache.get('missing', {}, 'dataset-a', 'p'), null);
+    cache.set('memory-only', createSegment(1), 'p');
+
+    assert.ok(cache.peek('memory-only'));
+    assert.equal(cache.getSnapshot().decodedCacheMisses, 1);
+  });
+});
+
 function createSegment(count) {
   return {
     count,
     positionsPc: new Float32Array(count * 3),
   };
+}
+
+async function withForbiddenCaches(callback) {
+  const previousCaches = Object.getOwnPropertyDescriptor(globalThis, 'caches');
+  const previousWarn = console.warn;
+
+  Object.defineProperty(globalThis, 'caches', {
+    configurable: true,
+    get() {
+      const error = new Error('Cache API storage is blocked.');
+      error.name = 'SecurityError';
+      throw error;
+    },
+  });
+  console.warn = () => {};
+
+  try {
+    await callback();
+  } finally {
+    console.warn = previousWarn;
+    restoreGlobalProperty('caches', previousCaches);
+  }
+}
+
+function restoreGlobalProperty(name, descriptor) {
+  if (descriptor) {
+    Object.defineProperty(globalThis, name, descriptor);
+  } else {
+    delete globalThis[name];
+  }
 }
