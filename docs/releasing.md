@@ -43,6 +43,59 @@ changes are merged to `main`. The workflow runs `npm ci`, `npm test`,
 pull request or publishes any unpublished package versions already committed on
 `main`.
 
+The workflow needs permission to create the Changesets version pull request.
+The workflow file already grants `contents: write` and `pull-requests: write`,
+but GitHub also has a repository or organization setting that can block
+`GITHUB_TOKEN` from creating pull requests. In GitHub, enable:
+
+`Settings -> Actions -> General -> Workflow permissions -> Allow GitHub Actions to create and approve pull requests`
+
+## Alpha Prerelease Flow
+
+SkyKit currently publishes alpha packages from Changesets prerelease mode. The
+repo enters that mode with:
+
+```sh
+npm exec -- changeset pre enter alpha
+```
+
+That creates `.changeset/pre.json`. Do not run this again if the repo is already
+in pre mode. While this file has `"mode": "pre"` and `"tag": "alpha"`,
+`changeset version` produces prerelease versions such as `0.2.0-alpha.1` or
+`0.2.0-alpha.20260528`, and `changeset publish` publishes those versions with
+the `alpha` npm dist-tag.
+
+Do not pass a custom tag to `changeset publish` while prerelease mode is active.
+The prerelease tag in `.changeset/pre.json` is already the npm dist-tag.
+Running `changeset publish --tag alpha` in pre mode fails with:
+
+```txt
+Releasing under custom tag is not allowed in pre mode
+```
+
+The normal alpha cycle is:
+
+1. Merge feature/package pull requests with their `.changeset/*.md` files.
+2. Let the release workflow open or update `changeset-release/main`.
+3. Review the generated package versions, changelogs, dependency bumps, and
+   `.changeset/pre.json` changes in the Changesets version pull request.
+4. Merge the Changesets version pull request when ready to publish.
+5. Let the next release workflow run publish the unpublished package versions.
+
+If a publish fails after the Changesets version pull request has merged, fix the
+release blocker and rerun the release workflow or merge a small fix to `main`.
+Do not add a new empty changeset for retry-only recovery.
+
+To end alpha prereleases later, commit the result of:
+
+```sh
+npm exec -- changeset pre exit
+npm run release:version
+```
+
+That converts pending prerelease state into ordinary release versions and removes
+the prerelease mode state as part of the version commit.
+
 Use local release commands only to inspect or repair the release state. To
 prepare release commits locally:
 
@@ -56,7 +109,9 @@ To publish packages from the prepared release commit:
 npm run release:publish
 ```
 
-The release command publishes alpha releases under the `alpha` npm dist-tag.
+While the repo is in alpha prerelease mode, `release:publish` should call
+`changeset publish` without `--tag`. The release command still publishes under
+the `alpha` npm dist-tag because that tag comes from `.changeset/pre.json`.
 Because `0.2.0-alpha.0` is the first published version of these packages, npm
 also assigned it as `latest`.
 

@@ -39,7 +39,7 @@
     "bench:smoke": "node ./benchmarks/star-planner/src/run-smoke.js",
     "changeset": "changeset",
     "release:version": "changeset version",
-    "release:publish": "changeset publish --tag alpha",
+    "release:publish": "changeset publish",
     "release:status": "changeset status --verbose",
     "release:trust": "scripts/configure-npm-trusted-publishing.sh",
     "test": "node --test",
