@@ -13,6 +13,7 @@
     "@found-in-space/three-star-field": "0.2.0-alpha.0"
   },
   "changesets": [
-    "radec-coordinate-helpers"
+    "radec-coordinate-helpers",
+    "solar-radec-distance"
   ]
 }
