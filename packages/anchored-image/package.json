@@ -1,6 +1,6 @@
 {
   "name": "@found-in-space/anchored-image",
-  "version": "0.2.0-alpha.0",
+  "version": "0.2.0",
   "description": "Renderer-neutral anchored sky and space image math for Found in Space packages",
   "license": "MIT",
   "type": "module",
