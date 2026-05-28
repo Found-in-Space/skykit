@@ -1,5 +1,16 @@
 # @found-in-space/skykit
 
+## 0.2.0-alpha.20260530
+
+### Minor Changes
+
+- 5edeabd: Add RA/Dec look-at helpers and sexagesimal coordinate parsing for HTML and scripted SkyKit look-at targets.
+
+### Patch Changes
+
+- Updated dependencies [5edeabd]
+  - @found-in-space/spatial@0.2.0-alpha.20260529
+
 ## 0.2.0-alpha.20260529
 
 ### Patch Changes

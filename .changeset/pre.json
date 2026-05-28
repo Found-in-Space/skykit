@@ -13,9 +13,6 @@
     "@found-in-space/three-star-field": "0.2.0-alpha.0"
   },
   "changesets": [
-    "browser-plugin-noob-path",
-    "cache-fails-open",
-    "touch-os-020-release",
-    "use-case-entries"
+    "radec-coordinate-helpers"
   ]
 }

@@ -1,5 +1,12 @@
 # @found-in-space/star-map-canvas
 
+## 0.2.0-alpha.2
+
+### Patch Changes
+
+- Updated dependencies [5edeabd]
+  - @found-in-space/spatial@0.2.0-alpha.20260529
+
 ## 0.2.0-alpha.1
 
 ### Patch Changes
