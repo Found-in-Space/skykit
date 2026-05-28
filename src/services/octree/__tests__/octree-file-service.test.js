@@ -79,6 +79,30 @@ function createMockFetch(fileBytes, requests) {
   };
 }
 
+test('persistent range cache falls back when Cache API access is forbidden', async () => {
+  const fileBytes = new Uint8Array([1, 2, 3, 4]);
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  const session = createSession();
+  session.persistentCache = 'on';
+  globalThis.fetch = createMockFetch(fileBytes, requests);
+
+  try {
+    await withForbiddenCaches(async () => {
+      const service = new OctreeFileService(session, {
+        url: 'memory://stars.octree',
+      });
+      const result = await service._fetchRange(0, 3);
+
+      assert.deepEqual([...new Uint8Array(result.buffer)], [1, 2, 3, 4]);
+      assert.equal(service.stats.persistentCacheHits, 0);
+      assert.equal(requests.length, 1);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 function uuidStringToBytes(uuid) {
   const hex = uuid.replace(/-/g, '');
   const out = new Uint8Array(16);
@@ -86,6 +110,36 @@ function uuidStringToBytes(uuid) {
     out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   }
   return out;
+}
+
+async function withForbiddenCaches(callback) {
+  const previousCaches = Object.getOwnPropertyDescriptor(globalThis, 'caches');
+  const previousWarn = console.warn;
+
+  Object.defineProperty(globalThis, 'caches', {
+    configurable: true,
+    get() {
+      const error = new Error('Cache API storage is blocked.');
+      error.name = 'SecurityError';
+      throw error;
+    },
+  });
+  console.warn = () => {};
+
+  try {
+    await callback();
+  } finally {
+    console.warn = previousWarn;
+    restoreGlobalProperty('caches', previousCaches);
+  }
+}
+
+function restoreGlobalProperty(name, descriptor) {
+  if (descriptor) {
+    Object.defineProperty(globalThis, name, descriptor);
+  } else {
+    delete globalThis[name];
+  }
 }
 
 function createOdscDescriptorBytes({

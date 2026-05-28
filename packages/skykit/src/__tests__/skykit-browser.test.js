@@ -137,6 +137,35 @@ test('createSkykitBrowser accepts startup lookAt and mouse look mode', async () 
   });
 });
 
+test('createSkykitBrowser starts from observer and solar RA/Dec distance lookAt', async () => {
+  await withFakeWindow(async () => {
+    const browser = await createSkykitBrowser({
+      host: createHost(),
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+      lookAt: { raDeg: 90, decDeg: 0, distancePc: 10 },
+      view: {
+        observerPc: { x: 1, y: 0, z: 0 },
+      },
+    });
+
+    const view = browser.viewer.getViewState();
+    assert.deepEqual(view.observerPc, { x: 1, y: 0, z: 0 });
+    assertVectorApprox(view.targetPc, { x: 0, y: 10, z: 0 });
+    assertVectorApprox(
+      localVectorFromView(view, { x: 0, y: 0, z: -1 }),
+      normalizeVector({ x: -1, y: 10, z: 0 }),
+    );
+
+    await browser.dispose();
+  });
+});
+
 test('createSkykitBrowser can disable mouse drag controls', async () => {
   await withFakeWindow(async () => {
     const browser = await createSkykitBrowser({
@@ -187,6 +216,25 @@ test('createSkykitBrowser enables persistent provider cache by default and can o
       });
       assert.equal(uncached.provider.describe().capabilities.persistentCache, false);
       await uncached.dispose();
+    });
+  });
+});
+
+test('createSkykitBrowser treats forbidden Cache API access as disabled', async () => {
+  await withFakeWindow(async () => {
+    await withForbiddenCaches(async () => {
+      const browser = await createSkykitBrowser({
+        host: createHost(),
+        status: false,
+        renderer: createRenderer(),
+        starField: createStarField(),
+        autoResize: false,
+        autoDispose: false,
+        autoStart: false,
+      });
+
+      assert.equal(browser.provider.describe().capabilities.persistentCache, false);
+      await browser.dispose();
     });
   });
 });
@@ -330,7 +378,7 @@ async function withFakeWindow(callback) {
 }
 
 async function withFakeCaches(callback) {
-  const previousCaches = globalThis.caches;
+  const previousCaches = Object.getOwnPropertyDescriptor(globalThis, 'caches');
   const previousFetch = globalThis.fetch;
   const cache = {
     async match() {
@@ -369,14 +417,7 @@ async function withFakeCaches(callback) {
   try {
     await callback();
   } finally {
-    if (previousCaches === undefined) {
-      delete globalThis.caches;
-    } else {
-      Object.defineProperty(globalThis, 'caches', {
-        configurable: true,
-        value: previousCaches,
-      });
-    }
+    restoreGlobalProperty('caches', previousCaches);
     if (previousFetch === undefined) {
       delete globalThis.fetch;
     } else {
@@ -385,6 +426,36 @@ async function withFakeCaches(callback) {
         value: previousFetch,
       });
     }
+  }
+}
+
+async function withForbiddenCaches(callback) {
+  const previousCaches = Object.getOwnPropertyDescriptor(globalThis, 'caches');
+  const previousWarn = console.warn;
+
+  Object.defineProperty(globalThis, 'caches', {
+    configurable: true,
+    get() {
+      const error = new Error('Cache API storage is blocked.');
+      error.name = 'SecurityError';
+      throw error;
+    },
+  });
+  console.warn = () => {};
+
+  try {
+    await callback();
+  } finally {
+    console.warn = previousWarn;
+    restoreGlobalProperty('caches', previousCaches);
+  }
+}
+
+function restoreGlobalProperty(name, descriptor) {
+  if (descriptor) {
+    Object.defineProperty(globalThis, name, descriptor);
+  } else {
+    delete globalThis[name];
   }
 }
 
@@ -488,5 +559,28 @@ function createStarField() {
     dispose() {
       this.disposed = true;
     },
+  };
+}
+
+function localVectorFromView(view, vector) {
+  const q = view.orientationIcrs ?? { x: 0, y: 0, z: 0, w: 1 };
+  const result = new THREE.Vector3(vector.x, vector.y, vector.z).applyQuaternion(
+    new THREE.Quaternion(q.x, q.y, q.z, q.w),
+  );
+  return { x: result.x, y: result.y, z: result.z };
+}
+
+function assertVectorApprox(actual, expected, epsilon = 1e-9) {
+  assert.ok(Math.abs(actual.x - expected.x) < epsilon, `x ${actual.x} !== ${expected.x}`);
+  assert.ok(Math.abs(actual.y - expected.y) < epsilon, `y ${actual.y} !== ${expected.y}`);
+  assert.ok(Math.abs(actual.z - expected.z) < epsilon, `z ${actual.z} !== ${expected.z}`);
+}
+
+function normalizeVector(vector) {
+  const length = Math.hypot(vector.x, vector.y, vector.z);
+  return {
+    x: vector.x / length,
+    y: vector.y / length,
+    z: vector.z / length,
   };
 }

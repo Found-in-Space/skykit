@@ -131,6 +131,34 @@ test('meta sidecar provider resolves raw metadata from URL-backed sidecar cells'
   assert.equal(requests.some((request) => request.start === fixture.payloadOffset), true);
 });
 
+test('meta sidecar provider treats forbidden Cache API access as disabled', async (t) => {
+  const fixture = createMetaSidecarFixture();
+  const requests = [];
+  installMockFetch(t, fixture.bytes, requests);
+
+  await withForbiddenCaches(async () => {
+    const provider = createMetaSidecarProviderService({
+      id: 'meta-a',
+      parentDatasetId: PARENT_UUID,
+      persistentCache: 'on',
+      url: 'https://example.test/stars.meta.octree',
+    });
+
+    assert.equal(provider.describe().capabilities.persistentCache, false);
+    const entry = await provider.getMeta({
+      datasetId: PARENT_UUID,
+      level: 1,
+      mortonCode: '5',
+      ordinal: 0,
+    });
+
+    assert.equal(entry.proper_name, 'Sirius');
+    assert.equal(provider.describe().capabilities.persistentCache, false);
+    assert.equal(provider.getSnapshot().stats.persistentCacheHits, 0);
+    assert.equal(requests.length > 0, true);
+  });
+});
+
 test('meta sidecar provider returns null for missing cells and ordinals', async (t) => {
   installMockFetch(t, createMetaSidecarFixture().bytes, []);
   const provider = createMetaSidecarProviderService({
@@ -430,6 +458,36 @@ function installMockFetch(t, fileBytes, requests) {
   t.after(() => {
     globalThis.fetch = originalFetch;
   });
+}
+
+async function withForbiddenCaches(callback) {
+  const previousCaches = Object.getOwnPropertyDescriptor(globalThis, 'caches');
+  const previousWarn = console.warn;
+
+  Object.defineProperty(globalThis, 'caches', {
+    configurable: true,
+    get() {
+      const error = new Error('Cache API storage is blocked.');
+      error.name = 'SecurityError';
+      throw error;
+    },
+  });
+  console.warn = () => {};
+
+  try {
+    await callback();
+  } finally {
+    console.warn = previousWarn;
+    restoreGlobalProperty('caches', previousCaches);
+  }
+}
+
+function restoreGlobalProperty(name, descriptor) {
+  if (descriptor) {
+    Object.defineProperty(globalThis, name, descriptor);
+  } else {
+    delete globalThis[name];
+  }
 }
 
 function uuidStringToBytes(uuid) {

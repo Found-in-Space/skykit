@@ -1,5 +1,33 @@
 # @found-in-space/skykit
 
+## 0.2.0-alpha.20260531
+
+### Patch Changes
+
+- 4204ef8: Resolve RA/Dec distance targets from the solar origin and allow embed observer coordinates to use RA/Dec distance text.
+- Updated dependencies [4204ef8]
+  - @found-in-space/spatial@0.2.0-alpha.20260530
+
+## 0.2.0-alpha.20260530
+
+### Minor Changes
+
+- 5edeabd: Add RA/Dec look-at helpers and sexagesimal coordinate parsing for HTML and scripted SkyKit look-at targets.
+
+### Patch Changes
+
+- Updated dependencies [5edeabd]
+  - @found-in-space/spatial@0.2.0-alpha.20260529
+
+## 0.2.0-alpha.20260529
+
+### Patch Changes
+
+- Fail open when browser Cache API storage is unavailable so sandboxed embeds can still start.
+- Updated dependencies
+  - @found-in-space/star-octree-provider@0.2.0-alpha.1
+  - @found-in-space/meta-sidecar-provider@0.2.0-alpha.1
+
 ## 0.2.0-alpha.20260528
 
 ### Minor Changes

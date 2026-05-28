@@ -405,6 +405,7 @@ export interface SpatialLookAtRaDecSpec {
   raDeg?: number;
   raHours?: number;
   decDeg: number;
+  /** Heliocentric distance from the solar origin, not from the current observer. */
   distancePc?: number;
   positionAngleDeg?: number;
 }
@@ -423,6 +424,25 @@ export type SpatialLookAtSpec =
   | SpatialLookAtRaDecSpec
   | SpatialLookAtStarSpec
   | SpatialLookAtOrientationSpec;
+
+export type SpatialRightAscensionUnit = 'auto' | 'hours' | 'degrees';
+
+export interface SpatialRaDecLookAtHelperOptions {
+  raUnit?: SpatialRightAscensionUnit;
+  /** Heliocentric distance from the solar origin, not from the current observer. */
+  distancePc?: number;
+  positionAngleDeg?: number;
+}
+
+export interface SpatialRaDecLookAtHelperInput extends SpatialRaDecLookAtHelperOptions {
+  ra?: unknown;
+  rightAscension?: unknown;
+  raDeg?: number;
+  raHours?: number;
+  dec?: unknown;
+  declination?: unknown;
+  decDeg?: number;
+}
 
 export interface SpatialResolvedLookAt {
   lookAt: SpatialLookAtSpec | null;
@@ -512,6 +532,7 @@ export type SpatialTargetInput =
   | { bookmarkId: string };
 
 export interface ResolveSpatialTargetOptions {
+  /** Accepted for compatibility; RA/Dec/distance shorthand resolves from the solar origin. */
   observerPc?: SpatialVector3;
   /**
    * Application-owned bookmark resolver. Spatial treats bookmark IDs as opaque
@@ -553,6 +574,7 @@ export declare function finiteNumber(value: unknown, fallback: number): number;
 export declare function positiveFinite(value: unknown, fallback: number): number;
 
 export declare function raDecToIcrsDirection(input: { raDeg?: number; raHours?: number; decDeg: number }): SpatialVector3 | null;
+/** Converts RA/Dec/distance to a heliocentric ICRS point; observerPc is ignored for compatibility. */
 export declare function raDecDistanceToIcrs(input: { raDeg?: number; raHours?: number; decDeg: number; distancePc: number; observerPc?: SpatialVector3 }): SpatialVector3 | null;
 export declare function icrsToRaDec(position: SpatialVector3 | [number, number, number], observerPc?: SpatialVector3 | [number, number, number]): { raDeg: number; raHours: number; decDeg: number } | null;
 export declare function icrsDirectionToTargetPc(icrsDirection: SpatialVector3 | [number, number, number], distancePc: number, observerPc?: SpatialVector3 | [number, number, number]): SpatialVector3 | null;
@@ -569,7 +591,10 @@ export declare function deriveSpatialOrbitAngle(input: SpatialOrbitAngleInput): 
 export declare function createOrbitTransferRoute(options?: SpatialOrbitTransferOptions): SpatialOrbitTransferRoute | null;
 export declare function computeSpatialLookAtOrientation(input: SpatialLookAtOrientationInput): SpatialQuaternion | null;
 export declare function computeSpatialLookDirectionOrientation(input: { direction: SpatialVector3; positionAngleDeg?: number; up?: SpatialVector3 }): SpatialQuaternion | null;
+export declare function createRaDecLookAt(ra: unknown | SpatialRaDecLookAtHelperInput, dec?: unknown, options?: SpatialRaDecLookAtHelperOptions): SpatialLookAtRaDecSpec | null;
 export declare function normalizeSpatialLookAt(input: unknown): SpatialLookAtSpec | null;
+export declare function parseDeclination(value: unknown): number | null;
+export declare function parseRightAscension(value: unknown, options?: { unit?: SpatialRightAscensionUnit }): { raDeg: number } | { raHours: number } | null;
 export declare function parseSpatialLookAtText(text: string): SpatialLookAtSpec | null;
 export declare function resolveSpatialLookAt(input: unknown, options?: ResolveSpatialLookAtOptions): SpatialResolvedLookAt | Promise<SpatialResolvedLookAt>;
 export declare function createRouteFollowSpatialMotionModel(options?: SpatialRouteFollowOptions & { points?: Iterable<SpatialVector3> }): SpatialRouteFollowMotionModel;

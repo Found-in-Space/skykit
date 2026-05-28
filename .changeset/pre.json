@@ -13,8 +13,7 @@
     "@found-in-space/three-star-field": "0.2.0-alpha.0"
   },
   "changesets": [
-    "browser-plugin-noob-path",
-    "touch-os-020-release",
-    "use-case-entries"
+    "radec-coordinate-helpers",
+    "solar-radec-distance"
   ]
 }

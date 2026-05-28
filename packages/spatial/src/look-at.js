@@ -33,10 +33,85 @@ export function parseSpatialLookAtText(text) {
     return ra && Number.isFinite(decDeg) ? { ...ra, decDeg } : null;
   }
   if (parts.length === 3) {
+    const raDecDistance = parseRaDecDistanceParts(parts);
+    if (raDecDistance) return raDecDistance;
     const vector = vectorFromParts(parts);
     return vector ? { targetPc: vector } : null;
   }
   return null;
+}
+
+/**
+ * @param {unknown} ra
+ * @param {unknown} dec
+ * @param {{ distancePc?: unknown; positionAngleDeg?: unknown; raUnit?: 'auto' | 'hours' | 'degrees' }} [options]
+ * @returns {import('./index.d.ts').SpatialLookAtRaDecSpec | null}
+ */
+export function createRaDecLookAt(ra, dec, options = {}) {
+  const source = isPlainObject(ra) && dec === undefined
+    ? /** @type {Record<string, unknown>} */ (ra)
+    : null;
+  const raInput = source
+    ? source.ra ?? source.rightAscension ?? source.raDeg ?? source.raHours
+    : ra;
+  const decInput = source
+    ? source.dec ?? source.declination ?? source.decDeg
+    : dec;
+  const raUnit = source
+    ? source.raUnit ?? (source.raHours !== undefined ? 'hours' : source.raDeg !== undefined ? 'degrees' : options.raUnit)
+    : options.raUnit;
+  const parsedRa = parseRightAscension(raInput, {
+    unit: /** @type {'auto' | 'hours' | 'degrees' | undefined} */ (raUnit),
+  });
+  const decDeg = source && Number.isFinite(Number(source.decDeg))
+    ? Number(source.decDeg)
+    : parseDeclination(decInput);
+
+  if (!parsedRa || decDeg == null) return null;
+
+  const distancePc = Number(source?.distancePc ?? options.distancePc);
+  const positionAngleDeg = Number(source?.positionAngleDeg ?? options.positionAngleDeg);
+
+  return {
+    ...parsedRa,
+    decDeg,
+    ...(Number.isFinite(distancePc) ? { distancePc } : {}),
+    ...(Number.isFinite(positionAngleDeg) ? { positionAngleDeg } : {}),
+  };
+}
+
+/**
+ * @param {unknown} value
+ * @param {{ unit?: 'auto' | 'hours' | 'degrees' }} [options]
+ * @returns {{ raDeg: number } | { raHours: number } | null}
+ */
+export function parseRightAscension(value, options = {}) {
+  const text = normalizeAngleText(value);
+  if (!text) return null;
+  const unit = resolveRightAscensionUnit(text, options.unit);
+  const sexagesimal = parseSexagesimalAngle(text);
+  if (Number.isFinite(sexagesimal)) {
+    return unit === 'degrees'
+      ? { raDeg: sexagesimal }
+      : { raHours: sexagesimal };
+  }
+
+  const number = parsePlainNumber(text);
+  if (!Number.isFinite(number)) return null;
+  return unit === 'hours'
+    ? { raHours: number }
+    : { raDeg: number };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number | null}
+ */
+export function parseDeclination(value) {
+  const sexagesimal = parseSexagesimalAngle(value);
+  if (Number.isFinite(sexagesimal)) return sexagesimal;
+  const degrees = parsePlainNumber(value);
+  return Number.isFinite(degrees) ? degrees : null;
 }
 
 /**
@@ -167,14 +242,20 @@ function resolveRaDecLookAt(lookAt, observerPc) {
   const positionAngleDeg = resolvePositionAngleDeg(lookAt, 0);
   const direction = raDecToIcrsDirection(lookAt);
   if (!direction) return unresolved(lookAt, 'radec');
-  const orientationIcrs = computeSpatialLookDirectionOrientation({
-    direction,
-    positionAngleDeg,
-  });
   const distancePc = Number(lookAt.distancePc);
   const targetPc = Number.isFinite(distancePc)
-    ? raDecDistanceToIcrs({ ...lookAt, distancePc, observerPc })
+    ? raDecDistanceToIcrs({ ...lookAt, distancePc })
     : null;
+  const orientationIcrs = targetPc
+    ? computeSpatialLookAtOrientation({
+      position: observerPc,
+      target: targetPc,
+      positionAngleDeg,
+    })
+    : computeSpatialLookDirectionOrientation({
+      direction,
+      positionAngleDeg,
+    });
   return {
     lookAt: {
       ...('star' in lookAt ? { star: lookAt.star } : {}),
@@ -186,14 +267,14 @@ function resolveRaDecLookAt(lookAt, observerPc) {
     },
     targetPc: targetPc ? cloneVector3(targetPc) : null,
     orientationIcrs,
-    unresolved: orientationIcrs ? null : 'radec',
+    unresolved: orientationIcrs ? null : targetPc ? 'target' : 'radec',
   };
 }
 
 /** @param {unknown} input */
 function normalizeLookAtInput(input) {
   if (typeof input === 'string') {
-    return { star: input, positionAngleDeg: 0 };
+    return parseSpatialLookAtText(input) ?? { star: input, positionAngleDeg: 0 };
   }
   if (!input || typeof input !== 'object') return null;
   const source = /** @type {Record<string, unknown>} */ (input);
@@ -241,23 +322,30 @@ function parseLookAtJson(text) {
 /** @param {string} text */
 function parseNamedRaDec(text) {
   const result = {};
-  for (const part of text.split(/[;,]/)) {
-    const match = part.trim().match(/^([a-z][a-z0-9-]*)\s*[:=]\s*(.+)$/i);
-    if (!match) continue;
-    const key = match[1].toLowerCase();
-    const rawValue = match[2].trim();
-    if (key === 'ra' || key === 'radeg' || key === 'ra-deg' || key === 'rahours' || key === 'ra-hours') {
-      const ra = parseRaValue(rawValue, key);
+  for (const { key, rawValue } of extractNamedValues(text)) {
+    const normalizedKey = normalizeLookAtKey(key);
+    if (
+      normalizedKey === 'ra' ||
+      normalizedKey === 'rightascension' ||
+      normalizedKey === 'radeg' ||
+      normalizedKey === 'rahour' ||
+      normalizedKey === 'rahours'
+    ) {
+      const ra = parseRaValue(rawValue, normalizedKey);
       if (ra) Object.assign(result, ra);
-    } else if (key === 'dec' || key === 'decdeg' || key === 'dec-deg') {
-      const decDeg = parseDegrees(rawValue);
-      if (Number.isFinite(decDeg)) result.decDeg = decDeg;
-    } else if (key === 'distance' || key === 'distancepc' || key === 'distance-pc') {
+    } else if (
+      normalizedKey === 'dec' ||
+      normalizedKey === 'declination' ||
+      normalizedKey === 'decdeg'
+    ) {
+      const decDeg = parseDeclination(rawValue);
+      if (decDeg != null) result.decDeg = decDeg;
+    } else if (normalizedKey === 'distance' || normalizedKey === 'distancepc') {
       const distancePc = parsePlainNumber(rawValue);
       if (Number.isFinite(distancePc)) result.distancePc = distancePc;
-    } else if (key === 'pa' || key === 'positionangle' || key === 'position-angle' || key === 'positionangledeg' || key === 'position-angle-deg') {
-      const positionAngleDeg = parseDegrees(rawValue);
-      if (Number.isFinite(positionAngleDeg)) result.positionAngleDeg = positionAngleDeg;
+    } else if (normalizedKey === 'pa' || normalizedKey === 'positionangle' || normalizedKey === 'positionangledeg') {
+      const positionAngleDeg = parseDeclination(rawValue);
+      if (positionAngleDeg != null) result.positionAngleDeg = positionAngleDeg;
     }
   }
   return isRaDecLookAt(result) ? result : null;
@@ -268,29 +356,136 @@ function parseNamedRaDec(text) {
  * @param {string} key
  */
 function parseRaValue(value, key) {
-  const number = parsePlainNumber(value);
-  if (!Number.isFinite(number)) return null;
-  const lower = value.trim().toLowerCase();
-  return lower.endsWith('h') || key.includes('hour')
-    ? { raHours: number }
-    : { raDeg: number };
+  return parseRightAscension(value, {
+    unit: key.includes('hour') ? 'hours' : key.includes('deg') ? 'degrees' : 'auto',
+  });
+}
+
+/** @param {string[]} parts */
+function parseRaDecDistanceParts(parts) {
+  if (!looksParsecDistance(parts[2])) return null;
+  const ra = parseRaValue(parts[0], 'ra');
+  const decDeg = parseDegrees(parts[1]);
+  const distancePc = parsePlainNumber(parts[2]);
+  return ra && Number.isFinite(decDeg) && Number.isFinite(distancePc)
+    ? { ...ra, decDeg, distancePc }
+    : null;
+}
+
+/** @param {string} value */
+function looksParsecDistance(value) {
+  return /(?:parsecs?|pc)\b/i.test(normalizeAngleText(value));
 }
 
 /** @param {string} value */
 function parseDegrees(value) {
-  return parsePlainNumber(value);
+  return parseDeclination(value) ?? Number.NaN;
 }
 
 /** @param {string} value */
 function parsePlainNumber(value) {
-  return Number(
-    value
-      .trim()
-      .toLowerCase()
-      .replace(/^\+/, '')
-      .replace(/(?:deg|degrees|degree|°|h|hours|hour|pc)$/i, '')
-      .trim(),
-  );
+  const text = normalizeAngleText(value)
+    .trim()
+    .toLowerCase()
+    .replace(/^\+/, '')
+    .replace(/\s*(?:degrees?|deg|°|d|hours?|hrs?|hr|h|parsecs?|pc)$/i, '')
+    .trim();
+  return text ? Number(text) : Number.NaN;
+}
+
+/** @param {unknown} value */
+function normalizeAngleText(value) {
+  return String(value ?? '')
+    .trim()
+    .replace(/[−‒–—]/g, '-')
+    .replace(/[＋﹢]/g, '+')
+    .replace(/[º˚]/g, '°')
+    .replace(/[′‘’ʼ]/g, "'")
+    .replace(/[″“”]/g, '"')
+    .replace(/[ʰ]/gi, 'h')
+    .replace(/[ᵐ]/gi, 'm')
+    .replace(/[ˢ]/gi, 's');
+}
+
+/** @param {string} text */
+function extractNamedValues(text) {
+  const matches = Array.from(text.matchAll(NAMED_LOOK_AT_KEY_PATTERN));
+  if (matches.length === 0) return [];
+  return matches.map((match, index) => {
+    const next = matches[index + 1];
+    const rawValue = text
+      .slice((match.index ?? 0) + match[0].length, next?.index ?? text.length)
+      .replace(/^\s*[:=]\s*/, '')
+      .replace(/^[\s,;]+|[\s,;]+$/g, '');
+    return {
+      key: match[0],
+      rawValue,
+    };
+  }).filter((entry) => entry.rawValue.length > 0);
+}
+
+const NAMED_LOOK_AT_KEY_PATTERN = /\bright\s+ascension\b|\bright[-_]?ascension\b|\bra[-_\s]?hours?\b|\brahours\b|\bra[-_\s]?deg(?:rees?)?\b|\bradeg\b|\bra\b|\bdeclination\b|\bdec[-_\s]?deg(?:rees?)?\b|\bdecdeg\b|\bdec\b|\bdistance[-_\s]?pc\b|\bdistancepc\b|\bdistance\b|\bposition[-_\s]?angle[-_\s]?deg\b|\bpositionangledeg\b|\bposition[-_\s]?angle\b|\bpositionangle\b|\bpa\b/gi;
+
+/** @param {string} key */
+function normalizeLookAtKey(key) {
+  return String(key ?? '').toLowerCase().replace(/[-_\s]+/g, '');
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number}
+ */
+function parseSexagesimalAngle(value) {
+  const text = normalizeAngleText(value).toLowerCase();
+  if (!looksSexagesimal(text)) return Number.NaN;
+
+  const signMatch = text.match(/^\s*([+-])/);
+  let sign = signMatch?.[1] === '-' ? -1 : 1;
+  let body = text.replace(/^\s*[+-]\s*/, '');
+  body = body
+    .replace(/hours?|hrs?|hr|h(?=\s|$|\d)/g, ' ')
+    .replace(/degrees?|deg|°|d(?=\s|$|\d)/g, ' ')
+    .replace(/minutes?|mins?|min|m(?=\s|$|\d)/g, ' ')
+    .replace(/seconds?|secs?|sec|s(?=\s|$|\d)/g, ' ')
+    .replace(/['":]/g, ' ');
+
+  const numbers = Array.from(body.matchAll(/[+-]?(?:\d+(?:\.\d*)?|\.\d+)/g))
+    .map((match) => Number(match[0]));
+  if (numbers.length === 0 || numbers.length > 3 || numbers.some((number) => !Number.isFinite(number))) {
+    return Number.NaN;
+  }
+  if (!signMatch && numbers[0] < 0) sign = -1;
+
+  const major = Math.abs(numbers[0]);
+  const minutes = Math.abs(numbers[1] ?? 0);
+  const seconds = Math.abs(numbers[2] ?? 0);
+  if (minutes >= 60 || seconds >= 60) return Number.NaN;
+  return sign * (major + minutes / 60 + seconds / 3600);
+}
+
+/** @param {string} text */
+function looksSexagesimal(text) {
+  if (/[:hms°'"]|hours?|hrs?|hr|degrees?|deg|minutes?|mins?|min|seconds?|secs?|sec/i.test(text)) {
+    return true;
+  }
+  return Array.from(text.matchAll(/[+-]?(?:\d+(?:\.\d*)?|\.\d+)/g)).length > 1;
+}
+
+/**
+ * @param {string} text
+ * @param {'auto' | 'hours' | 'degrees' | undefined} option
+ * @returns {'hours' | 'degrees'}
+ */
+function resolveRightAscensionUnit(text, option = 'auto') {
+  if (option === 'hours' || option === 'degrees') return option;
+  const lower = normalizeAngleText(text).toLowerCase();
+  if (/\bra[-_\s]?hours?\b|\bhours?\b|\bhrs?\b|\bhr\b|h(?=\s|$|\d)/.test(lower)) {
+    return 'hours';
+  }
+  if (/\bra[-_\s]?deg(?:rees?)?\b|\bdegrees?\b|\bdeg\b|°|d(?=\s|$|\d)/.test(lower)) {
+    return 'degrees';
+  }
+  return looksSexagesimal(lower) ? 'hours' : 'degrees';
 }
 
 /** @param {string[]} parts */
@@ -324,6 +519,11 @@ function isRaDecLookAt(value) {
   const source = /** @type {Record<string, unknown>} */ (value);
   return (Number.isFinite(Number(source.raDeg)) || Number.isFinite(Number(source.raHours)))
     && Number.isFinite(Number(source.decDeg));
+}
+
+/** @param {unknown} value */
+function isPlainObject(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 /**

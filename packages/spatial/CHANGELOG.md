@@ -1,5 +1,17 @@
 # @found-in-space/spatial
 
+## 0.2.0-alpha.20260530
+
+### Patch Changes
+
+- 4204ef8: Resolve RA/Dec distance targets from the solar origin and allow embed observer coordinates to use RA/Dec distance text.
+
+## 0.2.0-alpha.20260529
+
+### Minor Changes
+
+- 5edeabd: Add RA/Dec look-at helpers and sexagesimal coordinate parsing for HTML and scripted SkyKit look-at targets.
+
 ## 0.2.0-alpha.20260528
 
 ### Minor Changes

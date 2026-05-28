@@ -171,7 +171,9 @@ export function createStarOctreeIndexSource(createOptions) {
     DEFAULT_PREFETCH_PAYLOAD_MIN_USEFUL_RATIO,
   );
   return {
-    persistentCacheAvailable: rangeSource.persistentCacheAvailable,
+    get persistentCacheAvailable() {
+      return rangeSource.persistentCacheAvailable;
+    },
     sourceIdentity:
       createOptions.sourceIdentity ??
       createOptions.options.url ??

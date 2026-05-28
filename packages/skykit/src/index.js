@@ -12,6 +12,12 @@ export {
 } from './actions.js';
 export { createSkykitAnimationLoop } from './animation-loop.js';
 export { createSkykitDebugBridge, installSkykitDebugGlobal } from './debug.js';
+export {
+  createRaDecLookAt,
+  parseDeclination,
+  parseRightAscension,
+  parseSpatialLookAtText,
+} from '@found-in-space/spatial';
 export { createSkykitHrDiagramPlugin } from './hr-diagram.js';
 export { createObject3dLayer } from './layers.js';
 export { createDesktopSkykitObserverRig } from './observer-rig.js';

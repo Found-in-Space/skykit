@@ -1,6 +1,4 @@
 import {
-  cloneVector3,
-  normalizeVector3,
   scaleVector,
   vectorLength,
 } from './math.js';
@@ -35,11 +33,10 @@ export function raDecDistanceToIcrs(input) {
   const direction = raDecToIcrsDirection(input);
   const distancePc = Number(input?.distancePc);
   if (!direction || !Number.isFinite(distancePc) || distancePc < 0) return null;
-  const observer = normalizeVector3(input?.observerPc, DEFAULT_OBSERVER_PC);
   return {
-    x: observer.x + direction.x * distancePc,
-    y: observer.y + direction.y * distancePc,
-    z: observer.z + direction.z * distancePc,
+    x: direction.x * distancePc,
+    y: direction.y * distancePc,
+    z: direction.z * distancePc,
   };
 }
 
@@ -151,7 +148,6 @@ function resolveDirectSpatialTarget(input, options = {}) {
       raHours: Number(value.raHours),
       decDeg: Number(value.decDeg),
       distancePc: Number(value.distancePc),
-      observerPc: options.observerPc,
     });
   }
   return null;

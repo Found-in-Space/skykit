@@ -30,6 +30,7 @@ Run these checks before publishing:
 ```sh
 npm test
 npm run typecheck
+npm run release:check-lockfile
 ```
 
 For ordinary package-change pull requests, `npm run release:status` should pass
@@ -39,9 +40,21 @@ changeset as handled release input and will skip the publish command.
 
 Publishing is normally handled by `.github/workflows/release-packages.yml` after
 changes are merged to `main`. The workflow runs `npm ci`, `npm test`,
-`npm run typecheck`, then `changesets/action`, which either opens the version
-pull request or publishes any unpublished package versions already committed on
-`main`.
+`npm run typecheck`, `npm run release:check-lockfile`, then
+`changesets/action`, which either opens the version pull request or publishes
+any unpublished package versions already committed on `main`.
+
+The version command used by the workflow is `npm run release:version`. Keep this
+as the canonical command. It runs `changeset version` and then
+`npm run release:lockfile`, because Changesets updates package manifests,
+changelogs, dependency ranges, and `.changeset/pre.json`, but does not update
+`package-lock.json` on its own. If you ever run `changeset version` directly,
+run `npm run release:lockfile` before committing the release result.
+
+Every version pull request should include the matching `package-lock.json`
+changes whenever a workspace package version or internal dependency range
+changes. `npm run release:check-lockfile` verifies the workspace package entries
+in the lockfile against the package manifests and fails when they drift.
 
 The workflow needs permission to create the Changesets version pull request.
 The workflow file already grants `contents: write` and `pull-requests: write`,
@@ -78,7 +91,8 @@ The normal alpha cycle is:
 1. Merge feature/package pull requests with their `.changeset/*.md` files.
 2. Let the release workflow open or update `changeset-release/main`.
 3. Review the generated package versions, changelogs, dependency bumps, and
-   `.changeset/pre.json` changes in the Changesets version pull request.
+   `package-lock.json` and `.changeset/pre.json` changes in the Changesets
+   version pull request.
 4. Merge the Changesets version pull request when ready to publish.
 5. Let the next release workflow run publish the unpublished package versions.
 
@@ -96,17 +110,35 @@ npm run release:version
 That converts pending prerelease state into ordinary release versions and removes
 the prerelease mode state as part of the version commit.
 
-Use local release commands only to inspect or repair the release state. To
-prepare release commits locally:
+Use local release commands only to inspect or repair the release state, or for
+an urgent alpha package needed to test the public embed/CDN path before the
+GitHub release workflow is usable.
+
+To prepare release commits locally:
 
 ```sh
+npm test
+npm run typecheck
 npm run release:version
+npm run release:check-lockfile
 ```
 
-To publish packages from the prepared release commit:
+Review and commit the generated package manifests, changelogs,
+`package-lock.json`, and `.changeset/pre.json` changes together. Do not leave
+stale `0.2.0-dev.*` package versions in public release commits or website pins;
+the website and CDN tests should use immutable public alpha package versions.
+
+Before publishing manually, verify that each exact package version is not
+already on npm. npm package versions are immutable:
 
 ```sh
-npm run release:publish
+npm view @found-in-space/skykit@0.2.0-alpha.20260529 version
+```
+
+To publish packages from the prepared release commit with npm two-factor auth:
+
+```sh
+npm_config_otp=123456 npm run release:publish
 ```
 
 While the repo is in alpha prerelease mode, `release:publish` should call
@@ -114,6 +146,15 @@ While the repo is in alpha prerelease mode, `release:publish` should call
 the `alpha` npm dist-tag because that tag comes from `.changeset/pre.json`.
 Because `0.2.0-alpha.0` is the first published version of these packages, npm
 also assigned it as `latest`.
+
+If the OTP expires or npm accepts only part of the batch, check npm for the
+versions that landed, then rerun `npm_config_otp=<fresh-code> npm run
+release:publish` from the same prepared release commit. After a local manual
+publish succeeds, push the release commit and the tags created by Changesets:
+
+```sh
+git push --follow-tags
+```
 
 ## Trusted Publishing Requirements
 
