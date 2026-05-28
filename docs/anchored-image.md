@@ -76,6 +76,16 @@ during alpha, but the canonical model uses generic `image`, `groupId`, `label`,
 and `metadata` fields so the package itself does not encode Western or
 constellation-specific assumptions.
 
+For constellation art, the canonical anchored-image manifest is the rendering
+input. It is not the full skyculture metadata model. Applications that need
+constellation names, descriptions, stories, or boundary-line metadata should
+also load the skyculture package's richer manifest. In Stellarium-style
+`common_name` metadata, prefer `native` for the displayed constellation name and
+treat `english` as a translated gloss or meaning. The western skyculture, for
+example, represents Orion as `{ english: 'Hunter', native: 'Orion' }`.
+See [`constellations.md`](./constellations.md) for the supported SkyKit loading
+paths.
+
 ## Canvas Composition
 
 `anchored-image/canvas` draws an already-solved mesh through a projection

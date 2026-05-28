@@ -29,6 +29,54 @@ const AABB_EDGE_INDICES = Object.freeze([
   [6, 7],
 ]);
 
+/**
+ * Request one or more exact logical star cells by public cell/star refs.
+ *
+ * @param {import('./index.d.ts').StarCellRef | import('./index.d.ts').StarObjectRef | Iterable<import('./index.d.ts').StarCellRef | import('./index.d.ts').StarObjectRef>} refOrRefs
+ * @returns {import('./index.d.ts').StarCellStrategy}
+ */
+export function createStarCellRefStrategy(refOrRefs) {
+  const targets = normalizeStarCellRefTargets(refOrRefs);
+  if (targets.length === 0) {
+    throw new TypeError('createStarCellRefStrategy() requires at least one star cell ref.');
+  }
+
+  return {
+    createAnchor(view = {}) {
+      return { view: view ?? {}, targets };
+    },
+    createEvaluator(anchor) {
+      return {
+        view: anchor.view ?? {},
+        distanceToCell: () => 0,
+        evaluateCell(cell) {
+          const match = matchStarCellRefTarget(cell, anchor.targets ?? targets);
+          return {
+            include: match.include,
+            descend: match.descend,
+            emit: match.emit,
+            distancePc: 0,
+            relevance: match.emit ? 1 : match.include ? 0.5 : 0,
+            priority: livePriority(match.emit ? 1 : 0.5, 0),
+            reasons: match.emit ? ['star-cell-ref'] : match.include ? ['star-cell-ref-ancestor'] : [],
+            metadata: match.target
+              ? {
+                  level: match.target.level,
+                  mortonCode: match.target.mortonCode,
+                }
+              : {},
+          };
+        },
+      };
+    },
+    diff(previous, next) {
+      return stableStringifyStarCellTargets(previous?.targets) === stableStringifyStarCellTargets(next?.targets)
+        ? unchanged(['star-cell-ref-unchanged'])
+        : replan(['star-cell-ref-targets']);
+    },
+  };
+}
+
 export function createObserverShellStrategy() {
   return {
     createAnchor(view = {}) {
@@ -2025,6 +2073,114 @@ function normalizeRequiredPoint(value, label) {
   }
 
   throw new TypeError(`${label} must be a finite parsec point.`);
+}
+
+/**
+ * @param {import('./index.d.ts').StarCellRef | import('./index.d.ts').StarObjectRef | Iterable<import('./index.d.ts').StarCellRef | import('./index.d.ts').StarObjectRef>} refOrRefs
+ */
+function normalizeStarCellRefTargets(refOrRefs) {
+  const input = isIterable(refOrRefs) && !looksLikeStarCellRef(refOrRefs)
+    ? Array.from(refOrRefs)
+    : [refOrRefs];
+  const byKey = new Map();
+  for (const ref of input) {
+    const target = normalizeStarCellRefTarget(ref);
+    const key = `${target.level}:${target.mortonCode}`;
+    byKey.set(key, target);
+  }
+  return Array.from(byKey.values()).sort((left, right) => (
+    (left.level - right.level) || compareMortonStrings(left.mortonCode, right.mortonCode)
+  ));
+}
+
+/** @param {unknown} ref */
+function normalizeStarCellRefTarget(ref) {
+  if (!looksLikeStarCellRef(ref)) {
+    throw new TypeError('Star cell refs must include finite level and mortonCode fields.');
+  }
+  const level = Number(ref.level);
+  const mortonCode = normalizeStarCellRefMorton(ref.mortonCode);
+  return { level, mortonCode };
+}
+
+/** @param {unknown} ref */
+function looksLikeStarCellRef(ref) {
+  return Boolean(
+    ref &&
+      typeof ref === 'object' &&
+      Number.isInteger(Number(ref.level)) &&
+      Number(ref.level) >= 0 &&
+      ref.mortonCode !== undefined,
+  );
+}
+
+/** @param {unknown} value */
+function isIterable(value) {
+  return Boolean(value && typeof value !== 'string' && typeof value[Symbol.iterator] === 'function');
+}
+
+/** @param {unknown} mortonCode */
+function normalizeStarCellRefMorton(mortonCode) {
+  let value;
+  try {
+    value = BigInt(String(mortonCode));
+  } catch {
+    throw new TypeError('Star cell refs must include a non-negative integer mortonCode.');
+  }
+  if (value < 0n) {
+    throw new RangeError('Star cell refs must include a non-negative mortonCode.');
+  }
+  return value.toString(10);
+}
+
+/**
+ * @param {import('./index.d.ts').StarTreeCellGeometry} cell
+ * @param {Array<{ level: number; mortonCode: string }>} targets
+ */
+function matchStarCellRefTarget(cell, targets) {
+  let ancestor = null;
+  for (const target of targets) {
+    if (!isStarCellRefAncestor(cell, target)) continue;
+    if (Number(cell.level) === target.level) {
+      return { include: true, descend: false, emit: true, target };
+    }
+    ancestor ??= target;
+  }
+  return ancestor
+    ? { include: true, descend: true, emit: false, target: ancestor }
+    : { include: false, descend: false, emit: false, target: null };
+}
+
+/**
+ * @param {import('./index.d.ts').StarTreeCellGeometry} cell
+ * @param {{ level: number; mortonCode: string }} target
+ */
+function isStarCellRefAncestor(cell, target) {
+  const cellLevel = Number(cell.level);
+  if (!Number.isInteger(cellLevel) || cellLevel < 0 || cellLevel > target.level) {
+    return false;
+  }
+  let cellMorton;
+  try {
+    cellMorton = BigInt(normalizeStarCellRefMorton(cell.mortonCode));
+  } catch {
+    return false;
+  }
+  const targetMorton = BigInt(target.mortonCode);
+  const shift = BigInt((target.level - cellLevel) * 3);
+  return (targetMorton >> shift) === cellMorton;
+}
+
+/** @param {string} left @param {string} right */
+function compareMortonStrings(left, right) {
+  const leftMorton = BigInt(left);
+  const rightMorton = BigInt(right);
+  return leftMorton < rightMorton ? -1 : leftMorton > rightMorton ? 1 : 0;
+}
+
+/** @param {Array<{ level: number; mortonCode: string }> | undefined} targets */
+function stableStringifyStarCellTargets(targets) {
+  return (targets ?? []).map((target) => `${target.level}:${target.mortonCode}`).join('|');
 }
 
 function normalizeFiniteNumber(value, fallback) {

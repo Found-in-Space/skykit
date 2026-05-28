@@ -24,8 +24,8 @@ import {
 import { createSkykitActionRegistry } from '../index.js';
 
 test('xr free-roam demo uses restored alpha XR regressions defaults', () => {
-  const source = readFileSync(new URL('../../examples/xr-free-roam/xr-free-roam.js', import.meta.url), 'utf8');
-  const exampleHtml = readFileSync(new URL('../../examples/xr-free-roam/index.html', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('../../../../apps/examples/xr-free-roam/xr-free-roam.js', import.meta.url), 'utf8');
+  const exampleHtml = readFileSync(new URL('../../../../apps/examples/xr-free-roam/index.html', import.meta.url), 'utf8');
   const rootDemoHtml = readFileSync(new URL('../../../../demos/xr-free-roam.html', import.meta.url), 'utf8');
 
   assert.match(source, /createDefaultThreeStarFieldMaterialProfile/);
@@ -76,6 +76,17 @@ test('xr free-roam demo uses restored alpha XR regressions defaults', () => {
   assert.match(source, /slider\('Scale', 'worldScaleLog10'/);
   assert.match(source, /toggle\('Nearby glow', 'nearFloor'/);
   assert.match(source, /toggle\('Constellation art', 'constellationArt'/);
+  assert.match(source, /XR_CONSTELLATION_ART_RADIUS_WORLD_UNITS\s*=\s*8000/);
+  assert.match(source, /createHeadGazeAnchoredImageController/);
+  assert.match(source, /setViewDirectionIcrs\?\.\(resolveHeadGazeDirectionIcrs\(body, xrRig, camera\)\)/);
+  assert.match(source, /body\?\.head\?\.orientation/);
+  assert.match(source, /getNavigationPose\?\.\(\)\.orientation/);
+  assert.match(source, /strategy:\s*'nearest'/);
+  assert.match(source, /maxAngleDeg:\s*XR_CONSTELLATION_ART_MAX_ANGLE_DEG/);
+  assert.match(source, /anchorMode:\s*'observer-centric'/);
+  assert.match(source, /radius:\s*XR_CONSTELLATION_ART_RADIUS_WORLD_UNITS/);
+  assert.match(source, /XR_CONSTELLATION_ART_RADIUS_WORLD_UNITS \/ worldScale/);
+  assert.doesNotMatch(source, /strategy:\s*'within-angle'/);
   for (const html of [exampleHtml, rootDemoHtml]) {
     assert.match(html, /data-preflight-check="skykit"/);
     assert.match(html, /data-preflight-check="stars"/);

@@ -14,6 +14,7 @@ import {
   createSphereVolumeStrategy,
   createStarCellData,
   createStarCellKey,
+  createStarCellRefStrategy,
   createStarCellStore,
   createTargetFrustumStrategy,
   createWarmStrategy,
@@ -89,6 +90,36 @@ test('warm strategy decorates arbitrary strategy decisions without changing sele
   assert.deepEqual(decision.priority, { lane: 'warm', band: 2, score: 10 });
   assert.deepEqual(decision.reasons, ['prewarm', 'role:prefetch']);
   assert.equal(decision.metadata.warmLane, 'warm');
+});
+
+test('createStarCellRefStrategy requests exact logical cells through their ancestors', () => {
+  const strategy = createStarCellRefStrategy({ datasetId: 'dataset-a', level: 3, mortonCode: '429', ordinal: 7 });
+  const evaluator = createEvaluator(strategy);
+
+  const ancestor = evaluator.evaluateCell(createNode({ level: 2, mortonCode: '53' }));
+  assert.equal(ancestor.include, true);
+  assert.equal(ancestor.descend, true);
+  assert.equal(ancestor.emit, false);
+  assert.deepEqual(ancestor.reasons, ['star-cell-ref-ancestor']);
+
+  const exact = evaluator.evaluateCell(createNode({ level: 3, mortonCode: '429' }));
+  assert.equal(exact.include, true);
+  assert.equal(exact.descend, false);
+  assert.equal(exact.emit, true);
+  assert.deepEqual(exact.metadata, { level: 3, mortonCode: '429' });
+
+  const unrelated = evaluator.evaluateCell(createNode({ level: 2, mortonCode: '54' }));
+  assert.equal(unrelated.include, false);
+  assert.equal(unrelated.descend, false);
+  assert.equal(unrelated.emit, false);
+
+  const same = strategy.createAnchor({});
+  const duplicate = createStarCellRefStrategy([
+    { level: 3, mortonCode: '429' },
+    { level: 3, mortonCode: 429n },
+  ]).createAnchor({});
+  assert.equal(strategy.diff(same, duplicate).kind, 'none');
+  assert.equal(strategy.diff(same, createStarCellRefStrategy({ level: 3, mortonCode: '430' }).createAnchor({})).kind, 'regions-changed');
 });
 
 test('createStarCellData omits unrequested attributes', () => {

@@ -1,0 +1,24 @@
+{
+  "name": "@found-in-space/skykit-examples",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@found-in-space/meta-sidecar-provider": "0.2.0",
+    "@found-in-space/skykit": "0.2.0",
+    "@found-in-space/spatial": "0.2.0",
+    "@found-in-space/star-octree-provider": "0.2.0",
+    "@found-in-space/star-trees": "0.2.0",
+    "@found-in-space/stellarium-skycultures-western": "^0.3.0",
+    "@found-in-space/three-star-field": "0.2.0",
+    "@found-in-space/touch-os": "0.2.0",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}

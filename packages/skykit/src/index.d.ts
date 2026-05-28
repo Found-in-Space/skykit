@@ -796,6 +796,7 @@ export interface SkykitStarPickEvent extends SkykitEvent {
   pick: ThreeStarFieldPickResult;
   label: string;
   metadata: SkykitStarPickMetadata;
+  pickTimeMs: number;
   pointer: SkykitStarPickPointer;
   ray: THREE.Ray;
   view: SkykitViewState;

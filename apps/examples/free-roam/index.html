@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit Example: Free Roam</title>
+    <link rel="stylesheet" href="../shared.css" />
+    <link rel="stylesheet" href="./free-roam.css" />
+  </head>
+  <body class="free-roam-page free-roam-app-page">
+    <aside class="example-sidebar">
+      <nav class="breadcrumb"><a href="../index.html">SkyKit examples</a> <span>/ Free Roam</span></nav>
+      <h1>Free Roam</h1>
+      <p>
+        Fly, inspect the active constellation, and tune the star shader from one page while the viewer stays live.
+      </p>
+
+      <details class="accordion" open>
+        <summary>Star Picker</summary>
+        <div class="accordion__content">
+          <p class="accordion__copy">
+            Click a star in the viewer to inspect its catalog metadata and observational values without leaving free roam.
+          </p>
+
+          <div class="control-row">
+            <label for="ctrl-pick-tolerance">Tolerance</label>
+            <input id="ctrl-pick-tolerance" type="range" min="0.1" max="12" step="0.1" value="3" data-pick-tolerance />
+            <span class="value-readout" data-readout="pick-tolerance">3.0 deg</span>
+          </div>
+
+          <div class="constellation-panel" data-pick-info>
+            <p class="pick-placeholder" data-pick-empty>Click a star to inspect it.</p>
+            <div class="pick-detail" data-pick-detail hidden>
+              <p class="pick-subtitle">Catalog</p>
+              <table class="pick-table">
+                <tr><th>Proper name</th><td data-pick-meta="proper">-</td></tr>
+                <tr><th>Bayer</th><td data-pick-meta="bayer">-</td></tr>
+                <tr><th>HD</th><td data-pick-meta="hd">-</td></tr>
+                <tr><th>HIP</th><td data-pick-meta="hip">-</td></tr>
+                <tr><th>Gaia</th><td data-pick-meta="gaia">-</td></tr>
+                <tr><th>Bookmark</th><td data-pick-meta="bookmark">-</td></tr>
+                <tr>
+                  <th>SIMBAD</th>
+                  <td>
+                    <span data-pick-simbad-empty>-</span>
+                    <a class="pick-simbad-link" data-pick-simbad-link href="#" target="_blank" rel="noopener noreferrer" hidden>View in SIMBAD</a>
+                  </td>
+                </tr>
+              </table>
+              <p class="pick-subtitle">Observation</p>
+              <table class="pick-table">
+                <tr><th>ICRS position</th><td data-pick-obs="icrs">-</td></tr>
+                <tr><th>Distance</th><td data-pick-obs="distance">-</td></tr>
+                <tr><th>Abs. magnitude</th><td data-pick-obs="absMag">-</td></tr>
+                <tr><th>App. magnitude</th><td data-pick-obs="appMag">-</td></tr>
+                <tr><th>Temperature</th><td data-pick-obs="temp">-</td></tr>
+                <tr><th>Visual radius</th><td data-pick-obs="visualPx">-</td></tr>
+                <tr><th>Pick score</th><td data-pick-obs="score">-</td></tr>
+                <tr><th>Angular offset</th><td data-pick-obs="offset">-</td></tr>
+                <tr><th>Buffer index</th><td data-pick-obs="bufferIndex">-</td></tr>
+              </table>
+              <div class="pick-actions">
+                <button type="button" data-pick-action="flyTo" disabled>Fly to</button>
+              </div>
+              <p class="pick-timing" data-pick-timing hidden></p>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="accordion">
+        <summary>Navigation</summary>
+        <div class="accordion__content">
+          <p class="accordion__copy">
+            Drag in the viewer to look around. Use the movement pad or your keyboard to move while the observer-shell field keeps refreshing around you.
+          </p>
+
+          <div class="control-row">
+            <label for="ctrl-mag-limit">Mag limit</label>
+            <input id="ctrl-mag-limit" type="range" min="1" max="12" step="0.1" value="7.5" data-mag-limit />
+            <span class="value-readout" data-readout="mag-limit">7.5</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-fov">FOV</label>
+            <input id="ctrl-fov" type="range" min="25" max="100" step="1" value="60" data-fov-deg />
+            <span class="value-readout" data-readout="fov">60 deg</span>
+          </div>
+          <div class="action-row">
+            <button type="button" data-look-sun>Look Sun</button>
+            <button type="button" data-fly-sun>Fly Sun</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="accordion">
+        <summary>Fly To Coordinates</summary>
+        <div class="accordion__content">
+          <p class="accordion__copy">
+            Enter J2000 / ICRS coordinates and a distance in parsecs to jump to a point directly.
+          </p>
+
+          <div class="coord-form">
+            <div class="control-row">
+              <label for="ctrl-ra-j2000">RA</label>
+              <input id="ctrl-ra-j2000" type="text" value="05h 35m 17.3s" placeholder="5:55:10.3 or 88.7929 deg" autocomplete="off" data-fly-ra />
+            </div>
+            <div class="control-row">
+              <label for="ctrl-dec-j2000">Dec</label>
+              <input id="ctrl-dec-j2000" type="text" value="-05 23 28" placeholder="+7:24:25 or 7.4071" autocomplete="off" data-fly-dec />
+            </div>
+            <div class="control-row">
+              <label for="ctrl-distance-pc">Distance</label>
+              <input id="ctrl-distance-pc" type="number" min="0.001" step="0.1" value="642" placeholder="548" data-fly-distance />
+            </div>
+            <div class="coord-actions">
+              <button type="button" data-fly-coords>Fly to Coordinates</button>
+            </div>
+            <p class="coord-help">
+              RA accepts decimal degrees, decimal hours, or sexagesimal like <code>5:55:10.3</code>. Dec accepts decimal degrees or sexagesimal like <code>+7:24:25</code>.
+            </p>
+            <p class="coord-status" data-fly-status>Idle.</p>
+          </div>
+        </div>
+      </details>
+
+      <details class="accordion">
+        <summary>Constellations</summary>
+        <div class="accordion__content">
+          <p class="accordion__copy">
+            The compass watches the view direction, not your position. This panel shows the currently resolved constellation and controls the art layer.
+          </p>
+
+          <div class="action-row">
+            <button type="button" data-art-toggle aria-pressed="true">Hide art</button>
+          </div>
+
+          <section class="constellation-panel">
+            <h2>Active Constellation</h2>
+            <p class="constellation-meta">IAU: <span data-constellation-iau>none</span></p>
+            <p class="constellation-meta">Name: <span data-constellation-name>none</span></p>
+            <p class="constellation-meta">RA: <span data-constellation-ra>-</span></p>
+            <p class="constellation-meta">Dec: <span data-constellation-dec>-</span></p>
+            <p class="constellation-desc" data-constellation-desc>
+              No active constellation yet. Move the camera to trigger the compass.
+            </p>
+          </section>
+        </div>
+      </details>
+
+      <details class="accordion">
+        <summary>Star Shader</summary>
+        <div class="accordion__content">
+          <p class="accordion__copy">
+            These sliders shape the apparent-magnitude response live, so you can judge faint stars, bright stars, and close approaches in context.
+          </p>
+
+          <div class="control-row">
+            <label for="ctrl-exposure">Exposure</label>
+            <input id="ctrl-exposure" type="range" min="4" max="10" step="0.01" value="7.82" data-star-exposure />
+            <span class="value-readout" data-readout="exposure">2495</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-extinction">Extinction</label>
+            <input id="ctrl-extinction" type="range" min="0" max="4" step="0.01" value="1" data-star-extinction-scale />
+            <span class="value-readout" data-readout="extinction">1.00</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-fade-range">Fade range</label>
+            <input id="ctrl-fade-range" type="range" min="0.1" max="8" step="0.1" value="3" data-star-fade-range />
+            <span class="value-readout" data-readout="fade-range">3.0</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-base-size">Base size</label>
+            <input id="ctrl-base-size" type="range" min="0.1" max="4" step="0.01" value="0.9" data-star-base-size />
+            <span class="value-readout" data-readout="base-size">0.90</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-size-scale">Size scale</label>
+            <input id="ctrl-size-scale" type="range" min="0.1" max="10" step="0.01" value="3" data-star-size-scale />
+            <span class="value-readout" data-readout="size-scale">3.00</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-size-power">Size power</label>
+            <input id="ctrl-size-power" type="range" min="0.05" max="2" step="0.01" value="0.32" data-star-size-power />
+            <span class="value-readout" data-readout="size-power">0.32</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-glow-scale">Glow scale</label>
+            <input id="ctrl-glow-scale" type="range" min="0" max="6" step="0.01" value="1.5" data-star-glow-scale />
+            <span class="value-readout" data-readout="glow-scale">1.50</span>
+          </div>
+          <div class="control-row">
+            <label for="ctrl-glow-power">Glow power</label>
+            <input id="ctrl-glow-power" type="range" min="0.05" max="2" step="0.01" value="0.22" data-star-glow-power />
+            <span class="value-readout" data-readout="glow-power">0.22</span>
+          </div>
+        </div>
+      </details>
+
+      <details class="accordion">
+        <summary>Diagnostics</summary>
+        <div class="accordion__content">
+          <p class="status">Status: <span data-status>starting...</span></p>
+          <pre class="meta-block" data-summary>{}</pre>
+          <pre data-snapshot>{}</pre>
+        </div>
+      </details>
+    </aside>
+
+    <main class="viewer-stage">
+      <div class="viewer-shell">
+        <div class="viewer-canvas" data-viewer></div>
+        <button class="fullscreen-button" type="button" data-fullscreen-toggle aria-label="Toggle fullscreen" title="Full screen">&#x26F6;</button>
+        <div class="hud-readouts" aria-live="polite">
+          <span>Speed <strong data-hud-speed>0.00 pc/s</strong></span>
+          <span>Sun <strong data-hud-distance>0.00 pc</strong></span>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="./free-roam.js"></script>
+  </body>
+</html>

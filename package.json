@@ -7,6 +7,7 @@
   "type": "module",
   "main": "./src/index.js",
   "workspaces": [
+    "apps/*",
     "packages/*"
   ],
   "repository": {
@@ -29,6 +30,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "dev:examples": "npm run dev --workspace @found-in-space/skykit-examples",
+    "build:examples": "npm run build --workspace @found-in-space/skykit-examples",
     "diag:observer-shell": "node ./scripts/observer-shell-diagnostic.js",
     "lookup:bookmark-star": "node ./scripts/bookmark-star-lookup.js",
     "bench:planner": "node ./benchmarks/star-planner/src/run-planner-benchmark.js",

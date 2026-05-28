@@ -30,6 +30,13 @@ jobs:
 
       - run: npm ci
       - run: npm run build
+      - name: Verify demo artifact pages
+        run: |
+          test -f dist/index.html
+          test -f dist/apps/examples/free-roam/index.html
+          test -f dist/apps/examples/xr-free-roam/index.html
+          test -f dist/demos/dust-roam.html
+          test -f dist/demos/h-alpha-volume.html
 
       - uses: actions/upload-pages-artifact@v3
         with:

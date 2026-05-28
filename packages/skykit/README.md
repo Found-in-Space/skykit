@@ -31,7 +31,7 @@ The beginner website entries are use-case bounded:
 
 `embed.js` is the no-code viewer entry. It is not a separate use-case.
 `viewer.js` is the JavaScript-customizable viewer entry. `data.js` is renderer
-independent. Authored chapters stay in website or lesson code and call SkyKit
+independent. Authored chapters stay in website or example code and call SkyKit
 navigation actions directly.
 
 ## Paste into a static page or CMS
@@ -123,6 +123,22 @@ requested. This keeps the one-script noob path while avoiding bundle bloat.
 ></div>
 ```
 
+That browser capability is one of two supported constellation loading paths.
+For standalone applications that compose SkyKit plugins directly, import the
+published skyculture package APIs instead:
+
+```js
+import { createAnchoredImageManifest } from '@found-in-space/stellarium-skycultures-western/anchored-image';
+import { bundledManifest } from '@found-in-space/stellarium-skycultures-western/bundled';
+```
+
+Use the anchored-image manifest for art rendering and the bundled skyculture
+manifest for UI metadata. When displaying names, prefer
+`common_name.native` before `common_name.english`; in the western package the
+English value can be a gloss such as "Hunter", while the native display name is
+"Orion". See [`docs/constellations.md`](../../docs/constellations.md) for the
+full loading and metadata rules.
+
 For small scripted interactions, use the browser handle:
 
 ```html
@@ -164,7 +180,7 @@ If your site has a module script, npm, or a bundler, call the helper directly:
 </script>
 ```
 
-The helper still returns the pieces when a lesson wants to grow:
+The helper still returns the pieces when an example wants to grow:
 
 ```js
 const sky = await createSkykitBrowser('#viewer');
@@ -212,11 +228,11 @@ const stars = await loadStarRows({
 
 ## Author Chapters
 
-Keep named chapters in the website or lesson script. Each chapter can call
+Keep named chapters in the website or example script. Each chapter can call
 navigation actions such as `skykit:navigation.transitionTo` and
 `skykit:navigation.orbit` from its own `goTo(id)` dispatcher.
 
-Use the lower-level factories when a lesson is teaching composition or replacing
+Use the lower-level factories when an example is teaching composition or replacing
 a part of the stack:
 
 ```js
@@ -388,7 +404,7 @@ The pasteable browser embed has a smaller add-on convention for noob pages:
 
 ```js
 Skykit.registerBrowserAddon({
-  id: 'lesson:marker',
+  id: 'example:marker',
   install({ browser, THREE }) {
     const marker = new THREE.Mesh(
       new THREE.SphereGeometry(0.02),
@@ -405,18 +421,16 @@ Skykit.registerBrowserAddon({
 See `docs/skykit-browser-plugins.md` for the browser add-on spec,
 `Skykit.whenReady()`, and first-party constellation support.
 
-Browser lessons:
+Standalone browser examples now live in the private workspace app at
+`apps/examples/`:
 
-- `examples/free-roam-lesson/` composes streamed stars, keyboard navigation,
-  sky-grab look controls, status, and debug.
+- `apps/examples/free-roam/` composes streamed stars, picking, metadata,
+  deep links, navigation, shader controls, touch-os HUD controls, and
+  constellation art.
+- `apps/examples/xr-free-roam/` composes alpha XR session/navigation helpers
+  with a pose-anchored touch-os panel.
 - `examples/hr-diagram-free-roam/` embeds the reusable HR diagram as a
   touch-os panel inside a free-roam SkyKit viewer.
-- `examples/xr-free-roam/` composes alpha XR session/navigation helpers with a
-  pose-anchored touch-os panel.
-- `examples/custom-object-layer/` shows that app-owned Three.js visuals can be
-  small plugins instead of core SkyKit features.
-- `examples/navigation-automation/` uses spatial navigation helpers to drive a
-  desktop SkyKit viewer.
 
 ## Touch-OS Bridge
 

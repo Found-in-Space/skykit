@@ -12,7 +12,7 @@ The live alpha path is package-first: reusable work lands in focused packages
 under `packages/`, with `@found-in-space/skykit` serving as the friendly
 composition layer.
 
-If you are reading this README on GitHub, you can open **[SkyKit lessons](https://foundin.space/skykit/)** on the Found in Space site to try the browser examples.
+If you are reading this README on GitHub, you can open the public **[SkyKit lessons](https://foundin.space/learn-build/skykit/)** on the Found in Space site.
 
 ## Install
 
@@ -51,35 +51,39 @@ SkyKit packages, but it is not part of this workspace.
 Historical H-alpha and dust experiments remain available in the sibling
 `../skykit-halpha` project. Future structural data packages should be designed
 against the current package APIs when there is an active consumer.
+The local legacy demo index keeps Dust Roam and H-alpha Volume visible as
+porting references, not current alpha examples.
 
 ## Development
 
 ```bash
 npm install
 npm run dev          # Vite dev server → http://localhost:5173/
+npm run build        # build the single GitHub Pages demo site into dist/
 node --test          # run all tests
 node --test --watch  # watch mode
 ```
 
-Package lessons live under `packages/*/examples/`. The root `index.html` is a
-local lesson directory for this repository: it highlights alpha package
-examples first and keeps the old root `demos/` proof-of-concept sandboxes in a
-legacy section for reference. That note is about this repository's local demo
-shell, not the public website lessons.
+Standalone SkyKit app examples live under `apps/examples/`. Focused package
+examples can still live under `packages/*/examples/`; the old root `demos/`
+proof-of-concept sandboxes stay as legacy reference material. Public lessons
+live on the website. The deploy build keeps the selected demo pages under one
+root `dist/index.html` so GitHub Pages can publish a single linked demo site.
 
-Constellation art defaults to Western art from:
-
-- `https://unpkg.com/@found-in-space/stellarium-skycultures-western@0.1.0/dist/manifest.json`
-
-Override with `?constellationManifestUrl=...`. Dataset URLs can be overridden with existing query parameters documented in the demo modules.
+Constellation art examples use the published
+`@found-in-space/stellarium-skycultures-western` package APIs. See
+[`docs/constellations.md`](./docs/constellations.md) for the browser capability
+path, the app-composition path, and skyculture metadata naming rules.
 
 ## Docs
 
 - [`docs/alpha-rules.md`](./docs/alpha-rules.md): current alpha rewrite rules and package-boundary guidance
-- [`docs/package-learning-architecture.md`](./docs/package-learning-architecture.md): alpha learning path and lesson direction
+- [`docs/package-learning-architecture.md`](./docs/package-learning-architecture.md): alpha learning path and package-example direction
 - [`docs/star-octree-provider.md`](./docs/star-octree-provider.md): current alpha contract for `@found-in-space/star-octree-provider`
 - [`docs/star-map-canvas.md`](./docs/star-map-canvas.md): current alpha contract for `@found-in-space/star-map-canvas`
 - [`docs/anchored-image.md`](./docs/anchored-image.md): current alpha contract for `@found-in-space/anchored-image`
+- [`docs/constellations.md`](./docs/constellations.md): constellation loading paths and skyculture metadata naming rules
 - [`docs/skykit-core-composition.md`](./docs/skykit-core-composition.md): current alpha direction for core `@found-in-space/skykit`
+- [`docs/skykit-browser-plugins.md`](./docs/skykit-browser-plugins.md): browser add-ons and first-party browser capabilities
 - [`docs/xr-architecture.md`](./docs/xr-architecture.md): current alpha boundary for `@found-in-space/spatial` and `@found-in-space/skykit/xr`
 - [`docs/chapter-and-camera-timeline-architecture.md`](./docs/chapter-and-camera-timeline-architecture.md): current alpha boundary for website chapters and Studio camera timelines
