@@ -12,7 +12,7 @@ The live alpha path is package-first: reusable work lands in focused packages
 under `packages/`, with `@found-in-space/skykit` serving as the friendly
 composition layer.
 
-If you are reading this README on GitHub, you can open **[SkyKit lessons](https://foundin.space/skykit/)** on the Found in Space site to try the browser examples.
+If you are reading this README on GitHub, you can open the public **[SkyKit lessons](https://foundin.space/learn-build/skykit/)** on the Found in Space site.
 
 ## Install
 
@@ -61,11 +61,10 @@ node --test          # run all tests
 node --test --watch  # watch mode
 ```
 
-Package lessons live under `packages/*/examples/`. The root `index.html` is a
-local lesson directory for this repository: it highlights alpha package
-examples first and keeps the old root `demos/` proof-of-concept sandboxes in a
-legacy section for reference. That note is about this repository's local demo
-shell, not the public website lessons.
+Package development examples live under `packages/*/examples/`. The root
+`index.html` is a local example directory for this repository: it highlights
+alpha package examples first and keeps the old root `demos/` proof-of-concept
+sandboxes in a legacy section for reference. Public lessons live on the website.
 
 Constellation art defaults to Western art from:
 
@@ -76,7 +75,7 @@ Override with `?constellationManifestUrl=...`. Dataset URLs can be overridden wi
 ## Docs
 
 - [`docs/alpha-rules.md`](./docs/alpha-rules.md): current alpha rewrite rules and package-boundary guidance
-- [`docs/package-learning-architecture.md`](./docs/package-learning-architecture.md): alpha learning path and lesson direction
+- [`docs/package-learning-architecture.md`](./docs/package-learning-architecture.md): alpha learning path and package-example direction
 - [`docs/star-octree-provider.md`](./docs/star-octree-provider.md): current alpha contract for `@found-in-space/star-octree-provider`
 - [`docs/star-map-canvas.md`](./docs/star-map-canvas.md): current alpha contract for `@found-in-space/star-map-canvas`
 - [`docs/anchored-image.md`](./docs/anchored-image.md): current alpha contract for `@found-in-space/anchored-image`

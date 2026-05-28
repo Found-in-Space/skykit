@@ -168,6 +168,7 @@ export function createSkykitStarPickingPlugin(options) {
     raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
     const ray = raycaster.ray.clone();
     const view = context.getViewState();
+    const pickStartMs = nowMs();
     const pick = options.renderer.pick(ray, {
       observerPosition: view.renderObserverPosition,
       coordinateUnitsPerParsec: view.coordinateUnitsPerParsec,
@@ -176,6 +177,7 @@ export function createSkykitStarPickingPlugin(options) {
       viewportHeight: rect.height,
       ...(options.pickOptions ?? {}),
     });
+    const pickTimeMs = nowMs() - pickStartMs;
     const pointer = {
       pointerId: track.pointerId,
       pointerType: track.pointerType,
@@ -212,6 +214,7 @@ export function createSkykitStarPickingPlugin(options) {
       pick,
       label,
       metadata,
+      pickTimeMs,
       pointer,
       ray,
       view,
@@ -235,6 +238,10 @@ export function createSkykitStarPickingPlugin(options) {
     attached = false;
     enabled = false;
   }
+}
+
+function nowMs() {
+  return globalThis.performance?.now?.() ?? Date.now();
 }
 
 /**

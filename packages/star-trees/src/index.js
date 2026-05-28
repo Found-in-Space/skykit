@@ -7,6 +7,7 @@ export {
   combineStrategies,
   compareStarCellPriority,
   createFrustumTester,
+  createStarCellRefStrategy,
   createLookaheadStrategy,
   createObserverShellStrategy,
   createPathDistanceEvaluator,

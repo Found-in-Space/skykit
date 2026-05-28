@@ -16,12 +16,12 @@ document.querySelector('[data-run]').addEventListener('click', run);
 async function run() {
   status.textContent = 'streaming...';
   const sessionA = provider.createSession({
-    id: 'lesson-visible-stars',
+    id: 'example-visible-stars',
     strategy: createObserverShellStrategy(),
     attributes: ['position', 'magAbs', 'teffLog8'],
   });
   const sessionB = provider.createSession({
-    id: 'lesson-volume-stars',
+    id: 'example-volume-stars',
     strategy: createSphereVolumeStrategy({ centerPc: { x: 8, y: 0, z: -10 }, radiusPc: 8 }),
     attributes: ['position', 'magAbs', 'teffLog8'],
   });
@@ -42,7 +42,7 @@ async function run() {
 async function collect(session, view) {
   const summary = { sessionId: session.id, cells: 0, stars: 0, current: false };
   const iterator = session.deltas();
-  session.updateView(view, { reason: 'shared-session-lesson' });
+  session.updateView(view, { reason: 'shared-session-example' });
 
   for await (const delta of iterator) {
     if (delta.type === 'stars/cells-upsert') {

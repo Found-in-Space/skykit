@@ -374,6 +374,10 @@ export declare const ERR_STAR_TREE_INVALID_VIEW: 'ERR_STAR_TREE_INVALID_VIEW';
 
 export declare function createObserverShellStrategy(): StarCellStrategy;
 
+export declare function createStarCellRefStrategy(
+  refOrRefs: StarCellRef | StarObjectRef | Iterable<StarCellRef | StarObjectRef>
+): StarCellStrategy;
+
 export declare function createTargetFrustumStrategy(
   options?: TargetFrustumStrategyOptions
 ): StarCellStrategy;

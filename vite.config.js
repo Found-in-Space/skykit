@@ -52,9 +52,9 @@ export default defineConfig({
         dataShape: path.resolve(__dirname, 'demos/data-shape.html'),
         dustRoam: path.resolve(__dirname, 'demos/dust-roam.html'),
         hAlphaVolume: path.resolve(__dirname, 'demos/h-alpha-volume.html'),
-        skykitFreeRoamLesson: path.resolve(
+        skykitFreeRoamConsole: path.resolve(
           __dirname,
-          'packages/skykit/examples/free-roam-lesson/index.html',
+          'packages/skykit/examples/free-roam-console/index.html',
         ),
         skykitCustomObjectLayer: path.resolve(
           __dirname,
@@ -67,14 +67,6 @@ export default defineConfig({
         skykitXrFreeRoam: path.resolve(
           __dirname,
           'packages/skykit/examples/xr-free-roam/index.html',
-        ),
-        skykitNavigationAutomation: path.resolve(
-          __dirname,
-          'packages/skykit/examples/navigation-automation/index.html',
-        ),
-        starOctreeProviderMinimalStream: path.resolve(
-          __dirname,
-          'packages/star-octree-provider/examples/minimal-stream/index.html',
         ),
         starOctreeProviderNearestVisible: path.resolve(
           __dirname,

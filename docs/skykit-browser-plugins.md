@@ -41,7 +41,7 @@ A browser add-on is plain code:
 
 ```js
 Skykit.registerBrowserAddon({
-  id: 'lesson:marker',
+  id: 'example:marker',
   async install({ browser, THREE }) {
     const marker = new THREE.Mesh(
       new THREE.SphereGeometry(0.02),
@@ -49,7 +49,7 @@ Skykit.registerBrowserAddon({
     );
 
     const handle = browser.addObject(marker, {
-      id: 'lesson-marker',
+      id: 'example-marker',
       positionPc: { x: 17.574, y: 42.316, z: 13.963 },
     });
 
