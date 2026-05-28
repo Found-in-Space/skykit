@@ -3,74 +3,59 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SkyKit XR Free Roam</title>
+    <title>Found in Space - VR Free Roam</title>
     <link rel="stylesheet" href="../../../../demos/shared.css" />
     <link rel="stylesheet" href="./xr-free-roam.css" />
   </head>
   <body>
     <main class="xr-free-roam-shell">
+      <header class="xr-app-header" aria-label="Found in Space application">
+        <img class="xr-brand-mark" src="/robbie.svg" alt="" aria-hidden="true" />
+        <div class="xr-brand-copy">
+          <p>Found in Space - SkyKit</p>
+          <strong>VR Free Roam</strong>
+        </div>
+      </header>
       <div class="viewer-shell" data-viewer></div>
       <section class="xr-preflight" data-preflight aria-labelledby="xr-preflight-title">
-        <div class="xr-preflight-copy">
-          <p class="xr-kicker">SkyKit XR</p>
-          <h1 id="xr-preflight-title">Free Roam Preflight</h1>
-          <p>
-            Choose the rendering defaults for this headset run, then enter the immersive session.
-          </p>
-          <dl class="xr-status-list">
-            <div>
-              <dt>WebXR</dt>
-              <dd data-xr-supported>Checking</dd>
-            </div>
-            <div>
-              <dt>Scale</dt>
-              <dd data-setting-value="worldScaleLog10">1 m/pc</dd>
-            </div>
-            <div>
-              <dt>Stars</dt>
-              <dd data-setting-value="limitingMagnitude">Mag 7.5</dd>
-            </div>
-          </dl>
-        </div>
-
-        <form class="xr-settings" data-xr-settings>
-          <fieldset>
-            <legend>Rendering</legend>
-            <label>
-              <span>Magnitude limit</span>
-              <output data-setting-value="limitingMagnitude">7.5</output>
-              <input data-setting="limitingMagnitude" type="range" min="4" max="10" step="0.1" value="7.5" />
-            </label>
-            <label>
-              <span>Exposure</span>
-              <output data-setting-value="exposureLog10">100,000</output>
-              <input data-setting="exposureLog10" type="range" min="3.5" max="5.5" step="0.05" value="5" />
-            </label>
-            <label>
-              <span>World scale</span>
-              <output data-setting-value="worldScaleLog10">1 m/pc</output>
-              <input data-setting="worldScaleLog10" type="range" min="-3" max="0" step="0.05" value="0" />
-            </label>
-          </fieldset>
-
-          <fieldset>
-            <legend>Session Flags</legend>
-            <label class="xr-toggle">
-              <input data-setting="nearFloor" type="checkbox" checked />
-              <span>Near-star readability floor</span>
-            </label>
-            <label class="xr-toggle">
-              <input data-setting="constellationArt" type="checkbox" checked />
-              <span>Constellation art</span>
-            </label>
-          </fieldset>
-
-          <div class="xr-actions" aria-label="XR actions">
-            <button class="xr-primary-action" type="button" data-action="enter-xr">Enter VR</button>
-            <button type="button" data-action="exit-xr" hidden disabled>Exit VR</button>
+        <div class="xr-clipboard">
+          <div class="xr-clipboard-clip" aria-hidden="true"></div>
+          <div class="xr-preflight-copy">
+            <h1 id="xr-preflight-title">Pre Flight Checklist</h1>
           </div>
-          <p class="xr-session-status" data-session-status>Idle</p>
-        </form>
+          <ol class="xr-checklist" aria-label="Preflight checklist" aria-live="polite">
+            <li data-preflight-check="skykit" data-state="pending">
+              <span class="xr-check-mark" aria-hidden="true"></span>
+              <span class="xr-check-copy">
+                <strong>SkyKit available</strong>
+                <span data-preflight-check-status>Starting</span>
+              </span>
+            </li>
+            <li data-preflight-check="stars" data-state="pending">
+              <span class="xr-check-mark" aria-hidden="true"></span>
+              <span class="xr-check-copy">
+                <strong>Stars loading</strong>
+                <span data-preflight-check-status>Waiting for cells</span>
+              </span>
+            </li>
+            <li data-preflight-check="xr" data-state="pending">
+              <span class="xr-check-mark" aria-hidden="true"></span>
+              <span class="xr-check-copy">
+                <strong>XR environment available</strong>
+                <span data-preflight-check-status>Checking</span>
+              </span>
+            </li>
+          </ol>
+          <div class="xr-outcome">
+            <button class="xr-primary-action" type="button" data-action="enter-xr" disabled>Running checklist</button>
+            <aside class="xr-readiness-message" data-xr-requirements hidden role="status">
+              XR is not available in this browser session. To fly in VR, use a
+              WebXR-capable headset or OpenXR runtime, a browser with immersive
+              WebXR support, and open SkyKit from HTTPS or localhost.
+            </aside>
+            <p class="xr-session-status" data-session-status aria-live="polite"></p>
+          </div>
+        </div>
       </section>
     </main>
     <script type="module" src="./xr-free-roam.js"></script>

@@ -25,6 +25,8 @@ import { createSkykitActionRegistry } from '../index.js';
 
 test('xr free-roam demo uses restored alpha XR regressions defaults', () => {
   const source = readFileSync(new URL('../../examples/xr-free-roam/xr-free-roam.js', import.meta.url), 'utf8');
+  const exampleHtml = readFileSync(new URL('../../examples/xr-free-roam/index.html', import.meta.url), 'utf8');
+  const rootDemoHtml = readFileSync(new URL('../../../../demos/xr-free-roam.html', import.meta.url), 'utf8');
 
   assert.match(source, /createDefaultThreeStarFieldMaterialProfile/);
   assert.doesNotMatch(source, /createVrThreeStarFieldMaterialProfile/);
@@ -53,6 +55,44 @@ test('xr free-roam demo uses restored alpha XR regressions defaults', () => {
   assert.doesNotMatch(source, /createStack/);
   assert.doesNotMatch(source, /waypointPrefix/);
   assert.doesNotMatch(source, /panelState\.page/);
+
+  assert.match(source, /refreshStarStatus/);
+  assert.match(source, /setPreflightCheckState/);
+  assert.match(source, /resolveEnterButtonLabel/);
+  assert.match(source, /PREFLIGHT_BACKGROUND_ORBIT_RADIUS_PC\s*=\s*2/);
+  assert.match(source, /PREFLIGHT_BACKGROUND_ORBIT_SPEED_RAD_PER_SEC/);
+  assert.match(source, /observerPc:\s*PREFLIGHT_BACKGROUND_OBSERVER_PC/);
+  assert.match(source, /targetPc:\s*SOL_PC/);
+  assert.match(source, /startPreflightBackgroundOrbit/);
+  assert.match(source, /SKYKIT_ACTIONS\.navigation\.orbit/);
+  assert.match(source, /center:\s*SOL_PC/);
+  assert.match(source, /radius:\s*PREFLIGHT_BACKGROUND_ORBIT_RADIUS_PC/);
+  assert.match(source, /SKYKIT_ACTIONS\.navigation\.lockAt/);
+  assert.match(source, /stopPreflightBackgroundOrbit/);
+  assert.match(source, /SKYKIT_ACTIONS\.navigation\.cancelMovement/);
+  assert.match(source, /Enter VR/);
+  assert.match(source, /slider\('Limit', 'limitingMagnitude'/);
+  assert.match(source, /slider\('Exposure', 'exposureLog10'/);
+  assert.match(source, /slider\('Scale', 'worldScaleLog10'/);
+  assert.match(source, /toggle\('Nearby glow', 'nearFloor'/);
+  assert.match(source, /toggle\('Constellation art', 'constellationArt'/);
+  for (const html of [exampleHtml, rootDemoHtml]) {
+    assert.match(html, /data-preflight-check="skykit"/);
+    assert.match(html, /data-preflight-check="stars"/);
+    assert.match(html, /data-preflight-check="xr"/);
+    assert.match(html, /SkyKit available/);
+    assert.match(html, /Stars loading/);
+    assert.match(html, /XR environment available/);
+    assert.match(html, /Found in Space - SkyKit/);
+    assert.match(html, /VR Free Roam/);
+    assert.match(html, /src="\/robbie\.svg"/);
+    assert.match(html, /Pre Flight Checklist/);
+    assert.match(html, /data-xr-requirements/);
+    assert.match(html, /Running checklist/);
+    assert.doesNotMatch(html, /data-xr-settings/);
+    assert.doesNotMatch(html, /data-setting/);
+    assert.doesNotMatch(html, /Enter VR/);
+  }
 });
 
 test('skykit/xr rig builds multi-root hierarchy', () => {
