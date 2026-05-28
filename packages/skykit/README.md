@@ -414,8 +414,6 @@ Browser development examples:
   touch-os panel inside a free-roam SkyKit viewer.
 - `examples/xr-free-roam/` composes alpha XR session/navigation helpers with a
   pose-anchored touch-os panel.
-- `examples/custom-object-layer/` shows that app-owned Three.js visuals can be
-  small plugins instead of core SkyKit features.
 
 ## Touch-OS Bridge
 

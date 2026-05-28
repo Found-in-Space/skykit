@@ -52,6 +52,3 @@ const field = createThreeStarField({
 Cell coordinates are treated as already being in the requested output profile.
 `renderScale` scales the returned `object3d`; it does not mutate cell arrays or
 bake in application scene-scale constants.
-
-See `examples/shader-tuning/` for a browser lesson that changes the renderer
-view and material response without changing star cell data.

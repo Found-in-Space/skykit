@@ -224,10 +224,3 @@ store.subscribe(() => {
 
 session.updateView({ observerPc, limitingMagnitude: 6.5 });
 ```
-
-The companion browser example lives at
-`packages/star-octree-provider/examples/canvas-star-map/`.
-
-The broader use-cases example lives at
-`packages/star-map-canvas/examples/use-cases/` and uses the hosted public
-octree stream by default.

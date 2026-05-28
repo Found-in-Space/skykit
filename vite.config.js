@@ -41,10 +41,8 @@ export default defineConfig({
         freeRoam: path.resolve(__dirname, 'demos/free-roam.html'),
         galaxyMap: path.resolve(__dirname, 'demos/galaxy-map.html'),
         flyOrbit: path.resolve(__dirname, 'demos/fly-orbit.html'),
-        shared: path.resolve(__dirname, 'demos/shared-session.html'),
         xr: path.resolve(__dirname, 'demos/xr-free-roam.html'),
         parallaxDebug: path.resolve(__dirname, 'demos/parallax-debug.html'),
-        shaderTuning: path.resolve(__dirname, 'demos/shader-tuning.html'),
         hrDiagram: path.resolve(__dirname, 'demos/hr-diagram.html'),
         hrDiagramTouch: path.resolve(__dirname, 'demos/hr-diagram-touch.html'),
         radioBubble: path.resolve(__dirname, 'demos/radio-bubble.html'),
@@ -56,10 +54,6 @@ export default defineConfig({
           __dirname,
           'packages/skykit/examples/free-roam-console/index.html',
         ),
-        skykitCustomObjectLayer: path.resolve(
-          __dirname,
-          'packages/skykit/examples/custom-object-layer/index.html',
-        ),
         skykitHrDiagramFreeRoam: path.resolve(
           __dirname,
           'packages/skykit/examples/hr-diagram-free-roam/index.html',
@@ -67,30 +61,6 @@ export default defineConfig({
         skykitXrFreeRoam: path.resolve(
           __dirname,
           'packages/skykit/examples/xr-free-roam/index.html',
-        ),
-        starOctreeProviderNearestVisible: path.resolve(
-          __dirname,
-          'packages/star-octree-provider/examples/nearest-visible/index.html',
-        ),
-        starOctreeProviderCanvasStarMap: path.resolve(
-          __dirname,
-          'packages/star-octree-provider/examples/canvas-star-map/index.html',
-        ),
-        starOctreeProviderStrategyDiagnostics: path.resolve(
-          __dirname,
-          'packages/star-octree-provider/examples/strategy-diagnostics/index.html',
-        ),
-        starOctreeProviderSharedSession: path.resolve(
-          __dirname,
-          'packages/star-octree-provider/examples/shared-session/index.html',
-        ),
-        starMapCanvasUseCases: path.resolve(
-          __dirname,
-          'packages/star-map-canvas/examples/use-cases/index.html',
-        ),
-        threeStarFieldShaderTuning: path.resolve(
-          __dirname,
-          'packages/three-star-field/examples/shader-tuning/index.html',
         ),
       },
     },
