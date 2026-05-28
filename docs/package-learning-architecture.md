@@ -124,10 +124,12 @@ Viewer: embed.js for no-code, viewer.js for JavaScript customization
 Data: data.js for rows, labels, lists, maps, and renderer-independent games
 ```
 
-Root `demos/` pages in this repository are transition sandboxes. New package
-learning work should prefer:
+Root `demos/` pages in this repository are transition sandboxes. App-level
+SkyKit examples live in `apps/examples/`; focused package learning work should
+prefer:
 
 ```txt
+apps/examples/
 packages/<package>/examples/
 packages/skykit/examples/
 ```

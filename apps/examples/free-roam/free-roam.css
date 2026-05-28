@@ -1,4 +1,4 @@
-body.free-roam-console-page {
+body.free-roam-app-page {
   height: 100vh;
   max-height: 100vh;
   overflow: hidden;
@@ -6,18 +6,18 @@ body.free-roam-console-page {
   align-items: stretch;
 }
 
-body.free-roam-console-page aside {
+body.free-roam-app-page aside {
   min-height: 0;
   max-height: 100%;
   overflow-y: auto;
 }
 
-body.free-roam-console-page main {
+body.free-roam-app-page main {
   min-height: 0;
   padding: 20px;
 }
 
-body.free-roam-console-page .viewer-shell {
+body.free-roam-app-page .viewer-shell {
   position: relative;
   height: calc(100vh - 40px);
 }
@@ -370,23 +370,23 @@ pre {
 }
 
 @media (max-width: 960px) {
-  body.free-roam-console-page {
+  body.free-roam-app-page {
     grid-template-columns: 1fr;
     max-height: none;
     overflow: auto;
   }
 
-  body.free-roam-console-page aside {
+  body.free-roam-app-page aside {
     max-height: none;
     border-right: 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
 
-  body.free-roam-console-page main {
+  body.free-roam-app-page main {
     padding: 16px;
   }
 
-  body.free-roam-console-page .viewer-shell {
+  body.free-roam-app-page .viewer-shell {
     height: 58vh;
     min-height: 360px;
   }

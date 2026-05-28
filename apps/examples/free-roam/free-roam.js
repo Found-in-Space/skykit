@@ -22,7 +22,8 @@ import {
   createSkykitShipControlsRoot,
   createTouchOsHudPlugin,
 } from '@found-in-space/skykit/touch-os';
-import { toAnchoredImageManifest } from '@found-in-space/skykit/browser-constellations';
+import { createAnchoredImageManifest as createWesternSkycultureAnchoredImageManifest } from '@found-in-space/stellarium-skycultures-western/anchored-image';
+import { bundledManifest as westernSkycultureManifest } from '@found-in-space/stellarium-skycultures-western/bundled';
 import {
   OCTREE_DEFAULT,
   createStarOctreeProviderService,
@@ -47,24 +48,23 @@ import {
   findSelectionResultInCells,
   icrsTargetFromRaDecDistance,
   readSelectionMarkerFromUrl,
+  resolveSkycultureCommonName,
   serializeStarRefBookmark,
   writeSelectionMarkerToUrl,
-} from './free-roam-console-helpers.js';
+} from './free-roam-helpers.js';
 
 const DATASET_ID = datasetIdFromOctreeUrl(OCTREE_DEFAULT);
 const WORLD_SCALE = 0.001;
 const SOL_PC = Object.freeze({ x: 0, y: 0, z: 0 });
 const ORION_CENTER_PC = Object.freeze({ x: 62.775, y: 602.667, z: -12.713 });
-const WESTERN_SKYCULTURE_VERSION = '0.3.0';
-const WESTERN_SKYCULTURE_BASE =
-  `https://cdn.jsdelivr.net/npm/@found-in-space/stellarium-skycultures-western@${WESTERN_SKYCULTURE_VERSION}/dist/`;
-const WESTERN_SKYCULTURE_MANIFEST_URL = `${WESTERN_SKYCULTURE_BASE}manifest.json`;
+const WESTERN_SKYCULTURE_ASSET_BASE =
+  'https://cdn.jsdelivr.net/npm/@found-in-space/stellarium-skycultures-western@0.3.0/dist/';
 const ACTIONS = Object.freeze({
-  flySelected: 'free-roam-console:selection.flyTo',
-  lookSun: 'free-roam-console:sun.lookAt',
-  flySun: 'free-roam-console:sun.flyTo',
-  fullscreen: 'free-roam-console:fullscreen.toggle',
-  constellationArt: 'free-roam-console:constellationArt.toggle',
+  flySelected: 'free-roam:selection.flyTo',
+  lookSun: 'free-roam:sun.lookAt',
+  flySun: 'free-roam:sun.flyTo',
+  fullscreen: 'free-roam:fullscreen.toggle',
+  constellationArt: 'free-roam:constellationArt.toggle',
 });
 let activeViewer = null;
 
@@ -82,7 +82,7 @@ const initialRenderState = {
 };
 
 const elements = {
-  page: document.querySelector('.free-roam-console-page'),
+  page: document.querySelector('.free-roam-app-page'),
   host: document.querySelector('[data-viewer]'),
   status: document.querySelector('[data-status]'),
   summary: document.querySelector('[data-summary]'),
@@ -151,7 +151,7 @@ main().catch((error) => {
   setStatus(`error: ${error instanceof Error ? error.message : String(error)}`);
   debug.recordDiagnostic({
     level: 'error',
-    type: 'free-roam-console/startup-error',
+    type: 'free-roam/startup-error',
     message: 'Alpha free-roam console failed to start.',
     error,
   });
@@ -182,7 +182,7 @@ async function main() {
   const art = await createConstellationArtPlugin();
 
   const viewer = await createSkykitViewer({
-    id: 'free-roam-console-alpha',
+    id: 'free-roam-alpha',
     host: elements.host,
     renderer,
     camera,
@@ -235,7 +235,7 @@ async function main() {
       }),
       createTouchOsHudPlugin({
         target: elements.host,
-        sourcePrefix: 'free-roam-console:hud',
+        sourcePrefix: 'free-roam:hud',
         root: () => createHudRoot(),
       }),
       createConstellationPanelSyncPlugin({
@@ -247,8 +247,8 @@ async function main() {
   activeViewer = viewer;
 
   debug.registerViewer(viewer, {
-    id: 'free-roam-console',
-    label: 'Alpha Free Roam Console',
+    id: 'free-roam',
+    label: 'Alpha Free Roam',
   });
   registerConsoleActions(viewer, selectedTarget, art);
 
@@ -314,10 +314,12 @@ async function main() {
 
 async function createConstellationArtPlugin() {
   state.warmState.art = 'loading';
-  const skycultureManifest = await loadSkycultureManifest(WESTERN_SKYCULTURE_MANIFEST_URL);
   const catalog = await createAnchoredImageCatalog({
-    manifest: toAnchoredImageManifest(skycultureManifest, new URL('./', WESTERN_SKYCULTURE_MANIFEST_URL).href),
+    manifest: createWesternSkycultureAnchoredImageManifest({
+      baseUrl: WESTERN_SKYCULTURE_ASSET_BASE,
+    }),
   });
+  const skycultureManifest = westernSkycultureManifest;
   const controller = createViewAnchoredImageController({
     strategy: 'nearest',
     maxAngleDeg: 60,
@@ -337,7 +339,7 @@ async function createConstellationArtPlugin() {
     onTextureError(event) {
       debug.recordDiagnostic({
         level: 'warn',
-        type: 'free-roam-console/constellation-art-texture-error',
+        type: 'free-roam/constellation-art-texture-error',
         message: `Constellation art texture failed for ${event.entry.label}.`,
         data: { key: event.entry.key, imageUrl: event.imageUrl },
         error: event.error,
@@ -348,17 +350,9 @@ async function createConstellationArtPlugin() {
   return { catalog, controller, plugin, skycultureManifest };
 }
 
-async function loadSkycultureManifest(manifestUrl) {
-  const response = await fetch(manifestUrl);
-  if (!response.ok) {
-    throw new Error(`Failed to load skyculture manifest: ${response.status} ${response.statusText}`);
-  }
-  return response.json();
-}
-
 function createHudRoot() {
   return createSkykitShipControlsRoot({
-    id: 'free-roam-console-hud',
+    id: 'free-roam-hud',
     labels: {
       forward: 'F',
       back: 'B',
@@ -375,7 +369,7 @@ function registerConsoleActions(viewer, selectedTarget, art) {
     return viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
       lookAt: { targetPc: SOL_PC },
       durationSecs: 1.4,
-    }, { source: 'free-roam-console' });
+    }, { source: 'free-roam' });
   }, { label: 'Look at Sun' });
 
   viewer.actions.registerAction(ACTIONS.flySun, () => {
@@ -421,7 +415,7 @@ function bindControls(context) {
     state.render.verticalFovDeg = positiveNumber(value, state.render.verticalFovDeg);
     context.camera.fov = state.render.verticalFovDeg;
     context.camera.updateProjectionMatrix();
-    context.viewer.requestViewState({ verticalFovDeg: state.render.verticalFovDeg }, 'free-roam-console.fov');
+    context.viewer.requestViewState({ verticalFovDeg: state.render.verticalFovDeg }, 'free-roam.fov');
     return `${state.render.verticalFovDeg.toFixed(0)} deg`;
   });
 
@@ -437,25 +431,6 @@ function bindControls(context) {
   bindViewSlider(elements.sizePower, 'size-power', 'sizePower', context, 2);
   bindViewSlider(elements.glowScale, 'glow-scale', 'haloScale', context, 2);
   bindViewSlider(elements.glowPower, 'glow-power', 'haloPower', context, 2);
-
-  bindSlider(elements.hysteresis, 'hysteresis', (value) => {
-    state.constellationHysteresisSeconds = Math.max(0, finiteNumber(value, state.constellationHysteresisSeconds));
-    context.art.controller.setHysteresisSeconds?.(state.constellationHysteresisSeconds);
-    return `${state.constellationHysteresisSeconds.toFixed(2)}s`;
-  });
-  bindSlider(elements.artFade, 'art-fade', (value) => {
-    state.artFadeSeconds = Math.max(0, finiteNumber(value, state.artFadeSeconds));
-    context.art.plugin.setAppearance?.({
-      fadeInSeconds: state.artFadeSeconds,
-      fadeOutSeconds: state.artFadeSeconds,
-    });
-    return `${state.artFadeSeconds.toFixed(2)}s`;
-  });
-  bindSlider(elements.artOpacity, 'art-opacity', (value) => {
-    state.artOpacity = Math.max(0, finiteNumber(value, state.artOpacity));
-    context.art.plugin.setAppearance?.({ opacity: state.artOpacity });
-    return state.artOpacity.toFixed(2);
-  });
 
   elements.flyCoords?.addEventListener('click', () => {
     try {
@@ -490,7 +465,7 @@ function bindControls(context) {
 
 function bindActionButton(button, viewer, actionId, sourceSuffix) {
   button?.addEventListener('click', () => {
-    void viewer.actions.invoke(actionId, undefined, { source: `free-roam-console:${sourceSuffix}` });
+    void viewer.actions.invoke(actionId, undefined, { source: `free-roam:${sourceSuffix}` });
   });
 }
 
@@ -516,12 +491,12 @@ function applyRenderState({ viewer, source, starField }) {
   viewer.requestViewState({
     limitingMagnitude: state.render.limitingMagnitude,
     verticalFovDeg: state.render.verticalFovDeg,
-  }, 'free-roam-console.rendering');
+  }, 'free-roam.rendering');
   starField.setView({
     ...state.render,
     coordinateUnitsPerParsec: WORLD_SCALE,
   });
-  void source.refreshDemand?.('free-roam-console.rendering');
+  void source.refreshDemand?.('free-roam.rendering');
 }
 
 async function selectPickEvent(event, context) {
@@ -666,7 +641,7 @@ async function resolveSelectionIdentifiers(selection, metaProvider) {
     selection.identifierStatus = 'error';
     debug.recordDiagnostic({
       level: 'warn',
-      type: 'free-roam-console/meta-lookup-error',
+      type: 'free-roam/meta-lookup-error',
       message: 'Selected star metadata could not be loaded.',
       error,
     });
@@ -709,15 +684,15 @@ function flyToTarget(viewer, targetPc, options = {}) {
     lookAt: { targetPc },
     movement: { durationSecs: options.durationSecs ?? 3 },
     orientationTransition: { durationSecs: Math.min(options.durationSecs ?? 3, 1.5) },
-  }, { source: 'free-roam-console' });
+  }, { source: 'free-roam' });
 }
 
 function createConstellationPanelSyncPlugin({ artPlugin, skycultureManifest }) {
   return {
-    id: 'free-roam-console-constellation-panel-sync',
+    id: 'free-roam-constellation-panel-sync',
     setup(context) {
       context.addPart({
-        id: 'free-roam-console-constellation-panel-sync',
+        id: 'free-roam-constellation-panel-sync',
         update() {
           const active = artPlugin.getActive?.()[0] ?? null;
           const next = active ? describeConstellationMatch(active, skycultureManifest) : null;
@@ -749,7 +724,7 @@ function describeConstellationMatch(match, skycultureManifest) {
   const raDec = icrsToRaDec(entry.centroidIcrs);
   return {
     iau: String(metadata.iau ?? skycultureConstellation?.iau ?? entry.groupId ?? entry.key ?? 'none'),
-    name: commonName?.english ?? commonName?.native ?? entry.label,
+    name: resolveSkycultureCommonName(commonName, entry.label),
     raDeg: raDec?.raDeg ?? null,
     decDeg: raDec?.decDeg ?? null,
     description: String(
@@ -828,7 +803,7 @@ function renderPickInfo() {
     flyButton.disabled = !selected.targetPc;
     flyButton.onclick = () => {
       if (activeViewer) {
-        void activeViewer.actions.invoke(ACTIONS.flySelected, undefined, { source: 'free-roam-console:sidebar' });
+        void activeViewer.actions.invoke(ACTIONS.flySelected, undefined, { source: 'free-roam:sidebar' });
       }
     };
   }
@@ -880,7 +855,7 @@ function installStatusLoop(viewer, provider, metaProvider, source, starField) {
 function renderStatus(viewer, provider, metaProvider, source, starField) {
   setStatus(viewer.getSnapshot().disposed ? 'disposed' : 'running');
   const summary = {
-    demo: 'free-roam-console-alpha',
+    demo: 'free-roam-alpha',
     render: state.render,
     pickToleranceDeg: state.pickToleranceDeg,
     selected: summarizeSelection(state.selected),
@@ -924,9 +899,6 @@ function syncInitialReadouts() {
   setReadout('glow-scale', state.render.haloScale.toFixed(2));
   setReadout('glow-power', state.render.haloPower.toFixed(2));
   setReadout('pick-tolerance', `${state.pickToleranceDeg.toFixed(1)} deg`);
-  setReadout('hysteresis', `${state.constellationHysteresisSeconds.toFixed(2)}s`);
-  setReadout('art-fade', `${state.artFadeSeconds.toFixed(2)}s`);
-  setReadout('art-opacity', state.artOpacity.toFixed(2));
   renderPickInfo();
   renderConstellationPanel();
   renderActionControls();
@@ -963,7 +935,7 @@ function createSelectedStarTarget() {
     sizeAttenuation: false,
   });
   const object3d = new THREE.Sprite(material);
-  object3d.name = 'free-roam-console-selected-star-target';
+  object3d.name = 'free-roam-selected-star-target';
   object3d.visible = false;
   object3d.renderOrder = 10_000;
   object3d.scale.set(0.09, 0.09, 1);

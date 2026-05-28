@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SkyKit Example: Free Roam Console</title>
-    <link rel="stylesheet" href="../../../../demos/shared.css" />
-    <link rel="stylesheet" href="./free-roam-console.css" />
+    <title>SkyKit Example: Free Roam</title>
+    <link rel="stylesheet" href="../shared.css" />
+    <link rel="stylesheet" href="./free-roam.css" />
   </head>
-  <body class="free-roam-page free-roam-console-page">
-    <aside class="console-sidebar">
-      <nav class="breadcrumb"><a href="../../../../index.html">SkyKit examples</a> <span>/ Free Roam Console</span></nav>
-      <h1>Free Roam Console</h1>
+  <body class="free-roam-page free-roam-app-page">
+    <aside class="example-sidebar">
+      <nav class="breadcrumb"><a href="../index.html">SkyKit examples</a> <span>/ Free Roam</span></nav>
+      <h1>Free Roam</h1>
       <p>
         Fly, inspect the active constellation, and tune the star shader from one page while the viewer stays live.
       </p>
@@ -130,21 +130,6 @@
             The compass watches the view direction, not your position. This panel shows the currently resolved constellation and controls the art layer.
           </p>
 
-          <div class="control-row">
-            <label for="ctrl-hysteresis">Hysteresis</label>
-            <input id="ctrl-hysteresis" type="range" min="0" max="3" step="0.05" value="0.2" data-hysteresis-secs />
-            <span class="value-readout" data-readout="hysteresis">0.20s</span>
-          </div>
-          <div class="control-row">
-            <label for="ctrl-art-fade">Art fade</label>
-            <input id="ctrl-art-fade" type="range" min="0" max="4" step="0.05" value="0.4" data-art-fade-secs />
-            <span class="value-readout" data-readout="art-fade">0.40s</span>
-          </div>
-          <div class="control-row">
-            <label for="ctrl-art-opacity">Art opacity</label>
-            <input id="ctrl-art-opacity" type="range" min="0" max="1" step="0.01" value="0.3" data-art-opacity />
-            <span class="value-readout" data-readout="art-opacity">0.30</span>
-          </div>
           <div class="action-row">
             <button type="button" data-art-toggle aria-pressed="true">Hide art</button>
           </div>
@@ -232,6 +217,6 @@
         </div>
       </div>
     </main>
-    <script type="module" src="./free-roam-console.js"></script>
+    <script type="module" src="./free-roam.js"></script>
   </body>
 </html>

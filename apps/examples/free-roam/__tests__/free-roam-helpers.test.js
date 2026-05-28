@@ -10,9 +10,10 @@ import {
   parseIcrsCoordinatesFromSearchParams,
   parseStarRefBookmark,
   readSelectionMarkerFromUrl,
+  resolveSkycultureCommonName,
   serializeStarRefBookmark,
   writeSelectionMarkerToUrl,
-} from '../free-roam-console-helpers.js';
+} from '../free-roam-helpers.js';
 
 test('star ref bookmarks serialize and parse URL-safe logical refs', () => {
   const ref = { datasetId: 'gaia:dr3', level: 4, mortonCode: 12345n, ordinal: 9 };
@@ -76,6 +77,13 @@ test('SIMBAD helper keeps old HIP-before-Gaia link selection', () => {
   const gaia = buildSimbadBasicSearch({ gaia: '3017367152277675776' });
   assert.equal(gaia.label, 'Gaia DR3 3017367152277675776');
   assert.equal(buildSimbadBasicSearch({ hd: '39801' }), null);
+});
+
+test('skyculture display names prefer native constellation names over translated glosses', () => {
+  assert.equal(resolveSkycultureCommonName({ english: 'Hunter', native: 'Orion' }, 'CON western Ori'), 'Orion');
+  assert.equal(resolveSkycultureCommonName({ english: 'Southern Cross' }, 'Crux'), 'Southern Cross');
+  assert.equal(resolveSkycultureCommonName(null, 'Aquila'), 'Aquila');
+  assert.equal(resolveSkycultureCommonName(null, ''), 'Constellation');
 });
 
 test('selection restore helpers find stars in loaded cells and compute approach targets', () => {

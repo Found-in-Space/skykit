@@ -104,6 +104,23 @@ browser.constellations.hide();
 browser.constellations.show();
 ```
 
+This is the browser/embed loading path. It is meant for pasteable pages and
+small lessons, and the browser handle owns manifest fetching and art plugin
+installation. Standalone apps that are already composing SkyKit plugins should
+use the published skyculture package APIs instead:
+
+```js
+import { createAnchoredImageManifest } from '@found-in-space/stellarium-skycultures-western/anchored-image';
+import { bundledManifest } from '@found-in-space/stellarium-skycultures-western/bundled';
+```
+
+In that app-composition path, build art with
+`createAnchoredImageManifest({ baseUrl })` and keep `bundledManifest` for UI
+metadata. Display names should prefer `common_name.native` before
+`common_name.english`; the western skyculture uses values such as
+`{ english: 'Hunter', native: 'Orion' }`, where the English value is a gloss.
+See [`constellations.md`](./constellations.md) for the full rules and examples.
+
 Navigation:
 
 ```js

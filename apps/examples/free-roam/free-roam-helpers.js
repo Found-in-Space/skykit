@@ -156,6 +156,15 @@ export function buildSimbadBasicSearch(fields) {
   return null;
 }
 
+export function resolveSkycultureCommonName(commonName, fallback = 'Constellation') {
+  const source = commonName && typeof commonName === 'object' ? commonName : null;
+  const native = trimField(source?.native);
+  if (native) return native;
+  const english = trimField(source?.english);
+  if (english) return english;
+  return trimField(fallback) || 'Constellation';
+}
+
 export function createSelectionResultFromCell(cell, objectIndex, view) {
   if (!cell || !Number.isInteger(objectIndex) || objectIndex < 0 || objectIndex >= cell.count) return null;
   const positionIndex = objectIndex * 3;

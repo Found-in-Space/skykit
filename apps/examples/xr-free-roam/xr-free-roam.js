@@ -55,8 +55,10 @@ import {
   createThreeStarField,
   createDefaultThreeStarFieldMaterialProfile,
 } from '@found-in-space/three-star-field';
+import { createAnchoredImageManifest as createWesternSkycultureAnchoredImageManifest } from '@found-in-space/stellarium-skycultures-western/anchored-image';
 
-const WESTERN_SKYCULTURE_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stellarium-skycultures-western@0.1.0/dist/manifest.json';
+const WESTERN_SKYCULTURE_ASSET_BASE =
+  'https://cdn.jsdelivr.net/npm/@found-in-space/stellarium-skycultures-western@0.3.0/dist/';
 const DATASET_ID_c56103 = 'c56103e6-ad4c-41f9-be06-048b48ec632b';
 const SOL_PC = { x: 0, y: 0, z: 0 };
 const ORION_CENTER_PC = { x: 62.775, y: 602.667, z: -12.713 };
@@ -68,7 +70,10 @@ const DEFAULT_WORLD_SCALE = 1;
 const DEFAULT_LIMITING_MAGNITUDE = 7.5;
 const DEFAULT_EXPOSURE_LOG10 = 5;
 const DEFAULT_EXPOSURE = 10 ** DEFAULT_EXPOSURE_LOG10;
-const XR_CONSTELLATION_RADIUS_PC = 8;
+// Observer-centric art is not under the scaled star root, so keep it at sky-dome distance.
+const XR_CONSTELLATION_ART_RADIUS_WORLD_UNITS = 8000;
+const XR_CONSTELLATION_ART_MAX_ANGLE_DEG = 60;
+const XR_CONSTELLATION_ART_HYSTERESIS_SECONDS = 0.2;
 const XR_PANEL_SURFACE = Object.freeze({ width: 420, height: 560, pixelDensity: 1 });
 const XR_PANEL_THEME = Object.freeze({
   backgroundColor: '#07111e',
@@ -101,6 +106,10 @@ const XR_TABLET_APP_IDS = Object.freeze({
   hrDiagram: 'space.found.skykit.xr-free-roam.hr-diagram',
 });
 const HR_SURFACE_SIZE = Object.freeze({ width: 1024, height: 640 });
+const LOCAL_FORWARD_VECTOR = new THREE.Vector3(0, 0, -1);
+const _headGazeDirection = new THREE.Vector3();
+const _headGazeQuaternion = new THREE.Quaternion();
+const _shipGazeQuaternion = new THREE.Quaternion();
 
 const debug = createSkykitDebugBridge();
 installSkykitDebugGlobal(debug);
@@ -288,6 +297,7 @@ async function main() {
         rig: xrRig,
         onBody(body) {
           leftHandPanelTracked = Boolean(body.leftHand?.grip ?? body.leftHand?.targetRay);
+          artController?.setViewDirectionIcrs?.(resolveHeadGazeDirectionIcrs(body, xrRig, camera));
         },
       }),
       createXrFreeRoamFrameSyncPlugin({
@@ -374,24 +384,29 @@ async function main() {
   }
 
   async function createConstellationArtPlugin() {
-    const catalog = await createAnchoredImageCatalog({ manifestUrl: WESTERN_SKYCULTURE_MANIFEST_URL });
+    const catalog = await createAnchoredImageCatalog({
+      manifest: createWesternSkycultureAnchoredImageManifest({
+        baseUrl: WESTERN_SKYCULTURE_ASSET_BASE,
+      }),
+    });
     debug.recordDiagnostic({
       level: 'info',
       type: 'xr-free-roam/constellation-art-catalog',
       message: `Constellation art catalog loaded with ${catalog.list().length} entries.`,
     });
-    artController = createViewAnchoredImageController({
-      strategy: 'within-angle',
-      maxAngleDeg: 34,
-      hysteresisSeconds: 0,
-    });
+    artController = createHeadGazeAnchoredImageController(createViewAnchoredImageController({
+      strategy: 'nearest',
+      maxAngleDeg: XR_CONSTELLATION_ART_MAX_ANGLE_DEG,
+      hysteresisSeconds: XR_CONSTELLATION_ART_HYSTERESIS_SECONDS,
+    }));
     return createAnchoredImageSkyPlugin({
       id: 'xr-constellation-art',
       catalog,
       controller: artController,
       loading: 'lazy',
+      anchorMode: 'observer-centric',
       fixedAtInfinity: true,
-      radius: XR_CONSTELLATION_RADIUS_PC * DEFAULT_WORLD_SCALE,
+      radius: XR_CONSTELLATION_ART_RADIUS_WORLD_UNITS,
       opacity: 0.38,
       fadeInSeconds: 0.25,
       fadeOutSeconds: 0.25,
@@ -643,11 +658,12 @@ async function main() {
     const worldScale = 10 ** panelState.worldScaleLog10;
     const view = viewer.getViewState();
     const visibleBounds = starField.getVisibleBounds({ units: 'parsec' });
+    const constellationRadiusNavigationUnits = XR_CONSTELLATION_ART_RADIUS_WORLD_UNITS / worldScale;
     const range = computeSkykitXrDepthRange({
       observer: view.observerPc,
       visibleBounds,
       observerCentricSpheres: [
-        { radiusNavigationUnits: XR_CONSTELLATION_RADIUS_PC * 2 },
+        { radiusNavigationUnits: constellationRadiusNavigationUnits },
       ],
       scale: {
         navigationUnits: 'pc',
@@ -676,6 +692,91 @@ async function main() {
   }
 
   touchPointerSource.getLatestPanelFrame = getLatestPanelFrame;
+}
+
+function createHeadGazeAnchoredImageController(controller) {
+  let headViewDirectionIcrs = null;
+
+  return {
+    update(input) {
+      return controller.update({
+        ...input,
+        viewDirectionIcrs: headViewDirectionIcrs ?? input.viewDirectionIcrs,
+      });
+    },
+    setSelection(selection) {
+      controller.setSelection?.(selection);
+    },
+    getSelection() {
+      return controller.getSelection?.();
+    },
+    setViewDirectionIcrs(direction) {
+      headViewDirectionIcrs = normalizeDirectionLike(direction);
+    },
+    getSnapshot() {
+      return {
+        type: 'head-gaze',
+        source: headViewDirectionIcrs ? 'head' : 'view',
+        headViewDirectionIcrs,
+        inner: controller.getSnapshot?.() ?? null,
+      };
+    },
+  };
+}
+
+function resolveHeadGazeDirectionIcrs(body, xrRig, camera) {
+  const headOrientation = normalizeQuaternionLike(body?.head?.orientation);
+  if (headOrientation) {
+    _headGazeQuaternion.set(
+      headOrientation.x,
+      headOrientation.y,
+      headOrientation.z,
+      headOrientation.w,
+    );
+    const shipOrientation = normalizeQuaternionLike(xrRig?.getNavigationPose?.().orientation);
+    if (shipOrientation) {
+      _shipGazeQuaternion.set(
+        shipOrientation.x,
+        shipOrientation.y,
+        shipOrientation.z,
+        shipOrientation.w,
+      );
+      _headGazeQuaternion.premultiply(_shipGazeQuaternion);
+    }
+    _headGazeDirection.copy(LOCAL_FORWARD_VECTOR).applyQuaternion(_headGazeQuaternion).normalize();
+    return vector3ToPlain(_headGazeDirection);
+  }
+
+  camera?.updateWorldMatrix?.(true, false);
+  const sceneForward = camera?.getWorldDirection?.(_headGazeDirection);
+  return sceneForward ? vector3ToPlain(sceneForward.normalize()) : null;
+}
+
+function normalizeDirectionLike(direction) {
+  if (!direction || typeof direction !== 'object') return null;
+  const x = Number(direction.x);
+  const y = Number(direction.y);
+  const z = Number(direction.z);
+  const length = Math.hypot(x, y, z);
+  return length > 0
+    ? { x: x / length, y: y / length, z: z / length }
+    : null;
+}
+
+function normalizeQuaternionLike(quaternion) {
+  if (!quaternion || typeof quaternion !== 'object') return null;
+  const x = Number(quaternion.x);
+  const y = Number(quaternion.y);
+  const z = Number(quaternion.z);
+  const w = Number(quaternion.w);
+  const length = Math.hypot(x, y, z, w);
+  return length > 0
+    ? { x: x / length, y: y / length, z: z / length, w: w / length }
+    : null;
+}
+
+function vector3ToPlain(vector) {
+  return { x: vector.x, y: vector.y, z: vector.z };
 }
 
 function createXrFreeRoamFrameSyncPlugin(options) {

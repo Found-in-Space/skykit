@@ -123,6 +123,22 @@ requested. This keeps the one-script noob path while avoiding bundle bloat.
 ></div>
 ```
 
+That browser capability is one of two supported constellation loading paths.
+For standalone applications that compose SkyKit plugins directly, import the
+published skyculture package APIs instead:
+
+```js
+import { createAnchoredImageManifest } from '@found-in-space/stellarium-skycultures-western/anchored-image';
+import { bundledManifest } from '@found-in-space/stellarium-skycultures-western/bundled';
+```
+
+Use the anchored-image manifest for art rendering and the bundled skyculture
+manifest for UI metadata. When displaying names, prefer
+`common_name.native` before `common_name.english`; in the western package the
+English value can be a gloss such as "Hunter", while the native display name is
+"Orion". See [`docs/constellations.md`](../../docs/constellations.md) for the
+full loading and metadata rules.
+
 For small scripted interactions, use the browser handle:
 
 ```html
@@ -405,15 +421,16 @@ Skykit.registerBrowserAddon({
 See `docs/skykit-browser-plugins.md` for the browser add-on spec,
 `Skykit.whenReady()`, and first-party constellation support.
 
-Browser development examples:
+Standalone browser examples now live in the private workspace app at
+`apps/examples/`:
 
-- `examples/free-roam-console/` composes streamed stars, picking, metadata,
+- `apps/examples/free-roam/` composes streamed stars, picking, metadata,
   deep links, navigation, shader controls, touch-os HUD controls, and
   constellation art.
+- `apps/examples/xr-free-roam/` composes alpha XR session/navigation helpers
+  with a pose-anchored touch-os panel.
 - `examples/hr-diagram-free-roam/` embeds the reusable HR diagram as a
   touch-os panel inside a free-roam SkyKit viewer.
-- `examples/xr-free-roam/` composes alpha XR session/navigation helpers with a
-  pose-anchored touch-os panel.
 
 ## Touch-OS Bridge
 

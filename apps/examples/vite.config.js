@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const localTouchOsPath = path.resolve(
   __dirname,
-  process.env.TOUCH_OS_LOCAL_PATH ?? '../touch-os',
+  process.env.TOUCH_OS_LOCAL_PATH ?? '../../../touch-os',
 );
 const localTouchOsAliases = fs.existsSync(path.join(localTouchOsPath, 'src/index.ts'))
   ? [
@@ -38,10 +38,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         index: path.resolve(__dirname, 'index.html'),
-        skykitFreeRoam: path.resolve(__dirname, 'apps/examples/free-roam/index.html'),
-        skykitXrFreeRoam: path.resolve(__dirname, 'apps/examples/xr-free-roam/index.html'),
-        dustRoam: path.resolve(__dirname, 'demos/dust-roam.html'),
-        hAlphaVolume: path.resolve(__dirname, 'demos/h-alpha-volume.html'),
+        freeRoam: path.resolve(__dirname, 'free-roam/index.html'),
+        xrFreeRoam: path.resolve(__dirname, 'xr-free-roam/index.html'),
       },
     },
   },
