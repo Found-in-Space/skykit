@@ -69,17 +69,25 @@ Optional attributes keep small tweaks HTML-only:
   data-skykit-magnitude="7"
   data-skykit-speed="4"
   data-skykit-exposure="2600"
-  data-skykit-look-at="05h 36m 12.81s, −01° 12′ 06.9″"
+  data-skykit-observer="06h 45m 08.9s, -16d 42m 58s, 2.64pc"
+  data-skykit-look-at="05h 35m 17.3s, -05d 23m 28s, 414pc"
+  data-skykit-coordinate-origin="solar"
   data-skykit-mouse-mode="strafe"
   data-skykit-persistent-cache="off"
   style="width: 100%; height: 520px; background: #02040b"
 ></div>
 ```
 
+`data-skykit-observer` accepts fixed parsec-space `x,y,z` coordinates or
+RA/Dec/distance text such as `06h 45m 08.9s, -16d 42m 58s, 2.64pc`.
 `data-skykit-look-at` accepts RA/Dec text such as
 `05h 36m 12.81s, −01° 12′ 06.9″`, decimal degrees such as
-`84.053393,-1.201926`, or a parsec-space `x,y,z` target for exact generated
-coordinates. `data-skykit-mouse-mode` defaults to `grab`; use `look` or
+`84.053393,-1.201926`, RA/Dec/distance text for a fixed heliocentric target,
+or a parsec-space `x,y,z` target for exact generated coordinates.
+RA/Dec/distance resolves from the solar origin; pure RA/Dec remains a
+directional look. `data-skykit-coordinate-origin="solar"` is accepted as
+clarifying markup, while observer-relative shorthand is not part of this alpha
+embed yet. `data-skykit-mouse-mode` defaults to `grab`; use `look` or
 `strafe` for the first-person mouse-look direction, or `none` to disable mouse
 drag controls. Persistent browser Cache API storage is enabled by default for
 octree ranges; set

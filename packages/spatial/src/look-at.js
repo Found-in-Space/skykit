@@ -33,6 +33,8 @@ export function parseSpatialLookAtText(text) {
     return ra && Number.isFinite(decDeg) ? { ...ra, decDeg } : null;
   }
   if (parts.length === 3) {
+    const raDecDistance = parseRaDecDistanceParts(parts);
+    if (raDecDistance) return raDecDistance;
     const vector = vectorFromParts(parts);
     return vector ? { targetPc: vector } : null;
   }
@@ -240,14 +242,20 @@ function resolveRaDecLookAt(lookAt, observerPc) {
   const positionAngleDeg = resolvePositionAngleDeg(lookAt, 0);
   const direction = raDecToIcrsDirection(lookAt);
   if (!direction) return unresolved(lookAt, 'radec');
-  const orientationIcrs = computeSpatialLookDirectionOrientation({
-    direction,
-    positionAngleDeg,
-  });
   const distancePc = Number(lookAt.distancePc);
   const targetPc = Number.isFinite(distancePc)
-    ? raDecDistanceToIcrs({ ...lookAt, distancePc, observerPc })
+    ? raDecDistanceToIcrs({ ...lookAt, distancePc })
     : null;
+  const orientationIcrs = targetPc
+    ? computeSpatialLookAtOrientation({
+      position: observerPc,
+      target: targetPc,
+      positionAngleDeg,
+    })
+    : computeSpatialLookDirectionOrientation({
+      direction,
+      positionAngleDeg,
+    });
   return {
     lookAt: {
       ...('star' in lookAt ? { star: lookAt.star } : {}),
@@ -259,7 +267,7 @@ function resolveRaDecLookAt(lookAt, observerPc) {
     },
     targetPc: targetPc ? cloneVector3(targetPc) : null,
     orientationIcrs,
-    unresolved: orientationIcrs ? null : 'radec',
+    unresolved: orientationIcrs ? null : targetPc ? 'target' : 'radec',
   };
 }
 
@@ -353,6 +361,22 @@ function parseRaValue(value, key) {
   });
 }
 
+/** @param {string[]} parts */
+function parseRaDecDistanceParts(parts) {
+  if (!looksParsecDistance(parts[2])) return null;
+  const ra = parseRaValue(parts[0], 'ra');
+  const decDeg = parseDegrees(parts[1]);
+  const distancePc = parsePlainNumber(parts[2]);
+  return ra && Number.isFinite(decDeg) && Number.isFinite(distancePc)
+    ? { ...ra, decDeg, distancePc }
+    : null;
+}
+
+/** @param {string} value */
+function looksParsecDistance(value) {
+  return /(?:parsecs?|pc)\b/i.test(normalizeAngleText(value));
+}
+
 /** @param {string} value */
 function parseDegrees(value) {
   return parseDeclination(value) ?? Number.NaN;
@@ -360,14 +384,13 @@ function parseDegrees(value) {
 
 /** @param {string} value */
 function parsePlainNumber(value) {
-  return Number(
-    normalizeAngleText(value)
-      .trim()
-      .toLowerCase()
-      .replace(/^\+/, '')
-      .replace(/\s*(?:degrees?|deg|°|d|hours?|hrs?|hr|h|pc)$/i, '')
-      .trim(),
-  );
+  const text = normalizeAngleText(value)
+    .trim()
+    .toLowerCase()
+    .replace(/^\+/, '')
+    .replace(/\s*(?:degrees?|deg|°|d|hours?|hrs?|hr|h|parsecs?|pc)$/i, '')
+    .trim();
+  return text ? Number(text) : Number.NaN;
 }
 
 /** @param {unknown} value */

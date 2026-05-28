@@ -43,6 +43,13 @@ test('coordinates convert RA/Dec/distance to ICRS and back', () => {
   assert.ok(target);
   assert.ok(Math.abs(target.x) < 1e-12);
   assert.ok(Math.abs(target.y - 10) < 1e-12);
+  const offsetObserverTarget = raDecDistanceToIcrs({
+    raHours: 6,
+    decDeg: 0,
+    distancePc: 10,
+    observerPc: { x: 100, y: 200, z: 300 },
+  });
+  assert.deepEqual(offsetObserverTarget, target);
   assert.deepEqual(icrsToRaDec({ x: 0, y: 1, z: 0 }), {
     raDeg: 90,
     raHours: 6,
@@ -66,6 +73,11 @@ test('parseSpatialLookAtText accepts RA/Dec text, vectors, and JSON look specs',
   assert.deepEqual(parseSpatialLookAtText('17.574,42.316,13.963'), {
     targetPc: { x: 17.574, y: 42.316, z: 13.963 },
   });
+  const orionNebula = parseSpatialLookAtText('05h 35m 17.3s, -05d 23m 28s, 414pc');
+  assert.ok(orionNebula && 'raHours' in orionNebula);
+  assertApprox(orionNebula.raHours, 5 + 35 / 60 + 17.3 / 3600);
+  assertApprox(orionNebula.decDeg, -(5 + 23 / 60 + 28 / 3600));
+  assert.equal(orionNebula.distancePc, 414);
   assert.deepEqual(parseSpatialLookAtText('{"raHours":4.496,"decDeg":16.948,"positionAngleDeg":12}'), {
     raHours: 4.496,
     decDeg: 16.948,
@@ -113,6 +125,13 @@ test('resolveSpatialTarget handles vectors, RA/Dec, and bookmark resolvers', asy
   assert.deepEqual(resolveSpatialTarget([1, 2, 3]), { x: 1, y: 2, z: 3 });
   assert.deepEqual(resolveSpatialTarget({ targetPc: { x: 4, y: 5, z: 6 } }), { x: 4, y: 5, z: 6 });
   assert.deepEqual(resolveSpatialTarget({ raDeg: 0, decDeg: 0, distancePc: 2 }), { x: 2, y: 0, z: 0 });
+  assert.deepEqual(
+    resolveSpatialTarget(
+      { raDeg: 0, decDeg: 0, distancePc: 2 },
+      { observerPc: { x: 10, y: 20, z: 30 } },
+    ),
+    { x: 2, y: 0, z: 0 },
+  );
   const bookmark = await resolveSpatialTarget({ bookmarkId: 'pleiades' }, {
     resolveBookmark: (id) => id === 'pleiades'
       ? { raDeg: 0, decDeg: 90, distancePc: 4 }
@@ -136,6 +155,19 @@ test('resolveSpatialLookAt derives target, RA/Dec, position angle, and star look
   assert.ok(rotated.orientationIcrs);
   assert.equal(rotated.targetPc, null);
   assertVectorApprox(applyQuaternion(LOCAL_UP, rotated.orientationIcrs), { x: 0, y: 1, z: 0 });
+
+  const fixedTargetFromSun = resolveSpatialLookAt({ raDeg: 0, decDeg: 0, distancePc: 10 });
+  const fixedTargetFromOffset = resolveSpatialLookAt(
+    { raDeg: 0, decDeg: 0, distancePc: 10 },
+    { observerPc: { x: 1, y: 2, z: 3 } },
+  );
+  assert.deepEqual(fixedTargetFromSun.targetPc, { x: 10, y: 0, z: 0 });
+  assert.deepEqual(fixedTargetFromOffset.targetPc, fixedTargetFromSun.targetPc);
+  assert.ok(fixedTargetFromOffset.orientationIcrs);
+  assertVectorApprox(
+    applyQuaternion(LOCAL_FORWARD, fixedTargetFromOffset.orientationIcrs),
+    normalizeVector({ x: 9, y: -2, z: -3 }),
+  );
 
   const star = await resolveSpatialLookAt({ star: 'hyades', positionAngleDeg: 0 }, {
     resolveStar: (id) => id === 'hyades' ? { targetPc: { x: 4, y: 5, z: 6 } } : null,

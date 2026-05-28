@@ -405,6 +405,7 @@ export interface SpatialLookAtRaDecSpec {
   raDeg?: number;
   raHours?: number;
   decDeg: number;
+  /** Heliocentric distance from the solar origin, not from the current observer. */
   distancePc?: number;
   positionAngleDeg?: number;
 }
@@ -428,6 +429,7 @@ export type SpatialRightAscensionUnit = 'auto' | 'hours' | 'degrees';
 
 export interface SpatialRaDecLookAtHelperOptions {
   raUnit?: SpatialRightAscensionUnit;
+  /** Heliocentric distance from the solar origin, not from the current observer. */
   distancePc?: number;
   positionAngleDeg?: number;
 }
@@ -530,6 +532,7 @@ export type SpatialTargetInput =
   | { bookmarkId: string };
 
 export interface ResolveSpatialTargetOptions {
+  /** Accepted for compatibility; RA/Dec/distance shorthand resolves from the solar origin. */
   observerPc?: SpatialVector3;
   /**
    * Application-owned bookmark resolver. Spatial treats bookmark IDs as opaque
@@ -571,6 +574,7 @@ export declare function finiteNumber(value: unknown, fallback: number): number;
 export declare function positiveFinite(value: unknown, fallback: number): number;
 
 export declare function raDecToIcrsDirection(input: { raDeg?: number; raHours?: number; decDeg: number }): SpatialVector3 | null;
+/** Converts RA/Dec/distance to a heliocentric ICRS point; observerPc is ignored for compatibility. */
 export declare function raDecDistanceToIcrs(input: { raDeg?: number; raHours?: number; decDeg: number; distancePc: number; observerPc?: SpatialVector3 }): SpatialVector3 | null;
 export declare function icrsToRaDec(position: SpatialVector3 | [number, number, number], observerPc?: SpatialVector3 | [number, number, number]): { raDeg: number; raHours: number; decDeg: number } | null;
 export declare function icrsDirectionToTargetPc(icrsDirection: SpatialVector3 | [number, number, number], distancePc: number, observerPc?: SpatialVector3 | [number, number, number]): SpatialVector3 | null;

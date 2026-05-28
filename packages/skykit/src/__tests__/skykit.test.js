@@ -8,6 +8,9 @@ import {
 } from '@found-in-space/star-trees';
 
 import {
+  resolveSpatialTarget,
+} from '@found-in-space/spatial';
+import {
   SKYKIT_ACTION_NAMESPACE,
   SKYKIT_ACTIONS,
   SKYKIT_CONTROLS,
@@ -35,6 +38,7 @@ import {
   createStreamingStarLayer,
   createStreamingStarsPlugin,
   installSkykitDebugGlobal,
+  parseSpatialLookAtText,
 } from '../index.js';
 
 function createHost() {
@@ -326,6 +330,37 @@ test('viewer derives camera orientation from lookAt targets, sky coordinates, an
     directionFromRaDec(84.053375, -1.2019166666666667),
   );
   await alnilamViewer.dispose();
+
+  const siriusSpec = parseSpatialLookAtText('06h 45m 08.9s, -16d 42m 58s, 2.64pc');
+  const orionSpec = parseSpatialLookAtText('05h 35m 17.3s, -05d 23m 28s, 414pc');
+  const siriusPc = resolveSpatialTarget(siriusSpec);
+  const orionPc = resolveSpatialTarget(orionSpec);
+  assert.ok(siriusPc && orionPc && orionSpec);
+  const solarTargetViewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: {
+      observerPc: siriusPc,
+      lookAt: orionSpec,
+    },
+  });
+  view = solarTargetViewer.getViewState();
+  assertVectorApprox(view.observerPc, siriusPc);
+  assertVectorApprox(view.targetPc, orionPc);
+  assertVectorApprox(
+    localVectorFromView(view, { x: 0, y: 0, z: -1 }),
+    normalizeVector(subtractVectors(orionPc, siriusPc)),
+  );
+
+  const movedObserver = { x: -8, y: 3, z: 11 };
+  solarTargetViewer.requestViewState({ observerPc: movedObserver, lookAt: orionSpec }, 'test-solar-radec');
+  solarTargetViewer.update(0);
+  view = solarTargetViewer.getViewState();
+  assertVectorApprox(view.targetPc, orionPc);
+  assertVectorApprox(
+    localVectorFromView(view, { x: 0, y: 0, z: -1 }),
+    normalizeVector(subtractVectors(orionPc, movedObserver)),
+  );
+  await solarTargetViewer.dispose();
 
   const starViewer = await createSkykitViewer({
     renderer: createRenderer(),
@@ -1541,7 +1576,7 @@ test('navigation transition action restores pose with independent lane durations
   });
   viewer.update(1);
   viewer.update(0);
-  assert.deepEqual(viewer.getViewState().observerPc, { x: 20, y: 0, z: 0 });
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 10, y: 0, z: 0 });
   assert.deepEqual(viewer.getViewState().orientationIcrs, orientationAfterExplicitTransition);
 
   await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
@@ -1982,6 +2017,23 @@ function assertVectorApprox(actual, expected, epsilon = 1e-9) {
   assert.ok(Math.abs(actual.x - expected.x) < epsilon, `x ${actual.x} !== ${expected.x}`);
   assert.ok(Math.abs(actual.y - expected.y) < epsilon, `y ${actual.y} !== ${expected.y}`);
   assert.ok(Math.abs(actual.z - expected.z) < epsilon, `z ${actual.z} !== ${expected.z}`);
+}
+
+function subtractVectors(a, b) {
+  return {
+    x: a.x - b.x,
+    y: a.y - b.y,
+    z: a.z - b.z,
+  };
+}
+
+function normalizeVector(vector) {
+  const length = Math.hypot(vector.x, vector.y, vector.z);
+  return {
+    x: vector.x / length,
+    y: vector.y / length,
+    z: vector.z / length,
+  };
 }
 
 function directionFromRaDec(raDeg, decDeg) {

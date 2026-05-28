@@ -36,6 +36,12 @@ boundaries such as HTML attributes or authored content. It returns ordinary
 spatial look-at specs from RA/Dec text, decimal RA/Dec pairs, parsec-space
 vectors, or JSON look specs.
 
+RA/Dec with `distancePc` is interpreted as a heliocentric point from the solar
+origin `{ x: 0, y: 0, z: 0 }`. RA/Dec without distance remains a directional
+look/orientation. Explicit observer-relative coordinate shorthand is deferred;
+callers that need it should combine `raDecToIcrsDirection()` with their own
+observer vector.
+
 `@found-in-space/spatial` does not know about stars, octrees, renderers, DOM,
 WebXR sessions, or journeys. Those packages compose these primitives.
 

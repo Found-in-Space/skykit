@@ -1,4 +1,7 @@
-import { parseSpatialLookAtText } from '@found-in-space/spatial';
+import {
+  parseSpatialLookAtText,
+  resolveSpatialTarget,
+} from '@found-in-space/spatial';
 
 import {
   installSkykitBrowserGlobal,
@@ -59,7 +62,14 @@ async function installRequestedCapabilities(host, browser) {
 /** @param {Element} host */
 function readOptions(host) {
   const data = isHtmlElement(host) ? host.dataset : {};
+  const observerPc = data.skykitObserver ? parseSpatialTargetText(data.skykitObserver) : null;
   const lookAt = data.skykitLookAt ? parseSpatialLookAtText(data.skykitLookAt) : null;
+  const view = observerPc || lookAt
+    ? {
+      ...(observerPc ? { observerPc } : {}),
+      ...(lookAt ? { lookAt } : {}),
+    }
+    : null;
   return {
     host,
     ...(data.skykitStatus ? { status: data.skykitStatus } : {}),
@@ -68,8 +78,17 @@ function readOptions(host) {
     ...(data.skykitExposure ? { exposure: Number(data.skykitExposure) } : {}),
     ...(data.skykitMouseMode ? { mouseMode: data.skykitMouseMode } : {}),
     ...(data.skykitPersistentCache ? { persistentCache: data.skykitPersistentCache } : {}),
-    ...(lookAt ? { view: { lookAt } } : {}),
+    ...(view ? { view } : {}),
   };
+}
+
+/** @param {string} text */
+function parseSpatialTargetText(text) {
+  const targetSpec = parseSpatialLookAtText(text);
+  const target = resolveSpatialTarget(targetSpec);
+  return target && typeof /** @type {Promise<unknown>} */ (target).then !== 'function'
+    ? target
+    : null;
 }
 
 /**
