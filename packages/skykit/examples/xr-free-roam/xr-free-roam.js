@@ -60,6 +60,10 @@ const WESTERN_SKYCULTURE_MANIFEST_URL = 'https://unpkg.com/@found-in-space/stell
 const DATASET_ID_c56103 = 'c56103e6-ad4c-41f9-be06-048b48ec632b';
 const SOL_PC = { x: 0, y: 0, z: 0 };
 const ORION_CENTER_PC = { x: 62.775, y: 602.667, z: -12.713 };
+const PREFLIGHT_BACKGROUND_ORBIT_RADIUS_PC = 2;
+const PREFLIGHT_BACKGROUND_OBSERVER_PC = { x: 0, y: 0, z: PREFLIGHT_BACKGROUND_ORBIT_RADIUS_PC };
+const PREFLIGHT_BACKGROUND_ORBIT_SPEED_RAD_PER_SEC = 0.002;
+const PREFLIGHT_BACKGROUND_ORBIT_NORMAL = { x: 0, y: 1, z: 0 };
 const DEFAULT_WORLD_SCALE = 1;
 const DEFAULT_LIMITING_MAGNITUDE = 7.5;
 const DEFAULT_EXPOSURE_LOG10 = 5;
@@ -102,6 +106,7 @@ const debug = createSkykitDebugBridge();
 installSkykitDebugGlobal(debug);
 
 main().catch((error) => {
+  markPreflightStartupFailure(error);
   debug.recordDiagnostic({
     level: 'error',
     type: 'xr-free-roam/startup-error',
@@ -121,10 +126,10 @@ async function main() {
   renderer.xr.enabled = true;
 
   const camera = new THREE.PerspectiveCamera(60, 1, 0.02, 2000000);
-  const initialOrientation = orientationLookingAt(SOL_PC, ORION_CENTER_PC);
+  const initialOrientation = orientationLookingAt(PREFLIGHT_BACKGROUND_OBSERVER_PC, SOL_PC);
   const xrRig = createSkykitXrRig({
     navigationPose: {
-      position: SOL_PC,
+      position: PREFLIGHT_BACKGROUND_OBSERVER_PC,
       orientation: initialOrientation,
     },
   });
@@ -254,8 +259,8 @@ async function main() {
       scaleBandedContentRoots: new Map(Object.entries(xrRig.scaleBandedContentRoots)),
     },
     view: {
-      observerPc: SOL_PC,
-      targetPc: ORION_CENTER_PC,
+      observerPc: PREFLIGHT_BACKGROUND_OBSERVER_PC,
+      targetPc: SOL_PC,
       limitingMagnitude: DEFAULT_LIMITING_MAGNITUDE,
       coordinateUnitsPerParsec: DEFAULT_WORLD_SCALE,
       lookAt: { orientationIcrs: initialOrientation },
@@ -267,6 +272,7 @@ async function main() {
         onSessionStarted(handle) {
           activeXrHandle = handle;
           shipDeck.visible = true;
+          stopPreflightBackgroundOrbit(viewer);
           preflightController?.setSessionStatus('XR session active');
           preflightController?.sync();
           invalidatePanel();
@@ -326,6 +332,7 @@ async function main() {
     shipDeck.visible = false;
     preflightController?.setSessionStatus('Session ended');
     preflightController?.sync();
+    startPreflightBackgroundOrbit(viewer);
     invalidatePanel();
   });
 
@@ -339,10 +346,12 @@ async function main() {
     applyRenderState,
     invalidatePanel,
     setConstellationArtEnabled,
+    stopPreflightBackgroundOrbit: () => stopPreflightBackgroundOrbit(viewer),
     isPresenting: () => activeXrHandle?.presenting === true,
   });
   preflightController.sync();
   void preflightController.refreshXrSupport();
+  startPreflightBackgroundOrbit(viewer);
   resize();
   window.addEventListener('resize', resize);
   window.addEventListener('beforeunload', () => {
@@ -802,30 +811,48 @@ function emitTabletAppOutput(ctx, output) {
   }
 }
 
+function startPreflightBackgroundOrbit(viewer) {
+  void viewer.actions.invoke(SKYKIT_ACTIONS.navigation.orbit, {
+    center: SOL_PC,
+    radius: PREFLIGHT_BACKGROUND_ORBIT_RADIUS_PC,
+    angularSpeedRadPerSec: PREFLIGHT_BACKGROUND_ORBIT_SPEED_RAD_PER_SEC,
+    normal: PREFLIGHT_BACKGROUND_ORBIT_NORMAL,
+  }, { source: 'xr-free-roam-preflight-background' });
+  void viewer.actions.invoke(SKYKIT_ACTIONS.navigation.lockAt, {
+    targetPc: SOL_PC,
+    recenterSpeed: 0.025,
+  }, { source: 'xr-free-roam-preflight-background' });
+}
+
+function stopPreflightBackgroundOrbit(viewer) {
+  void viewer.actions.invoke(SKYKIT_ACTIONS.navigation.cancelMovement, null, {
+    source: 'xr-free-roam-preflight-background',
+  });
+  void viewer.actions.invoke(SKYKIT_ACTIONS.navigation.unlockAt, null, {
+    source: 'xr-free-roam-preflight-background',
+  });
+}
+
 function createPreflightController(options) {
   const shell = document.querySelector('.xr-free-roam-shell');
   const enterButton = document.querySelector('[data-action="enter-xr"]');
-  const exitButton = document.querySelector('[data-action="exit-xr"]');
-  const supportValue = document.querySelector('[data-xr-supported]');
+  const xrRequirements = document.querySelector('[data-xr-requirements]');
   const sessionStatus = document.querySelector('[data-session-status]');
-  const settingInputs = Array.from(document.querySelectorAll('[data-setting]'))
-    .filter((input) => input instanceof HTMLInputElement);
-  let xrSupported = null;
+  const checkStates = {
+    skykit: 'pending',
+    stars: 'pending',
+    xr: 'pending',
+  };
 
-  for (const input of settingInputs) {
-    input.addEventListener('input', () => {
-      readSettingInput(input, options.panelState, options.setConstellationArtEnabled);
-      syncSettingOutputs(options.panelState);
-    });
-    input.addEventListener('change', () => {
-      readSettingInput(input, options.panelState, options.setConstellationArtEnabled);
-      options.applyRenderState(options.viewer, options.starField, options.source);
-      options.invalidatePanel();
-      sync();
-    });
-  }
+  setCheckState('skykit', 'ready', 'Available');
+  refreshStarStatus();
+  options.source?.subscribe?.((delta) => {
+    refreshStarStatus(delta);
+    sync();
+  }, { replay: true });
 
   enterButton?.addEventListener('click', async () => {
+    options.stopPreflightBackgroundOrbit?.();
     setSessionStatus('Opening XR session');
     sync();
     const results = await options.viewer.actions.invoke(SKYKIT_ACTIONS.xr.enter, null, {
@@ -841,14 +868,6 @@ function createPreflightController(options) {
     sync();
   });
 
-  exitButton?.addEventListener('click', async () => {
-    setSessionStatus('Ending XR session');
-    await options.viewer.actions.invoke(SKYKIT_ACTIONS.xr.exit, null, {
-      source: 'xr-free-roam-dom',
-    });
-    sync();
-  });
-
   return {
     sync,
     setSessionStatus,
@@ -857,17 +876,17 @@ function createPreflightController(options) {
 
   function sync() {
     const presenting = options.isPresenting();
+    const readyToEnter = !presenting && allPreflightChecksReady();
+    const xrUnavailable = checkStates.xr === 'failed';
     shell?.classList.toggle('is-presenting', presenting);
     if (enterButton instanceof HTMLButtonElement) {
-      enterButton.hidden = presenting;
-      enterButton.disabled = xrSupported === false || presenting;
+      enterButton.hidden = presenting || xrUnavailable;
+      enterButton.disabled = !readyToEnter;
+      enterButton.textContent = resolveEnterButtonLabel(readyToEnter);
     }
-    if (exitButton instanceof HTMLButtonElement) {
-      exitButton.hidden = !presenting;
-      exitButton.disabled = !presenting;
+    if (xrRequirements instanceof HTMLElement) {
+      xrRequirements.hidden = !xrUnavailable;
     }
-    syncSettingInputs(options.panelState, settingInputs);
-    syncSettingOutputs(options.panelState);
   }
 
   function setSessionStatus(text) {
@@ -877,61 +896,81 @@ function createPreflightController(options) {
   }
 
   async function refreshXrSupport() {
+    setCheckState('xr', 'pending', 'Checking');
+    sync();
+    let xrSupported;
     try {
       xrSupported = await globalThis.navigator?.xr?.isSessionSupported?.('immersive-vr') ?? false;
     } catch {
       xrSupported = false;
     }
-    if (supportValue) {
-      supportValue.textContent = xrSupported ? 'Available' : 'Unavailable';
-    }
+    setCheckState('xr', xrSupported ? 'ready' : 'failed', xrSupported ? 'Available' : 'Unavailable');
     sync();
     return xrSupported;
   }
-}
 
-function readSettingInput(input, panelState, setConstellationArtEnabled) {
-  const field = input.dataset.setting;
-  if (field === 'limitingMagnitude') {
-    panelState.limitingMagnitude = clampNumber(input.value, 4, 10, panelState.limitingMagnitude);
-  } else if (field === 'exposureLog10') {
-    panelState.exposureLog10 = clampNumber(input.value, 3.5, 5.5, panelState.exposureLog10);
-  } else if (field === 'worldScaleLog10') {
-    panelState.worldScaleLog10 = clampNumber(input.value, -3, 0, panelState.worldScaleLog10);
-  } else if (field === 'nearFloor') {
-    panelState.nearFloor = input.checked;
-  } else if (field === 'constellationArt') {
-    setConstellationArtEnabled(input.checked);
+  function refreshStarStatus(delta) {
+    if (delta?.type === 'stars/error') {
+      setCheckState('stars', 'failed', 'Stream failed');
+      return;
+    }
+    if (delta?.type === 'stars/cells-upsert') {
+      setCheckState('stars', 'ready', 'Loading');
+      return;
+    }
+    if (delta?.type === 'stars/current') {
+      setCheckState('stars', 'ready', 'Ready');
+      return;
+    }
+    const snapshot = options.source?.getSnapshot?.();
+    if (snapshot?.status === 'failed') {
+      setCheckState('stars', 'failed', 'Stream failed');
+    } else if (snapshot?.status === 'streaming') {
+      setCheckState('stars', 'ready', 'Loading');
+    } else if (snapshot?.status === 'current') {
+      setCheckState('stars', 'ready', 'Ready');
+    } else if (snapshot?.store?.starCount > 0) {
+      setCheckState('stars', 'ready', 'Loading');
+    } else if (snapshot?.demandCount > 0 || snapshot?.sessionId) {
+      setCheckState('stars', 'ready', 'Loading');
+    } else {
+      setCheckState('stars', 'pending', 'Waiting for cells');
+    }
+  }
+
+  function setCheckState(id, state, text) {
+    checkStates[id] = state;
+    setPreflightCheckState(id, state, text);
+  }
+
+  function allPreflightChecksReady() {
+    return checkStates.skykit === 'ready' && checkStates.stars === 'ready' && checkStates.xr === 'ready';
+  }
+
+  function resolveEnterButtonLabel(readyToEnter) {
+    if (readyToEnter) return 'Enter VR';
+    if (checkStates.stars === 'failed') return 'Stars unavailable';
+    return 'Running checklist';
   }
 }
 
-function syncSettingInputs(panelState, inputs) {
-  for (const input of inputs) {
-    const field = input.dataset.setting;
-    if (field === 'limitingMagnitude') {
-      input.value = String(panelState.limitingMagnitude);
-    } else if (field === 'exposureLog10') {
-      input.value = String(panelState.exposureLog10);
-    } else if (field === 'worldScaleLog10') {
-      input.value = String(panelState.worldScaleLog10);
-    } else if (field === 'nearFloor') {
-      input.checked = panelState.nearFloor;
-    } else if (field === 'constellationArt') {
-      input.checked = panelState.constellationArt;
-    }
+function setPreflightCheckState(id, state, text) {
+  const item = document.querySelector(`[data-preflight-check="${id}"]`);
+  if (!item) return;
+  item.dataset.state = state;
+  item.setAttribute('aria-busy', state === 'pending' ? 'true' : 'false');
+  const status = item.querySelector('[data-preflight-check-status]');
+  if (status) {
+    status.textContent = text;
   }
 }
 
-function syncSettingOutputs(panelState) {
-  for (const output of document.querySelectorAll('[data-setting-value]')) {
-    const field = output.dataset.settingValue;
-    if (field === 'limitingMagnitude') {
-      output.textContent = `Mag ${panelState.limitingMagnitude.toFixed(1)}`;
-    } else if (field === 'exposureLog10') {
-      output.textContent = Math.round(10 ** panelState.exposureLog10).toLocaleString();
-    } else if (field === 'worldScaleLog10') {
-      output.textContent = formatWorldScale(10 ** panelState.worldScaleLog10);
-    }
+function markPreflightStartupFailure(error) {
+  setPreflightCheckState('skykit', 'failed', 'Unavailable');
+  const sessionStatus = document.querySelector('[data-session-status]');
+  if (sessionStatus) {
+    const message = error instanceof Error ? error.message : String(error);
+    sessionStatus.textContent = message || 'SkyKit startup failed';
   }
 }
 
