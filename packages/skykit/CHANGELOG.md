@@ -1,5 +1,14 @@
 # @found-in-space/skykit
 
+## 0.2.0-alpha.20260529
+
+### Patch Changes
+
+- Fail open when browser Cache API storage is unavailable so sandboxed embeds can still start.
+- Updated dependencies
+  - @found-in-space/star-octree-provider@0.2.0-alpha.1
+  - @found-in-space/meta-sidecar-provider@0.2.0-alpha.1
+
 ## 0.2.0-alpha.20260528
 
 ### Minor Changes
