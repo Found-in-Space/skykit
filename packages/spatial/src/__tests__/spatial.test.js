@@ -7,6 +7,7 @@ import {
   LOCAL_UP,
   applyQuaternion,
   buildSpatialPolylineRoute,
+  createRaDecLookAt,
   createSpatialOrientationTrack,
   createSpatialPoseTransition,
   createSpatialPositionTrack,
@@ -25,6 +26,8 @@ import {
   materializeSpatialPathSamples,
   materializeSpatialPreloadHints,
   icrsToRaDec,
+  parseDeclination,
+  parseRightAscension,
   parseSpatialLookAtText,
   projectEquirectangular,
   raDecDistanceToIcrs,
@@ -71,6 +74,41 @@ test('parseSpatialLookAtText accepts RA/Dec text, vectors, and JSON look specs',
   assert.equal(parseSpatialLookAtText('not coordinates'), null);
 });
 
+test('RA/Dec helpers accept sexagesimal and Unicode coordinate text', () => {
+  const alnilamRaHours = 5 + 36 / 60 + 12.81 / 3600;
+  const alnilamDecDeg = -(1 + 12 / 60 + 6.9 / 3600);
+
+  assert.deepEqual(parseRightAscension('05h 36m 12.81s'), {
+    raHours: alnilamRaHours,
+  });
+  assert.deepEqual(parseRightAscension('84° 03′ 12.216″'), {
+    raDeg: 84 + 3 / 60 + 12.216 / 3600,
+  });
+  assertApprox(parseDeclination('−01° 12′ 06.9″'), alnilamDecDeg);
+  assertApprox(parseDeclination('-01:12:06.9'), alnilamDecDeg);
+
+  const compact = parseSpatialLookAtText('05:36:12.81, −01:12:06.9');
+  assert.ok(compact && 'raHours' in compact);
+  assertApprox(compact.raHours, alnilamRaHours);
+  assertApprox(compact.decDeg, alnilamDecDeg);
+
+  const named = parseSpatialLookAtText('Right ascension 05h 36m 12.81s, Declination −01° 12′ 06.9″');
+  assert.ok(named && 'raHours' in named);
+  assertApprox(named.raHours, alnilamRaHours);
+  assertApprox(named.decDeg, alnilamDecDeg);
+
+  const catalogText = parseSpatialLookAtText('Right ascension\t05h 36m 12.81s\nDeclination\t−01° 12′ 06.9″');
+  assert.ok(catalogText && 'raHours' in catalogText);
+  assertApprox(catalogText.raHours, alnilamRaHours);
+  assertApprox(catalogText.decDeg, alnilamDecDeg);
+
+  const helper = createRaDecLookAt('05h36m12.81s', '−01°12′06.9″', { positionAngleDeg: 12 });
+  assert.ok(helper && 'raHours' in helper);
+  assertApprox(helper.raHours, alnilamRaHours);
+  assertApprox(helper.decDeg, alnilamDecDeg);
+  assert.equal(helper.positionAngleDeg, 12);
+});
+
 test('resolveSpatialTarget handles vectors, RA/Dec, and bookmark resolvers', async () => {
   assert.deepEqual(resolveSpatialTarget([1, 2, 3]), { x: 1, y: 2, z: 3 });
   assert.deepEqual(resolveSpatialTarget({ targetPc: { x: 4, y: 5, z: 6 } }), { x: 4, y: 5, z: 6 });
@@ -105,6 +143,11 @@ test('resolveSpatialLookAt derives target, RA/Dec, position angle, and star look
   assert.equal(star.lookAt.star, 'hyades');
   assert.deepEqual(star.targetPc, { x: 4, y: 5, z: 6 });
   assert.ok(star.orientationIcrs);
+
+  const coordinateString = resolveSpatialLookAt('ra=05h 36m 12.81s, dec=−01° 12′ 06.9″');
+  assert.ok(coordinateString.lookAt && 'raHours' in coordinateString.lookAt);
+  assert.ok(coordinateString.orientationIcrs);
+  assert.equal(coordinateString.unresolved, null);
 });
 
 test('polyline route builds and samples deterministic route positions', () => {
@@ -496,4 +539,8 @@ function assertVectorApprox(actual, expected, epsilon = 1e-9) {
   assert.ok(Math.abs(actual.x - expected.x) < epsilon, `x ${actual.x} !== ${expected.x}`);
   assert.ok(Math.abs(actual.y - expected.y) < epsilon, `y ${actual.y} !== ${expected.y}`);
   assert.ok(Math.abs(actual.z - expected.z) < epsilon, `z ${actual.z} !== ${expected.z}`);
+}
+
+function assertApprox(actual, expected, epsilon = 1e-12) {
+  assert.ok(Math.abs(actual - expected) < epsilon, `${actual} !== ${expected}`);
 }

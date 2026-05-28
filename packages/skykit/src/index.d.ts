@@ -56,7 +56,9 @@ export interface QuaternionLike {
   w: number;
 }
 
-export interface SkykitLookAtInput {
+export type SkykitLookAtInput = string | SkykitLookAtSpecInput;
+
+export interface SkykitLookAtSpecInput {
   targetPc?: Vector3Like | [number, number, number];
   raDeg?: number;
   raHours?: number;
@@ -67,6 +69,13 @@ export interface SkykitLookAtInput {
   positionAngleDeg?: number;
   [key: string]: unknown;
 }
+
+export {
+  createRaDecLookAt,
+  parseDeclination,
+  parseRightAscension,
+  parseSpatialLookAtText,
+} from '@found-in-space/spatial';
 
 export interface SkykitObserverMotion {
   velocityPcPerSec: Vector3Like;

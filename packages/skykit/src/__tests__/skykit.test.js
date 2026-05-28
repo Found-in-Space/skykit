@@ -17,6 +17,7 @@ import {
   createDesktopSkykitObserverRig,
   createObject3dLayer,
   createObject3dPlugin,
+  createRaDecLookAt,
   createMouseLookPlugin,
   createSkyGrabPlugin,
   createSkykitDefaultKeyboardNavigationBindings,
@@ -312,6 +313,19 @@ test('viewer derives camera orientation from lookAt targets, sky coordinates, an
   assertVectorApprox(localVectorFromView(view, { x: 0, y: 0, z: -1 }), { x: 1, y: 0, z: 0 });
   assertVectorApprox(localVectorFromView(view, { x: 0, y: 1, z: 0 }), { x: 0, y: 1, z: 0 });
   await skyViewer.dispose();
+
+  const alnilamViewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: {
+      lookAt: createRaDecLookAt('05h 36m 12.81s', '−01° 12′ 06.9″'),
+    },
+  });
+  view = alnilamViewer.getViewState();
+  assertVectorApprox(
+    localVectorFromView(view, { x: 0, y: 0, z: -1 }),
+    directionFromRaDec(84.053375, -1.2019166666666667),
+  );
+  await alnilamViewer.dispose();
 
   const starViewer = await createSkykitViewer({
     renderer: createRenderer(),
@@ -1539,6 +1553,17 @@ test('navigation transition action restores pose with independent lane durations
   assert.deepEqual(viewer.getViewState().observerPc, { x: 0, y: 0, z: 0 });
   assert.deepEqual(viewer.getViewState().orientationIcrs, orientationAfterExplicitTransition);
 
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+    lookAt: '05:36:12.81, −01:12:06.9',
+    orientation: { durationSecs: 1 },
+  });
+  viewer.update(1);
+  viewer.update(0);
+  assertVectorApprox(
+    localVectorFromView(viewer.getViewState(), { x: 0, y: 0, z: -1 }),
+    directionFromRaDec(84.053375, -1.2019166666666667),
+  );
+
   await viewer.dispose();
 });
 
@@ -1957,6 +1982,17 @@ function assertVectorApprox(actual, expected, epsilon = 1e-9) {
   assert.ok(Math.abs(actual.x - expected.x) < epsilon, `x ${actual.x} !== ${expected.x}`);
   assert.ok(Math.abs(actual.y - expected.y) < epsilon, `y ${actual.y} !== ${expected.y}`);
   assert.ok(Math.abs(actual.z - expected.z) < epsilon, `z ${actual.z} !== ${expected.z}`);
+}
+
+function directionFromRaDec(raDeg, decDeg) {
+  const ra = raDeg * Math.PI / 180;
+  const dec = decDeg * Math.PI / 180;
+  const cosDec = Math.cos(dec);
+  return {
+    x: Math.cos(ra) * cosDec,
+    y: Math.sin(ra) * cosDec,
+    z: Math.sin(dec),
+  };
 }
 
 function createPointerTarget() {

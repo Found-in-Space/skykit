@@ -69,7 +69,7 @@ Optional attributes keep small tweaks HTML-only:
   data-skykit-magnitude="7"
   data-skykit-speed="4"
   data-skykit-exposure="2600"
-  data-skykit-look-at="ra=4.496h, dec=16.948"
+  data-skykit-look-at="05h 36m 12.81s, −01° 12′ 06.9″"
   data-skykit-mouse-mode="strafe"
   data-skykit-persistent-cache="off"
   style="width: 100%; height: 520px; background: #02040b"
@@ -77,11 +77,12 @@ Optional attributes keep small tweaks HTML-only:
 ```
 
 `data-skykit-look-at` accepts RA/Dec text such as
-`ra=4.496h, dec=16.948`, decimal degrees such as `67.447,16.948`, or a
-parsec-space `x,y,z` target for exact generated coordinates. `data-skykit-mouse-mode`
-defaults to `grab`; use `look` or `strafe` for the first-person mouse-look
-direction, or `none` to disable mouse drag controls. Persistent browser Cache API
-storage is enabled by default for octree ranges; set
+`05h 36m 12.81s, −01° 12′ 06.9″`, decimal degrees such as
+`84.053393,-1.201926`, or a parsec-space `x,y,z` target for exact generated
+coordinates. `data-skykit-mouse-mode` defaults to `grab`; use `look` or
+`strafe` for the first-person mouse-look direction, or `none` to disable mouse
+drag controls. Persistent browser Cache API storage is enabled by default for
+octree ranges; set
 `data-skykit-persistent-cache="off"` to keep caching session-only.
 
 The host dispatches `skykit-browser-ready` with `{ browser, viewer }` in
@@ -120,15 +121,17 @@ For small scripted interactions, use the browser handle:
 <script type="module">
   import {
     SKYKIT_ACTIONS,
+    createRaDecLookAt,
     createSkykitNavigationPlugin,
   } from 'https://esm.sh/@found-in-space/skykit';
 
   const browser = await Skykit.whenReady();
   await browser.install(createSkykitNavigationPlugin());
+  const alnilam = createRaDecLookAt('05h 36m 12.81s', '−01° 12′ 06.9″');
 
   document.querySelector('#orion').addEventListener('click', () => {
     browser.viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
-      view: { lookAt: 'ra=5.919h, dec=7.407' },
+      view: { lookAt: alnilam },
       movement: { durationSecs: 3 },
     });
   });

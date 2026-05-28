@@ -6,6 +6,12 @@ import {
 } from '@found-in-space/star-octree-provider';
 import { createObserverShellStrategy } from '@found-in-space/star-trees';
 import { createThreeStarField } from '@found-in-space/three-star-field';
+import {
+  createRaDecLookAt,
+  parseDeclination,
+  parseRightAscension,
+  parseSpatialLookAtText,
+} from '@found-in-space/spatial';
 
 import { createSkykitAnimationLoop } from './animation-loop.js';
 import { SKYKIT_ACTIONS, SKYKIT_CONTROLS } from './actions.js';
@@ -181,8 +187,12 @@ export async function createSkykitBrowser(input = {}) {
       skykit: {
         SKYKIT_ACTIONS,
         SKYKIT_CONTROLS,
+        createRaDecLookAt,
         createObject3dPlugin,
         createSkykitNavigationPlugin,
+        parseDeclination,
+        parseRightAscension,
+        parseSpatialLookAtText,
       },
     };
   }

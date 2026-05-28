@@ -393,7 +393,9 @@ function cloneViewState(view) {
     ...view,
     observerPc: clonePoint(view.observerPc),
     renderObserverPosition: clonePoint(view.renderObserverPosition),
-    ...(view.lookAt ? { lookAt: { ...view.lookAt } } : {}),
+    ...(view.lookAt
+      ? { lookAt: typeof view.lookAt === 'object' ? { ...view.lookAt } : view.lookAt }
+      : {}),
     ...(view.targetPc ? { targetPc: clonePoint(view.targetPc) } : {}),
     ...(view.motion
       ? {

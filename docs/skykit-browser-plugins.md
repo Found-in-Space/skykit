@@ -107,11 +107,17 @@ browser.constellations.show();
 Navigation:
 
 ```js
+import {
+  createRaDecLookAt,
+  createSkykitNavigationPlugin,
+} from '@found-in-space/skykit';
+
 const browser = await Skykit.whenReady();
-await browser.install(browser.skykit.createSkykitNavigationPlugin());
+await browser.install(createSkykitNavigationPlugin());
+const alnilam = createRaDecLookAt('05h 36m 12.81s', '−01° 12′ 06.9″');
 
 await browser.viewer.actions.invoke('skykit:navigation.transitionTo', {
-  view: { lookAt: 'ra=5.919h, dec=7.407' },
+  view: { lookAt: alnilam },
   movement: { durationSecs: 3 },
 });
 ```

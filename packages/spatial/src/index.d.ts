@@ -424,6 +424,24 @@ export type SpatialLookAtSpec =
   | SpatialLookAtStarSpec
   | SpatialLookAtOrientationSpec;
 
+export type SpatialRightAscensionUnit = 'auto' | 'hours' | 'degrees';
+
+export interface SpatialRaDecLookAtHelperOptions {
+  raUnit?: SpatialRightAscensionUnit;
+  distancePc?: number;
+  positionAngleDeg?: number;
+}
+
+export interface SpatialRaDecLookAtHelperInput extends SpatialRaDecLookAtHelperOptions {
+  ra?: unknown;
+  rightAscension?: unknown;
+  raDeg?: number;
+  raHours?: number;
+  dec?: unknown;
+  declination?: unknown;
+  decDeg?: number;
+}
+
 export interface SpatialResolvedLookAt {
   lookAt: SpatialLookAtSpec | null;
   targetPc: SpatialVector3 | null;
@@ -569,7 +587,10 @@ export declare function deriveSpatialOrbitAngle(input: SpatialOrbitAngleInput): 
 export declare function createOrbitTransferRoute(options?: SpatialOrbitTransferOptions): SpatialOrbitTransferRoute | null;
 export declare function computeSpatialLookAtOrientation(input: SpatialLookAtOrientationInput): SpatialQuaternion | null;
 export declare function computeSpatialLookDirectionOrientation(input: { direction: SpatialVector3; positionAngleDeg?: number; up?: SpatialVector3 }): SpatialQuaternion | null;
+export declare function createRaDecLookAt(ra: unknown | SpatialRaDecLookAtHelperInput, dec?: unknown, options?: SpatialRaDecLookAtHelperOptions): SpatialLookAtRaDecSpec | null;
 export declare function normalizeSpatialLookAt(input: unknown): SpatialLookAtSpec | null;
+export declare function parseDeclination(value: unknown): number | null;
+export declare function parseRightAscension(value: unknown, options?: { unit?: SpatialRightAscensionUnit }): { raDeg: number } | { raHours: number } | null;
 export declare function parseSpatialLookAtText(text: string): SpatialLookAtSpec | null;
 export declare function resolveSpatialLookAt(input: unknown, options?: ResolveSpatialLookAtOptions): SpatialResolvedLookAt | Promise<SpatialResolvedLookAt>;
 export declare function createRouteFollowSpatialMotionModel(options?: SpatialRouteFollowOptions & { points?: Iterable<SpatialVector3> }): SpatialRouteFollowMotionModel;

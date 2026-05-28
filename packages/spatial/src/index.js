@@ -53,7 +53,10 @@ export {
   sampleSpatialPolylineRoutePosition,
 } from './navigation.js';
 export {
+  createRaDecLookAt,
   normalizeSpatialLookAt,
+  parseDeclination,
+  parseRightAscension,
   parseSpatialLookAtText,
   resolveSpatialLookAt,
 } from './look-at.js';

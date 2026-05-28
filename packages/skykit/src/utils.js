@@ -211,6 +211,7 @@ function resolveViewLook(input, observerPc, options = {}) {
  * @returns {import('./index.d.ts').SkykitLookAtInput | null}
  */
 function cloneLookAt(lookAt) {
+  if (typeof lookAt === 'string') return lookAt;
   if (!lookAt || typeof lookAt !== 'object') return null;
   const source = /** @type {Record<string, unknown>} */ (lookAt);
   return {
