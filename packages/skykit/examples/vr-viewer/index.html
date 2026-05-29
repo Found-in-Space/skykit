@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit VR Viewer Preset</title>
+    <link rel="stylesheet" href="./vr-viewer.css" />
+  </head>
+  <body>
+    <main class="vr-example-shell">
+      <section class="vr-example-toolbar" aria-label="VR viewer controls">
+        <h1>SkyKit VR Viewer</h1>
+        <div class="vr-example-actions">
+          <button type="button" data-enter-vr>Enter VR</button>
+          <button type="button" data-reset-view>Reset View</button>
+        </div>
+        <p data-status>Loading stars.</p>
+      </section>
+      <div class="viewer-shell" data-viewer></div>
+    </main>
+    <script type="module" src="./vr-viewer.js"></script>
+  </body>
+</html>

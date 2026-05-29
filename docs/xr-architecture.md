@@ -242,13 +242,14 @@ Implemented in `@found-in-space/skykit/xr`:
 - WebXR support/session enter/exit helpers.
 - observer rig bridge, session plugin, controller navigation plugin, ray visual
   plugin, and star-picking plugin.
+- `createSkykitVrViewer()` turnkey VR starfield preset built on the public
+  viewer, product, layer-host, shared star-source, and XR composition APIs.
 - `stars/xr-pick`, `stars/xr-pick-miss`, and blocker events for applications to
   handle without renderer-specific controller code.
 - fake-XR tests for rig, controls, rays, routing, depth, and sessions.
 
 Not implemented yet:
 
-- a single turnkey SkyKit XR starfield preset.
 - GPU pick routing or built-in star-specific XR pick effects.
 - a journey runtime that drives `skykit:navigation.*` actions.
 - published lesson docs that replace every legacy XR demo end to end.

@@ -18,6 +18,7 @@ export {
   createSkykitXrComposition,
   createSkykitXrPickBridgePlugin,
 } from './xr/composition.js';
+export { createSkykitVrViewer } from './xr/vr-viewer.js';
 export {
   createSkykitXrBodyPlugin,
   createSkykitXrNavigationPlugin,

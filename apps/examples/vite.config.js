@@ -39,6 +39,7 @@ export default defineConfig({
       input: {
         index: path.resolve(__dirname, 'index.html'),
         freeRoam: path.resolve(__dirname, 'free-roam/index.html'),
+        vrViewer: path.resolve(__dirname, 'vr-viewer/index.html'),
         xrFreeRoam: path.resolve(__dirname, 'xr-free-roam/index.html'),
       },
     },

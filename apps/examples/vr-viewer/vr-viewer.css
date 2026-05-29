@@ -1,0 +1,32 @@
+body.vr-viewer-app-page {
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+  grid-template-rows: 1fr;
+  align-items: stretch;
+}
+
+body.vr-viewer-app-page aside {
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+body.vr-viewer-app-page main {
+  min-height: 0;
+  padding: 20px;
+}
+
+body.vr-viewer-app-page .viewer-shell {
+  position: relative;
+  height: calc(100vh - 40px);
+  border-radius: 8px;
+}
+
+.status {
+  min-height: 1.5em;
+}
+
+pre {
+  max-height: 260px;
+}

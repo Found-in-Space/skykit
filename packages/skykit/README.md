@@ -137,6 +137,61 @@ const layers = createSkykitLayerHostPlugin({
 });
 ```
 
+## VR viewer preset
+
+`createSkykitVrViewer()` is the beginner WebXR path. It is a convenience over
+`createSkykitViewer()` plus `createSkykitXrComposition()`: the returned object
+still exposes the viewer, XR composition, product registry, shared star source,
+star field, layer host, rays, pick bridge, animation loop, and other public
+handles.
+
+```js
+import { createSkykitVrViewer } from '@found-in-space/skykit/xr';
+import {
+  OCTREE_DEFAULT,
+  createStarOctreeProviderService,
+} from '@found-in-space/star-octree-provider';
+
+const provider = createStarOctreeProviderService({ url: OCTREE_DEFAULT });
+const vr = await createSkykitVrViewer({
+  host: document.querySelector('#viewer'),
+  stars: { provider },
+});
+
+button.addEventListener('click', () => {
+  void vr.enter();
+});
+```
+
+Hosted layers and app plugins are ordinary SkyKit pieces. This keeps creative
+application code visible while the preset handles the repetitive XR viewer
+setup:
+
+```js
+import { productRef } from '@found-in-space/skykit';
+
+const targetProduct = 'interaction:lesson/target';
+await createSkykitVrViewer({
+  host,
+  stars: { provider },
+  layers: [{
+    setup(ctx) {
+      ctx.provideProduct(targetProduct, { pick: () => ({ distance: 1 }) });
+    },
+  }],
+  pickBridge: {
+    targetProducts: [productRef(targetProduct)],
+    routeOnFrame: true,
+  },
+  plugins: [myLessonPlugin],
+});
+```
+
+WebXR session entry must be called from a user gesture. Advanced applications
+can still spell out the raw path with `createSkykitViewer()`,
+`createSkykitXrComposition()`, `createSkykitStarSourcePlugin()`, and ordinary
+plugins; the preset does not replace those lower-level APIs.
+
 ## Paste into a static page or CMS
 
 For the beginner path, use the auto-booting embed. Paste this into a static HTML
@@ -602,6 +657,8 @@ Standalone browser examples live in the private workspace app at
 - `../../apps/examples/free-roam/` composes streamed stars, picking, metadata,
   deep links, navigation, shader controls, touch-os HUD controls, and
   constellation art.
+- `../../apps/examples/vr-viewer/` wraps the XR preset with app-owned provider,
+  star renderer, hosted layer, and pick target wiring.
 - `../../apps/examples/xr-free-roam/` composes alpha XR session/navigation helpers
   with a pose-anchored touch-os panel.
 - `examples/hr-diagram-free-roam/` embeds the reusable HR diagram as a

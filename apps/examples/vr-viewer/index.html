@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit Example: VR Viewer Preset</title>
+    <link rel="stylesheet" href="../shared.css" />
+    <link rel="stylesheet" href="./vr-viewer.css" />
+  </head>
+  <body class="vr-viewer-app-page">
+    <aside class="example-sidebar">
+      <nav class="breadcrumb"><a href="%BASE_URL%">SkyKit examples</a> <span>/ VR Viewer</span></nav>
+      <h1>VR Viewer</h1>
+      <p>
+        A small application shell around the package VR preset, with app-owned
+        provider, renderer, star field, layer, and plugin objects.
+      </p>
+      <div class="controls">
+        <button type="button" data-enter-vr>Enter VR</button>
+        <button type="button" data-reset-view>Reset View</button>
+      </div>
+      <p class="status" data-status>Loading stars.</p>
+      <pre data-snapshot>{}</pre>
+    </aside>
+    <main>
+      <div class="viewer-shell" data-viewer></div>
+    </main>
+    <script type="module" src="./vr-viewer.js"></script>
+  </body>
+</html>

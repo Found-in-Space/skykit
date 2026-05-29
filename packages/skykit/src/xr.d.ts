@@ -5,22 +5,41 @@ import type {
   SpatialVector3,
 } from '@found-in-space/spatial';
 import type {
+  StarOctreeProviderService,
+  StarOctreeSessionOptions,
+} from '@found-in-space/star-octree-provider';
+import type { StarCellStrategy } from '@found-in-space/star-trees';
+import type {
   ThreeStarField,
   ThreeStarFieldPickOptions,
   ThreeStarFieldPickResult,
 } from '@found-in-space/three-star-field';
 import type * as THREE from 'three';
 import type {
+  SkykitAnimationLoop,
+  SkykitAnimationLoopOptions,
   SkykitEvent,
+  SkykitHostedLayer,
+  SkykitLayerHostOptions,
+  SkykitLayerHostPlugin,
   SkykitObserverRig,
   SkykitPlugin,
+  SkykitPluginInput,
   SkykitPluginTeardown,
   SkykitProductKey,
   SkykitProductRef,
+  SkykitProductRegistryPlugin,
   SkykitSceneRoots,
   SkykitStarCellSource,
+  SkykitStarSourcePublishOptions,
+  SkykitStarSourceRestartRetentionPolicy,
+  SkykitStreamingStarsPlugin,
   SkykitThreeFrame,
   SkykitViewState,
+  SkykitViewer,
+  SkykitViewerOptions,
+  SkykitViewportSize,
+  StreamingStarLayerOptions,
 } from './index.js';
 
 export type SkykitXrVector3 = SpatialVector3;
@@ -524,6 +543,101 @@ export interface SkykitXrStarPickingPluginOptions {
   onMiss?: (event: SkykitXrStarPickMissEvent) => void | Promise<void>;
 }
 
+export interface SkykitVrViewerOptions {
+  id?: string;
+  host?: SkykitViewerOptions['host'];
+  scene?: THREE.Scene;
+  renderer?: THREE.WebGLRenderer;
+  camera?: THREE.PerspectiveCamera;
+  view?: Partial<SkykitViewState>;
+  autoMountRenderer?: boolean;
+
+  products?: false | SkykitProductRegistryPlugin | { id?: string };
+
+  xr?: false | SkykitVrXrOptions;
+
+  stars?: false | SkykitVrStarsOptions;
+
+  pickBridge?: false | true | SkykitVrPickBridgeOptions;
+
+  layers?: Iterable<SkykitHostedLayer>;
+  layerHost?: false | SkykitLayerHostPlugin | SkykitLayerHostOptions;
+
+  plugins?: Iterable<SkykitPluginInput>;
+
+  loop?: false | SkykitAnimationLoopOptions;
+  autoResize?: boolean;
+  autoDispose?: boolean;
+  maxDevicePixelRatio?: number;
+}
+
+export interface SkykitVrXrOptions
+  extends Omit<SkykitXrCompositionOptions, 'renderer' | 'camera'> {
+  mode?: string;
+  referenceSpaceType?: string;
+  session?: false | SkykitXrSessionPluginOptions;
+  body?: false | SkykitXrBodyPluginOptions;
+  locomotion?: false | SkykitXrNavigationPluginOptions;
+  navigation?: false | SkykitXrNavigationPluginOptions;
+  rayVisuals?: false | true;
+}
+
+export interface SkykitVrStarsOptions {
+  id?: string;
+  provider?: StarOctreeProviderService;
+  source?: SkykitStarCellSource;
+  renderer?: ThreeStarField;
+
+  session?: StarOctreeSessionOptions;
+  strategy?: StarCellStrategy | ((view: SkykitViewState) => StarCellStrategy | null);
+  attributes?: Iterable<string>;
+  retainCellsOnRestart?: SkykitStarSourceRestartRetentionPolicy | false;
+
+  publish?: false | SkykitStarSourcePublishOptions;
+
+  layer?: false | Omit<StreamingStarLayerOptions, 'source' | 'provider' | 'renderer'>;
+
+  pick?: false | true | SkykitVrStarPickOptions;
+}
+
+export interface SkykitVrStarPickOptions
+  extends Omit<SkykitXrStarPickingPluginOptions, 'renderer' | 'source' | 'raySource'> {
+  ray?: 'right' | 'left' | 'head' | string | SkykitXrRaySource;
+}
+
+export interface SkykitVrPickBridgeOptions
+  extends Omit<SkykitXrPickBridgePluginOptions, 'raySource'> {
+  ray?: 'right' | 'left' | 'head' | string | SkykitXrRaySource;
+}
+
+export interface SkykitVrViewer {
+  readonly viewer: SkykitViewer;
+  readonly xr: SkykitXrComposition | null;
+  readonly rig: SkykitXrRig | null;
+  readonly session: SkykitXrSessionPlugin | null;
+  readonly body: SkykitXrBodyPlugin | null;
+  readonly navigation: SkykitXrNavigationPlugin | null;
+  readonly renderer: THREE.WebGLRenderer;
+  readonly camera: THREE.PerspectiveCamera;
+  readonly products: SkykitProductRegistryPlugin | null;
+  readonly starSource: SkykitStarCellSource | null;
+  readonly starField: ThreeStarField | null;
+  readonly starLayer: SkykitStreamingStarsPlugin | null;
+  readonly layerHost: SkykitLayerHostPlugin | null;
+  readonly pickBridge: SkykitXrPickBridgePlugin | null;
+  readonly pickRouter: SkykitXrPickRouter | null;
+  readonly starPicking: (SkykitPlugin & { getSnapshot?(): unknown }) | null;
+  readonly loop: SkykitAnimationLoop | null;
+  readonly rays: Record<string, SkykitXrRaySource>;
+
+  enter(): Promise<SkykitXrSessionHandle>;
+  exit(): Promise<void>;
+  install(plugin: SkykitPluginInput): Promise<SkykitPluginTeardown>;
+  resize(size?: Partial<SkykitViewportSize>): void;
+  getSnapshot(): unknown;
+  dispose(): Promise<void>;
+}
+
 export declare function createSkykitXrRig(options?: CreateSkykitXrRigOptions): SkykitXrRig;
 export declare function createSkykitXrBodyTracker(options?: CreateSkykitXrBodyTrackerOptions): SkykitXrBodyTracker;
 export declare function createSkykitXrBodyPlugin(options?: SkykitXrBodyPluginOptions): SkykitXrBodyPlugin;
@@ -535,6 +649,7 @@ export declare function createSkykitXrPickRouter(options?: SkykitXrPickRouterOpt
 export declare function createSkykitSceneRootsFromXrRig(rig: SkykitXrRig): SkykitSceneRoots;
 export declare function createSkykitXrComposition(options?: SkykitXrCompositionOptions): SkykitXrComposition;
 export declare function createSkykitXrPickBridgePlugin(options: SkykitXrPickBridgePluginOptions): SkykitXrPickBridgePlugin;
+export declare function createSkykitVrViewer(options?: SkykitVrViewerOptions): Promise<SkykitVrViewer>;
 export declare function createSkykitXrObserverRig(options: CreateSkykitXrObserverRigOptions): SkykitObserverRig;
 export declare function createSkykitXrSessionPlugin(options?: SkykitXrSessionPluginOptions): SkykitXrSessionPlugin;
 export declare function createSkykitXrNavigationPlugin(options?: SkykitXrNavigationPluginOptions): SkykitXrNavigationPlugin;
