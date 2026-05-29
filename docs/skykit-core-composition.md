@@ -35,6 +35,8 @@ optional browser parallax controls
 status helper
 animation loop helper
 debug bridge
+browser embed and add-on convenience
+touch-os bridge
 ```
 
 It composes other packages through public objects and functions:
@@ -44,7 +46,7 @@ star-octree-provider -> streams star cells
 spatial              -> owns coordinates, targets, routes, and navigation math
 three-star-field     -> renders star cells in Three.js
 star-map-canvas      -> renders 2D starmaps
-star-trees        -> stores and interprets star cells
+star-trees           -> stores and interprets star cells
 skykit/xr            -> owns WebXR rig/input/rays/session helpers
 touch-os             -> owns panels, HUDs, and visual surfaces
 ```
@@ -93,11 +95,57 @@ Named presets may exist as thin teaching conveniences, but they must wrap the
 same public factories. SkyKit should not become a central registry for every
 renderer, loader, surface, and data type.
 
-The browser embed also has a small noob-path add-on convention documented in
-[`skykit-browser-plugins.md`](./skykit-browser-plugins.md). Browser add-ons are
-script-tag conveniences that receive a browser handle and install ordinary core
-plugins. They do not replace the core plugin model or introduce string factory
-registries.
+## Browser Embed And Add-Ons
+
+The browser embed is the static-page/CMS path for learners who do not want to
+write a full app yet. It installs a small `Skykit` global:
+
+```js
+const browser = await Skykit.whenReady();
+const second = await Skykit.whenReady('#second-viewer');
+```
+
+`Skykit.whenReady(selectorOrElement?)` resolves to a `SkykitBrowser`. With no
+argument, it returns the first started browser; selector/element targeting is
+for pages with multiple viewers.
+
+Browser add-ons are plain script-tag conveniences:
+
+```js
+Skykit.registerBrowserAddon({
+  id: 'example:marker',
+  install({ browser, THREE }) {
+    const marker = new THREE.Object3D();
+    const handle = browser.addObject(marker);
+    return () => handle.dispose();
+  },
+});
+```
+
+`install(context)` receives `{ host, browser, viewer, THREE, skykit }`.
+The optional `id` is diagnostic and used for per-browser de-duping. It is not a
+factory name or registry key. Add-ons install ordinary plugins or use the
+browser handle; they do not replace the core plugin model.
+
+First-party browser capabilities are lazy-loaded by the browser handle. The
+current built-in capability is constellation loading and optional anchored art:
+
+```html
+<div
+  data-skykit-browser
+  data-skykit-constellations="western"
+  data-skykit-constellation-art="lazy"
+></div>
+```
+
+Standalone applications that already compose SkyKit plugins should use package
+APIs directly instead of importing `@found-in-space/skykit/browser-constellations`
+as a data API.
+
+The browser embed only reads the documented `data-skykit-*` attributes from
+`@found-in-space/skykit`'s README. Other viewer setup belongs in
+`createSkykitBrowser({ ... })` options or the lower-level `createSkykitViewer()`
+composition path.
 
 ## Viewer Lifecycle
 

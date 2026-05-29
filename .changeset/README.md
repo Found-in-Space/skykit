@@ -10,8 +10,10 @@ npm run changeset
 ```
 
 Commit the generated markdown file with the code change. The release workflow
-turns those files into version bumps, package changelogs, and npm publishes
-using the `alpha` npm dist-tag while the packages are in alpha.
+turns those files into version bumps, package changelogs, and npm publishes.
+This checkout is not currently in Changesets prerelease mode; if
+`.changeset/pre.json` is reintroduced later, the prerelease tag in that file
+controls the npm dist-tag.
 
 Publishable package manifests must keep package-level `repository` metadata in
 sync with the GitHub Actions provenance repository. See `docs/releasing.md`

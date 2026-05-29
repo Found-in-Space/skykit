@@ -113,8 +113,8 @@ package APIs when there is an active consumer.
 - `docs/alpha-rules.md`: alpha rewrite and package-boundary rules.
 - `docs/package-learning-architecture.md`: current teaching path and lessons.
 - `docs/star-octree-provider.md`: provider/strategy/planner/session semantics.
-- `docs/star-map-canvas.md`: Canvas2D starmap package contract.
-- `docs/anchored-image.md`: anchored image package contract.
+- `packages/star-map-canvas/README.md`: Canvas2D starmap package contract.
+- `packages/anchored-image/README.md`: anchored image package contract.
 - `docs/skykit-core-composition.md`: core SkyKit composition contract.
 - `docs/xr-architecture.md`: spatial navigation and SkyKit XR subpath
   boundaries.

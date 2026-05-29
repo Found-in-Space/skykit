@@ -22,7 +22,9 @@ an object ref or the full decoded JSON row array for a cell ref.
 
 The provider is intentionally schema-neutral. It does not interpret fields such
 as `proper_name`, `flamsteed`, `HIP`, or `Gaia`, and it does not choose display
-labels. Applications own that policy.
+labels. Applications own that policy. The helper
+`metaSidecarEntryDisplayFields()` only normalizes the common fields into a
+convenient display bundle.
 
 Public lookups must not depend on octree storage fields such as `nodeKey`,
 `shardOffset`, `nodeIndex`, `payloadOffset`, or `payloadLength`.
@@ -31,6 +33,7 @@ Public lookups must not depend on octree storage fields such as `nodeKey`,
 import {
   META_SIDECAR_DEFAULT,
   createMetaSidecarProviderService,
+  metaSidecarEntryDisplayFields,
 } from '@found-in-space/meta-sidecar-provider';
 
 const provider = createMetaSidecarProviderService({
@@ -50,4 +53,10 @@ const cellRows = await provider.getMetaCell({
   level: 1,
   mortonCode: '5',
 });
+
+const fields = metaSidecarEntryDisplayFields(meta);
+console.log(fields.primaryLabel);
 ```
+
+Use `deriveMetaSidecarUrlFromRenderUrl()` when an app starts from the star
+octree URL and wants the matching default metadata sidecar URL.

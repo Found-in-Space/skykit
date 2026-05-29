@@ -50,7 +50,7 @@ page or a CMS custom HTML block:
 
 <script
   type="module"
-  src="https://esm.sh/@found-in-space/skykit@0.2.0-alpha.2/embed?bundle&deps=three@0.170.0"
+  src="https://esm.sh/@found-in-space/skykit@0.2.0/embed?bundle&deps=three@0.170.0"
 ></script>
 ```
 
@@ -71,31 +71,39 @@ Optional attributes keep small tweaks HTML-only:
   data-skykit-exposure="2600"
   data-skykit-observer="06h 45m 08.9s, -16d 42m 58s, 2.64pc"
   data-skykit-look-at="05h 35m 17.3s, -05d 23m 28s, 414pc"
-  data-skykit-coordinate-origin="solar"
   data-skykit-mouse-mode="strafe"
   data-skykit-persistent-cache="off"
   style="width: 100%; height: 520px; background: #02040b"
 ></div>
 ```
 
-`data-skykit-observer` accepts fixed parsec-space `x,y,z` coordinates or
-RA/Dec/distance text such as `06h 45m 08.9s, -16d 42m 58s, 2.64pc`.
-`data-skykit-look-at` accepts RA/Dec text such as
-`05h 36m 12.81s, −01° 12′ 06.9″`, decimal degrees such as
-`84.053393,-1.201926`, RA/Dec/distance text for a fixed heliocentric target,
-or a parsec-space `x,y,z` target for exact generated coordinates.
-RA/Dec/distance resolves from the solar origin; pure RA/Dec remains a
-directional look. `data-skykit-coordinate-origin="solar"` is accepted as
-clarifying markup, while observer-relative shorthand is not part of this alpha
-embed yet. `data-skykit-mouse-mode` defaults to `grab`; use `look` or
-`strafe` for the first-person mouse-look direction, or `none` to disable mouse
-drag controls. Persistent browser Cache API storage is enabled by default for
-octree ranges; set
-`data-skykit-persistent-cache="off"` to keep caching session-only.
+Supported embed attributes:
+
+| Attribute | Meaning |
+| --- | --- |
+| `data-skykit-browser` | Marks a host element for auto-booting. Presence is enough. |
+| `data-skykit-status` | CSS selector for a text status target. |
+| `data-skykit-magnitude` | Initial limiting magnitude. |
+| `data-skykit-speed` | Keyboard navigation speed in parsecs per second. |
+| `data-skykit-exposure` | Star-field exposure value. |
+| `data-skykit-observer` | Initial observer target. Accepts `x,y,z` parsec coordinates or RA/Dec/distance text. |
+| `data-skykit-look-at` | Initial look target. Accepts RA/Dec text, decimal RA/Dec, RA/Dec/distance text, or `x,y,z` parsec coordinates. |
+| `data-skykit-mouse-mode` | `grab` by default; `look`, `mouse-look`, `mouselook`, `game`, or `strafe` use mouse-look dragging; `none`, `off`, or `false` disable pointer drag. |
+| `data-skykit-persistent-cache` | Persistent Cache API storage is on by default; use `off`, `false`, `no`, `0`, or `disabled` to opt out. |
+| `data-skykit-constellations` | Turns on the browser constellation capability. Use `western`, a manifest URL, or pair it with `data-skykit-constellation-manifest`. Omit the attribute to disable constellations. |
+| `data-skykit-constellation-manifest` | Explicit skyculture manifest URL for the browser constellation capability. |
+| `data-skykit-constellation-assets` | Asset base URL for images referenced by the constellation manifest. Defaults to the manifest directory. |
+| `data-skykit-constellation-art` | `off` by default; `lazy`, `on`, or `true` lazy-load art; `preload` loads all art textures. |
+
+RA/Dec/distance resolves from the solar origin. Pure RA/Dec remains a
+directional look. Observer-relative shorthand and
+`data-skykit-coordinate-origin` are not part of the embed attribute API; use the
+JavaScript `createSkykitBrowser()` or `createSkykitViewer()` path for custom
+startup state beyond the table above.
 
 The host dispatches `skykit-browser-ready` with `{ browser, viewer }` in
 `event.detail` after startup, and `skykit-browser-error` if startup fails. The
-embed also installs a small `Skykit` global for noob-path scripts:
+embed also installs a small `Skykit` global for beginner-path scripts:
 
 ```js
 const browser = await Skykit.whenReady();
@@ -107,12 +115,40 @@ Pages can host multiple viewers. Pass a selector or element to choose one:
 const browser = await Skykit.whenReady('#orion-viewer');
 ```
 
+Browser add-ons are script-tag conveniences for static pages, CMS snippets, and
+small lessons. They install ordinary SkyKit plugins or expose small beginner
+APIs on an existing browser handle:
+
+```js
+Skykit.registerBrowserAddon({
+  id: 'example:marker',
+  async install({ browser, THREE }) {
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.02),
+      new THREE.MeshBasicMaterial({ color: 0xffcc00 }),
+    );
+
+    const handle = browser.addObject(marker, {
+      id: 'example-marker',
+      positionPc: { x: 17.574, y: 42.316, z: 13.963 },
+    });
+
+    return () => handle.dispose();
+  },
+});
+```
+
+`install(context)` receives `{ host, browser, viewer, THREE, skykit }`. The
+optional `id` is only for diagnostics and per-browser de-duping; it is not a
+factory name or registry key. Add-ons may load before the base embed by pushing
+onto `globalThis.Skykit.browserAddons`.
+
 Pin the package CDN URL to a released SkyKit version when publishing long-lived
 pages, for example
 `https://esm.sh/@found-in-space/skykit@x.y.z/embed?bundle&deps=three@0.170.0`.
 
 Optional first-party capabilities stay out of the initial browser until they are
-requested. This keeps the one-script noob path while avoiding bundle bloat.
+requested. This keeps the one-script beginner path while avoiding bundle bloat.
 
 ```html
 <div
@@ -121,6 +157,16 @@ requested. This keeps the one-script noob path while avoiding bundle bloat.
   data-skykit-constellation-art="off"
   style="width:100%;height:520px;background:#02040b"
 ></div>
+```
+
+The browser handle can also load and toggle the capability after startup:
+
+```js
+const browser = await Skykit.whenReady();
+await browser.constellations.load({ skyculture: 'western', art: 'lazy' });
+browser.constellations.hide();
+browser.constellations.show();
+await browser.constellations.setArt('preload');
 ```
 
 That browser capability is one of two supported constellation loading paths.
@@ -136,7 +182,7 @@ Use the anchored-image manifest for art rendering and the bundled skyculture
 manifest for UI metadata. When displaying names, prefer
 `common_name.native` before `common_name.english`; in the western package the
 English value can be a gloss such as "Hunter", while the native display name is
-"Orion". See [`docs/constellations.md`](../../docs/constellations.md) for the
+"Orion". See [`../../docs/constellations.md`](../../docs/constellations.md) for the
 full loading and metadata rules.
 
 For small scripted interactions, use the browser handle:
@@ -171,7 +217,7 @@ If your site has a module script, npm, or a bundler, call the helper directly:
 <pre id="status">Loading stars...</pre>
 
 <script type="module">
-  import { createSkykitBrowser } from 'https://esm.sh/@found-in-space/skykit@0.2.0-alpha.2/viewer?bundle&deps=three@0.170.0';
+  import { createSkykitBrowser } from 'https://esm.sh/@found-in-space/skykit@0.2.0/viewer?bundle&deps=three@0.170.0';
 
   await createSkykitBrowser({
     host: '#viewer',
@@ -204,7 +250,7 @@ import { THREE, createSkykitBrowser } from '@found-in-space/skykit/viewer';
 Use `data.js` when SkyKit should supply rows and your app should own rendering:
 
 ```js
-import { loadStarRows } from 'https://esm.sh/@found-in-space/skykit@0.2.0-alpha.2/data?bundle';
+import { loadStarRows } from 'https://esm.sh/@found-in-space/skykit@0.2.0/data?bundle';
 
 const stars = await loadStarRows({
   limitingMagnitude: 6.5,
@@ -400,34 +446,18 @@ For a slightly more playful example, see `examples/plugin-lab.js`. It builds
 app-owned Three objects and action-driven annotations from the same public hooks
 a learner would use.
 
-The pasteable browser embed has a smaller add-on convention for noob pages:
+The pasteable browser embed has the smaller browser add-on convention described
+above. It is a no-code path convenience. Larger examples
+should switch to `createSkykitViewer()` or `createSkykitBrowser({ plugins })`
+and install ordinary core plugins directly.
 
-```js
-Skykit.registerBrowserAddon({
-  id: 'example:marker',
-  install({ browser, THREE }) {
-    const marker = new THREE.Mesh(
-      new THREE.SphereGeometry(0.02),
-      new THREE.MeshBasicMaterial({ color: 0xffcc00 }),
-    );
-    const handle = browser.addObject(marker, {
-      positionPc: { x: 17.574, y: 42.316, z: 13.963 },
-    });
-    return () => handle.dispose();
-  },
-});
-```
+Standalone browser examples live in the private workspace app at
+`../../apps/examples/`:
 
-See `docs/skykit-browser-plugins.md` for the browser add-on spec,
-`Skykit.whenReady()`, and first-party constellation support.
-
-Standalone browser examples now live in the private workspace app at
-`apps/examples/`:
-
-- `apps/examples/free-roam/` composes streamed stars, picking, metadata,
+- `../../apps/examples/free-roam/` composes streamed stars, picking, metadata,
   deep links, navigation, shader controls, touch-os HUD controls, and
   constellation art.
-- `apps/examples/xr-free-roam/` composes alpha XR session/navigation helpers
+- `../../apps/examples/xr-free-roam/` composes alpha XR session/navigation helpers
   with a pose-anchored touch-os panel.
 - `examples/hr-diagram-free-roam/` embeds the reusable HR diagram as a
   touch-os panel inside a free-roam SkyKit viewer.

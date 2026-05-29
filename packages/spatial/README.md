@@ -6,6 +6,16 @@ This package is deliberately renderer-neutral. It can be used from Canvas,
 Three.js, WebXR, Phaser, Node scripts, future journeys, or any other spatial
 experience without pulling in SkyKit or Three.js.
 
+It owns:
+
+- vector, quaternion, pose, and scale-profile helpers
+- RA/Dec, ICRS direction, equirectangular projection, and target resolution
+- polyline routes, orbit/orbital-insert routes, and smooth path sampling
+- timed position/orientation tracks and materialized preload hints
+- direct, inertial, thrust, fly-to, route-follow, orbit, and look-at motion
+  models
+- `createSpatialNavigationAutomation()` for shared navigation actions
+
 ```js
 import {
   createRaDecLookAt,
