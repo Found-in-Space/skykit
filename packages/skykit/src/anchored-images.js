@@ -311,7 +311,7 @@ export function createAnchoredImageSkyPlugin(options) {
         anchorMode: options.anchorMode ?? (fixedAtInfinity ? 'observer-centric' : 'world-space'),
         scaleBandId: options.scaleBandId,
       });
-      pluginContext.addPart({
+      const removePart = pluginContext.addPart({
         ...layer,
         update(frame) {
           void reconcileFrame(frame, { awaitLoads: false });
@@ -329,7 +329,7 @@ export function createAnchoredImageSkyPlugin(options) {
         deltaSeconds: 0,
         elapsedSeconds: 0,
         awaitLoads: loading === 'preload',
-      });
+      }).then(() => removePart);
     },
     getActive() {
       return latestActive;
@@ -487,6 +487,10 @@ export function createAnchoredImageSkyPlugin(options) {
     const promise = createImageObject(entry)
       .then((object) => {
         if (!object) return null;
+        if (disposed) {
+          disposeAnchoredImageObject(object);
+          return null;
+        }
         object.userData.anchoredImageEntry = entry;
         objectCache.set(entry.key, { object });
         root.add(object);
@@ -662,14 +666,14 @@ function targetDirectionAt(solved, x, y) {
 
 /** @param {SkykitViewState} view @returns {Vector3Like} */
 function resolveViewDirection(view) {
+  const orientation = normalizeQuaternion(view.orientationIcrs);
+  if (orientation) return normalizeVector3(rotateVectorByQuaternion(LOCAL_FORWARD, orientation), LOCAL_FORWARD) ?? { ...LOCAL_FORWARD };
   const targetPc = normalizeVector3(view.targetPc, null);
   const observerPc = normalizeVector3(view.observerPc, { x: 0, y: 0, z: 0 }) ?? { x: 0, y: 0, z: 0 };
   if (targetPc) {
     const direction = normalizeVector3(subtractVectors(targetPc, observerPc), null);
     if (direction) return direction;
   }
-  const orientation = normalizeQuaternion(view.orientationIcrs);
-  if (orientation) return normalizeVector3(rotateVectorByQuaternion(LOCAL_FORWARD, orientation), LOCAL_FORWARD) ?? { ...LOCAL_FORWARD };
   return { ...LOCAL_FORWARD };
 }
 

@@ -109,6 +109,7 @@ const elements = {
   constellationRa: document.querySelector('[data-constellation-ra]'),
   constellationDec: document.querySelector('[data-constellation-dec]'),
   constellationDesc: document.querySelector('[data-constellation-desc]'),
+  artMaxAngle: document.querySelector('[data-art-max-angle-deg]'),
   hysteresis: document.querySelector('[data-hysteresis-secs]'),
   artFade: document.querySelector('[data-art-fade-secs]'),
   artOpacity: document.querySelector('[data-art-opacity]'),
@@ -124,6 +125,7 @@ const state = {
   render: { ...initialRenderState },
   pickToleranceDeg: Number(elements.pickTolerance?.value) || 3,
   artVisible: true,
+  artMaxAngleDeg: Number(elements.artMaxAngle?.value) || 60,
   artOpacity: Number(elements.artOpacity?.value) || 0.3,
   artFadeSeconds: Number(elements.artFade?.value) || 0.4,
   constellationHysteresisSeconds: Number(elements.hysteresis?.value) || 0.2,
@@ -188,7 +190,7 @@ async function main() {
     camera,
     view: {
       observerPc: SOL_PC,
-      targetPc: ORION_CENTER_PC,
+      lookAt: { targetPc: ORION_CENTER_PC },
       limitingMagnitude: state.render.limitingMagnitude,
       verticalFovDeg: state.render.verticalFovDeg,
       coordinateUnitsPerParsec: WORLD_SCALE,
@@ -206,7 +208,7 @@ async function main() {
         anchorMode: 'world-space',
         disposeObject: false,
       }),
-      art.plugin,
+      art.managerPlugin,
       createSkykitNavigationPlugin({
         speed: 18,
         acceleration: 22,
@@ -239,7 +241,7 @@ async function main() {
         root: () => createHudRoot(),
       }),
       createConstellationPanelSyncPlugin({
-        artPlugin: art.plugin,
+        art,
         skycultureManifest: art.skycultureManifest,
       }),
     ],
@@ -320,34 +322,91 @@ async function createConstellationArtPlugin() {
     }),
   });
   const skycultureManifest = westernSkycultureManifest;
-  const controller = createViewAnchoredImageController({
-    strategy: 'nearest',
-    maxAngleDeg: 60,
-    hysteresisSeconds: state.constellationHysteresisSeconds,
-  });
-  const plugin = createAnchoredImageSkyPlugin({
-    id: 'constellation-art',
+  const runtime = {
     catalog,
-    controller,
-    loading: 'lazy',
-    fixedAtInfinity: true,
-    radius: 8,
-    opacity: state.artOpacity,
-    fadeInSeconds: state.artFadeSeconds,
-    fadeOutSeconds: state.artFadeSeconds,
-    skipTextureErrors: true,
-    onTextureError(event) {
-      debug.recordDiagnostic({
-        level: 'warn',
-        type: 'free-roam/constellation-art-texture-error',
-        message: `Constellation art texture failed for ${event.entry.label}.`,
-        data: { key: event.entry.key, imageUrl: event.imageUrl },
-        error: event.error,
-      });
+    skycultureManifest,
+    controller: null,
+    plugin: null,
+    teardown: null,
+    context: null,
+    rebuilding: Promise.resolve(),
+    managerPlugin: {
+      id: 'free-roam-constellation-art-manager',
+      setup(context) {
+        runtime.context = context;
+        return runtime.rebuild().then(() => () => runtime.dispose());
+      },
+      getSnapshot() {
+        return runtime.getSnapshot();
+      },
     },
-  });
+    createPlugin() {
+      const controller = createViewAnchoredImageController({
+        strategy: 'nearest',
+        maxAngleDeg: state.artMaxAngleDeg,
+        hysteresisSeconds: state.constellationHysteresisSeconds,
+      });
+      if (!state.artVisible) {
+        controller.setSelection?.([]);
+      }
+      const plugin = createAnchoredImageSkyPlugin({
+        id: 'constellation-art',
+        catalog,
+        controller,
+        loading: 'lazy',
+        fixedAtInfinity: true,
+        radius: 8,
+        opacity: state.artOpacity,
+        fadeInSeconds: state.artFadeSeconds,
+        fadeOutSeconds: state.artFadeSeconds,
+        skipTextureErrors: true,
+        onTextureError(event) {
+          debug.recordDiagnostic({
+            level: 'warn',
+            type: 'free-roam/constellation-art-texture-error',
+            message: `Constellation art texture failed for ${event.entry.label}.`,
+            data: { key: event.entry.key, imageUrl: event.imageUrl },
+            error: event.error,
+          });
+        },
+      });
+      runtime.controller = controller;
+      runtime.plugin = plugin;
+      return plugin;
+    },
+    rebuild() {
+      if (!runtime.context) return Promise.resolve();
+      runtime.rebuilding = runtime.rebuilding.then(rebuildNow, rebuildNow);
+      return runtime.rebuilding;
+    },
+    dispose() {
+      const teardown = runtime.teardown;
+      runtime.teardown = null;
+      teardown?.();
+      runtime.controller = null;
+      runtime.plugin = null;
+    },
+    getSnapshot() {
+      return {
+        catalogCount: catalog.list().length,
+        plugin: runtime.plugin?.getSnapshot?.() ?? null,
+      };
+    },
+  };
   state.warmState.art = `ready (${catalog.list().length})`;
-  return { catalog, controller, plugin, skycultureManifest };
+  return runtime;
+
+  async function rebuildNow() {
+    state.warmState.art = 'rebuilding';
+    const teardown = runtime.teardown;
+    runtime.teardown = null;
+    teardown?.();
+    const plugin = runtime.createPlugin();
+    const nextTeardown = await plugin.setup(runtime.context);
+    runtime.teardown = typeof nextTeardown === 'function' ? nextTeardown : null;
+    state.warmState.art = `ready (${catalog.list().length})`;
+    renderActionControls();
+  }
 }
 
 function createHudRoot() {
@@ -391,7 +450,7 @@ function registerConsoleActions(viewer, selectedTarget, art) {
 
   viewer.actions.registerAction(ACTIONS.constellationArt, () => {
     state.artVisible = !state.artVisible;
-    art.controller.setSelection?.(state.artVisible ? undefined : []);
+    art.controller?.setSelection?.(state.artVisible ? undefined : []);
     selectedTarget.object3d.visible = Boolean(state.selected?.position);
     renderActionControls();
   }, { label: 'Toggle constellation art' });
@@ -431,6 +490,26 @@ function bindControls(context) {
   bindViewSlider(elements.sizePower, 'size-power', 'sizePower', context, 2);
   bindViewSlider(elements.glowScale, 'glow-scale', 'haloScale', context, 2);
   bindViewSlider(elements.glowPower, 'glow-power', 'haloPower', context, 2);
+  bindArtConfigSlider(elements.artMaxAngle, 'art-max-angle', context, (value, input) => {
+    state.artMaxAngleDeg = nonNegativeNumber(value, state.artMaxAngleDeg);
+    input.value = String(state.artMaxAngleDeg);
+    return `${state.artMaxAngleDeg.toFixed(0)} deg`;
+  });
+  bindArtConfigSlider(elements.hysteresis, 'hysteresis', context, (value, input) => {
+    state.constellationHysteresisSeconds = nonNegativeNumber(value, state.constellationHysteresisSeconds);
+    input.value = String(state.constellationHysteresisSeconds);
+    return `${state.constellationHysteresisSeconds.toFixed(2)}s`;
+  });
+  bindArtConfigSlider(elements.artFade, 'art-fade', context, (value, input) => {
+    state.artFadeSeconds = nonNegativeNumber(value, state.artFadeSeconds);
+    input.value = String(state.artFadeSeconds);
+    return `${state.artFadeSeconds.toFixed(2)}s`;
+  });
+  bindArtConfigSlider(elements.artOpacity, 'art-opacity', context, (value, input) => {
+    state.artOpacity = clampNumber(value, 0, 1, state.artOpacity);
+    input.value = String(state.artOpacity);
+    return state.artOpacity.toFixed(2);
+  });
 
   elements.flyCoords?.addEventListener('click', () => {
     try {
@@ -477,6 +556,20 @@ function bindViewSlider(input, readout, key, context, decimals) {
   });
 }
 
+function bindArtConfigSlider(input, readout, context, apply) {
+  if (!input) return;
+  const update = () => {
+    const text = apply(Number(input.value), input);
+    setReadout(readout, text);
+  };
+  input.addEventListener('input', update);
+  input.addEventListener('change', () => {
+    update();
+    void rebuildConstellationArt(context);
+  });
+  update();
+}
+
 function bindSlider(input, readout, apply) {
   if (!input) return;
   const update = () => {
@@ -497,6 +590,20 @@ function applyRenderState({ viewer, source, starField }) {
     coordinateUnitsPerParsec: WORLD_SCALE,
   });
   void source.refreshDemand?.('free-roam.rendering');
+}
+
+async function rebuildConstellationArt({ art }) {
+  try {
+    await art.rebuild();
+  } catch (error) {
+    state.warmState.art = 'error';
+    debug.recordDiagnostic({
+      level: 'error',
+      type: 'free-roam/constellation-art-rebuild-error',
+      message: 'Constellation art settings could not be applied.',
+      error,
+    });
+  }
 }
 
 async function selectPickEvent(event, context) {
@@ -687,14 +794,14 @@ function flyToTarget(viewer, targetPc, options = {}) {
   }, { source: 'free-roam' });
 }
 
-function createConstellationPanelSyncPlugin({ artPlugin, skycultureManifest }) {
+function createConstellationPanelSyncPlugin({ art, skycultureManifest }) {
   return {
     id: 'free-roam-constellation-panel-sync',
     setup(context) {
       context.addPart({
         id: 'free-roam-constellation-panel-sync',
         update() {
-          const active = artPlugin.getActive?.()[0] ?? null;
+          const active = art.plugin?.getActive?.()[0] ?? null;
           const next = active ? describeConstellationMatch(active, skycultureManifest) : null;
           if (JSON.stringify(next) !== JSON.stringify(state.activeConstellation)) {
             state.activeConstellation = next;
@@ -704,7 +811,7 @@ function createConstellationPanelSyncPlugin({ artPlugin, skycultureManifest }) {
         getSnapshot() {
           return {
             active: state.activeConstellation,
-            art: artPlugin.getSnapshot?.() ?? null,
+            art: art.plugin?.getSnapshot?.() ?? null,
           };
         },
       });
@@ -899,6 +1006,10 @@ function syncInitialReadouts() {
   setReadout('glow-scale', state.render.haloScale.toFixed(2));
   setReadout('glow-power', state.render.haloPower.toFixed(2));
   setReadout('pick-tolerance', `${state.pickToleranceDeg.toFixed(1)} deg`);
+  setReadout('art-max-angle', `${state.artMaxAngleDeg.toFixed(0)} deg`);
+  setReadout('hysteresis', `${state.constellationHysteresisSeconds.toFixed(2)}s`);
+  setReadout('art-fade', `${state.artFadeSeconds.toFixed(2)}s`);
+  setReadout('art-opacity', state.artOpacity.toFixed(2));
   renderPickInfo();
   renderConstellationPanel();
   renderActionControls();
@@ -1043,6 +1154,16 @@ function finiteNumber(value, fallback) {
 function positiveNumber(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function nonNegativeNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : fallback;
+}
+
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
 }
 
 function distancePc(left, right) {

@@ -189,6 +189,34 @@ test('anchored image sky plugin can mount art into a named scale band', async ()
   await viewer.dispose();
 });
 
+test('anchored image sky plugin returns a teardown for dynamic replacement', async () => {
+  const catalog = await createAnchoredImageCatalog({ manifest: MANIFEST });
+  const requests = [];
+  const plugin = createAnchoredImageSkyPlugin({
+    id: 'replaceable-art',
+    catalog,
+    controller: createManualAnchoredImageController({ selection: 'alpha' }),
+    loading: 'preload',
+    textureLoader: createTextureLoader(requests),
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: { lookAt: { raDeg: 0, decDeg: 0 } },
+  });
+
+  const teardown = await viewer.addPlugin(plugin);
+  assert.equal(viewer.roots.observerContentRoot.children.some((child) => child.name === 'replaceable-art'), true);
+  assert.deepEqual(requests, ['alpha.png']);
+
+  teardown();
+  await flushPromises();
+
+  assert.equal(viewer.roots.observerContentRoot.children.some((child) => child.name === 'replaceable-art'), false);
+  assert.equal(plugin.getSnapshot().cachedCount, 0);
+
+  await viewer.dispose();
+});
+
 test('anchored image sky plugin lazy-loads active controller entries and caches them', async () => {
   const catalog = await createAnchoredImageCatalog({ manifest: MANIFEST });
   const requests = [];
@@ -216,6 +244,35 @@ test('anchored image sky plugin lazy-loads active controller entries and caches 
   viewer.update(0);
   await flushPromises();
   assert.deepEqual(requests, ['alpha.png', 'beta.png']);
+
+  await viewer.dispose();
+});
+
+test('anchored image sky plugin follows camera orientation over stale targetPc', async () => {
+  const catalog = await createAnchoredImageCatalog({ manifest: MANIFEST });
+  const requests = [];
+  const controller = createViewAnchoredImageController({ strategy: 'nearest', hysteresisSeconds: 0 });
+  const plugin = createAnchoredImageSkyPlugin({
+    id: 'orientation-art',
+    catalog,
+    controller,
+    loading: 'lazy',
+    textureLoader: createTextureLoader(requests),
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: {
+      observerPc: { x: 0, y: 0, z: 0 },
+      targetPc: { x: 50, y: 0, z: 0 },
+      orientationIcrs: orientationToward({ x: 0, y: 1, z: 0 }),
+    },
+    plugins: [plugin],
+  });
+  await flushPromises();
+
+  assert.deepEqual(viewer.getViewState().targetPc, { x: 50, y: 0, z: 0 });
+  assert.deepEqual(requests, ['beta.png']);
+  assert.deepEqual(plugin.getActive().map((entry) => entry.key), ['beta']);
 
   await viewer.dispose();
 });
@@ -273,4 +330,16 @@ function readOpacity(root, key) {
 async function flushPromises() {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function orientationToward(direction) {
+  const forward = new THREE.Vector3(0, 0, -1);
+  const target = new THREE.Vector3(direction.x, direction.y, direction.z).normalize();
+  const quaternion = new THREE.Quaternion().setFromUnitVectors(forward, target);
+  return {
+    x: quaternion.x,
+    y: quaternion.y,
+    z: quaternion.z,
+    w: quaternion.w,
+  };
 }
