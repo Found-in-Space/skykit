@@ -130,6 +130,19 @@
             The compass watches the view direction, not your position. This panel shows the currently resolved constellation and controls the art layer.
           </p>
 
+          <div class="control-row">
+            <label for="ctrl-constellation-target">Target</label>
+            <select id="ctrl-constellation-target" data-constellation-target disabled>
+              <option value="">Loading constellations...</option>
+            </select>
+            <span class="value-readout" data-readout="constellation-target">—</span>
+          </div>
+          <div class="action-row">
+            <button type="button" data-constellation-look disabled>Look toward</button>
+            <button type="button" data-constellation-fly disabled>Fly toward</button>
+          </div>
+          <p class="coord-status" data-constellation-target-status>Loading constellation targets.</p>
+
           <div class="action-row">
             <button type="button" data-art-toggle aria-pressed="true">Hide art</button>
           </div>

@@ -57,6 +57,14 @@ const DATASET_ID = datasetIdFromOctreeUrl(OCTREE_DEFAULT);
 const WORLD_SCALE = 0.001;
 const SOL_PC = Object.freeze({ x: 0, y: 0, z: 0 });
 const ORION_CENTER_PC = Object.freeze({ x: 62.775, y: 602.667, z: -12.713 });
+const CONSTELLATION_TARGET_DISTANCE_PC = Math.hypot(
+  ORION_CENTER_PC.x,
+  ORION_CENTER_PC.y,
+  ORION_CENTER_PC.z,
+);
+const CONSTELLATION_LOOK_DURATION_SECS = 1.4;
+const CONSTELLATION_FLY_APPROACH_PC = 2;
+const CONSTELLATION_FLY_DURATION_SECS = 5;
 const WESTERN_SKYCULTURE_ASSET_BASE =
   'https://cdn.jsdelivr.net/npm/@found-in-space/stellarium-skycultures-western@0.3.0/dist/';
 const ACTIONS = Object.freeze({
@@ -109,6 +117,10 @@ const elements = {
   constellationRa: document.querySelector('[data-constellation-ra]'),
   constellationDec: document.querySelector('[data-constellation-dec]'),
   constellationDesc: document.querySelector('[data-constellation-desc]'),
+  constellationTarget: document.querySelector('[data-constellation-target]'),
+  constellationLook: document.querySelector('[data-constellation-look]'),
+  constellationFly: document.querySelector('[data-constellation-fly]'),
+  constellationTargetStatus: document.querySelector('[data-constellation-target-status]'),
   artMaxAngle: document.querySelector('[data-art-max-angle-deg]'),
   hysteresis: document.querySelector('[data-hysteresis-secs]'),
   artFade: document.querySelector('[data-art-fade-secs]'),
@@ -132,6 +144,7 @@ const state = {
   selected: null,
   selectedIdentifiersStatus: 'idle',
   activeConstellation: null,
+  selectedConstellationKey: 'Ori',
   hudSpeed: '0.00 pc/s',
   hudDistanceToSun: '0.00 pc',
   warmState: {
@@ -182,6 +195,7 @@ async function main() {
   });
   const selectedTarget = createSelectedStarTarget();
   const art = await createConstellationArtPlugin();
+  populateConstellationTargetSelect(art.catalog);
 
   const viewer = await createSkykitViewer({
     id: 'free-roam-alpha',
@@ -510,6 +524,17 @@ function bindControls(context) {
     input.value = String(state.artOpacity);
     return state.artOpacity.toFixed(2);
   });
+  elements.constellationTarget?.addEventListener('change', () => {
+    state.selectedConstellationKey = elements.constellationTarget.value;
+    setReadout('constellation-target', state.selectedConstellationKey || '—');
+    void lookAtSelectedConstellation(context);
+  });
+  elements.constellationLook?.addEventListener('click', () => {
+    void lookAtSelectedConstellation(context);
+  });
+  elements.constellationFly?.addEventListener('click', () => {
+    void flyTowardSelectedConstellation(context);
+  });
 
   elements.flyCoords?.addEventListener('click', () => {
     try {
@@ -590,6 +615,80 @@ function applyRenderState({ viewer, source, starField }) {
     coordinateUnitsPerParsec: WORLD_SCALE,
   });
   void source.refreshDemand?.('free-roam.rendering');
+}
+
+function populateConstellationTargetSelect(catalog) {
+  const select = elements.constellationTarget;
+  if (!select) return;
+  const entries = catalog.list();
+  select.innerHTML = '';
+  for (const entry of entries) {
+    const option = document.createElement('option');
+    option.value = entry.key;
+    option.textContent = entry.label;
+    select.append(option);
+  }
+  const defaultKey = catalog.get('Ori')?.key ?? entries[0]?.key ?? '';
+  state.selectedConstellationKey = defaultKey;
+  select.value = defaultKey;
+  select.disabled = entries.length === 0;
+  if (elements.constellationLook) elements.constellationLook.disabled = entries.length === 0;
+  if (elements.constellationFly) elements.constellationFly.disabled = entries.length === 0;
+  setReadout('constellation-target', defaultKey || '—');
+  setConstellationTargetStatus(entries.length > 0
+    ? 'Choose a constellation to look or fly toward it.'
+    : 'No constellation targets loaded.');
+}
+
+async function lookAtSelectedConstellation(context) {
+  const resolved = resolveSelectedConstellationLook(context);
+  if (!resolved) return;
+  const { entry, look } = resolved;
+  const lookAt = look.orientationIcrs
+    ? { orientationIcrs: look.orientationIcrs }
+    : { targetPc: look.targetPc };
+  setConstellationTargetStatus(`Slewing toward ${entry.label}.`);
+  await context.viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+    lookAt,
+    durationSecs: CONSTELLATION_LOOK_DURATION_SECS,
+    orientation: { durationSecs: CONSTELLATION_LOOK_DURATION_SECS },
+    onArrive() {
+      context.viewer.requestViewState({
+        targetPc: look.targetPc,
+        lookAt,
+      }, 'free-roam.constellation.look.arrive');
+    },
+  }, { source: 'free-roam:constellation-target' });
+}
+
+async function flyTowardSelectedConstellation(context) {
+  const resolved = resolveSelectedConstellationLook(context);
+  if (!resolved) return;
+  flyToTarget(context.viewer, resolved.look.targetPc, {
+    approachPc: CONSTELLATION_FLY_APPROACH_PC,
+    durationSecs: CONSTELLATION_FLY_DURATION_SECS,
+  });
+  setConstellationTargetStatus(`Flying toward ${resolved.entry.label}.`);
+}
+
+function resolveSelectedConstellationLook({ viewer, art }) {
+  const key = elements.constellationTarget?.value || state.selectedConstellationKey;
+  const entry = key ? art.catalog.get(key) : null;
+  if (!entry) {
+    setConstellationTargetStatus('Choose a constellation target first.');
+    return null;
+  }
+  const look = art.catalog.resolveLookAt(entry.key, {
+    observerPc: viewer.getViewState().observerPc,
+    distancePc: CONSTELLATION_TARGET_DISTANCE_PC,
+  });
+  if (!look) {
+    setConstellationTargetStatus(`Could not resolve ${entry.label}.`);
+    return null;
+  }
+  state.selectedConstellationKey = entry.key;
+  setReadout('constellation-target', entry.key);
+  return { entry, look };
 }
 
 async function rebuildConstellationArt({ art }) {
@@ -1010,6 +1109,7 @@ function syncInitialReadouts() {
   setReadout('hysteresis', `${state.constellationHysteresisSeconds.toFixed(2)}s`);
   setReadout('art-fade', `${state.artFadeSeconds.toFixed(2)}s`);
   setReadout('art-opacity', state.artOpacity.toFixed(2));
+  setReadout('constellation-target', state.selectedConstellationKey || '—');
   renderPickInfo();
   renderConstellationPanel();
   renderActionControls();
@@ -1126,6 +1226,10 @@ function setStatus(value) {
 
 function setFlyStatus(value) {
   if (elements.flyStatus) elements.flyStatus.textContent = value;
+}
+
+function setConstellationTargetStatus(value) {
+  if (elements.constellationTargetStatus) elements.constellationTargetStatus.textContent = value;
 }
 
 function formatIcrs(point, decimals = 1) {
