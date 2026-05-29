@@ -30,6 +30,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
+    "verify:pages-urls": "node ./scripts/verify-pages-urls.js",
     "dev:examples": "npm run dev --workspace @found-in-space/skykit-examples",
     "build:examples": "npm run build --workspace @found-in-space/skykit-examples",
     "diag:observer-shell": "node ./scripts/observer-shell-diagnostic.js",

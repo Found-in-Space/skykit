@@ -30,6 +30,8 @@ jobs:
 
       - run: npm ci
       - run: npm run build
+        env:
+          SKYKIT_PUBLIC_BASE: /skykit/
       - name: Verify demo artifact pages
         run: |
           test -f dist/index.html
@@ -37,6 +39,7 @@ jobs:
           test -f dist/apps/examples/xr-free-roam/index.html
           test -f dist/demos/dust-roam.html
           test -f dist/demos/h-alpha-volume.html
+          npm run verify:pages-urls -- dist
 
       - uses: actions/upload-pages-artifact@v3
         with:

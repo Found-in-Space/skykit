@@ -21,8 +21,22 @@ const localTouchOsAliases = fs.existsSync(path.join(localTouchOsPath, 'src/index
     ]
   : [];
 
+const publicBase = normalizePublicBase(process.env.SKYKIT_PUBLIC_BASE ?? './');
+
+function normalizePublicBase(input) {
+  const value = String(input ?? '').trim();
+  if (!value || value === './' || value === '/') {
+    return value || './';
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+    return value.endsWith('/') ? value : `${value}/`;
+  }
+  const pathBase = value.replace(/^\/+|\/+$/g, '');
+  return pathBase ? `/${pathBase}/` : '/';
+}
+
 export default defineConfig({
-  base: './',
+  base: publicBase,
   resolve: {
     alias: localTouchOsAliases,
   },

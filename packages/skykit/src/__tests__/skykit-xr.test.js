@@ -96,7 +96,7 @@ test('xr free-roam demo uses restored alpha XR regressions defaults', () => {
     assert.match(html, /XR environment available/);
     assert.match(html, /Found in Space - SkyKit/);
     assert.match(html, /VR Free Roam/);
-    assert.match(html, /src="\/robbie\.svg"/);
+    assert.match(html, /src="%BASE_URL%robbie\.svg"/);
     assert.match(html, /Pre Flight Checklist/);
     assert.match(html, /data-xr-requirements/);
     assert.match(html, /Running checklist/);

@@ -95,6 +95,9 @@ package APIs when there is an active consumer.
 - Use Changesets for package releases once release tooling is added. A changeset
   should be committed with meaningful package changes and should name the
   package(s), semver bump(s), and short release note.
+- Before committing, always check whether the change needs a changeset. If a
+  changeset is required but missing, warn the user and add one before the
+  commit; if no changeset is needed, say why in the commit/check summary.
 - `@found-in-space/skykit` is the beginner-facing compatibility anchor: learners
   can install SkyKit and get a compatible set of focused modules, while the
   focused modules still keep their own versions.
