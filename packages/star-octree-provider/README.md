@@ -30,3 +30,14 @@ and `OCTREE_DEFAULT` as the teaching-friendly alias used by examples.
 
 - `examples/volume-query/` shows sphere-volume streaming through the same
   provider strategy surface as observer-shell and target-frustum.
+
+Common entry points:
+
+- `createStarOctreeProviderService({ url })` for URL-backed range loading.
+- `createStarOctreeFileProviderService({ file })` for Blob/File-backed loading.
+- `provider.streamCells(request)` for finite async-iterable cell deltas.
+- `provider.fetchCells(request)` for finite decoded cells.
+- `provider.warmCells(request)` for prefetch-lane cache warming without visible
+  cell deltas.
+- `provider.createSession(options)` for retained live views with
+  `session.updateView(view)`.

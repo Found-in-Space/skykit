@@ -87,6 +87,9 @@ normal desktop and Canvas usage should not import it.
   custom ray wrappers.
 - Generic pick routing:
   blocker-first routing into target-owned `pick(ray)` implementations.
+- SkyKit XR plugins:
+  observer rig bridging, body tracking, controller navigation controls, session
+  enter/exit actions, ray visualization, and star-picking events.
 - WebXR session helpers:
   support checks, enter/exit helpers, reference-space defaults, and safe
   render-state depth application.
@@ -150,6 +153,9 @@ skykit:navigation.flyTo
 skykit:navigation.orbit
 skykit:navigation.lookAt
 skykit:viewer.reset
+skykit:xr.enter
+skykit:xr.exit
+skykit:xr.toggle
 ```
 
 Desktop keyboard/mouse plugins, touch DOM controls, touch-os surfaces, WebXR
@@ -214,14 +220,18 @@ Implemented in `@found-in-space/spatial`:
 - smooth fly-to, route-follow, orbit, orbital insertion, look-at, and lock-at
   automation.
 - direct, inertial, thrust, and fly-to motion models.
+- timed tracks, smooth paths, and materialized preload hints.
 
 Implemented in `@found-in-space/skykit`:
 
 - `SKYKIT_ACTIONS.navigation.*` semantic actions.
+- `SKYKIT_ACTIONS.xr.*` session actions registered by the XR session plugin.
 - `createSkykitNavigationPlugin()` backed by spatial automation.
 - action payloads that accept vectors, RA/Dec/distance, and application-resolved
   bookmark forms.
 - keyboard/mouse plugins that can inform manual look state.
+- `@found-in-space/skykit/touch-os` HUD and panel plugins that applications can
+  mount in desktop or XR scenes without making XR own surfaces.
 
 Implemented in `@found-in-space/skykit/xr`:
 
@@ -230,12 +240,15 @@ Implemented in `@found-in-space/skykit/xr`:
 - ray sources and blocker-first pick router.
 - depth range calculation and render-state application.
 - WebXR support/session enter/exit helpers.
+- observer rig bridge, session plugin, controller navigation plugin, ray visual
+  plugin, and star-picking plugin.
+- `stars/xr-pick`, `stars/xr-pick-miss`, and blocker events for applications to
+  handle without renderer-specific controller code.
 - fake-XR tests for rig, controls, rays, routing, depth, and sessions.
 
 Not implemented yet:
 
-- touch-os wiring for XR panels/HUDs.
-- a full SkyKit XR starfield preset.
-- GPU pick routing or star-specific XR pick effects.
+- a single turnkey SkyKit XR starfield preset.
+- GPU pick routing or built-in star-specific XR pick effects.
 - a journey runtime that drives `skykit:navigation.*` actions.
-- WebXR examples that replace the old root demo end to end.
+- published lesson docs that replace every legacy XR demo end to end.

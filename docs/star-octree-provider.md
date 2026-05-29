@@ -76,15 +76,16 @@ existing visible cells.
 ```ts
 interface StarOctreeProviderService {
   readonly id: string;
-  ensureBootstrap(): Promise<StarOctreeBootstrapIndex>;
-  inspectDemand(request: StarOctreeDemandRequest): Promise<StarOctreeDemandReceipt>;
-  streamPayloads(request: StarOctreeDemandRequest): AsyncIterable<StarOctreePayloadEvent>;
-  streamCells(request: StarOctreeCellStreamRequest): AsyncIterable<StarCellDelta>;
-  fetchCells(request: StarOctreeCellStreamRequest): Promise<StarCellData[]>;
-  warmCells(request: StarOctreeCellStreamRequest): Promise<StarOctreeWarmCellsResult>;
-  createSession(options: StarOctreeProviderSessionOptions): StarOctreeProviderSession;
+  describe(): StarOctreeProviderDescriptor;
   getSnapshot(): StarOctreeProviderSnapshot;
-  dispose(): void;
+  ensureBootstrap(): Promise<StarOctreeBootstrapIndex>;
+  createSession(options?: StarOctreeSessionOptions): StarOctreeProviderSession;
+  streamPayloads(options: StarOctreePayloadStreamOptions): AsyncIterable<StarOctreePayloadDelta>;
+  streamCells(options: StarOctreeCellStreamOptions): AsyncIterable<StarCellDelta>;
+  inspectDemand(options: StarOctreeCellStreamOptions): Promise<StarOctreeDemandInspection>;
+  fetchCells(options: StarOctreeCellStreamOptions): Promise<StarCellData[]>;
+  warmCells(options: StarOctreeCellStreamOptions): Promise<StarOctreeWarmCellsResult>;
+  dispose(): void | Promise<void>;
 }
 ```
 
@@ -106,11 +107,11 @@ A provider session is one live demand state and one cell-delta stream.
 ```ts
 interface StarOctreeProviderSession {
   readonly id: string;
-  updateView(view: StarOctreeViewRequest, options?: { force?: boolean }): Promise<StarOctreeDemandReceipt>;
+  updateView(view: StarOctreeViewPatch, options?: ViewUpdateOptions): StarOctreeViewReceipt;
   subscribe(listener: (delta: StarCellDelta) => void): () => void;
   deltas(): AsyncIterable<StarCellDelta>;
-  snapshot(): StarOctreeProviderSessionSnapshot;
-  dispose(): void;
+  getSnapshot(): StarOctreeSessionSnapshot;
+  dispose(): void | Promise<void>;
 }
 ```
 
@@ -129,6 +130,36 @@ records with the same `cellKey`.
 Superseded demand revisions abort outstanding fetch/decode work. Late obsolete
 work is not merely ignored; it receives abort cancellation so decode and range
 fetches stop promptly.
+
+## Streaming Performance Invariants
+
+The cell-keyed model replaced the old transport-batch public identity. Payload
+range batching may still group network and decode work internally, but public
+sessions, stores, renderers, and examples only see independent `StarCellData`
+records keyed by `cellKey`.
+
+Keep these invariants when changing the provider, store, or renderer:
+
+- retained `cellKey` entries do not churn across adjacent demands.
+- no live store contains duplicate `cellKey` records.
+- superseded fetch/decode work receives `AbortSignal` cancellation.
+- no `stars/cells-upsert` is emitted for an obsolete demand revision.
+- `stars/error` does not clear visible cells.
+- renderer object identity remains stable while geometry contents update.
+
+Payload decode is attribute-aware. Positions are always decoded; optional
+numeric columns such as `teffLog8` and `magAbs` are decoded only when requested
+by the active stream/session/fetch attributes. Object refs and pick metadata are
+generated when the emitted cell asks for `objectRef` or `pickMeta`; they are not
+payload decode work.
+
+The default same-thread fast path uses borrowed typed-array memory when the
+cell is created without a coordinate transform and with borrowed ownership.
+Borrowed decoded buffers must be treated as immutable after emission.
+
+`SharedArrayBuffer` is not part of the current streaming path. A future
+decode-worker design may revisit it, but that requires browser cross-origin
+isolation and render-path validation for WebGL uploads.
 
 ## Strategies And Planners
 
@@ -245,6 +276,17 @@ in the `warm` lane. Lookahead scoring favors cells that appear in more predicted
 samples, which biases fast movement toward cells likely to remain useful over
 one-frame churn.
 
+Observer-shell selection should match the direct magnitude-shell heuristic:
+
+```txt
+loadRadiusPc = halfSizePc * 10 ** ((limitingMagnitude - indexMagnitude) / 5)
+```
+
+Do not add broad fixed padding to compensate for streaming churn. Refresh
+throttling should be expressed through strategy change/diff policy, such as
+magnitude-banded shell cadence or low-priority tail invalidation, not by
+weakening cell identity.
+
 ## Coordinates And Identity
 
 Cell helpers live in `@found-in-space/star-trees`:
@@ -358,6 +400,17 @@ Implemented:
   decorator, and composition helpers
 - provider-level `warmCells()` for prefetch-lane index, payload, and decoded
   cache warming without visible cell emission
+
+Diagnostics to preserve:
+
+- demand revisions queued, aborted, loaded, and made current
+- cells and stars inserted/removed per second
+- current live cell count and star count
+- duplicate live cell keys, which should always be zero
+- largest single cell and largest aggregate rebuild size
+- decoded-cache hits, misses, and writes by attribute mask
+- copied versus borrowed cell bytes
+- generated object refs and pick metadata counts
 
 Non-goals:
 

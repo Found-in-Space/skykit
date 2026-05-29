@@ -37,11 +37,10 @@ for await (const delta of provider.streamCells({
 }
 ```
 
-The default material preserves the tuned desktop star shader used by the old
-free-roam demo. `createVrThreeStarFieldMaterialProfile()` preserves the old XR
-star shader as a separate opt-in profile. The earlier procedural alpha shader is
-also kept as a teaching profile, so shader replacement is a one-line renderer
-configuration:
+The default material provides the tuned desktop star shader.
+`createVrThreeStarFieldMaterialProfile()` provides an XR-friendly profile as a
+separate opt-in. The procedural alpha shader is also kept as a teaching profile,
+so shader replacement is a one-line renderer configuration:
 
 ```js
 const field = createThreeStarField({
@@ -52,3 +51,26 @@ const field = createThreeStarField({
 Cell coordinates are treated as already being in the requested output profile.
 `renderScale` scales the returned `object3d`; it does not mutate cell arrays or
 bake in application scene-scale constants.
+
+The field handle also supports explicit cells, picking, visible bounds, view
+updates, snapshots, and disposal:
+
+```js
+field.setView({
+  observerPosition: { x: 0, y: 0, z: 0 },
+  limitingMagnitude: 7,
+});
+
+const hit = field.pick(ray, {
+  toleranceDeg: 2,
+  viewportHeight: canvas.height,
+});
+
+const bounds = field.getVisibleBounds({ units: 'parsec' });
+const snapshot = field.getSnapshot();
+field.dispose();
+```
+
+Picking returns the public `cellKey`, `objectIndex`, optional `StarObjectRef`,
+optional `StarPickMeta`, apparent magnitude, visual radius, and distance. It
+does not invent a renderer-specific star ID.

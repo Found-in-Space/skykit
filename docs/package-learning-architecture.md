@@ -124,9 +124,9 @@ Viewer: embed.js for no-code, viewer.js for JavaScript customization
 Data: data.js for rows, labels, lists, maps, and renderer-independent games
 ```
 
-Root `demos/` pages in this repository are transition sandboxes. App-level
-SkyKit examples live in `apps/examples/`; focused package learning work should
-prefer:
+Root `demos/` pages and the old root `src/` implementation are legacy
+transition sandboxes. App-level SkyKit examples live in `apps/examples/`;
+focused package learning work should prefer:
 
 ```txt
 apps/examples/
@@ -152,45 +152,57 @@ packages/skykit/examples/
 
 @found-in-space/star-trees
   implemented: StarCellData types, StarCellStore, StarObjectRef identity,
-  Morton helpers, star math, star iteration, and color helpers
+  Morton helpers, star math, star iteration, color helpers, shared strategy
+  interfaces, observer-shell/frustum/volume/lookahead/warm strategy helpers, and
+  strategy composition
 
 @found-in-space/star-octree-provider
   implemented: octree loading/session/streaming, provider-owned planning against
   shared strategies, volume/path helpers, demand inspection, and cell delta
-  emission; physical node/storage IDs stay inside provider loader/planner code
+  emission, finite fetches, warmCells prefetch-lane cache warming, URL and File
+  providers; physical node/storage IDs stay inside provider loader/planner code
 
 @found-in-space/meta-sidecar-provider
-  implemented: metadata sidecar provider keyed by star object refs
+  implemented: metadata sidecar provider keyed by star object refs, cell-level
+  metadata reads, URL derivation, persistent cache support, and display-field
+  normalization helpers
 
 @found-in-space/star-map-canvas
-  implemented: 2D projected Canvas2D starmap adapter for spatial star cells
+  implemented: 2D projected Canvas2D starmap adapter for spatial star cells,
+  all-sky and FoV projections, draw-list export, layers, hooks, and point
+  picking
 
 @found-in-space/anchored-image
   implemented: renderer-neutral anchored image manifests, affine solving,
-  mesh generation, and Canvas2D/Three.js image-warp adapters
+  mesh generation, direction resolution helpers, and Canvas2D/Three.js
+  image-warp adapters
 
 @found-in-space/three-star-field
-  implemented: Three.js renderer for star cell stores and deltas
+  implemented: Three.js renderer for star cell stores and deltas, stable
+  aggregate geometry, material profiles, picking, visible bounds, and snapshots
 
 @found-in-space/hr-diagram
   implemented: reusable HR diagram data model, Canvas fallback, WebGL renderer,
-  and optional display-only touch-os composite-surface adapter
+  magnitude-limited/volume/frustum modes, selected/highlight overlays, and
+  optional display-only touch-os composite-surface adapter
 
 @found-in-space/skykit
   implemented alpha composition slice: slim Three.js viewer, plugin/part
   lifecycle, streaming star plugin/layer, object3d plugin/layer, keyboard
   navigation helper, sky-grab and mouse-look helpers, parallax subpath plugins,
   status helper, navigation actions/plugin backed by spatial, animation loop,
-  desktop observer rig, debug bridge,
+  desktop observer rig, debug bridge, browser embed/add-on global, lazy
+  constellation browser capability, touch-os bridge,
   beginner `viewer` and `data` subpaths for public website use-cases,
-  and optional `skykit/xr` WebXR rig/input/ray/session/depth helpers
+  and optional `skykit/xr` WebXR rig/input/ray/session/depth/navigation/picking
+  helpers
 ```
 
-Historical H-alpha tiled-volume and Dust Map NG experiments remain in the
-sibling `../skykit-halpha` project as reference material. They are not part of
-the current alpha package map; future structural data packages should be
-designed against the then-current SkyKit/provider APIs when there is an active
-consumer.
+Historical H-alpha tiled-volume and Dust Map NG pipeline work remains in
+[`Found-in-Space/pipeline-dust`](https://github.com/Found-in-Space/pipeline-dust)
+as reference material. It is not part of the current alpha package map; future
+structural data packages should be designed against the then-current
+SkyKit/provider APIs when there is an active consumer.
 
 Dependency direction should stay clean:
 

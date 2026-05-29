@@ -31,10 +31,12 @@ an optional app-owned `chapter.preload?.(ctx)` function.
 
 ## Studio Camera Timelines
 
-Timed video/editor data belongs to the sibling `../skykit-studio` project. The
-Studio-owned public subpath is `@found-in-space/skykit-studio/camera-timeline`.
-It owns camera timeline normalization, evaluation, cue/track helpers, and
-retiming utilities used by the editor and deterministic export pipeline.
+Timed video/editor data belongs to the sibling
+[`Found-in-Space/skykit-studio`](https://github.com/Found-in-Space/skykit-studio)
+repository. The Studio-owned public subpath is
+`@found-in-space/skykit-studio/camera-timeline`. It owns camera timeline
+normalization, evaluation, cue/track helpers, and retiming utilities used by the
+editor and deterministic export pipeline.
 
 Core SkyKit remains focused on reusable viewer, navigation, renderer, star
 streaming, action, and plugin primitives.
