@@ -12,7 +12,12 @@ import type {
 import type * as THREE from 'three';
 import type {
   SkykitEvent,
+  SkykitObserverRig,
   SkykitPlugin,
+  SkykitPluginTeardown,
+  SkykitProductKey,
+  SkykitProductRef,
+  SkykitSceneRoots,
   SkykitStarCellSource,
   SkykitThreeFrame,
   SkykitViewState,
@@ -270,6 +275,31 @@ export interface SkykitXrPickRouter {
   dispose(): void;
 }
 
+export interface SkykitXrPickBridgePluginOptions {
+  id?: string;
+  raySource: SkykitXrRaySource;
+  router?: SkykitXrPickRouter;
+  blockers?: Iterable<SkykitXrPickBlocker>;
+  targets?: Iterable<SkykitXrPickTarget>;
+  blockerProducts?: Iterable<
+    SkykitProductKey | SkykitProductRef<SkykitXrPickBlocker | Iterable<SkykitXrPickBlocker>>
+  >;
+  targetProducts?: Iterable<
+    SkykitProductKey | SkykitProductRef<SkykitXrPickTarget | Iterable<SkykitXrPickTarget>>
+  >;
+  routeOnFrame?: boolean;
+  onRoute?: (result: SkykitXrPickRouteResult) => void;
+}
+
+export interface SkykitXrPickBridgePlugin extends SkykitPlugin {
+  readonly id: string;
+  readonly router: SkykitXrPickRouter;
+  addBlocker(blocker: SkykitXrPickBlocker): SkykitPluginTeardown;
+  addTarget(target: SkykitXrPickTarget): SkykitPluginTeardown;
+  route(context?: SkykitXrRayContext): SkykitXrPickRouteResult;
+  getSnapshot(): unknown;
+}
+
 export interface SkykitXrDepthRangeOptions {
   visibleBounds?: SkykitXrBounds | SkykitXrBounds[];
   observer?: SkykitXrVector3 | { position: SkykitXrVector3 };
@@ -365,6 +395,40 @@ export interface SkykitXrSessionHandle {
 export interface CreateSkykitXrObserverRigOptions {
   rig: SkykitXrRig;
   coordinateUnitsPerParsec?: number;
+}
+
+export interface SkykitXrCompositionOptions {
+  id?: string;
+  rig?: SkykitXrRig;
+  camera?: THREE.Camera;
+  renderer?: THREE.WebGLRenderer | { xr?: unknown } | null;
+  coordinateUnitsPerParsec?: number;
+  scaleBandIds?: Iterable<string>;
+  session?: false | SkykitXrSessionPluginOptions;
+  body?: false | SkykitXrBodyPluginOptions;
+  navigation?: false | SkykitXrNavigationPluginOptions;
+  rays?: false | {
+    left?: false | SkykitXrRaySource | SkykitXrRaySourceOptions;
+    right?: false | SkykitXrRaySource | SkykitXrRaySourceOptions;
+    head?: false | SkykitXrRaySource | SkykitXrRaySourceOptions;
+  };
+  rayVisuals?: false | true;
+}
+
+export interface SkykitXrComposition {
+  readonly rig: SkykitXrRig;
+  readonly roots: SkykitSceneRoots;
+  readonly observerRig: SkykitObserverRig;
+  readonly cameraRoot: THREE.Object3D;
+  readonly plugins: SkykitPlugin[];
+  readonly session: SkykitXrSessionPlugin | null;
+  readonly body: SkykitXrBodyPlugin | null;
+  readonly navigation: SkykitXrNavigationPlugin | null;
+  readonly rays: Record<string, SkykitXrRaySource>;
+  enter(): Promise<SkykitXrSessionHandle>;
+  exit(): Promise<void>;
+  dispose(): Promise<void> | void;
+  getSnapshot(): unknown;
 }
 
 export interface SkykitXrSessionPluginOptions {
@@ -468,7 +532,10 @@ export declare function readSkykitXrAxis(inputSources: Iterable<any>, binding?: 
 export declare function readSkykitXrButton(inputSources: Iterable<any>, binding?: SkykitXrButtonBinding, previous?: SkykitXrButtonState | null): SkykitXrButtonState;
 export declare function createSkykitXrRaySource(options?: SkykitXrRaySourceOptions): SkykitXrRaySource;
 export declare function createSkykitXrPickRouter(options?: SkykitXrPickRouterOptions): SkykitXrPickRouter;
-export declare function createSkykitXrObserverRig(options: CreateSkykitXrObserverRigOptions): import('./index.js').SkykitObserverRig;
+export declare function createSkykitSceneRootsFromXrRig(rig: SkykitXrRig): SkykitSceneRoots;
+export declare function createSkykitXrComposition(options?: SkykitXrCompositionOptions): SkykitXrComposition;
+export declare function createSkykitXrPickBridgePlugin(options: SkykitXrPickBridgePluginOptions): SkykitXrPickBridgePlugin;
+export declare function createSkykitXrObserverRig(options: CreateSkykitXrObserverRigOptions): SkykitObserverRig;
 export declare function createSkykitXrSessionPlugin(options?: SkykitXrSessionPluginOptions): SkykitXrSessionPlugin;
 export declare function createSkykitXrNavigationPlugin(options?: SkykitXrNavigationPluginOptions): SkykitXrNavigationPlugin;
 export declare function createSkykitXrRayVisualPlugin(options: SkykitXrRayVisualPluginOptions): SkykitXrRayVisualPlugin;

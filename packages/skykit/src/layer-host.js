@@ -699,6 +699,7 @@ function createLayerStateFromFrame(frame) {
       verticalFovDeg: frame.view.verticalFovDeg ?? cameraFov(frame.camera),
       aspectRatio: frame.view.aspectRatio ?? cameraAspect(frame.camera),
     },
+    xr: frame.xr ?? null,
   };
 }
 

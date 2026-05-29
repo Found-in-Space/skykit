@@ -363,6 +363,47 @@ test('layer host routes lifecycle, state, object mounts, products, and dynamic l
   assert.equal(viewer.roots.observerContentRoot.children.includes(object), false);
 });
 
+test('layer host passes XR frame state to hosted layers during frame updates', async () => {
+  const states = [];
+  const rig = { id: 'rig' };
+  const rays = { right: { id: 'right-ray' } };
+  const host = createSkykitLayerHostPlugin({
+    layers: [
+      {
+        id: 'xr-aware-layer',
+        setState(state) {
+          states.push(state);
+        },
+      },
+    ],
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [host],
+  });
+
+  assert.equal(states[0].xr, undefined);
+
+  viewer.frame(0.1, {
+    xr: {
+      presenting: true,
+      rig,
+      rays,
+      session: { id: 'session' },
+      referenceSpace: { id: 'reference-space' },
+      frame: { id: 'xr-frame' },
+    },
+  });
+
+  assert.equal(states.at(-1).xr.presenting, true);
+  assert.equal(states.at(-1).xr.rig, rig);
+  assert.equal(states.at(-1).xr.rays, rays);
+
+  viewer.frame(0.1);
+  assert.equal(states.at(-1).xr, null);
+  await viewer.dispose();
+});
+
 test('layer host owns child parts added through layer context', async () => {
   const calls = [];
   let addDynamicChild = null;

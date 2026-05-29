@@ -6,11 +6,14 @@ import * as THREE from 'three';
 import {
   applySkykitXrDepthRange,
   computeSkykitXrDepthRange,
+  createSkykitSceneRootsFromXrRig,
   createSkykitXrBodyPlugin,
   createSkykitXrBodyTracker,
+  createSkykitXrComposition,
   createSkykitXrControlBindings,
   createSkykitXrNavigationPlugin,
   createSkykitXrObserverRig,
+  createSkykitXrPickBridgePlugin,
   createSkykitXrPickRouter,
   createSkykitXrRaySource,
   createSkykitXrRayVisualPlugin,
@@ -21,7 +24,13 @@ import {
   exitSkykitXrSession,
   isSkykitXrModeSupported,
 } from '../xr.js';
-import { createSkykitActionRegistry } from '../index.js';
+import {
+  createSkykitActionRegistry,
+  createSkykitLayerHostPlugin,
+  createSkykitProductRegistryPlugin,
+  createSkykitViewer,
+  productRef,
+} from '../index.js';
 
 test('xr free-roam demo uses restored alpha XR regressions defaults', () => {
   const source = readFileSync(new URL('../../../../apps/examples/xr-free-roam/xr-free-roam.js', import.meta.url), 'utf8');
@@ -126,6 +135,186 @@ test('skykit/xr rig builds multi-root hierarchy', () => {
   rig.dispose();
 });
 
+test('skykit/xr root adapter returns viewer roots by identity with a stable scale-band map', () => {
+  const rig = createSkykitXrRig({ scaleBandIds: ['galaxy'] });
+  const nebulaRoot = rig.getScaleBandedContentRoot('nebulae');
+  const roots = createSkykitSceneRootsFromXrRig(rig);
+
+  assert.equal(roots.originContentRoot, rig.originContentRoot);
+  assert.equal(roots.observerContentRoot, rig.observerContentRoot);
+  assert.equal(roots.navigationRoot, rig.navigationRoot);
+  assert.notEqual(roots.scaleBandedContentRoots, rig.scaleBandedContentRoots);
+  assert.equal(roots.scaleBandedContentRoots instanceof Map, true);
+  assert.equal(roots.scaleBandedContentRoots.get('galaxy'), rig.scaleBandedContentRoots.galaxy);
+  assert.equal(roots.scaleBandedContentRoots.get('nebulae'), nebulaRoot);
+
+  rig.getScaleBandedContentRoot('later');
+  assert.equal(roots.scaleBandedContentRoots.has('later'), false);
+  rig.dispose();
+});
+
+test('skykit/xr composition returns default handles and plugin bundle', async () => {
+  const camera = new THREE.PerspectiveCamera();
+  const xr = createSkykitXrComposition({
+    id: 'test-xr',
+    camera,
+    renderer: { xr: {} },
+    scaleBandIds: ['galactic'],
+    rayVisuals: true,
+  });
+
+  assert.equal(xr.cameraRoot, xr.rig.cameraMount);
+  assert.equal(xr.cameraRoot.children.includes(camera), true);
+  assert.equal(xr.roots.scaleBandedContentRoots.get('galactic'), xr.rig.scaleBandedContentRoots.galactic);
+  assert.equal(xr.observerRig.type, 'xr');
+  assert.ok(xr.session);
+  assert.ok(xr.body);
+  assert.ok(xr.navigation);
+  assert.deepEqual(Object.keys(xr.rays), ['right', 'left', 'head']);
+  assert.deepEqual(xr.plugins.map((plugin) => plugin.id), [
+    'skykit-xr-session',
+    'skykit-xr-body',
+    'test-xr:frame-state',
+    'skykit-xr-navigation',
+    'test-xr:right-ray-visual',
+  ]);
+
+  await xr.dispose();
+  assert.equal(xr.rig.getSnapshot().disposed, true);
+  assert.equal(xr.rays.right.getSnapshot().disposed, true);
+});
+
+test('skykit/xr composition respects disabled pieces, caller-owned rig and caller-owned rays', async () => {
+  const rig = createSkykitXrRig();
+  const callerRay = createSkykitXrRaySource({ id: 'caller-ray', kind: 'ship-forward' });
+  const xr = createSkykitXrComposition({
+    rig,
+    session: false,
+    body: false,
+    navigation: false,
+    rays: {
+      right: callerRay,
+      left: false,
+    },
+  });
+
+  assert.equal(xr.session, null);
+  assert.equal(xr.body, null);
+  assert.equal(xr.navigation, null);
+  assert.deepEqual(Object.keys(xr.rays), ['right', 'head']);
+  assert.equal(xr.rays.right, callerRay);
+  await assert.rejects(xr.enter(), /session support is disabled/);
+  await assert.rejects(xr.exit(), /session support is disabled/);
+
+  await xr.dispose();
+  assert.equal(rig.getSnapshot().disposed, false);
+  assert.equal(callerRay.getSnapshot().disposed, false);
+
+  const noRays = createSkykitXrComposition({ session: false, rays: false });
+  assert.deepEqual(Object.keys(noRays.rays), []);
+  await noRays.dispose();
+  rig.dispose();
+  callerRay.dispose();
+});
+
+test('skykit/xr composition enter and exit proxy the session plugin', async () => {
+  let activeSession = null;
+  const session = {
+    async requestReferenceSpace(type) {
+      return { type };
+    },
+    async end() {
+      this.ended = true;
+      activeSession = null;
+      renderer.xr.isPresenting = false;
+    },
+    addEventListener() {},
+  };
+  const renderer = {
+    xr: {
+      enabled: false,
+      isPresenting: false,
+      getSession() {
+        return activeSession;
+      },
+      setReferenceSpaceType(type) {
+        this.referenceSpaceType = type;
+      },
+      async setSession(nextSession) {
+        activeSession = nextSession;
+        this.isPresenting = Boolean(nextSession);
+      },
+    },
+  };
+  const navigator = {
+    xr: {
+      async isSessionSupported() {
+        return true;
+      },
+      async requestSession() {
+        return session;
+      },
+    },
+  };
+  const xr = createSkykitXrComposition({
+    renderer,
+    session: { navigator },
+    body: false,
+    navigation: false,
+    rays: false,
+  });
+
+  const handle = await xr.enter();
+  assert.equal(handle.session, session);
+  assert.equal(activeSession, session);
+  await xr.exit();
+  assert.equal(activeSession, null);
+  assert.equal(session.ended, true);
+  await xr.dispose();
+});
+
+test('skykit/xr composition bridge copies rig, body, and rays onto frame.xr', async () => {
+  const seen = [];
+  const xr = createSkykitXrComposition({
+    session: false,
+    navigation: false,
+  });
+  const viewer = await createSkykitViewer({
+    plugins: [
+      ...xr.plugins,
+      {
+        id: 'probe',
+        setup(context) {
+          context.addPart({
+            id: 'probe',
+            priority: -840,
+            update(frame) {
+              seen.push(frame.xr);
+            },
+          });
+        },
+      },
+    ],
+  });
+
+  viewer.frame(0.016, {
+    xr: {
+      presenting: true,
+      frame: { id: 'xr-frame' },
+      session: { inputSources: [] },
+      referenceSpace: { id: 'reference-space' },
+    },
+  });
+
+  assert.equal(seen[0].presenting, true);
+  assert.equal(seen[0].rig, xr.rig);
+  assert.equal(seen[0].body, xr.body.getBody());
+  assert.equal(seen[0].rays, xr.rays);
+  assert.equal(seen[0].frame.id, 'xr-frame');
+  await viewer.dispose();
+  await xr.dispose();
+});
+
 test('skykit/xr control bindings read axes and button edges', () => {
   const source = {
     handedness: 'right',
@@ -168,6 +357,147 @@ test('skykit/xr body, rays, and pick router compose generic route results', () =
   const route = router.route({ rig, body });
   assert.equal(route.type, 'hit');
   assert.equal(route.hit.object, 'target');
+});
+
+test('skykit/xr pick bridge routes direct blockers before direct targets', () => {
+  const calls = [];
+  const bridge = createSkykitXrPickBridgePlugin({
+    raySource: fixedRaySource(),
+    blockers: [
+      (_ray, context) => {
+        calls.push('blocker');
+        assert.equal(context.maxDistance, 10);
+        return { distance: 3 };
+      },
+    ],
+    targets: [
+      (_ray, context) => {
+        calls.push('target');
+        assert.equal(context.maxDistance, 3);
+        return { distance: 2, object: 'target' };
+      },
+    ],
+  });
+
+  const route = bridge.route();
+  assert.equal(route.type, 'hit');
+  assert.equal(route.maxDistance, 3);
+  assert.equal(route.hit.object, 'target');
+  assert.deepEqual(calls, ['blocker', 'target']);
+});
+
+test('skykit/xr pick bridge attaches and detaches product blockers and targets', async () => {
+  const products = createSkykitProductRegistryPlugin({ id: 'products' });
+  const bridge = createSkykitXrPickBridgePlugin({
+    raySource: fixedRaySource(),
+    blockerProducts: [productRef('interaction:test/blockers')],
+    targetProducts: ['interaction:test/targets'],
+  });
+  const viewer = await createSkykitViewer({
+    plugins: [products, bridge],
+  });
+  const blocker = () => ({ distance: 4 });
+  const target = (_ray, context) => ({ distance: context.maxDistance, object: 'product-target' });
+  const removeBlockers = products.provide('interaction:test/blockers', [blocker]);
+  const removeTargets = products.provide('interaction:test/targets', new Set([target]));
+
+  let route = bridge.route();
+  assert.equal(route.type, 'hit');
+  assert.equal(route.maxDistance, 4);
+  assert.equal(route.hit.object, 'product-target');
+
+  removeTargets();
+  route = bridge.route();
+  assert.equal(route.type, 'miss');
+
+  removeBlockers();
+  assert.equal(bridge.getSnapshot().productBlockerCount, 0);
+  await viewer.dispose();
+});
+
+test('skykit/xr pick bridge consumes hosted-layer published target products', async () => {
+  const products = createSkykitProductRegistryPlugin({ id: 'products' });
+  const bridge = createSkykitXrPickBridgePlugin({
+    raySource: fixedRaySource(),
+    targetProducts: [productRef('interaction:hosted/target')],
+  });
+  const layerHost = createSkykitLayerHostPlugin({
+    layers: [
+      {
+        id: 'target-layer',
+        setup(ctx) {
+          ctx.provideProduct('interaction:hosted/target', {
+            pick() {
+              return { distance: 2, object: 'hosted-target' };
+            },
+          });
+        },
+      },
+    ],
+  });
+  const viewer = await createSkykitViewer({
+    plugins: [products, bridge, layerHost],
+  });
+
+  const route = bridge.route();
+  assert.equal(route.type, 'hit');
+  assert.equal(route.hit.object, 'hosted-target');
+  await viewer.dispose();
+});
+
+test('skykit/xr pick bridge routeOnFrame includes composition frame handles', () => {
+  let part = null;
+  let routedContext = null;
+  const rig = createSkykitXrRig();
+  const body = { head: null, leftHand: null, rightHand: null, ship: rig.getNavigationPose() };
+  const rays = { right: fixedRaySource() };
+  const bridge = createSkykitXrPickBridgePlugin({
+    raySource: fixedRaySource(),
+    routeOnFrame: true,
+    targets: [
+      (_ray, context) => {
+        routedContext = context;
+        return { distance: 1, object: 'frame-target' };
+      },
+    ],
+  });
+  bridge.setup(createPluginContext({
+    addPart(nextPart) {
+      part = nextPart;
+    },
+  }));
+
+  part.update({
+    ...createXrFrame(),
+    xr: {
+      presenting: true,
+      frame: { id: 'native-frame' },
+      session: { id: 'session', inputSources: [{ handedness: 'right' }] },
+      referenceSpace: { id: 'reference-space' },
+      rig,
+      body,
+      rays,
+    },
+  });
+
+  assert.equal(bridge.getSnapshot().lastRoute.type, 'hit');
+  assert.equal(routedContext.frame.id, 'native-frame');
+  assert.equal(routedContext.session.id, 'session');
+  assert.equal(routedContext.referenceSpace.id, 'reference-space');
+  assert.equal(routedContext.rig, rig);
+  assert.equal(routedContext.body, body);
+  assert.equal(routedContext.rays, rays);
+  rig.dispose();
+});
+
+test('skykit/xr pick bridge returns a miss without product refs or targets', () => {
+  const bridge = createSkykitXrPickBridgePlugin({
+    raySource: fixedRaySource(),
+  });
+
+  const route = bridge.route();
+  assert.equal(route.type, 'miss');
+  assert.equal(route.hit, null);
 });
 
 test('skykit/xr body plugin drives tracked hand roots before dependent parts', () => {
@@ -675,5 +1005,25 @@ function createXrFrame(overrides = {}) {
       },
       referenceSpace: overrides.referenceSpace ?? {},
     },
+  };
+}
+
+function fixedRaySource() {
+  return {
+    id: 'fixed-ray-source',
+    getRay() {
+      return {
+        id: 'fixed-ray',
+        kind: 'target-ray',
+        handedness: 'right',
+        origin: { x: 0, y: 0, z: 0 },
+        direction: { x: 0, y: 0, z: -1 },
+        length: 10,
+      };
+    },
+    getSnapshot() {
+      return { id: 'fixed-ray-source' };
+    },
+    dispose() {},
   };
 }

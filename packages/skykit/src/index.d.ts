@@ -115,6 +115,9 @@ export interface SkykitXrFrameState {
   frame?: unknown;
   session?: unknown;
   referenceSpace?: unknown;
+  rig?: unknown;
+  body?: unknown;
+  rays?: Record<string, unknown>;
 }
 
 export interface SkykitFrameOptions {
@@ -536,7 +539,10 @@ export interface SkykitLayerState {
   view: SkykitViewState;
   navigation: SkykitLayerNavigationState;
   camera: SkykitLayerCameraState;
+  xr?: SkykitLayerXrState | null;
 }
+
+export interface SkykitLayerXrState extends SkykitXrFrameState {}
 
 export interface SkykitLayerAddObjectOptions {
   anchorMode?: SkykitLayerAnchorMode;
