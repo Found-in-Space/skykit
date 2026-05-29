@@ -67,7 +67,7 @@ const DEFAULT_STAR_PICK_ATTRIBUTES = Object.freeze(['objectRef', 'pickMeta']);
  * @typedef {{
  *   provider: StarOctreeProviderService | null;
  *   source: SkykitStarCellSource | null;
- *   sourcePlugin: SkykitPlugin | null;
+ *   sourcePlugins: SkykitPlugin[];
  *   starField: ThreeStarField | null;
  *   starLayer: SkykitStreamingStarsPlugin | null;
  *   ownsProvider: boolean;
@@ -89,9 +89,10 @@ export async function createSkykitVrViewer(options = {}) {
   const ownsRenderer = !options.renderer;
   const camera = options.camera ?? createDefaultVrCamera();
   const view = createVrView(options.view);
-  const xr = createVrXrComposition(options.xr, renderer, camera);
+  const xr = createVrXrComposition(options.xr, renderer, camera, view);
   const products = createVrProducts(options.products);
-  const stars = createVrStarBundle(options.stars, view);
+  const callerPlugins = Array.from(options.plugins ?? []);
+  const stars = createVrStarBundle(options.stars, view, callerPlugins);
   const layerHost = createVrLayerHost(options.layerHost, options.layers);
   const pickBridge = createVrPickBridge(xr, options.pickBridge);
   const starPicking = createVrStarPicking(stars, xr, options.stars);
@@ -99,12 +100,12 @@ export async function createSkykitVrViewer(options = {}) {
   const plugins = [
     ...(xr?.plugins ?? []),
     ...(products.plugin ? [products.plugin] : []),
-    ...(stars.sourcePlugin ? [stars.sourcePlugin] : []),
+    ...stars.sourcePlugins,
     ...(stars.starLayer ? [stars.starLayer] : []),
     ...(layerHost ? [layerHost] : []),
     ...(pickBridge ? [pickBridge] : []),
     ...(starPicking ? [starPicking] : []),
-    ...(options.plugins ?? []),
+    ...callerPlugins,
   ];
 
   const viewer = await createSkykitViewer({
@@ -258,9 +259,10 @@ function createDefaultVrCamera() {
  * @param {SkykitVrXrOptions | false | undefined} options
  * @param {THREE.WebGLRenderer | import('../index.d.ts').SkykitRendererLike} renderer
  * @param {THREE.Camera} camera
+ * @param {Partial<SkykitViewState>} view
  * @returns {SkykitXrComposition | null}
  */
-function createVrXrComposition(options, renderer, camera) {
+function createVrXrComposition(options, renderer, camera, view) {
   if (options === false) return null;
   enableRendererXr(renderer);
   const {
@@ -283,6 +285,9 @@ function createVrXrComposition(options, renderer, camera) {
     ...compositionOptions,
     renderer,
     camera,
+    coordinateUnitsPerParsec: compositionOptions.coordinateUnitsPerParsec
+      ?? view.coordinateUnitsPerParsec
+      ?? DEFAULT_COORDINATE_UNITS_PER_PARSEC,
     session: sessionOptions,
     navigation: navigationInput === false
       ? false
@@ -324,14 +329,15 @@ function createVrProducts(options) {
 /**
  * @param {SkykitVrStarsOptions | false | undefined} options
  * @param {Partial<SkykitViewState>} view
+ * @param {SkykitPluginInput[]} callerPlugins
  * @returns {VrStarBundle}
  */
-function createVrStarBundle(options, view) {
+function createVrStarBundle(options, view, callerPlugins) {
   if (options === false) {
     return {
       provider: null,
       source: null,
-      sourcePlugin: null,
+      sourcePlugins: [],
       starField: null,
       starLayer: null,
       ownsProvider: false,
@@ -357,15 +363,13 @@ function createVrStarBundle(options, view) {
     retainCellsOnRestart: stars.retainCellsOnRestart,
     publish,
   });
-  const sourcePlugin = stars.source
-    ? publish === false
-      ? null
-      : createStarSourcePublisherPlugin({
-          id: `${id}:products`,
-          source,
-          publish,
-        })
-    : source;
+  const sourcePlugins = createVrSourcePlugins({
+    id,
+    source,
+    sourceWasSupplied: Boolean(stars.source),
+    publish,
+    callerPlugins,
+  });
   const starField = stars.renderer ?? createThreeStarField({
     limitingMagnitude: positiveNumber(view.limitingMagnitude, DEFAULT_LIMITING_MAGNITUDE),
   });
@@ -384,12 +388,40 @@ function createVrStarBundle(options, view) {
   return {
     provider,
     source,
-    sourcePlugin,
+    sourcePlugins,
     starField,
     starLayer,
     ownsProvider,
     ownsStarField,
   };
+}
+
+/**
+ * @param {{
+ *   id: string;
+ *   source: SkykitStarCellSource;
+ *   sourceWasSupplied: boolean;
+ *   publish: SkykitStarSourcePublishOptions | false;
+ *   callerPlugins: SkykitPluginInput[];
+ * }} options
+ * @returns {SkykitPlugin[]}
+ */
+function createVrSourcePlugins(options) {
+  if (!options.sourceWasSupplied) {
+    return [options.source];
+  }
+  const plugins = [];
+  if (!callerPluginsIncludeSource(options.callerPlugins, options.source)) {
+    plugins.push(createNonOwningStarSourcePlugin(options.source));
+  }
+  if (options.publish !== false) {
+    plugins.push(createStarSourcePublisherPlugin({
+      id: `${options.id}:products`,
+      source: options.source,
+      publish: options.publish,
+    }));
+  }
+  return plugins;
 }
 
 /**
@@ -605,6 +637,68 @@ function createStarSourcePublisherPlugin(options) {
 }
 
 /**
+ * Installs a caller-owned source into this viewer without making the viewer
+ * responsible for disposing that source.
+ *
+ * @param {SkykitStarCellSource} source
+ * @returns {SkykitPlugin & { getSnapshot(): unknown }}
+ */
+function createNonOwningStarSourcePlugin(source) {
+  const id = `${source.id}:viewer-lifecycle`;
+  let removePart = /** @type {SkykitPluginTeardown | null} */ (null);
+  return {
+    id,
+    setup(context) {
+      const threeContext = /** @type {import('../index.d.ts').SkykitThreePluginContext} */ (context);
+      removePart = threeContext.addPart({
+        id: source.id,
+        priority: source.priority,
+        attach(nextContext) {
+          return source.attach?.(nextContext);
+        },
+        start(nextContext) {
+          return source.start?.(nextContext);
+        },
+        update(frame) {
+          return source.update?.(frame);
+        },
+        beforeRender(frame) {
+          return source.beforeRender?.(frame);
+        },
+        afterRender(frame) {
+          return source.afterRender?.(frame);
+        },
+        resize(size) {
+          return source.resize?.(size);
+        },
+        setView(view) {
+          return source.setView?.(view);
+        },
+        detach() {
+          return source.detach?.();
+        },
+        dispose() {
+          return source.detach?.();
+        },
+        getSnapshot() {
+          return source.getSnapshot?.() ?? { id: source.id };
+        },
+      });
+      return () => {
+        removePart?.();
+        removePart = null;
+      };
+    },
+    getSnapshot() {
+      return {
+        id,
+        source: source.getSnapshot?.() ?? { id: source.id },
+      };
+    },
+  };
+}
+
+/**
  * @param {ThreeStarField} starField
  * @returns {ThreeStarField}
  */
@@ -678,6 +772,14 @@ function isLayerHostPlugin(value) {
     && typeof value === 'object'
     && typeof /** @type {{ setup?: unknown }} */ (value).setup === 'function'
     && typeof /** @type {{ addLayer?: unknown }} */ (value).addLayer === 'function';
+}
+
+/**
+ * @param {SkykitPluginInput[]} plugins
+ * @param {SkykitStarCellSource} source
+ */
+function callerPluginsIncludeSource(plugins, source) {
+  return plugins.some((plugin) => plugin === source);
 }
 
 /** @param {unknown} value @param {number} fallback */

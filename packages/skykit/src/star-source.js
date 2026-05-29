@@ -258,6 +258,7 @@ export function createSkykitStarSourcePlugin(options) {
   function detach() {
     unsubscribeSession?.();
     unsubscribeSession = null;
+    context = null;
   }
 
   async function dispose() {

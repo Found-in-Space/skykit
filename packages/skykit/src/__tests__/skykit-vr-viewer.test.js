@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import {
   createSkykitLayerHostPlugin,
   createSkykitProductRegistryPlugin,
+  createSkykitStarSourcePlugin,
   productRef,
 } from '../index.js';
 import {
@@ -57,6 +58,7 @@ test('createSkykitVrViewer composes the default XR star viewer path', async () =
   assert.equal(vr.viewer.observerRig, vr.xr.observerRig);
   assert.equal(vr.xr.cameraRoot.children.includes(camera), true);
   assert.equal(renderer.xr.enabled, true);
+  assert.equal(vr.rig.getScaleProfile().worldUnitsPerNavigationUnit, 0.001);
   assert.equal(typeof renderer.animationLoop, 'function');
   assert.deepEqual(setupOrder, ['caller']);
   assert.equal(provider.sessions.length, 1);
@@ -73,6 +75,32 @@ test('createSkykitVrViewer composes the default XR star viewer path', async () =
   assert.equal(renderer.animationLoop, null);
   assert.equal(renderer.disposed, false);
   assert.equal(provider.disposed, false);
+});
+
+test('createSkykitVrViewer starts a caller-owned SkyKit star source without disposing it', async () => {
+  const provider = createProvider();
+  const source = createSkykitStarSourcePlugin({ provider });
+  const vr = await createSkykitVrViewer({
+    renderer: createRenderer(),
+    stars: {
+      source,
+      renderer: createStarField(),
+    },
+    loop: false,
+    autoResize: false,
+    autoDispose: false,
+  });
+
+  assert.equal(vr.starSource, source);
+  assert.equal(provider.sessions.length, 1);
+  assert.equal(source.getSnapshot().demandCount, 2);
+
+  await vr.dispose();
+  assert.equal(source.getSnapshot().disposed, false);
+  assert.equal(provider.sessions[0].disposed, false);
+
+  await source.dispose();
+  assert.equal(provider.sessions[0].disposed, true);
 });
 
 test('createSkykitVrViewer can disable stars while keeping the XR viewer', async () => {
