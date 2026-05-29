@@ -13,6 +13,7 @@ import type {
   SkykitDragLookOptions,
   SkykitLookAtInput,
   SkykitKeyboardNavigationOptions,
+  SkykitOrbitDragOptions,
   SkykitPluginInput,
   SkykitPluginTeardown,
   SkykitThreePart,
@@ -30,7 +31,20 @@ export type SkykitBrowserHost = string | {
 };
 
 export type SkykitBrowserStatusTarget = string | { textContent?: string | null };
-export type SkykitBrowserMouseMode = 'grab' | 'look' | 'strafe' | 'none';
+export type SkykitBrowserMouseMode =
+  | 'grab'
+  | 'look'
+  | 'mouse-look'
+  | 'mouselook'
+  | 'game'
+  | 'strafe'
+  | 'orbit'
+  | 'object-orbit'
+  | 'orbital'
+  | 'inspect'
+  | 'none'
+  | 'off'
+  | 'false';
 export type SkykitConstellationArtMode = 'off' | 'lazy' | 'preload';
 export type SkykitPersistentCacheMode = 'on' | 'off';
 
@@ -98,7 +112,7 @@ export interface SkykitBrowserOptions {
   strategy?: StarCellStrategy;
   session?: StarOctreeSessionOptions;
   keyboard?: false | SkykitKeyboardNavigationOptions;
-  grab?: false | SkykitDragLookOptions;
+  grab?: false | SkykitDragLookOptions | SkykitOrbitDragOptions;
   mouseMode?: SkykitBrowserMouseMode;
   plugins?: Iterable<SkykitPluginInput>;
   view?: Partial<SkykitViewState>;

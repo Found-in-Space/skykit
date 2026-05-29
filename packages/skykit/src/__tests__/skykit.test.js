@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import * as THREE from 'three';
 import {
@@ -8,6 +9,9 @@ import {
 } from '@found-in-space/star-trees';
 
 import {
+  LOCAL_UP,
+  applyQuaternion,
+  computeSpatialLookAtOrientation,
   resolveSpatialTarget,
 } from '@found-in-space/spatial';
 import {
@@ -23,6 +27,7 @@ import {
   createRaDecLookAt,
   createMouseLookPlugin,
   createSkyGrabPlugin,
+  createSkyOrbitPlugin,
   createSkykitDefaultKeyboardNavigationBindings,
   createSkykitAnimationLoop,
   createSkykitDebugBridge,
@@ -1747,6 +1752,228 @@ test('mouse look plugin uses opposite drag direction from sky grab', async () =>
   await viewer.dispose();
 });
 
+test('sky orbit plugin orbits around the target and cleans pointer listeners', async () => {
+  const center = { x: 0, y: 0, z: 0 };
+  const target = createEventTarget();
+  const plugin = createSkyOrbitPlugin({
+    target,
+    sensitivityRadiansPerPixel: 0.01,
+  });
+  const observerPc = { x: 0, y: 0, z: -10 };
+  const orientationIcrs = computeSpatialLookAtOrientation({
+    position: observerPc,
+    target: center,
+    up: { x: 0, y: 1, z: 0 },
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: {
+      observerPc,
+      targetPc: center,
+      orientationIcrs,
+    },
+    plugins: [plugin],
+  });
+
+  assert.equal(target.listenerCount('pointerdown'), 1);
+  assert.equal(target.listenerCount('pointermove'), 1);
+  assert.equal(target.listenerCount('pointerup'), 1);
+  assert.equal(target.listenerCount('pointercancel'), 1);
+
+  const down = target.dispatch('pointerdown', { button: 0, pointerId: 9, clientX: 100, clientY: 100 });
+  assert.equal(down.defaultPrevented, true);
+  assert.equal(plugin.getSnapshot().dragging, true);
+  assert.deepEqual(plugin.getSnapshot().centerPc, center);
+  assert.equal(plugin.getSnapshot().radiusPc, 10);
+
+  const move = target.dispatch('pointermove', { pointerId: 9, clientX: 110, clientY: 100 });
+  assert.equal(move.defaultPrevented, true);
+  viewer.update(0);
+
+  const view = viewer.getViewState();
+  assert.ok(Math.abs(view.observerPc.x) > 0.01);
+  assert.ok(Math.abs(distance(view.observerPc, center) - 10) < 1e-9);
+  assertVectorApprox(view.targetPc, center);
+  assertVectorApprox(
+    applyQuaternion({ x: 0, y: 0, z: -1 }, view.orientationIcrs),
+    normalizeVector(subtractVectors(center, view.observerPc)),
+  );
+  assertVectorApprox(applyQuaternion(LOCAL_UP, view.orientationIcrs), { x: 0, y: 1, z: 0 });
+
+  target.dispatch('pointerup', { pointerId: 9 });
+  assert.equal(plugin.getSnapshot().dragging, false);
+
+  await viewer.dispose();
+  assert.equal(target.listenerCount('pointerdown'), 0);
+  assert.equal(target.listenerCount('pointermove'), 0);
+  assert.equal(target.listenerCount('pointerup'), 0);
+  assert.equal(target.listenerCount('pointercancel'), 0);
+});
+
+test('sky orbit plugin ignores pointer down without a concrete center', async () => {
+  const center = { x: 0, y: 0, z: 0 };
+  const orientationIcrs = computeSpatialLookAtOrientation({
+    position: { x: 0, y: 0, z: -10 },
+    target: center,
+  });
+  const target = createEventTarget();
+  const plugin = createSkyOrbitPlugin({ target });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: {
+      observerPc: { x: 0, y: 0, z: -10 },
+      orientationIcrs,
+    },
+    plugins: [plugin],
+  });
+
+  const down = target.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 20, clientY: 30 });
+  assert.equal(down.defaultPrevented, false);
+  assert.equal(plugin.getSnapshot().dragging, false);
+  assert.equal(plugin.getSnapshot().sensitivityRadiansPerPixel, 0.00115);
+
+  await viewer.dispose();
+});
+
+test('sky orbit plugin resolves centerPc shorthand and lets center win over centerPc', async () => {
+  const center = { x: 0, y: 0, z: 0 };
+  const ignoredCenter = { x: 2, y: 0, z: 0 };
+  const orientationIcrs = computeSpatialLookAtOrientation({
+    position: { x: 0, y: 0, z: -10 },
+    target: center,
+  });
+  const shorthandTarget = createEventTarget();
+  const shorthandPlugin = createSkyOrbitPlugin({
+    target: shorthandTarget,
+    centerPc: center,
+    sensitivityRadiansPerPixel: 0.01,
+  });
+  const shorthandViewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: {
+      observerPc: { x: 0, y: 0, z: -10 },
+      orientationIcrs,
+    },
+    plugins: [shorthandPlugin],
+  });
+
+  shorthandTarget.dispatch('pointerdown', { button: 0, pointerId: 2, clientX: 100, clientY: 100 });
+  shorthandTarget.dispatch('pointermove', { pointerId: 2, clientX: 112, clientY: 100 });
+  shorthandViewer.update(0);
+  assertVectorApprox(shorthandViewer.getViewState().targetPc, center);
+  await shorthandViewer.dispose();
+
+  const explicitTarget = createEventTarget();
+  const explicitPlugin = createSkyOrbitPlugin({
+    target: explicitTarget,
+    center: { targetPc: center },
+    centerPc: ignoredCenter,
+    sensitivityRadiansPerPixel: 0.01,
+  });
+  const explicitViewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: {
+      observerPc: { x: 0, y: 0, z: -10 },
+      orientationIcrs,
+    },
+    plugins: [explicitPlugin],
+  });
+
+  explicitTarget.dispatch('pointerdown', { button: 0, pointerId: 3, clientX: 100, clientY: 100 });
+  explicitTarget.dispatch('pointermove', { pointerId: 3, clientX: 112, clientY: 100 });
+  explicitViewer.update(0);
+  assertVectorApprox(explicitViewer.getViewState().targetPc, center);
+  assert.notDeepEqual(explicitViewer.getViewState().targetPc, ignoredCenter);
+  await explicitViewer.dispose();
+});
+
+test('sky orbit plugin setEnabled cancels drag and zero-delta moves leave the view unchanged', async () => {
+  const center = { x: 0, y: 0, z: 0 };
+  const target = createEventTarget();
+  const plugin = createSkyOrbitPlugin({
+    target,
+    centerPc: center,
+    sensitivityRadiansPerPixel: 0.01,
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: {
+      observerPc: { x: 0, y: 0, z: -10 },
+      lookAt: { targetPc: center },
+    },
+    plugins: [plugin],
+  });
+
+  target.dispatch('pointerdown', { button: 0, pointerId: 4, clientX: 100, clientY: 100 });
+  assert.equal(plugin.getSnapshot().dragging, true);
+  const beforeZeroDelta = viewer.getViewState();
+  target.dispatch('pointermove', { pointerId: 4, clientX: 100, clientY: 100 });
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState(), beforeZeroDelta);
+
+  plugin.setEnabled(false);
+  assert.equal(plugin.getSnapshot().dragging, false);
+  const beforeDisabledMove = viewer.getViewState();
+  target.dispatch('pointermove', { pointerId: 4, clientX: 120, clientY: 100 });
+  target.dispatch('pointerdown', { button: 0, pointerId: 5, clientX: 100, clientY: 100 });
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState(), beforeDisabledMove);
+  assert.equal(plugin.getSnapshot().dragging, false);
+
+  await viewer.dispose();
+});
+
+test('sky orbit plugin carries a rolled camera up vector through drag look-at orientation', async () => {
+  const center = { x: 0, y: 0, z: 0 };
+  const observerPc = { x: 0, y: 0, z: -10 };
+  const rolledUp = normalizeVector({ x: 1, y: 1, z: 0 });
+  const orientationIcrs = computeSpatialLookAtOrientation({
+    position: observerPc,
+    target: center,
+    up: rolledUp,
+  });
+  const initialUp = applyQuaternion(LOCAL_UP, orientationIcrs);
+  const target = createEventTarget();
+  const plugin = createSkyOrbitPlugin({
+    target,
+    centerPc: center,
+    sensitivityRadiansPerPixel: 0.01,
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: {
+      observerPc,
+      orientationIcrs,
+    },
+    plugins: [plugin],
+  });
+
+  target.dispatch('pointerdown', { button: 0, pointerId: 6, clientX: 100, clientY: 100 });
+  target.dispatch('pointermove', { pointerId: 6, clientX: 110, clientY: 100 });
+  viewer.update(0);
+
+  assertVectorApprox(
+    applyQuaternion(LOCAL_UP, viewer.getViewState().orientationIcrs),
+    initialUp,
+    1e-9,
+  );
+
+  await viewer.dispose();
+});
+
+test('hyades orbit package example installs the orbit plugin and object layers', () => {
+  const source = readFileSync(
+    new URL('../../examples/hyades-orbit/index.html', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(source, /createSkyOrbitPlugin/);
+  assert.match(source, /centerPc:\s*HYADES_CENTER_PC/);
+  assert.match(source, /lookAt:\s*\{\s*targetPc:\s*HYADES_CENTER_PC\s*\}/);
+  assert.match(source, /id:\s*'hyades-marker'/);
+  assert.match(source, /id:\s*'sol-radio-bubble'/);
+});
+
 test('status plugin renders compact viewer snapshots to callback and text targets', async () => {
   const payloads = [];
   const textTarget = { textContent: '' };
@@ -2025,6 +2252,10 @@ function subtractVectors(a, b) {
     y: a.y - b.y,
     z: a.z - b.z,
   };
+}
+
+function distance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
 function normalizeVector(vector) {

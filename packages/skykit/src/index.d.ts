@@ -878,6 +878,42 @@ export interface SkykitDragLookOptions {
   preventDefault?: boolean;
 }
 
+export interface SkykitOrbitDragOptions {
+  id?: string;
+  priority?: number;
+  target?: EventTarget | null;
+  enabled?: boolean;
+  center?: SpatialTargetInput | SkykitLookAtInput | null;
+  centerPc?: Vector3Like | null;
+  fallbackCenter?: 'targetPc' | 'lookAt' | 'origin' | 'none';
+  sensitivityRadiansPerPixel?: number;
+  verticalSensitivityRadiansPerPixel?: number;
+  horizontalAxisMode?: 'screen-up' | 'world-up';
+  worldUp?: Vector3Like;
+  button?: number;
+  preventDefault?: boolean;
+  lockLookAt?: boolean;
+}
+
+export interface SkykitOrbitDragSnapshot {
+  id: string;
+  enabled: boolean;
+  attached: boolean;
+  dragging: boolean;
+  centerPc: Vector3Like | null;
+  radiusPc: number | null;
+  sensitivityRadiansPerPixel: number;
+  verticalSensitivityRadiansPerPixel: number;
+  horizontalAxisMode: 'screen-up' | 'world-up';
+  worldUp: Vector3Like | null;
+}
+
+export interface SkykitOrbitDragPlugin extends SkykitPlugin {
+  getSnapshot(): SkykitOrbitDragSnapshot;
+  setEnabled(nextEnabled: boolean): void;
+  setCenter(nextCenter: SpatialTargetInput | SkykitLookAtInput | Vector3Like | null): void;
+}
+
 export interface SkykitStatusPayload {
   viewer: SkykitViewerSnapshot;
   view: SkykitViewState;
@@ -1149,6 +1185,7 @@ export declare function createSkyGrabPlugin(options?: SkykitDragLookOptions): Sk
 export declare function createMouseLookPlugin(options?: SkykitDragLookOptions): SkykitPlugin & {
   getSnapshot(): unknown;
 };
+export declare function createSkyOrbitPlugin(options?: SkykitOrbitDragOptions): SkykitOrbitDragPlugin;
 export declare function createSkykitStatusPlugin(options?: SkykitStatusPluginOptions): SkykitPlugin & {
   getSnapshot(): unknown;
 };

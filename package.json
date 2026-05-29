@@ -28,7 +28,7 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "dev:examples": "npm run dev --workspace @found-in-space/skykit-examples",
     "build:examples": "npm run build --workspace @found-in-space/skykit-examples",
