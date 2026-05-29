@@ -93,18 +93,22 @@ export async function createSkykitVrViewer(options = {}) {
   const products = createVrProducts(options.products);
   const callerPlugins = Array.from(options.plugins ?? []);
   const stars = createVrStarBundle(options.stars, view, callerPlugins);
+  const sourcePlugins = createVrSourceInputPlugins(options.sources);
   const layerHost = createVrLayerHost(options.layerHost, options.layers);
   const pickBridge = createVrPickBridge(xr, options.pickBridge);
   const starPicking = createVrStarPicking(stars, xr, options.stars);
+  const instruments = Array.from(options.instruments ?? []);
 
   const plugins = [
     ...(xr?.plugins ?? []),
     ...(products.plugin ? [products.plugin] : []),
     ...stars.sourcePlugins,
+    ...sourcePlugins,
     ...(stars.starLayer ? [stars.starLayer] : []),
     ...(layerHost ? [layerHost] : []),
     ...(pickBridge ? [pickBridge] : []),
     ...(starPicking ? [starPicking] : []),
+    ...instruments,
     ...callerPlugins,
   ];
 
@@ -370,6 +374,11 @@ function createVrStarBundle(options, view, callerPlugins) {
     publish,
     callerPlugins,
   });
+  sourcePlugins.push(...createVrStarDemandPlugins({
+    id,
+    source,
+    demands: stars.demands,
+  }));
   const starField = stars.renderer ?? createThreeStarField({
     limitingMagnitude: positiveNumber(view.limitingMagnitude, DEFAULT_LIMITING_MAGNITUDE),
   });
@@ -394,6 +403,57 @@ function createVrStarBundle(options, view, callerPlugins) {
     ownsProvider,
     ownsStarField,
   };
+}
+
+/**
+ * @param {SkykitVrViewerOptions['sources']} sources
+ * @returns {SkykitPlugin[]}
+ */
+function createVrSourceInputPlugins(sources) {
+  return Array.from(sources ?? []).map((source, index) => {
+    if (
+      typeof source === 'function' ||
+      (source && typeof source === 'object' && typeof /** @type {{ setup?: unknown }} */ (source).setup === 'function')
+    ) {
+      return /** @type {SkykitPlugin} */ (source);
+    }
+    return {
+      id: typeof /** @type {{ id?: unknown }} */ (source ?? {}).id === 'string'
+        ? /** @type {{ id: string }} */ (source).id
+        : `skykit-vr-source-${index + 1}`,
+      setup() {},
+      getSnapshot() {
+        return typeof /** @type {{ getSnapshot?: unknown }} */ (source ?? {}).getSnapshot === 'function'
+          ? /** @type {{ getSnapshot: () => unknown }} */ (source).getSnapshot()
+          : { installed: true };
+      },
+    };
+  });
+}
+
+/**
+ * @param {{
+ *   id: string;
+ *   source: SkykitStarCellSource;
+ *   demands: SkykitVrStarsOptions['demands'];
+ * }} options
+ * @returns {SkykitPlugin[]}
+ */
+function createVrStarDemandPlugins(options) {
+  const demands = Array.from(options.demands ?? []);
+  if (demands.length === 0) return [];
+  return [{
+    id: `${options.id}:demands`,
+    setup() {
+      const teardowns = demands.map((demand, index) => options.source.addDemand({
+        ...demand,
+        id: demand.id ?? `${options.id}:demand-${index + 1}`,
+      }));
+      return () => {
+        for (const teardown of teardowns.splice(0).reverse()) teardown();
+      };
+    },
+  }];
 }
 
 /**

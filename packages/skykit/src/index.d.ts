@@ -403,6 +403,24 @@ export interface SkykitProductRef<T = unknown> {
 
 export interface SkykitProductRegistryPlugin extends SkykitPlugin, SkykitProductRegistry {}
 
+export interface SkykitSelectionStore<T = unknown> {
+  getPrimary(): T | null;
+  setPrimary(value: T | null, metadata?: Record<string, unknown>): void;
+  subscribe(listener: (selection: T | null) => void): SkykitPluginTeardown;
+  getSnapshot(): unknown;
+}
+
+export interface SkykitSelectionProductsPluginOptions<T = unknown> {
+  id?: string;
+  primary?: SkykitSelectionStore<T>;
+  hovered?: false | SkykitSelectionStore<T>;
+  initialPrimary?: T | null;
+  initialHovered?: T | null;
+  primaryKey?: SkykitProductKey | false;
+  hoveredKey?: SkykitProductKey | false;
+  metadata?: SkykitProductMetadata;
+}
+
 export interface SkykitThreePluginContext extends SkykitPluginContext {
   readonly scene: THREE.Scene;
   readonly renderer: THREE.WebGLRenderer | SkykitRendererLike;
@@ -526,6 +544,7 @@ export interface Object3dLayerOptions {
 export interface SkykitLayerCameraState {
   verticalFovDeg?: number;
   aspectRatio?: number;
+  viewProjection?: unknown;
 }
 
 export interface SkykitLayerNavigationState {
@@ -540,6 +559,7 @@ export interface SkykitLayerState {
   navigation: SkykitLayerNavigationState;
   camera: SkykitLayerCameraState;
   xr?: SkykitLayerXrState | null;
+  scale?: SkykitScaleState | null;
 }
 
 export interface SkykitLayerXrState extends SkykitXrFrameState {}
@@ -561,11 +581,27 @@ export interface SkykitLayerContext extends SkykitThreePluginContext {
     value: T,
     metadata?: SkykitProductMetadata
   ): SkykitPluginTeardown;
+  addDemand?(
+    source:
+      | SkykitStarCellSource
+      | SkykitSpatialLayerSource
+      | SkykitProductRef<SkykitStarCellSource | SkykitSpatialLayerSource>,
+    demand: SkykitStarCellDemand | SkykitSpatialDemand
+  ): SkykitPluginTeardown;
+  addPickTarget?(
+    target: unknown,
+    options?: SkykitLayerInteractionProductOptions
+  ): SkykitPluginTeardown;
+  addPickBlocker?(
+    blocker: unknown,
+    options?: SkykitLayerInteractionProductOptions
+  ): SkykitPluginTeardown;
 }
 
 export interface SkykitHostedLayer {
   id?: string;
   priority?: number;
+  scalePolicy?: SkykitLayerScalePolicy;
   setup?(ctx: SkykitLayerContext): void | Promise<void> | SkykitPluginTeardown | Promise<SkykitPluginTeardown | void>;
   attach?(ctx: SkykitLayerContext): void | Promise<void>;
   start?(ctx: SkykitLayerContext): void | Promise<void>;
@@ -577,6 +613,7 @@ export interface SkykitHostedLayer {
   resize?(size: SkykitViewportSize, ctx: SkykitLayerContext): void;
   detach?(ctx: SkykitLayerContext): void | Promise<void>;
   dispose?(ctx: SkykitLayerContext): void | Promise<void>;
+  getBounds?(): SkykitLayerBounds | SkykitLayerBounds[] | null;
   getSnapshot?(): unknown;
 }
 
@@ -595,13 +632,80 @@ export interface SkykitLayerHostSnapshot {
     started: boolean;
     setupComplete: boolean;
     childPartCount: number;
+    localPickBlockerCount?: number;
+    localPickTargetCount?: number;
+    demandCount?: number;
+    activationMode?: SkykitLayerActivationMode;
+    bounds?: unknown;
     snapshot: unknown;
   }>;
 }
 
 export interface SkykitLayerHostPlugin extends SkykitPlugin {
   addLayer(layer: SkykitHostedLayer): SkykitPluginTeardown;
+  getPickBlockers(): unknown[];
+  getPickTargets(): unknown[];
+  getBounds(): SkykitLayerBounds[];
   getSnapshot(): SkykitLayerHostSnapshot;
+}
+
+export interface SkykitLayerInteractionProductOptions {
+  key?: SkykitProductKey | false;
+  metadata?: SkykitProductMetadata;
+}
+
+export type SkykitScaleDomain =
+  | 'solar-system'
+  | 'stellar'
+  | 'galactic'
+  | 'extragalactic'
+  | (string & {});
+
+export interface SkykitScaleState {
+  domain: SkykitScaleDomain;
+  previousDomain?: SkykitScaleDomain | null;
+  transition?: {
+    from: SkykitScaleDomain;
+    to: SkykitScaleDomain;
+    t: number;
+    phase: 'entering' | 'active' | 'leaving';
+  } | null;
+  coordinateUnitsPerParsec: number;
+  skyFixed: boolean;
+}
+
+export interface SkykitScaleStore {
+  getState(view?: SkykitViewState): SkykitScaleState;
+  setState(patch: Partial<SkykitScaleState>, options?: { reason?: string; source?: unknown; emit?: boolean }): void;
+  subscribe(listener: (state: SkykitScaleState) => void, options?: { replay?: boolean }): SkykitPluginTeardown;
+  getSnapshot(): unknown;
+}
+
+export interface SkykitScaleCoordinatorPluginOptions extends Partial<SkykitScaleState> {
+  id?: string;
+  priority?: number;
+  syncViewScale?: boolean;
+}
+
+export interface SkykitScaleCoordinatorPlugin extends SkykitPlugin {
+  readonly id: string;
+  setDomain(domain: SkykitScaleDomain, options?: { coordinateUnitsPerParsec?: number; skyFixed?: boolean; source?: unknown }): void;
+  startTransition(transition: NonNullable<SkykitScaleState['transition']> & { coordinateUnitsPerParsec?: number; skyFixed?: boolean }, options?: { source?: unknown }): void;
+  completeTransition(payload?: SkykitScaleDomain | Partial<SkykitScaleState> | null, options?: { source?: unknown }): void;
+  getState(): SkykitScaleState;
+  getSnapshot(): unknown;
+}
+
+export type SkykitLayerActivationMode = 'active' | 'frozen' | 'hidden';
+
+export interface SkykitLayerScalePolicy {
+  [domain: string]: {
+    mode?: SkykitLayerActivationMode;
+    anchorMode?: SkykitLayerAnchorMode;
+    scaleBandId?: string;
+    frame?: SkykitSpatialFeatureFrame;
+    demand?: 'live' | 'paused' | 'summary' | string;
+  };
 }
 
 export type SkykitSpatialFeatureFrame =
@@ -617,6 +721,29 @@ export interface SkykitLayerBounds {
   center?: SpatialTargetInput;
   radius?: number;
   [key: string]: unknown;
+}
+
+export interface SkykitSpatialDemand {
+  id?: string;
+  frame?: SkykitSpatialFeatureFrame;
+  bounds?: SkykitLayerBounds;
+  view?: Partial<SkykitViewState>;
+  scale?: Partial<SkykitScaleState>;
+  attributes?: readonly string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface SkykitSpatialLayerSource<TDelta = unknown, TStore = unknown> {
+  readonly id: string;
+  addDemand(demand: SkykitSpatialDemand): SkykitPluginTeardown;
+  removeDemand?(id: string): void;
+  refreshDemand?(reason?: string): void | Promise<void>;
+  subscribe(
+    listener: (delta: TDelta) => void,
+    options?: { replay?: boolean }
+  ): SkykitPluginTeardown;
+  getStore(): TStore;
+  getSnapshot(): unknown;
 }
 
 export interface SkykitSpatialFeature {
@@ -922,6 +1049,28 @@ export interface SkykitStreamingStarsPlugin extends SkykitPlugin {
   getSnapshot(): unknown;
 }
 
+export interface SkykitStellarSkyLayerOptions {
+  id?: string;
+  priority?: number;
+  source: SkykitStarCellSource | SkykitProductRef<SkykitStarCellSource>;
+  renderer: ThreeStarField;
+  strategy?: StarCellStrategy | ((view: SkykitViewState) => StarCellStrategy | null);
+  attributes?: readonly string[];
+  demand?: SkykitStarCellDemand;
+  summaryDemand?: SkykitStarCellDemand;
+  summaryStrategy?: StarCellStrategy | null;
+  summaryAttributes?: readonly string[];
+  anchorMode?: SkykitLayerAnchorMode;
+  scaleBandId?: string;
+  scalePolicy?: SkykitLayerScalePolicy;
+  publish?: SkykitStarSourcePublishOptions | false;
+  disposeRenderer?: boolean;
+}
+
+export interface SkykitStellarSkyLayer extends SkykitHostedLayer {
+  readonly scalePolicy: SkykitLayerScalePolicy;
+}
+
 export interface SkykitStarCellDemand {
   id?: string;
   strategy?: StarCellStrategy | ((view: SkykitViewState) => StarCellStrategy | null) | null;
@@ -1028,6 +1177,28 @@ export interface SkykitHrDiagramPlugin extends SkykitPlugin {
   getMode(): HrDiagramMode;
   setMode(mode: HrDiagramMode): Promise<void>;
   setOptions(options: SkykitHrDiagramPluginRuntimeOptions): Promise<void>;
+  getSnapshot(): unknown;
+}
+
+export interface SkykitStarInstrumentPluginOptions {
+  id?: string;
+  priority?: number;
+  sources: Iterable<SkykitStarCellSource | SkykitProductRef<SkykitStarCellSource>>;
+  overlays?: Iterable<
+    | SkykitFeatureCollection
+    | SkykitWaypoint[]
+    | SkykitProductRef<SkykitFeatureCollection | SkykitWaypoint[]>
+  >;
+  mode?: 'hr' | 'galactic-map' | 'custom' | string;
+  touchOs?: SkykitHrDiagramTouchOsOptions;
+  surfaceKey?: SkykitProductKey | false;
+  surfaceMetadata?: SkykitProductMetadata;
+}
+
+export interface SkykitStarInstrumentPlugin extends SkykitPlugin {
+  readonly id: string;
+  getSource(): HrDiagramSurfaceSource | null;
+  getNode(): DisplayNode | null;
   getSnapshot(): unknown;
 }
 
@@ -1401,6 +1572,11 @@ export declare const SKYKIT_ACTIONS: {
     readonly show: 'skykit:layer.show';
     readonly hide: 'skykit:layer.hide';
   };
+  readonly scale: {
+    readonly setDomain: 'skykit:scale.setDomain';
+    readonly startTransition: 'skykit:scale.startTransition';
+    readonly completeTransition: 'skykit:scale.completeTransition';
+  };
   readonly selection: {
     readonly clear: 'skykit:selection.clear';
     readonly flyToSelected: 'skykit:selection.flyToSelected';
@@ -1410,6 +1586,7 @@ export declare const SKYKIT_ACTIONS: {
     readonly enter: 'skykit:xr.enter';
     readonly exit: 'skykit:xr.exit';
     readonly toggle: 'skykit:xr.toggle';
+    readonly pointerSelect: 'skykit:xr.pointer.select';
   };
 };
 export declare const SKYKIT_CONTROLS: {
@@ -1435,6 +1612,14 @@ export declare function resolveSkykitProductInput<T>(
   products: SkykitProductRegistry,
   valueOrRef: T | SkykitProductRef<T> | null | undefined
 ): T | null;
+export declare function createSkykitSelectionStore<T = unknown>(initial?: T | null): SkykitSelectionStore<T>;
+export declare function createSkykitSelectionProductsPlugin<T = unknown>(
+  options?: SkykitSelectionProductsPluginOptions<T>
+): SkykitPlugin & {
+  readonly primary: SkykitSelectionStore<T>;
+  readonly hovered: SkykitSelectionStore<T> | null;
+  getSnapshot(): unknown;
+};
 export declare function createAnchoredImageCatalog(
   options?: AnchoredImageCatalogOptions
 ): Promise<AnchoredImageCatalog>;
@@ -1452,6 +1637,10 @@ export declare function createDesktopSkykitObserverRig(options?: DesktopSkykitOb
 export declare function createObject3dLayer(options: Object3dLayerOptions): SkykitThreePart;
 export declare function createObject3dPlugin(options: Object3dLayerOptions): SkykitObject3dPlugin;
 export declare function createSkykitLayerHostPlugin(options?: SkykitLayerHostOptions): SkykitLayerHostPlugin;
+export declare function createSkykitScaleCoordinatorPlugin(
+  options?: SkykitScaleCoordinatorPluginOptions
+): SkykitScaleCoordinatorPlugin;
+export declare function getSkykitScaleStore(ctx: SkykitPluginContext): SkykitScaleStore;
 export declare function createSkykitConstellationLayer(
   options: SkykitConstellationLayerOptions
 ): SkykitConstellationLayer;
@@ -1473,7 +1662,9 @@ export declare function createSkykitCoordinateFrameMarkerPlugin(
 export declare function createSkykitStarSourcePlugin(options: SkykitStarSourcePluginOptions): SkykitStarCellSource;
 export declare function createStreamingStarLayer(options: StreamingStarLayerOptions): StreamingStarLayer;
 export declare function createStreamingStarsPlugin(options: StreamingStarLayerOptions): SkykitStreamingStarsPlugin;
+export declare function createSkykitStellarSkyLayer(options: SkykitStellarSkyLayerOptions): SkykitStellarSkyLayer;
 export declare function createSkykitHrDiagramPlugin(options: SkykitHrDiagramPluginOptions): SkykitHrDiagramPlugin;
+export declare function createSkykitStarInstrumentPlugin(options: SkykitStarInstrumentPluginOptions): SkykitStarInstrumentPlugin;
 export declare function createSkykitStarPickingPlugin(options: SkykitStarPickingPluginOptions): SkykitPlugin & {
   getSnapshot(): unknown;
 };

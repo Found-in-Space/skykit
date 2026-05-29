@@ -11,6 +11,7 @@ export {
   readSkykitXrAxis,
   readSkykitXrButton,
 } from './xr/controls.js';
+export { createSkykitXrActionBindingsPlugin } from './xr/action-bindings.js';
 export { createSkykitXrRaySource } from './xr/rays.js';
 export { createSkykitXrPickRouter } from './xr/pick-router.js';
 export {
@@ -18,6 +19,7 @@ export {
   createSkykitXrComposition,
   createSkykitXrPickBridgePlugin,
 } from './xr/composition.js';
+export { createSkykitXrPointerPlugin } from './xr/pointer.js';
 export { createSkykitVrViewer } from './xr/vr-viewer.js';
 export {
   createSkykitXrBodyPlugin,

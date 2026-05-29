@@ -40,6 +40,15 @@ export { createSkykitLayerHostPlugin } from './layer-host.js';
 export { createObject3dLayer } from './layers.js';
 export { createDesktopSkykitObserverRig } from './observer-rig.js';
 export {
+  createSkykitScaleCoordinatorPlugin,
+  getSkykitScaleStore,
+} from './scale.js';
+export {
+  createSkykitSelectionProductsPlugin,
+  createSkykitSelectionStore,
+} from './selection.js';
+export { createSkykitStarInstrumentPlugin } from './star-instrument.js';
+export {
   SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS,
   createSkykitDefaultKeyboardNavigationBindings,
   createKeyboardNavigationPlugin,
@@ -57,6 +66,7 @@ export {
   createSkykitRenderCoordinateOutput,
   createSkykitStarSourcePlugin,
 } from './star-source.js';
+export { createSkykitStellarSkyLayer } from './stellar-sky-layer.js';
 export {
   createSkykitStarPickMetadataResolver,
   createSkykitStarPickingPlugin,

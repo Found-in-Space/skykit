@@ -2,6 +2,7 @@ import {
   getSkykitProductRegistry,
   isSkykitProductRef,
 } from '../products.js';
+import { getSkykitLayerHostRegistry } from '../layer-host.js';
 import { createSkykitXrPickRouter } from './pick-router.js';
 import {
   createSkykitXrBodyPlugin,
@@ -209,6 +210,8 @@ export function createSkykitXrPickBridgePlugin(options) {
   const productBlockers = new Map();
   /** @type {Map<SkykitProductKey, SkykitXrPickTarget[]>} */
   const productTargets = new Map();
+  /** @type {Iterable<{ getPickBlockers?: () => Iterable<unknown>; getPickTargets?: () => Iterable<unknown> }> | null} */
+  let layerHosts = options.layerHosts ? Array.from(options.layerHosts) : null;
   /** @type {SkykitPluginTeardown[]} */
   const teardowns = [];
   /** @type {SkykitXrPickRouteResult | null} */
@@ -230,6 +233,9 @@ export function createSkykitXrPickBridgePlugin(options) {
   /** @param {SkykitThreePluginContext} context */
   function setup(context) {
     const products = getSkykitProductRegistry(context);
+    if (!layerHosts) {
+      layerHosts = getSkykitLayerHostRegistry(context);
+    }
     for (const input of options.blockerProducts ?? []) {
       const key = productInputKey(input);
       teardowns.push(products.subscribe(key, (value) => {
@@ -286,6 +292,7 @@ export function createSkykitXrPickBridgePlugin(options) {
 
   /** @param {SkykitXrRayContext} [context] */
   function route(context = {}) {
+    refreshRouter();
     lastRoute = router.route(context);
     options.onRoute?.(lastRoute);
     return lastRoute;
@@ -293,26 +300,40 @@ export function createSkykitXrPickBridgePlugin(options) {
 
   function getSnapshot() {
     return {
-      id,
-      disposed,
-      directBlockerCount: directBlockers.length,
-      directTargetCount: directTargets.length,
-      productBlockerCount: countProductHandles(productBlockers),
-      productTargetCount: countProductHandles(productTargets),
-      lastRoute,
-      router: router.getSnapshot?.() ?? null,
-    };
+        id,
+        disposed,
+        directBlockerCount: directBlockers.length,
+        directTargetCount: directTargets.length,
+        productBlockerCount: countProductHandles(productBlockers),
+        productTargetCount: countProductHandles(productTargets),
+        layerHostBlockerCount: collectLayerHostBlockers().length,
+        layerHostTargetCount: collectLayerHostTargets().length,
+        lastRoute,
+        router: router.getSnapshot?.() ?? null,
+      };
   }
 
   function refreshRouter() {
     router.setBlockers([
       ...directBlockers,
       ...Array.from(productBlockers.values()).flat(),
+      ...collectLayerHostBlockers(),
     ]);
     router.setTargets([
       ...directTargets,
       ...Array.from(productTargets.values()).flat(),
+      ...collectLayerHostTargets(),
     ]);
+  }
+
+  function collectLayerHostBlockers() {
+    return /** @type {SkykitXrPickBlocker[]} */ (Array.from(layerHosts ?? [])
+      .flatMap((host) => Array.from(host.getPickBlockers?.() ?? [])));
+  }
+
+  function collectLayerHostTargets() {
+    return /** @type {SkykitXrPickTarget[]} */ (Array.from(layerHosts ?? [])
+      .flatMap((host) => Array.from(host.getPickTargets?.() ?? [])));
   }
 }
 

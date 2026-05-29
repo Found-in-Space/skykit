@@ -41,6 +41,11 @@ export const SKYKIT_ACTIONS = Object.freeze({
     show: 'skykit:layer.show',
     hide: 'skykit:layer.hide',
   }),
+  scale: Object.freeze({
+    setDomain: 'skykit:scale.setDomain',
+    startTransition: 'skykit:scale.startTransition',
+    completeTransition: 'skykit:scale.completeTransition',
+  }),
   selection: Object.freeze({
     clear: 'skykit:selection.clear',
     flyToSelected: 'skykit:selection.flyToSelected',
@@ -50,6 +55,7 @@ export const SKYKIT_ACTIONS = Object.freeze({
     enter: 'skykit:xr.enter',
     exit: 'skykit:xr.exit',
     toggle: 'skykit:xr.toggle',
+    pointerSelect: 'skykit:xr.pointer.select',
   }),
 });
 

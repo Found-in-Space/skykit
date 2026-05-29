@@ -39,6 +39,12 @@ import type {
   SkykitViewer,
   SkykitViewState,
 } from './index.js';
+import type {
+  SkykitXrButtonBinding,
+  SkykitXrControlBindingsHandle,
+  SkykitXrPickBlocker,
+  SkykitXrRaySource,
+} from './xr.js';
 
 export interface TouchOsHudTarget {
   clientWidth?: number;
@@ -224,6 +230,20 @@ export interface TouchOsPanelPlugin extends SkykitPlugin {
   ): { blocked: true; consumed: true; distance: number; hit: unknown } | null;
 }
 
+export interface SkykitXrPanelHostPluginOptions extends Omit<TouchOsPanelPluginOptions, 'pointerSources'> {
+  rays?: Iterable<string | SkykitXrRaySource>;
+  raySources?: Iterable<SkykitXrRaySource>;
+  pointerSources?: readonly ThreePointerSource[];
+  controls?: SkykitXrControlBindingsHandle;
+  selectButton?: SkykitXrButtonBinding;
+  blockerProductKey?: string | false;
+  blockerProductMetadata?: Record<string, unknown>;
+}
+
+export interface SkykitXrPanelHostPlugin extends TouchOsPanelPlugin, SkykitXrPickBlocker {
+  getSnapshot(): unknown;
+}
+
 export interface DispatchTouchOsActionOutputsOptions {
   sourcePrefix?: string;
 }
@@ -284,6 +304,7 @@ export declare function createSkykitSurfaceApp<TState = unknown>(
 
 export declare function createTouchOsHudPlugin(options: TouchOsHudPluginOptions): TouchOsHudPlugin;
 export declare function createTouchOsPanelPlugin(options: TouchOsPanelPluginOptions): TouchOsPanelPlugin;
+export declare function createSkykitXrPanelHostPlugin(options: SkykitXrPanelHostPluginOptions): SkykitXrPanelHostPlugin;
 
 export declare function dispatchTouchOsActionOutputs(
   outputs: Iterable<unknown>,

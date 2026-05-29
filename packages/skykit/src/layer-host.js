@@ -1,4 +1,5 @@
-import { getSkykitProductRegistry } from './products.js';
+import { getSkykitProductRegistry, isSkykitProductRef } from './products.js';
+import { getSkykitScaleStateForViewer } from './scale.js';
 import { disposeObjectTree, resolveAnchorRoot } from './utils.js';
 
 /**
@@ -8,7 +9,9 @@ import { disposeObjectTree, resolveAnchorRoot } from './utils.js';
  * @typedef {import('./index.d.ts').SkykitLayerHostPlugin} SkykitLayerHostPlugin
  * @typedef {import('./index.d.ts').SkykitLayerState} SkykitLayerState
  * @typedef {import('./index.d.ts').SkykitLayerAddObjectOptions} SkykitLayerAddObjectOptions
+ * @typedef {import('./index.d.ts').SkykitLayerScalePolicy} SkykitLayerScalePolicy
  * @typedef {import('./index.d.ts').SkykitPluginTeardown} SkykitPluginTeardown
+ * @typedef {import('./index.d.ts').SkykitProductKey} SkykitProductKey
  * @typedef {import('./index.d.ts').SkykitThreeFrame} SkykitThreeFrame
  * @typedef {import('./index.d.ts').SkykitThreePart} SkykitThreePart
  * @typedef {import('./index.d.ts').SkykitThreePluginContext} SkykitThreePluginContext
@@ -22,6 +25,7 @@ import { disposeObjectTree, resolveAnchorRoot } from './utils.js';
  *   options: SkykitLayerAddObjectOptions;
  *   parent: import('three').Object3D | null;
  *   disposed: boolean;
+ *   visibleBeforePolicy: boolean | null;
  * }} LayerObjectRecord
  */
 
@@ -33,6 +37,17 @@ import { disposeObjectTree, resolveAnchorRoot } from './utils.js';
  *   started: boolean;
  *   disposed: boolean;
  * }} LayerChildPartRecord
+ */
+
+/**
+ * @typedef {{
+ *   sourceInput: unknown;
+ *   demand: unknown;
+ *   source: { addDemand: (demand: unknown) => SkykitPluginTeardown } | null;
+ *   demandTeardown: SkykitPluginTeardown | null;
+ *   productTeardown: SkykitPluginTeardown | null;
+ *   disposed: boolean;
+ * }} LayerDemandRecord
  */
 
 /**
@@ -52,13 +67,19 @@ import { disposeObjectTree, resolveAnchorRoot } from './utils.js';
  *   teardowns: SkykitPluginTeardown[];
  *   objects: LayerObjectRecord[];
  *   childParts: LayerChildPartRecord[];
+ *   demands: LayerDemandRecord[];
+ *   pickBlockers: unknown[];
+ *   pickTargets: unknown[];
  *   nextChildOrder: number;
  *   lastState: SkykitLayerState | null;
  *   lastView: SkykitViewState | null;
  *   lastSize: SkykitViewportSize | null;
+ *   activationMode: 'active' | 'frozen' | 'hidden';
+ *   currentScalePolicy: SkykitLayerScalePolicy[string] | null;
  * }} LayerRecord
  */
 
+const SKYKIT_LAYER_HOSTS_STORE_KEY = Symbol.for('found-in-space.skykit.layer-hosts');
 const noopTeardown = () => {};
 
 /**
@@ -79,11 +100,14 @@ export function createSkykitLayerHostPlugin(options = {}) {
     id,
     setup(context) {
       hostContext = /** @type {SkykitThreePluginContext} */ (context);
+      const registry = getSkykitLayerHostRegistry(/** @type {SkykitThreePluginContext} */ (context));
+      registry.add(plugin);
       for (const record of records) {
         installRecord(record, hostContext);
       }
       return async () => {
         disposed = true;
+        registry.delete(plugin);
         for (const record of [...records].reverse()) {
           await removeRecord(record);
         }
@@ -110,9 +134,29 @@ export function createSkykitLayerHostPlugin(options = {}) {
           started: record.started && !record.disposed,
           setupComplete: record.setupComplete,
           childPartCount: record.childParts.filter((child) => !child.disposed).length,
+          localPickBlockerCount: record.pickBlockers.length,
+          localPickTargetCount: record.pickTargets.length,
+          demandCount: record.demands.length,
+          activationMode: /** @type {import('./index.d.ts').SkykitLayerActivationMode} */ (record.activationMode),
+          bounds: snapshotBounds(record.layer.getBounds?.()),
           snapshot: record.layer.getSnapshot?.() ?? null,
         })),
       };
+    },
+    getPickBlockers() {
+      return records
+        .filter(isInteractiveRecord)
+        .flatMap((record) => record.pickBlockers);
+    },
+    getPickTargets() {
+      return records
+        .filter(isInteractiveRecord)
+        .flatMap((record) => record.pickTargets);
+    },
+    getBounds() {
+      return records
+        .filter((record) => !record.disposed)
+        .flatMap((record) => flattenBounds(record.layer.getBounds?.()));
     },
   };
 
@@ -145,10 +189,15 @@ export function createSkykitLayerHostPlugin(options = {}) {
       teardowns: [],
       objects: [],
       childParts: [],
+      demands: [],
+      pickBlockers: [],
+      pickTargets: [],
       nextChildOrder: 0,
       lastState: null,
       lastView: null,
       lastSize: null,
+      activationMode: 'active',
+      currentScalePolicy: null,
     };
     record.part = createLayerPart(record);
     return record;
@@ -237,6 +286,11 @@ function createLayerPart(record) {
         setupComplete: record.setupComplete,
         objectCount: record.objects.length,
         childPartCount: record.childParts.filter((child) => !child.disposed).length,
+        localPickBlockerCount: record.pickBlockers.length,
+        localPickTargetCount: record.pickTargets.length,
+        demandCount: record.demands.length,
+        activationMode: /** @type {import('./index.d.ts').SkykitLayerActivationMode} */ (record.activationMode),
+        bounds: snapshotBounds(record.layer.getBounds?.()),
         layer: record.layer.getSnapshot?.() ?? null,
       };
     },
@@ -296,6 +350,15 @@ function createLayerContext(record, context) {
       if (!key) return noopTeardown;
       return trackTeardown(record, products.provide(key, value, metadata));
     },
+    addDemand(source, demand) {
+      return addLayerDemand(record, products, source, demand);
+    },
+    addPickTarget(target, options = {}) {
+      return addLayerInteractionHandle(record, products, 'target', target, options);
+    },
+    addPickBlocker(blocker, options = {}) {
+      return addLayerInteractionHandle(record, products, 'blocker', blocker, options);
+    },
   };
 }
 
@@ -333,6 +396,7 @@ function addObject3D(record, object3d, options) {
     options,
     parent: null,
     disposed: false,
+    visibleBeforePolicy: null,
   };
   record.objects.push(entry);
   if (record.attached) mountObject(record, entry);
@@ -356,8 +420,8 @@ function mountObject(record, entry) {
   if (entry.disposed || !record.baseContext) return;
   const parent = resolveAnchorRoot(
     record.baseContext.roots,
-    entry.options.anchorMode ?? 'world-space',
-    entry.options.scaleBandId,
+    entry.options.anchorMode ?? record.currentScalePolicy?.anchorMode ?? 'world-space',
+    entry.options.scaleBandId ?? record.currentScalePolicy?.scaleBandId,
   );
   if (!parent.parent) {
     record.baseContext.scene.add(parent);
@@ -366,12 +430,21 @@ function mountObject(record, entry) {
     parent.add(entry.object3d);
   }
   entry.parent = parent;
+  applyObjectVisibilityPolicy(record, entry);
 }
 
 /** @param {LayerRecord} record */
 function unmountObjects(record) {
   for (const entry of record.objects) {
     unmountObject(entry);
+  }
+}
+
+/** @param {LayerRecord} record */
+function remountObjects(record) {
+  for (const entry of record.objects) {
+    unmountObject(entry);
+    mountObject(record, entry);
   }
 }
 
@@ -416,6 +489,12 @@ async function disposeRecord(record) {
   unmountObjects(record);
   record.objects.length = 0;
   record.childParts.length = 0;
+  for (const demand of [...record.demands]) {
+    disposeDemandRecord(demand);
+  }
+  record.demands.length = 0;
+  record.pickBlockers.length = 0;
+  record.pickTargets.length = 0;
   record.context = null;
   record.baseContext = null;
   record.attached = false;
@@ -452,9 +531,11 @@ function runSetViewLifecycle(record, view) {
   const layerState = record.baseContext ? createLayerState(record.baseContext, view) : null;
   for (const item of orderedLifecycleItems(record)) {
     if (item.kind === 'layer') {
-      record.layer.setView?.(view, /** @type {SkykitLayerContext} */ (record.context));
+      if (shouldRunLayerHooks(record)) {
+        record.layer.setView?.(view, /** @type {SkykitLayerContext} */ (record.context));
+      }
       if (layerState) notifyState(record, layerState);
-    } else if (item.child.attached && item.child.started) {
+    } else if (shouldRunLayerHooks(record) && item.child.attached && item.child.started) {
       item.child.part.setView?.(view);
     }
   }
@@ -470,8 +551,10 @@ function runFrameLifecycle(record, hook, frame) {
   for (const item of orderedLifecycleItems(record)) {
     if (item.kind === 'layer') {
       if (layerState) notifyState(record, layerState);
-      record.layer[hook]?.(frame, /** @type {SkykitLayerContext} */ (record.context));
-    } else if (item.child.attached && item.child.started) {
+      if (shouldRunLayerHooks(record)) {
+        record.layer[hook]?.(frame, /** @type {SkykitLayerContext} */ (record.context));
+      }
+    } else if (shouldRunLayerHooks(record) && item.child.attached && item.child.started) {
       item.child.part[hook]?.(frame);
     }
   }
@@ -484,8 +567,10 @@ function runFrameLifecycle(record, hook, frame) {
 function runResizeLifecycle(record, size) {
   for (const item of orderedLifecycleItems(record)) {
     if (item.kind === 'layer') {
-      record.layer.resize?.(size, /** @type {SkykitLayerContext} */ (record.context));
-    } else if (item.child.attached) {
+      if (shouldRunLayerHooks(record)) {
+        record.layer.resize?.(size, /** @type {SkykitLayerContext} */ (record.context));
+      }
+    } else if (shouldRunLayerHooks(record) && item.child.attached) {
       item.child.part.resize?.(size);
     }
   }
@@ -649,6 +734,7 @@ function trackTeardown(record, teardown) {
 function notifyState(record, state) {
   record.lastState = state;
   if (!record.context) return;
+  applyScalePolicy(record, state);
   const result = record.layer.setState?.(state, record.context);
   if (result && typeof result === 'object' && typeof result.then === 'function') {
     result.catch((error) => {
@@ -678,7 +764,9 @@ function createLayerState(context, view) {
     camera: {
       verticalFovDeg: view.verticalFovDeg ?? cameraFov(context.camera),
       aspectRatio: view.aspectRatio ?? cameraAspect(context.camera),
+      viewProjection: resolveViewProjection(context.camera),
     },
+    scale: getSkykitScaleStateForViewer(context.viewer, view),
   };
 }
 
@@ -698,8 +786,10 @@ function createLayerStateFromFrame(frame) {
     camera: {
       verticalFovDeg: frame.view.verticalFovDeg ?? cameraFov(frame.camera),
       aspectRatio: frame.view.aspectRatio ?? cameraAspect(frame.camera),
+      viewProjection: resolveViewProjection(frame.camera),
     },
     xr: frame.xr ?? null,
+    scale: getSkykitScaleStateForViewer(frame.viewer, frame.view),
   };
 }
 
@@ -715,4 +805,223 @@ function cameraAspect(camera) {
   return typeof /** @type {{ aspect?: unknown }} */ (camera).aspect === 'number'
     ? /** @type {{ aspect: number }} */ (/** @type {unknown} */ (camera)).aspect
     : undefined;
+}
+
+/**
+ * @param {SkykitThreePluginContext} context
+ * @returns {Set<SkykitLayerHostPlugin>}
+ */
+export function getSkykitLayerHostRegistry(context) {
+  return context.useStore(SKYKIT_LAYER_HOSTS_STORE_KEY, () => new Set());
+}
+
+/**
+ * @param {LayerRecord} record
+ * @param {ReturnType<typeof getSkykitProductRegistry>} products
+ * @param {unknown} sourceInput
+ * @param {unknown} demand
+ */
+function addLayerDemand(record, products, sourceInput, demand) {
+  /** @type {LayerDemandRecord} */
+  const entry = {
+    sourceInput,
+    demand,
+    source: null,
+    demandTeardown: null,
+    productTeardown: null,
+    disposed: false,
+  };
+  record.demands.push(entry);
+  if (isSkykitProductRef(sourceInput)) {
+    entry.productTeardown = products.subscribe(sourceInput.key, (source) => {
+      unbindDemandSource(entry);
+      entry.source = isDemandSource(source)
+        ? /** @type {{ addDemand: (demand: unknown) => SkykitPluginTeardown }} */ (source)
+        : null;
+      syncDemandRecord(record, entry);
+    }, { replay: true });
+  } else {
+    entry.source = isDemandSource(sourceInput)
+      ? /** @type {{ addDemand: (demand: unknown) => SkykitPluginTeardown }} */ (sourceInput)
+      : null;
+    syncDemandRecord(record, entry);
+  }
+  return trackTeardown(record, () => {
+    const index = record.demands.indexOf(entry);
+    if (index >= 0) record.demands.splice(index, 1);
+    disposeDemandRecord(entry);
+  });
+}
+
+/**
+ * @param {LayerRecord} record
+ * @param {ReturnType<typeof getSkykitProductRegistry>} products
+ * @param {'target' | 'blocker'} kind
+ * @param {unknown} handle
+ * @param {{ key?: SkykitProductKey | false; metadata?: import('./index.d.ts').SkykitProductMetadata }} options
+ */
+function addLayerInteractionHandle(record, products, kind, handle, options) {
+  const list = kind === 'target' ? record.pickTargets : record.pickBlockers;
+  list.push(handle);
+  const productTeardown = options.key !== undefined && options.key !== false
+    ? products.provide(options.key, handle, {
+        kind: kind === 'target' ? 'xr-pick-target' : 'xr-pick-blocker',
+        ownerId: record.id,
+        ...(options.metadata ?? {}),
+      })
+    : null;
+  return trackTeardown(record, () => {
+    removeHandle(list, handle);
+    productTeardown?.();
+  });
+}
+
+/**
+ * @param {LayerRecord} record
+ * @param {LayerDemandRecord} entry
+ */
+function syncDemandRecord(record, entry) {
+  if (entry.disposed) return;
+  if (!shouldDemandBeLive(record)) {
+    unbindDemandSource(entry);
+    return;
+  }
+  if (!entry.source || entry.demandTeardown) return;
+  entry.demandTeardown = entry.source.addDemand?.(entry.demand) ?? null;
+}
+
+/** @param {LayerDemandRecord} entry */
+function unbindDemandSource(entry) {
+  entry.demandTeardown?.();
+  entry.demandTeardown = null;
+}
+
+/** @param {LayerDemandRecord} entry */
+function disposeDemandRecord(entry) {
+  if (entry.disposed) return;
+  entry.disposed = true;
+  unbindDemandSource(entry);
+  entry.productTeardown?.();
+  entry.productTeardown = null;
+  entry.source = null;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is { addDemand: (demand: unknown) => SkykitPluginTeardown }}
+ */
+function isDemandSource(value) {
+  return Boolean(value)
+    && typeof value === 'object'
+    && typeof /** @type {{ addDemand?: unknown }} */ (value).addDemand === 'function';
+}
+
+/**
+ * @param {LayerRecord} record
+ * @param {SkykitLayerState} state
+ */
+function applyScalePolicy(record, state) {
+  const policy = resolveLayerScalePolicy(record.layer, state.scale?.domain);
+  const nextMode = normalizeActivationMode(policy?.mode);
+  const policyChanged = record.currentScalePolicy !== policy;
+  const modeChanged = record.activationMode !== nextMode;
+  record.currentScalePolicy = policy;
+  record.activationMode = nextMode;
+  if (policyChanged || modeChanged) {
+    for (const entry of record.objects) {
+      applyObjectVisibilityPolicy(record, entry);
+    }
+    if (policyChanged && record.attached) {
+      remountObjects(record);
+    }
+    for (const demand of record.demands) {
+      syncDemandRecord(record, demand);
+    }
+  }
+}
+
+/**
+ * @param {SkykitHostedLayer} layer
+ * @param {string | undefined} domain
+ * @returns {SkykitLayerScalePolicy[string] | null}
+ */
+function resolveLayerScalePolicy(layer, domain) {
+  const policy = /** @type {{ scalePolicy?: SkykitLayerScalePolicy }} */ (layer).scalePolicy;
+  if (!policy || !domain) return null;
+  return policy[domain] ?? null;
+}
+
+/** @param {unknown} value */
+function normalizeActivationMode(value) {
+  return value === 'frozen' || value === 'hidden' ? value : 'active';
+}
+
+/** @param {LayerRecord} record */
+function shouldRunLayerHooks(record) {
+  return record.activationMode === 'active';
+}
+
+/** @param {LayerRecord} record */
+function shouldDemandBeLive(record) {
+  const demandPolicy = record.currentScalePolicy?.demand;
+  if (demandPolicy === 'paused') return false;
+  if (record.activationMode === 'frozen' && demandPolicy !== 'live') return false;
+  return true;
+}
+
+/**
+ * @param {LayerRecord} record
+ * @param {LayerObjectRecord} entry
+ */
+function applyObjectVisibilityPolicy(record, entry) {
+  if (record.activationMode === 'hidden') {
+    if (entry.visibleBeforePolicy === null) {
+      entry.visibleBeforePolicy = entry.object3d.visible;
+    }
+    entry.object3d.visible = false;
+    return;
+  }
+  if (entry.visibleBeforePolicy !== null) {
+    entry.object3d.visible = entry.visibleBeforePolicy;
+    entry.visibleBeforePolicy = null;
+  }
+}
+
+/** @param {LayerRecord} record */
+function isInteractiveRecord(record) {
+  return record.attached && !record.disposed && record.activationMode !== 'hidden';
+}
+
+/** @param {unknown} value */
+function flattenBounds(value) {
+  if (value == null) return [];
+  return Array.isArray(value) ? value.filter(Boolean) : [value];
+}
+
+/** @param {unknown} value */
+function snapshotBounds(value) {
+  const bounds = flattenBounds(value);
+  return bounds.length === 0 ? null : bounds;
+}
+
+/** @param {import('three').Camera} camera */
+function resolveViewProjection(camera) {
+  if (!camera || typeof camera !== 'object') return undefined;
+  camera.updateMatrixWorld?.();
+  const projection = /** @type {{ projectionMatrix?: { elements?: unknown }; matrixWorldInverse?: { elements?: unknown }; projectionMatrixInverse?: unknown }} */ (camera);
+  if (!projection.projectionMatrix || !projection.matrixWorldInverse) return undefined;
+  if (typeof /** @type {{ clone?: unknown }} */ (projection.projectionMatrix).clone === 'function') {
+    return /** @type {any} */ (projection.projectionMatrix).clone().multiply(projection.matrixWorldInverse);
+  }
+  return undefined;
+}
+
+/**
+ * @template T
+ * @param {T[]} list
+ * @param {T} handle
+ */
+function removeHandle(list, handle) {
+  const index = list.indexOf(handle);
+  if (index >= 0) list.splice(index, 1);
 }

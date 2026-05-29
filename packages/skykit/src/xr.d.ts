@@ -18,6 +18,7 @@ import type * as THREE from 'three';
 import type {
   SkykitAnimationLoop,
   SkykitAnimationLoopOptions,
+  SkykitActionId,
   SkykitEvent,
   SkykitHostedLayer,
   SkykitLayerHostOptions,
@@ -29,8 +30,10 @@ import type {
   SkykitProductKey,
   SkykitProductRef,
   SkykitProductRegistryPlugin,
+  SkykitSpatialLayerSource,
   SkykitSceneRoots,
   SkykitStarCellSource,
+  SkykitStarCellDemand,
   SkykitStarSourcePublishOptions,
   SkykitStarSourceRestartRetentionPolicy,
   SkykitStreamingStarsPlugin,
@@ -202,6 +205,34 @@ export interface SkykitXrControlBindingsHandle {
   dispose(): void;
 }
 
+export interface SkykitXrActionBindingsPluginOptions {
+  id?: string;
+  priority?: number;
+  controls?: SkykitXrControlBindingsHandle;
+  bindings?: {
+    axes?: Record<string, SkykitXrAxisActionBinding>;
+    buttons?: Record<string, SkykitXrButtonActionBinding>;
+  };
+}
+
+export interface SkykitXrAxisActionBinding extends SkykitXrAxisBinding {
+  controlId?: SkykitActionId;
+  source?: string;
+  transform?: (axis: SkykitXrAxisState) => unknown;
+}
+
+export interface SkykitXrButtonActionBinding extends SkykitXrButtonBinding {
+  actionId?: SkykitActionId;
+  pressActionId?: SkykitActionId;
+  releaseActionId?: SkykitActionId;
+  source?: string;
+}
+
+export interface SkykitXrActionBindingsPlugin extends SkykitPlugin {
+  readonly id: string;
+  getSnapshot(): unknown;
+}
+
 export interface SkykitXrRay {
   id: string;
   kind: string;
@@ -300,6 +331,7 @@ export interface SkykitXrPickBridgePluginOptions {
   router?: SkykitXrPickRouter;
   blockers?: Iterable<SkykitXrPickBlocker>;
   targets?: Iterable<SkykitXrPickTarget>;
+  layerHosts?: Iterable<SkykitLayerHostPlugin>;
   blockerProducts?: Iterable<
     SkykitProductKey | SkykitProductRef<SkykitXrPickBlocker | Iterable<SkykitXrPickBlocker>>
   >;
@@ -315,6 +347,35 @@ export interface SkykitXrPickBridgePlugin extends SkykitPlugin {
   readonly router: SkykitXrPickRouter;
   addBlocker(blocker: SkykitXrPickBlocker): SkykitPluginTeardown;
   addTarget(target: SkykitXrPickTarget): SkykitPluginTeardown;
+  route(context?: SkykitXrRayContext): SkykitXrPickRouteResult;
+  getSnapshot(): unknown;
+}
+
+export interface SkykitXrPointerPluginOptions {
+  id?: string;
+  priority?: number;
+  raySource: SkykitXrRaySource;
+  router?: SkykitXrPickRouter;
+  controls?: SkykitXrControlBindingsHandle;
+  selectButton?: SkykitXrButtonBinding;
+  visual?: false | Omit<SkykitXrRayVisualPluginOptions, 'raySource'>;
+  blockers?: Iterable<SkykitXrPickBlocker>;
+  targets?: Iterable<SkykitXrPickTarget>;
+  layerHosts?: Iterable<SkykitLayerHostPlugin>;
+  blockerProducts?: Iterable<
+    SkykitProductKey | SkykitProductRef<SkykitXrPickBlocker | Iterable<SkykitXrPickBlocker>>
+  >;
+  targetProducts?: Iterable<
+    SkykitProductKey | SkykitProductRef<SkykitXrPickTarget | Iterable<SkykitXrPickTarget>>
+  >;
+  actionId?: SkykitActionId;
+  routeOnFrame?: boolean;
+  onRoute?: (result: SkykitXrPickRouteResult) => void;
+}
+
+export interface SkykitXrPointerPlugin extends SkykitPlugin {
+  readonly id: string;
+  readonly router: SkykitXrPickRouter;
   route(context?: SkykitXrRayContext): SkykitXrPickRouteResult;
   getSnapshot(): unknown;
 }
@@ -558,6 +619,9 @@ export interface SkykitVrViewerOptions {
 
   stars?: false | SkykitVrStarsOptions;
 
+  sources?: Iterable<SkykitPluginInput | SkykitStarCellSource | SkykitSpatialLayerSource>;
+  instruments?: Iterable<SkykitPluginInput>;
+
   pickBridge?: false | true | SkykitVrPickBridgeOptions;
 
   layers?: Iterable<SkykitHostedLayer>;
@@ -592,6 +656,7 @@ export interface SkykitVrStarsOptions {
   strategy?: StarCellStrategy | ((view: SkykitViewState) => StarCellStrategy | null);
   attributes?: Iterable<string>;
   retainCellsOnRestart?: SkykitStarSourceRestartRetentionPolicy | false;
+  demands?: Iterable<SkykitStarCellDemand>;
 
   publish?: false | SkykitStarSourcePublishOptions;
 
@@ -642,6 +707,7 @@ export declare function createSkykitXrRig(options?: CreateSkykitXrRigOptions): S
 export declare function createSkykitXrBodyTracker(options?: CreateSkykitXrBodyTrackerOptions): SkykitXrBodyTracker;
 export declare function createSkykitXrBodyPlugin(options?: SkykitXrBodyPluginOptions): SkykitXrBodyPlugin;
 export declare function createSkykitXrControlBindings(options?: SkykitXrControlBindingsOptions): SkykitXrControlBindingsHandle;
+export declare function createSkykitXrActionBindingsPlugin(options?: SkykitXrActionBindingsPluginOptions): SkykitXrActionBindingsPlugin;
 export declare function readSkykitXrAxis(inputSources: Iterable<any>, binding?: SkykitXrAxisBinding & { deadzone?: number }): SkykitXrAxisState;
 export declare function readSkykitXrButton(inputSources: Iterable<any>, binding?: SkykitXrButtonBinding, previous?: SkykitXrButtonState | null): SkykitXrButtonState;
 export declare function createSkykitXrRaySource(options?: SkykitXrRaySourceOptions): SkykitXrRaySource;
@@ -649,6 +715,7 @@ export declare function createSkykitXrPickRouter(options?: SkykitXrPickRouterOpt
 export declare function createSkykitSceneRootsFromXrRig(rig: SkykitXrRig): SkykitSceneRoots;
 export declare function createSkykitXrComposition(options?: SkykitXrCompositionOptions): SkykitXrComposition;
 export declare function createSkykitXrPickBridgePlugin(options: SkykitXrPickBridgePluginOptions): SkykitXrPickBridgePlugin;
+export declare function createSkykitXrPointerPlugin(options: SkykitXrPointerPluginOptions): SkykitXrPointerPlugin;
 export declare function createSkykitVrViewer(options?: SkykitVrViewerOptions): Promise<SkykitVrViewer>;
 export declare function createSkykitXrObserverRig(options: CreateSkykitXrObserverRigOptions): SkykitObserverRig;
 export declare function createSkykitXrSessionPlugin(options?: SkykitXrSessionPluginOptions): SkykitXrSessionPlugin;

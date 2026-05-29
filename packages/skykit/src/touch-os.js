@@ -19,9 +19,12 @@ import {
   createHudPanelDriver,
   createPoseAnchoredPanelDriver,
   createScenePanelDriver,
+  createXrRayPointerSource,
 } from '@found-in-space/touch-os/hosts/three';
 
 import { SKYKIT_ACTIONS } from './actions.js';
+import { getSkykitProductRegistry } from './products.js';
+import { createSkykitXrControlBindings } from './xr/controls.js';
 
 const DEFAULT_HUD_ID = 'skykit-touch-os-hud';
 const DEFAULT_ROOT_ID = 'skykit-touch-ship-controls';
@@ -510,6 +513,121 @@ export function createTouchOsPanelPlugin(options) {
     },
   };
 
+  return plugin;
+}
+
+/**
+ * Compose touch-os panels with SkyKit XR rays while keeping panel ownership in
+ * touch-os and app code.
+ *
+ * @param {import('./touch-os.d.ts').SkykitXrPanelHostPluginOptions} options
+ * @returns {import('./touch-os.d.ts').SkykitXrPanelHostPlugin}
+ */
+export function createSkykitXrPanelHostPlugin(options) {
+  if (!options || typeof options !== 'object') {
+    throw new TypeError('createSkykitXrPanelHostPlugin requires options.');
+  }
+  const id = options.id ?? 'skykit-xr-panel-host';
+  const controls = options.controls ?? createSkykitXrControlBindings({
+    id: `${id}:controls`,
+    buttons: {
+      select: options.selectButton ?? { hand: 'any', button: 'trigger' },
+    },
+  });
+  const rayInputs = Array.from(options.rays ?? options.raySources ?? ['right']);
+  /** @type {import('./index.d.ts').SkykitThreeFrame | null} */
+  let latestFrame = null;
+  let disposed = false;
+  const pointerSources = options.pointerSources ?? rayInputs.map((input) => createXrRayPointerSource(() => {
+    const raySource = resolveXrPanelRaySource(input, latestFrame);
+    if (!raySource || !latestFrame?.xr?.presenting) return undefined;
+    const inputContext = createXrPanelInputContext(latestFrame);
+    controls.update(inputContext);
+    const ray = raySource.getRay({
+      ...inputContext,
+      frame: latestFrame.xr.frame,
+      referenceSpace: latestFrame.xr.referenceSpace,
+      session: /** @type {any} */ (latestFrame.xr.session),
+      rig: /** @type {any} */ (latestFrame.xr.rig),
+      body: /** @type {any} */ (latestFrame.xr.body),
+      rays: /** @type {any} */ (latestFrame.xr.rays),
+      viewer: latestFrame.viewer,
+    });
+    if (!ray) return undefined;
+    const button = controls.getButton('select');
+    return {
+      pointerId: `${id}:${ray.id}`,
+      pointerType: 'ray',
+      phase: button.pressedEdge ? 'down' : button.releasedEdge ? 'up' : 'move',
+      timestamp: now(),
+      sourceId: ray.id,
+      handedness: ray.handedness === 'left' || ray.handedness === 'right' ? ray.handedness : 'none',
+      pressure: button.value,
+      origin: ray.origin,
+      direction: ray.direction,
+    };
+  }));
+  const panel = createTouchOsPanelPlugin({
+    ...options,
+    id,
+    sourcePrefix: options.sourcePrefix ?? id,
+    parent: options.parent ?? ((frame) => {
+      const rig = /** @type {{ attachmentRoot?: import('three').Object3D }} */ (frame.xr?.rig ?? {});
+      return rig.attachmentRoot ?? frame.scene;
+    }),
+    root(rootContext) {
+      latestFrame = rootContext.frame;
+      return typeof options.root === 'function' ? options.root(rootContext) : options.root;
+    },
+    pointerSources,
+  });
+  /** @type {Array<() => void | Promise<void>>} */
+  const teardowns = [];
+
+  const plugin = {
+    id,
+    setup(context) {
+      const teardown = panel.setup(context);
+      if (typeof teardown === 'function') teardowns.push(teardown);
+      const blockerProduct = options.blockerProductKey ?? `interaction:${id}/blocker`;
+      if (blockerProduct !== false) {
+        teardowns.push(getSkykitProductRegistry(context).provide(blockerProduct, plugin, {
+          kind: 'xr-pick-blocker',
+          ownerId: id,
+          role: 'touch-os-panel',
+          ...(options.blockerProductMetadata ?? {}),
+        }));
+      }
+      return async () => {
+        disposed = true;
+        latestFrame = null;
+        if (!options.controls) controls.dispose?.();
+        for (const teardown of teardowns.splice(0).reverse()) {
+          await teardown();
+        }
+      };
+    },
+    getRuntime() {
+      return panel.getRuntime();
+    },
+    getDriver() {
+      return panel.getDriver();
+    },
+    getHit() {
+      return panel.getHit();
+    },
+    blockRay(ray, blockContext) {
+      return panel.blockRay(ray, blockContext);
+    },
+    getSnapshot() {
+      return {
+        id,
+        disposed,
+        panel: panel.getHit?.() ?? null,
+        controls: controls.getSnapshot?.() ?? null,
+      };
+    },
+  };
   return plugin;
 }
 
@@ -1180,4 +1298,28 @@ function now() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
     : Date.now();
+}
+
+/**
+ * @param {unknown} input
+ * @param {import('./index.d.ts').SkykitThreeFrame | null} frame
+ */
+function resolveXrPanelRaySource(input, frame) {
+  if (input && typeof input === 'object' && typeof input.getRay === 'function') {
+    return /** @type {import('./xr.d.ts').SkykitXrRaySource} */ (input);
+  }
+  if (typeof input === 'string') {
+    return /** @type {Record<string, import('./xr.d.ts').SkykitXrRaySource> | undefined} */ (frame?.xr?.rays)?.[input] ?? null;
+  }
+  return null;
+}
+
+/** @param {import('./index.d.ts').SkykitThreeFrame} frame */
+function createXrPanelInputContext(frame) {
+  const session = frame.xr?.session && typeof frame.xr.session === 'object'
+    ? /** @type {{ inputSources?: Iterable<unknown> }} */ (frame.xr.session)
+    : null;
+  return {
+    inputSources: session?.inputSources ?? [],
+  };
 }
