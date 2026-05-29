@@ -34,6 +34,61 @@ The beginner website entries are use-case bounded:
 independent. Authored chapters stay in website or example code and call SkyKit
 navigation actions directly.
 
+## Runtime Products
+
+SkyKit plugins can publish runtime products: typed handles for things that are
+currently running, not factory entries for constructing hidden systems. Product
+keys are readable conventions, not globally reserved names. Recommended initial
+patterns include `stars:stellar/source`, `stars:stellar/store`,
+`features:<id>`, `waypoints:<id>`, `graph:<id>`, and `selection:primary`.
+
+Use the registry directly from a plugin when one plugin owns a handle and another
+plugin should discover it later:
+
+```js
+import {
+  getSkykitProductRegistry,
+  productRef,
+  createSkykitHrDiagramPlugin,
+  createSkykitStarSourcePlugin,
+} from '@found-in-space/skykit';
+
+const stellarSource = createSkykitStarSourcePlugin({
+  id: 'stellar-source',
+  provider,
+  publish: {
+    source: 'stars:stellar/source',
+    store: 'stars:stellar/store',
+    metadata: { kind: 'stars', label: 'Stellar source' },
+  },
+});
+
+const hr = createSkykitHrDiagramPlugin({
+  source: productRef('stars:stellar/source'),
+});
+```
+
+Small authored products use the same path as streaming sources:
+
+```js
+const routeProducts = {
+  id: 'lesson-route-products',
+  setup(ctx) {
+    const products = getSkykitProductRegistry(ctx);
+    return products.provide('features:lesson-route', {
+      type: 'FeatureCollection',
+      features: [
+        { id: 'sol', kind: 'star-waypoint', positionPc: { x: 0, y: 0, z: 0 } },
+      ],
+    }, {
+      kind: 'features',
+      ownerId: 'lesson-route',
+      tags: ['authored'],
+    });
+  },
+};
+```
+
 ## Paste into a static page or CMS
 
 For the beginner path, use the auto-booting embed. Paste this into a static HTML

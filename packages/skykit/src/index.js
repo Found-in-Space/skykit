@@ -13,6 +13,15 @@ export {
 export { createSkykitAnimationLoop } from './animation-loop.js';
 export { createSkykitDebugBridge, installSkykitDebugGlobal } from './debug.js';
 export {
+  createSkykitProductRegistry,
+  createSkykitProductRegistryPlugin,
+  getSkykitProductRegistry,
+  isSkykitProductRef,
+  productRef,
+  resolveSkykitProductInput,
+  resolveSkykitProductRef,
+} from './products.js';
+export {
   createRaDecLookAt,
   parseDeclination,
   parseRightAscension,
