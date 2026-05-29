@@ -102,6 +102,7 @@ declare module 'three' {
     opacity: number;
     transparent: boolean;
     uniforms?: Record<string, { value: unknown }>;
+    clone(): this;
     dispose(): void;
   }
 
@@ -125,6 +126,10 @@ declare module 'three' {
     constructor(array: ArrayLike<number>, itemSize: number, normalized?: boolean);
   }
 
+  export class Float32BufferAttribute extends BufferAttribute {
+    constructor(array: ArrayLike<number>, itemSize: number, normalized?: boolean);
+  }
+
   export class BufferGeometry {
     attributes: Record<string, BufferAttribute>;
     setAttribute(name: string, attribute: BufferAttribute): this;
@@ -138,6 +143,26 @@ declare module 'three' {
     material: Material | Material[];
     frustumCulled: boolean;
     renderOrder: number;
+    constructor(geometry?: BufferGeometry, material?: Material | Material[]);
+  }
+
+  export class LineSegments extends Line {}
+  export class LineLoop extends Line {}
+
+  export class PointsMaterial extends Material {
+    constructor(parameters?: {
+      color?: ColorRepresentation;
+      size?: number;
+      sizeAttenuation?: boolean;
+      transparent?: boolean;
+      opacity?: number;
+      depthWrite?: boolean;
+    });
+  }
+
+  export class Points extends Object3D {
+    geometry: BufferGeometry;
+    material: Material | Material[];
     constructor(geometry?: BufferGeometry, material?: Material | Material[]);
   }
 

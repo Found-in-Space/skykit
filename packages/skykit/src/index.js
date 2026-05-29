@@ -13,6 +13,14 @@ export {
 export { createSkykitAnimationLoop } from './animation-loop.js';
 export { createSkykitDebugBridge, installSkykitDebugGlobal } from './debug.js';
 export {
+  createSkykitCoordinateFrameMarkerLayer,
+  createSkykitCoordinateFrameMarkerPlugin,
+} from './coordinate-frame-markers.js';
+export {
+  createSkykitConstellationLayer,
+  createSkykitConstellationPlugin,
+} from './constellation-layer.js';
+export {
   createSkykitProductRegistry,
   createSkykitProductRegistryPlugin,
   getSkykitProductRegistry,
@@ -28,6 +36,7 @@ export {
   parseSpatialLookAtText,
 } from '@found-in-space/spatial';
 export { createSkykitHrDiagramPlugin } from './hr-diagram.js';
+export { createSkykitLayerHostPlugin } from './layer-host.js';
 export { createObject3dLayer } from './layers.js';
 export { createDesktopSkykitObserverRig } from './observer-rig.js';
 export {

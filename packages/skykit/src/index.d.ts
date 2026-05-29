@@ -520,6 +520,220 @@ export interface Object3dLayerOptions {
   disposeObject?: boolean;
 }
 
+export interface SkykitLayerCameraState {
+  verticalFovDeg?: number;
+  aspectRatio?: number;
+}
+
+export interface SkykitLayerNavigationState {
+  observerPc: Vector3Like;
+  renderObserverPosition: Vector3Like;
+  orientationIcrs: QuaternionLike | null;
+  motion: SkykitObserverMotion | null;
+}
+
+export interface SkykitLayerState {
+  view: SkykitViewState;
+  navigation: SkykitLayerNavigationState;
+  camera: SkykitLayerCameraState;
+}
+
+export interface SkykitLayerAddObjectOptions {
+  anchorMode?: SkykitLayerAnchorMode;
+  scaleBandId?: string;
+  disposeObject?: boolean;
+}
+
+export interface SkykitLayerContext extends SkykitThreePluginContext {
+  readonly products: SkykitProductRegistry;
+  addObject3D(
+    object3d: THREE.Object3D,
+    options?: SkykitLayerAddObjectOptions
+  ): SkykitPluginTeardown;
+  provideProduct<T>(
+    key: SkykitProductKey | false | null | undefined,
+    value: T,
+    metadata?: SkykitProductMetadata
+  ): SkykitPluginTeardown;
+}
+
+export interface SkykitHostedLayer {
+  id?: string;
+  priority?: number;
+  setup?(ctx: SkykitLayerContext): void | Promise<void> | SkykitPluginTeardown | Promise<SkykitPluginTeardown | void>;
+  attach?(ctx: SkykitLayerContext): void | Promise<void>;
+  start?(ctx: SkykitLayerContext): void | Promise<void>;
+  setView?(view: SkykitViewState, ctx: SkykitLayerContext): void;
+  setState?(state: SkykitLayerState, ctx: SkykitLayerContext): void | Promise<void>;
+  update?(frame: SkykitThreeFrame, ctx: SkykitLayerContext): void;
+  beforeRender?(frame: SkykitThreeFrame, ctx: SkykitLayerContext): void;
+  afterRender?(frame: SkykitThreeFrame, ctx: SkykitLayerContext): void;
+  resize?(size: SkykitViewportSize, ctx: SkykitLayerContext): void;
+  detach?(ctx: SkykitLayerContext): void | Promise<void>;
+  dispose?(ctx: SkykitLayerContext): void | Promise<void>;
+  getSnapshot?(): unknown;
+}
+
+export interface SkykitLayerHostOptions {
+  id?: string;
+  layers?: Iterable<SkykitHostedLayer>;
+}
+
+export interface SkykitLayerHostSnapshot {
+  id: string;
+  layerCount: number;
+  layers: Array<{
+    id: string;
+    priority: number | null;
+    mounted: boolean;
+    started: boolean;
+    setupComplete: boolean;
+    snapshot: unknown;
+  }>;
+}
+
+export interface SkykitLayerHostPlugin extends SkykitPlugin {
+  addLayer(layer: SkykitHostedLayer): SkykitPluginTeardown;
+  getSnapshot(): SkykitLayerHostSnapshot;
+}
+
+export type SkykitSpatialFeatureFrame =
+  | 'icrs-pc'
+  | 'galactic-kpc'
+  | 'solar-au'
+  | 'observer-sky'
+  | (string & {});
+
+export interface SkykitLayerBounds {
+  kind: string;
+  frame?: SkykitSpatialFeatureFrame;
+  center?: SpatialTargetInput;
+  radius?: number;
+  [key: string]: unknown;
+}
+
+export interface SkykitSpatialFeature {
+  id: string;
+  layerId: string;
+  kind: string;
+  label?: string;
+  description?: string;
+  frame: SkykitSpatialFeatureFrame;
+  target?: SpatialTargetInput;
+  position?: Vector3Like;
+  bounds?: SkykitLayerBounds;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SkykitFeatureCollection {
+  type: 'FeatureCollection';
+  features: SkykitSpatialFeature[];
+  metadata: {
+    datasetId: string;
+    label: string;
+    layerKind: string;
+    source?: unknown;
+  };
+}
+
+export interface SkykitWaypoint extends SkykitSpatialFeature {
+  target: SpatialTargetInput;
+  actionId?: string;
+  tags?: readonly string[];
+}
+
+export interface SkykitConstellationBoundaryOptions {
+  radius?: number;
+  color?: THREE.ColorRepresentation;
+  opacity?: number;
+  renderOrder?: number;
+}
+
+export type SkykitConstellationArtMode = 'off' | 'lazy' | 'preload';
+
+export interface SkykitConstellationArtOptions {
+  loading?: 'lazy' | 'preload';
+  opacity?: number;
+  maxAngleDeg?: number;
+  skipTextureErrors?: boolean;
+}
+
+export interface SkykitConstellationLayerOptions {
+  id?: string;
+  priority?: number;
+  manifest: Record<string, unknown>;
+  assetBaseUrl?: string;
+  visible?: boolean;
+  boundary?: false | SkykitConstellationBoundaryOptions;
+  art?: false | SkykitConstellationArtOptions;
+  publish?: false | {
+    features?: SkykitProductKey | false;
+    waypoints?: SkykitProductKey | false;
+    catalog?: SkykitProductKey | false;
+    metadata?: SkykitProductMetadata;
+  };
+}
+
+export interface SkykitConstellationLayerSnapshot {
+  id: string;
+  visible: boolean;
+  manifestId: string;
+  lineCount: number;
+  art: SkykitConstellationArtMode;
+  artCatalogCount: number;
+  artPlugin: unknown;
+}
+
+export interface SkykitConstellationLayer extends SkykitHostedLayer {
+  show(): boolean;
+  hide(): boolean;
+  toggle(force?: boolean): boolean;
+  setArt(
+    input: false | SkykitConstellationArtOptions | SkykitConstellationArtMode | string
+  ): Promise<SkykitConstellationArtMode>;
+  getSnapshot(): SkykitConstellationLayerSnapshot;
+}
+
+export type SkykitCoordinateFrameId = 'solar' | 'galactic' | (string & {});
+
+export interface SkykitCoordinateFrameMarkerLayerOptions {
+  id?: string;
+  priority?: number;
+  frame: SkykitCoordinateFrameId;
+  visible?: boolean;
+  radiusPc?: number;
+  markers?: Iterable<SkykitCoordinateFrameMarker>;
+  publish?: false | {
+    features?: SkykitProductKey | false;
+    waypoints?: SkykitProductKey | false;
+    metadata?: SkykitProductMetadata;
+  };
+}
+
+export interface SkykitCoordinateFrameMarker {
+  id: string;
+  label: string;
+  kind: 'axis' | 'plane' | 'grid-line' | 'pole' | 'custom';
+  targetIcrs?: Vector3Like;
+  pathIcrs?: Vector3Like[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface SkykitCoordinateFrameMarkerLayerSnapshot {
+  id: string;
+  frame: string;
+  visible: boolean;
+  markerCount: number;
+  mounted: boolean;
+}
+
+export interface SkykitCoordinateFrameMarkerLayer extends SkykitHostedLayer {
+  show(): boolean;
+  hide(): boolean;
+  toggle(force?: boolean): boolean;
+  getSnapshot(): SkykitCoordinateFrameMarkerLayerSnapshot;
+}
+
 export interface AnchoredImageCatalogEntry {
   id: string;
   key: string;
@@ -1230,6 +1444,25 @@ export declare function createSkykitViewer(options?: SkykitViewerOptions): Promi
 export declare function createDesktopSkykitObserverRig(options?: DesktopSkykitObserverRigOptions): SkykitObserverRig;
 export declare function createObject3dLayer(options: Object3dLayerOptions): SkykitThreePart;
 export declare function createObject3dPlugin(options: Object3dLayerOptions): SkykitObject3dPlugin;
+export declare function createSkykitLayerHostPlugin(options?: SkykitLayerHostOptions): SkykitLayerHostPlugin;
+export declare function createSkykitConstellationLayer(
+  options: SkykitConstellationLayerOptions
+): SkykitConstellationLayer;
+export declare function createSkykitConstellationPlugin(
+  options: SkykitConstellationLayerOptions
+): SkykitPlugin & {
+  getLayer(): SkykitConstellationLayer;
+  getSnapshot(): unknown;
+};
+export declare function createSkykitCoordinateFrameMarkerLayer(
+  options: SkykitCoordinateFrameMarkerLayerOptions
+): SkykitCoordinateFrameMarkerLayer;
+export declare function createSkykitCoordinateFrameMarkerPlugin(
+  options: SkykitCoordinateFrameMarkerLayerOptions
+): SkykitPlugin & {
+  getLayer(): SkykitCoordinateFrameMarkerLayer;
+  getSnapshot(): unknown;
+};
 export declare function createSkykitStarSourcePlugin(options: SkykitStarSourcePluginOptions): SkykitStarCellSource;
 export declare function createStreamingStarLayer(options: StreamingStarLayerOptions): StreamingStarLayer;
 export declare function createStreamingStarsPlugin(options: StreamingStarLayerOptions): SkykitStreamingStarsPlugin;

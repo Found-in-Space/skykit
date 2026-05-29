@@ -232,6 +232,64 @@ test('HR diagram can wait for a source product and detach when it is removed', a
   await viewer.dispose();
 });
 
+test('a consumer can attach to two star source product refs independently', async () => {
+  const products = createSkykitProductRegistryPlugin({ id: 'products' });
+  const primary = createRecordingStarSource('primary-source');
+  const secondary = createRecordingStarSource('secondary-source');
+  const consumer = createDualSourceConsumerPlugin({
+    primary: productRef('stars:primary/source'),
+    secondary: productRef('stars:secondary/source'),
+  });
+
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [products, consumer],
+  });
+
+  assert.deepEqual(consumer.getSnapshot(), {
+    primaryAttached: false,
+    secondaryAttached: false,
+  });
+
+  const removePrimary = products.provide('stars:primary/source', primary, { kind: 'stars' });
+
+  assert.equal(primary.demands.length, 1);
+  assert.equal(secondary.demands.length, 0);
+  assert.deepEqual(consumer.getSnapshot(), {
+    primaryAttached: true,
+    secondaryAttached: false,
+  });
+
+  const removeSecondary = products.provide('stars:secondary/source', secondary, { kind: 'stars' });
+
+  assert.equal(primary.demands.length, 1);
+  assert.equal(secondary.demands.length, 1);
+  assert.deepEqual(consumer.getSnapshot(), {
+    primaryAttached: true,
+    secondaryAttached: true,
+  });
+
+  removePrimary();
+
+  assert.equal(primary.demands.length, 0);
+  assert.equal(secondary.demands.length, 1);
+  assert.deepEqual(consumer.getSnapshot(), {
+    primaryAttached: false,
+    secondaryAttached: true,
+  });
+
+  removeSecondary();
+
+  assert.equal(primary.demands.length, 0);
+  assert.equal(secondary.demands.length, 0);
+  assert.deepEqual(consumer.getSnapshot(), {
+    primaryAttached: false,
+    secondaryAttached: false,
+  });
+
+  await viewer.dispose();
+});
+
 test('authored route products use the same registry get, subscribe, query, and removal path', async () => {
   const products = createSkykitProductRegistryPlugin({ id: 'products' });
   const routeFeatures = {
@@ -351,6 +409,47 @@ function createRecordingStarSource(id) {
     },
   };
   return source;
+}
+
+function createDualSourceConsumerPlugin(options) {
+  const slots = {
+    primary: { source: null, removeDemand: null },
+    secondary: { source: null, removeDemand: null },
+  };
+  return {
+    id: 'dual-source-consumer',
+    setup(ctx) {
+      const products = getSkykitProductRegistry(ctx);
+      const unsubscribePrimary = products.subscribe(options.primary.key, (source) => {
+        attach('primary', source);
+      }, { replay: true });
+      const unsubscribeSecondary = products.subscribe(options.secondary.key, (source) => {
+        attach('secondary', source);
+      }, { replay: true });
+      return () => {
+        unsubscribeSecondary();
+        unsubscribePrimary();
+        attach('primary', null);
+        attach('secondary', null);
+      };
+    },
+    getSnapshot() {
+      return {
+        primaryAttached: slots.primary.source != null,
+        secondaryAttached: slots.secondary.source != null,
+      };
+    },
+  };
+
+  function attach(slotId, source) {
+    const slot = slots[slotId];
+    if (slot.source === source) return;
+    slot.removeDemand?.();
+    slot.source = source;
+    slot.removeDemand = source
+      ? source.addDemand({ id: `dual-consumer:${slotId}`, strategy: null })
+      : null;
+  }
 }
 
 function createAuthoredRouteProductsPlugin(routeFeatures, routeWaypoints, routeGraph) {

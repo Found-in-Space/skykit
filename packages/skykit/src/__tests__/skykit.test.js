@@ -22,8 +22,12 @@ import {
   createSkykitActionRegistry,
   createKeyboardNavigationPlugin,
   createDesktopSkykitObserverRig,
+  createSkykitCoordinateFrameMarkerLayer,
+  createSkykitConstellationLayer,
   createObject3dLayer,
   createObject3dPlugin,
+  createSkykitLayerHostPlugin,
+  createSkykitProductRegistryPlugin,
   createRaDecLookAt,
   createMouseLookPlugin,
   createSkyGrabPlugin,
@@ -269,6 +273,135 @@ test('plugins register ordered parts, events, stores, resources, disposables, an
   assert.ok(disposableCalls.includes('resource'));
   assert.ok(disposableCalls.includes('disposable'));
   assert.ok(disposableCalls.includes('teardown'));
+});
+
+test('layer host routes lifecycle, state, object mounts, products, and dynamic layers', async () => {
+  const calls = [];
+  const products = createSkykitProductRegistryPlugin({ id: 'products' });
+  const object = new THREE.Object3D();
+  const dynamicObject = new THREE.Object3D();
+  const host = createSkykitLayerHostPlugin({
+    id: 'host',
+    layers: [
+      {
+        id: 'hosted',
+        priority: 2,
+        async setup(ctx) {
+          calls.push('setup');
+          ctx.addObject3D(object, { anchorMode: 'observer-centric', disposeObject: true });
+          ctx.provideProduct('features:hosted', { id: 'features' }, { kind: 'features' });
+        },
+        attach() { calls.push('attach'); },
+        start() { calls.push('start'); },
+        setView(view) { calls.push(`setView:${view.revision}`); },
+        setState(state) { calls.push(`setState:${state.view.revision}`); },
+        update() { calls.push('update'); },
+        dispose() { calls.push('dispose'); },
+      },
+    ],
+  });
+
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [products, host],
+  });
+
+  assert.deepEqual(calls.slice(0, 4), ['setup', 'attach', 'start', 'setView:0']);
+  assert.equal(viewer.roots.observerContentRoot.children.includes(object), true);
+  assert.deepEqual(products.get('features:hosted'), { id: 'features' });
+  assert.equal(host.getSnapshot().layers[0].mounted, true);
+
+  viewer.frame(0.1);
+  assert.ok(calls.includes('update'));
+  assert.ok(calls.includes('setState:0'));
+
+  const removeDynamic = host.addLayer({
+    id: 'dynamic',
+    setup(ctx) {
+      ctx.addObject3D(dynamicObject, {
+        anchorMode: 'scale-banded',
+        scaleBandId: 'galactic',
+      });
+    },
+  });
+  await flushMicrotasks();
+  assert.equal(viewer.roots.scaleBandedContentRoots.get('galactic')?.children.includes(dynamicObject), true);
+
+  removeDynamic();
+  await flushMicrotasks();
+  assert.equal(viewer.roots.scaleBandedContentRoots.get('galactic')?.children.includes(dynamicObject), false);
+
+  await viewer.dispose();
+
+  assert.ok(calls.includes('dispose'));
+  assert.equal(products.get('features:hosted'), null);
+  assert.equal(viewer.roots.observerContentRoot.children.includes(object), false);
+});
+
+test('constellation and coordinate-frame layers publish spatial feature and waypoint products', async () => {
+  const products = createSkykitProductRegistryPlugin({ id: 'products' });
+  const constellationLayer = createSkykitConstellationLayer({
+    id: 'western-constellations',
+    manifest: {
+      id: 'western',
+      boundaries: {
+        edges: ['001:002 M+ 00:00:00 +00:00:00 01:00:00 +00:00:00 AAA BBB'],
+      },
+      constellations: [
+        {
+          id: 'orion',
+          iau: 'Ori',
+          common_name: { native: 'Orion' },
+          image: {
+            file: 'orion.png',
+            anchors: [
+              { icrs: { x: 1, y: 0, z: 0 }, pixel: { x: 0, y: 0 } },
+              { icrs: { x: 0, y: 1, z: 0 }, pixel: { x: 1, y: 1 } },
+            ],
+          },
+        },
+      ],
+    },
+    publish: {
+      features: 'features:constellations/western',
+      waypoints: 'waypoints:constellations/western',
+    },
+  });
+  const frameLayer = createSkykitCoordinateFrameMarkerLayer({
+    id: 'galactic-frame',
+    frame: 'galactic',
+    publish: {
+      features: 'features:frames/galactic',
+      waypoints: 'waypoints:frames/galactic',
+    },
+  });
+
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [
+      products,
+      createSkykitLayerHostPlugin({
+        layers: [constellationLayer, frameLayer],
+      }),
+    ],
+  });
+
+  const constellationFeatures = products.get('features:constellations/western');
+  const constellationWaypoints = products.get('waypoints:constellations/western');
+  const frameFeatures = products.get('features:frames/galactic');
+  const frameWaypoints = products.get('waypoints:frames/galactic');
+
+  assert.equal(constellationFeatures.type, 'FeatureCollection');
+  assert.equal(constellationFeatures.features.some((feature) => feature.frame === 'observer-sky'), true);
+  assert.equal(constellationWaypoints[0].target.targetPc.x > 0, true);
+  assert.equal(frameFeatures.features.some((feature) => feature.kind === 'coordinate-frame:axis'), true);
+  assert.equal(frameWaypoints.length > 0, true);
+  assert.equal(viewer.roots.observerContentRoot.children.some((child) => child.name === 'constellation-boundaries'), true);
+
+  await viewer.dispose();
+
+  assert.equal(products.get('features:constellations/western'), null);
+  assert.equal(products.get('features:frames/galactic'), null);
 });
 
 test('viewer exposes action registry, emits action events, and resets to initial view', async () => {

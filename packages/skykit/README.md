@@ -40,7 +40,9 @@ SkyKit plugins can publish runtime products: typed handles for things that are
 currently running, not factory entries for constructing hidden systems. Product
 keys are readable conventions, not globally reserved names. Recommended initial
 patterns include `stars:stellar/source`, `stars:stellar/store`,
-`features:<id>`, `waypoints:<id>`, `graph:<id>`, and `selection:primary`.
+`features:constellations/western`, `waypoints:constellations/western`,
+`features:frames/galactic`, `surfaces:constellation-art/western`, and
+`selection:primary`.
 
 Use the registry directly from a plugin when one plugin owns a handle and another
 plugin should discover it later:
@@ -78,8 +80,21 @@ const routeProducts = {
     return products.provide('features:lesson-route', {
       type: 'FeatureCollection',
       features: [
-        { id: 'sol', kind: 'star-waypoint', positionPc: { x: 0, y: 0, z: 0 } },
+        {
+          id: 'sol',
+          layerId: 'lesson-route',
+          kind: 'star-waypoint',
+          label: 'Sol',
+          frame: 'icrs-pc',
+          target: { targetPc: { x: 0, y: 0, z: 0 } },
+          position: { x: 0, y: 0, z: 0 },
+        },
       ],
+      metadata: {
+        datasetId: 'lesson-route',
+        label: 'Lesson route',
+        layerKind: 'authored-route',
+      },
     }, {
       kind: 'features',
       ownerId: 'lesson-route',
@@ -87,6 +102,39 @@ const routeProducts = {
     });
   },
 };
+```
+
+Hosted layers are ordinary plugin-friendly composition units. They can mount
+Three.js content, receive view/state updates, and publish products without
+becoming hidden factories:
+
+```js
+import {
+  createSkykitConstellationLayer,
+  createSkykitCoordinateFrameMarkerLayer,
+  createSkykitLayerHostPlugin,
+} from '@found-in-space/skykit';
+
+const layers = createSkykitLayerHostPlugin({
+  layers: [
+    createSkykitConstellationLayer({
+      manifest: westernSkycultureManifest,
+      assetBaseUrl: '/skycultures/western/',
+      publish: {
+        features: 'features:constellations/western',
+        waypoints: 'waypoints:constellations/western',
+        catalog: 'surfaces:constellation-art/western',
+      },
+    }),
+    createSkykitCoordinateFrameMarkerLayer({
+      frame: 'galactic',
+      publish: {
+        features: 'features:frames/galactic',
+        waypoints: 'waypoints:frames/galactic',
+      },
+    }),
+  ],
+});
 ```
 
 ## Paste into a static page or CMS
