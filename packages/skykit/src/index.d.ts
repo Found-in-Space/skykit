@@ -334,6 +334,72 @@ export interface SkykitPluginContext {
   scheduleTask(task: SkykitScheduledTask, options?: SkykitScheduleOptions): SkykitPluginTeardown;
 }
 
+export type SkykitProductKey = string;
+
+export interface SkykitProductMetadata {
+  kind?: string;
+  label?: string;
+  ownerId?: string;
+  tags?: readonly string[];
+  version?: number | string;
+  [key: string]: unknown;
+}
+
+export interface SkykitProductRecord<T = unknown> {
+  readonly key: SkykitProductKey;
+  readonly value: T;
+  readonly metadata: SkykitProductMetadata;
+}
+
+export interface SkykitProductFilter {
+  prefix?: string;
+  kind?: string;
+  tag?: string;
+  ownerId?: string;
+}
+
+export interface SkykitProductValueSummary {
+  type: string;
+  className?: string;
+  id?: string;
+  length?: number;
+  value?: unknown;
+}
+
+export interface SkykitProductSnapshotRecord {
+  key: SkykitProductKey;
+  metadata: SkykitProductMetadata;
+  value: SkykitProductValueSummary;
+}
+
+export interface SkykitProductRegistrySnapshot {
+  productCount: number;
+  products: SkykitProductSnapshotRecord[];
+}
+
+export interface SkykitProductRegistry {
+  provide<T>(
+    key: SkykitProductKey,
+    value: T,
+    metadata?: SkykitProductMetadata
+  ): SkykitPluginTeardown;
+  get<T = unknown>(key: SkykitProductKey): T | null;
+  subscribe<T = unknown>(
+    key: SkykitProductKey,
+    listener: (value: T | null, record: SkykitProductRecord<T> | null) => void,
+    options?: { replay?: boolean }
+  ): SkykitPluginTeardown;
+  query(filter?: SkykitProductFilter): SkykitProductRecord[];
+  getSnapshot(): SkykitProductRegistrySnapshot;
+}
+
+export interface SkykitProductRef<T = unknown> {
+  readonly type: 'skykit:product-ref';
+  readonly key: SkykitProductKey;
+}
+
+export interface SkykitProductRegistryPlugin extends SkykitPlugin, SkykitProductRegistry {}
+
 export interface SkykitThreePluginContext extends SkykitPluginContext {
   readonly scene: THREE.Scene;
   readonly renderer: THREE.WebGLRenderer | SkykitRendererLike;
@@ -681,6 +747,13 @@ export interface SkykitStarSourcePluginOptions {
   coordinates?: StarOctreeCoordinateOutput;
   updateOptions?: ViewUpdateOptions;
   retainCellsOnRestart?: SkykitStarSourceRestartRetentionPolicy | false;
+  publish?: SkykitStarSourcePublishOptions | false;
+}
+
+export interface SkykitStarSourcePublishOptions {
+  source?: SkykitProductKey | false;
+  store?: SkykitProductKey | false;
+  metadata?: SkykitProductMetadata;
 }
 
 export interface SkykitStarSourceRestartRetentionPolicy {
@@ -713,7 +786,7 @@ export type SkykitHrDiagramDemandStrategy = (
 export interface SkykitHrDiagramPluginOptions {
   id?: string;
   priority?: number;
-  source: SkykitStarCellSource;
+  source: SkykitStarCellSource | SkykitProductRef<SkykitStarCellSource>;
   mode?: HrDiagramMode;
   volumeRadiusPc?: number;
   limitingMagnitude?: number;
@@ -1128,6 +1201,19 @@ export declare const SKYKIT_CONTROLS: {
   };
 };
 export declare function createSkykitActionRegistry(): SkykitActionRegistry;
+export declare function createSkykitProductRegistry(): SkykitProductRegistry;
+export declare function getSkykitProductRegistry(ctx: SkykitPluginContext): SkykitProductRegistry;
+export declare function createSkykitProductRegistryPlugin(options?: { id?: string }): SkykitProductRegistryPlugin;
+export declare function productRef<T = unknown>(key: SkykitProductKey): SkykitProductRef<T>;
+export declare function isSkykitProductRef(value: unknown): value is SkykitProductRef;
+export declare function resolveSkykitProductRef<T>(
+  products: SkykitProductRegistry,
+  ref: SkykitProductRef<T>
+): T | null;
+export declare function resolveSkykitProductInput<T>(
+  products: SkykitProductRegistry,
+  valueOrRef: T | SkykitProductRef<T> | null | undefined
+): T | null;
 export declare function createAnchoredImageCatalog(
   options?: AnchoredImageCatalogOptions
 ): Promise<AnchoredImageCatalog>;

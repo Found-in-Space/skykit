@@ -3,6 +3,7 @@ import {
   createStarCellStore,
 } from '@found-in-space/star-trees';
 
+import { getSkykitProductRegistry } from './products.js';
 import { isProviderSession, toStarOctreeViewPatch } from './utils.js';
 
 /**
@@ -84,6 +85,7 @@ export function createSkykitStarSourcePlugin(options) {
     priority: options.priority ?? 100,
     setup(pluginContext) {
       pluginContext.addPart(source);
+      registerPublishedProducts(pluginContext);
     },
     addDemand,
     registerDemand: addDemand,
@@ -101,6 +103,32 @@ export function createSkykitStarSourcePlugin(options) {
   };
 
   return source;
+
+  /** @param {import('./index.d.ts').SkykitPluginContext} pluginContext */
+  function registerPublishedProducts(pluginContext) {
+    if (!options.publish) return;
+    const products = getSkykitProductRegistry(pluginContext);
+    /** @type {import('./index.d.ts').SkykitPluginTeardown[]} */
+    const teardowns = [];
+    const metadata = {
+      kind: 'stars',
+      ownerId: id,
+      ...(options.publish.metadata ?? {}),
+    };
+    if (options.publish.source) {
+      teardowns.push(products.provide(options.publish.source, source, metadata));
+    }
+    if (options.publish.store) {
+      teardowns.push(products.provide(options.publish.store, store, metadata));
+    }
+    if (teardowns.length > 0) {
+      pluginContext.addDisposable(() => {
+        for (const teardown of teardowns.splice(0)) {
+          teardown();
+        }
+      });
+    }
+  }
 
   /**
    * @param {SkykitStarCellDemand} demand

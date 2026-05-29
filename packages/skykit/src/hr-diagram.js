@@ -12,10 +12,16 @@ import {
   createSphereVolumeStrategy,
 } from '@found-in-space/star-trees';
 
+import {
+  getSkykitProductRegistry,
+  isSkykitProductRef,
+} from './products.js';
+
 /**
  * @typedef {import('./index.d.ts').SkykitHrDiagramPlugin} SkykitHrDiagramPlugin
  * @typedef {import('./index.d.ts').SkykitHrDiagramDemandStrategy} SkykitHrDiagramDemandStrategy
  * @typedef {import('./index.d.ts').SkykitHrDiagramPluginOptions} SkykitHrDiagramPluginOptions
+ * @typedef {import('./index.d.ts').SkykitStarCellSource} SkykitStarCellSource
  * @typedef {import('./index.d.ts').SkykitThreeFrame} SkykitThreeFrame
  * @typedef {import('./index.d.ts').SkykitViewState} SkykitViewState
  */
@@ -72,9 +78,13 @@ export function createSkykitHrDiagramPlugin(options) {
   ));
   const viewProjection = new THREE.Matrix4();
   /** @type {(() => void) | null} */
+  let unsubscribeProductRef = null;
+  /** @type {(() => void) | null} */
   let unsubscribeSource = null;
   /** @type {(() => void) | null} */
   let unregisterDemand = null;
+  /** @type {SkykitStarCellSource | null} */
+  let activeSource = null;
   let disposed = false;
   let renderedFrames = 0;
   let publishedFrames = 0;
@@ -91,16 +101,16 @@ export function createSkykitHrDiagramPlugin(options) {
   const part = {
     id,
     priority: options.priority,
-    attach() {
-      unregisterDemand = options.source.addDemand({
-        id: `${id}:demand`,
-        strategy: (view) => createHrDemandStrategy(state, view, volumeDemandCenterPc),
-        attributes: HR_ATTRIBUTES,
-      });
-      unsubscribeSource = options.source.subscribe((delta) => {
-        surfaceSource.apply(delta);
-        surfaceDirty = true;
-      });
+    /** @param {import('./index.d.ts').SkykitThreePluginContext} context */
+    attach(context) {
+      if (isSkykitProductRef(options.source)) {
+        const products = getSkykitProductRegistry(context);
+        unsubscribeProductRef = products.subscribe(options.source.key, (source) => {
+          bindSource(/** @type {SkykitStarCellSource | null} */ (source));
+        }, { replay: true });
+      } else {
+        bindSource(options.source);
+      }
     },
     /** @param {SkykitViewState} view */
     setView(view) {
@@ -137,8 +147,9 @@ export function createSkykitHrDiagramPlugin(options) {
     dispose() {
       if (disposed) return;
       disposed = true;
-      unsubscribeSource?.();
-      unregisterDemand?.();
+      unsubscribeProductRef?.();
+      unsubscribeProductRef = null;
+      detachSourceBinding();
       const surfaces = lastPublishedSurfaces ?? resolveTouchOsSurfaces(options.touchOs?.surfaces);
       if (surfaces) {
         surfaceSource.unpublish(surfaces);
@@ -155,6 +166,9 @@ export function createSkykitHrDiagramPlugin(options) {
         source: surfaceSource.getSnapshot(),
         nodeId: node.id,
         demandStrategyActive: typeof state.demandStrategy === 'function',
+        sourceAttached: activeSource !== null,
+        waitingForSource: isSkykitProductRef(options.source) && activeSource === null && !disposed,
+        productKey: isSkykitProductRef(options.source) ? options.source.key : null,
         disposed,
       };
     },
@@ -249,7 +263,7 @@ export function createSkykitHrDiagramPlugin(options) {
     surfaceDirty = true;
     lastFrameSurfaceViewKey = null;
     if (demandChanged) {
-      await options.source.refreshDemand?.(`${id}.options`);
+      await activeSource?.refreshDemand?.(`${id}.options`);
     }
   }
 
@@ -268,8 +282,42 @@ export function createSkykitHrDiagramPlugin(options) {
     const thresholdPc = Math.max(1, state.volumeRadiusPc * 0.25);
     if (pointDistancePc(volumeDemandCenterPc, view.observerPc) >= thresholdPc) {
       volumeDemandCenterPc = clonePoint(view.observerPc);
-      void options.source.refreshDemand?.(`${id}.volume-center`);
+      void activeSource?.refreshDemand?.(`${id}.volume-center`);
     }
+  }
+
+  /**
+   * @param {SkykitStarCellSource | null} source
+   */
+  function bindSource(source) {
+    if (disposed || source === activeSource) return;
+    detachSourceBinding();
+    if (!source) return;
+    activeSource = source;
+    unregisterDemand = source.addDemand({
+      id: `${id}:demand`,
+      strategy: (view) => createHrDemandStrategy(state, view, volumeDemandCenterPc),
+      attributes: HR_ATTRIBUTES,
+    });
+    unsubscribeSource = source.subscribe((delta) => {
+      surfaceSource.apply(delta);
+      surfaceDirty = true;
+    });
+    surfaceDirty = true;
+  }
+
+  function detachSourceBinding() {
+    unsubscribeSource?.();
+    unsubscribeSource = null;
+    unregisterDemand?.();
+    unregisterDemand = null;
+    activeSource = null;
+    volumeDemandCenterPc = null;
+    if (!disposed) {
+      surfaceSource.setCells([]);
+    }
+    surfaceDirty = true;
+    lastFrameSurfaceViewKey = null;
   }
 }
 
