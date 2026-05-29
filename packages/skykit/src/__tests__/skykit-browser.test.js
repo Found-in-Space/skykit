@@ -137,6 +137,63 @@ test('createSkykitBrowser accepts startup lookAt and mouse look mode', async () 
   });
 });
 
+test('createSkykitBrowser accepts orbit mouse mode', async () => {
+  await withFakeWindow(async () => {
+    const browser = await createSkykitBrowser({
+      host: createHost(),
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+      mouseMode: 'orbit',
+      lookAt: { targetPc: { x: 10, y: 0, z: 0 } },
+    });
+
+    assert.deepEqual(browser.viewer.getViewState().targetPc, { x: 10, y: 0, z: 0 });
+    assert.equal(
+      browser.viewer.getSnapshot().parts.some((part) => part.id === 'sky-orbit'),
+      true,
+    );
+    assert.equal(
+      browser.viewer.getSnapshot().parts.find((part) => part.id === 'sky-orbit')?.snapshot?.sensitivityRadiansPerPixel,
+      0.00115,
+    );
+    assert.equal(
+      browser.viewer.getSnapshot().parts.some((part) => part.id === 'sky-grab' || part.id === 'mouse-look'),
+      false,
+    );
+
+    await browser.dispose();
+  });
+});
+
+test('createSkykitBrowser treats orbit mouse mode aliases as orbit mode', async () => {
+  await withFakeWindow(async () => {
+    const browser = await createSkykitBrowser({
+      host: createHost(),
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+      mouseMode: 'inspect',
+      lookAt: { targetPc: { x: 10, y: 0, z: 0 } },
+    });
+
+    assert.equal(
+      browser.viewer.getSnapshot().parts.some((part) => part.id === 'sky-orbit'),
+      true,
+    );
+
+    await browser.dispose();
+  });
+});
+
 test('createSkykitBrowser starts from observer and solar RA/Dec distance lookAt', async () => {
   await withFakeWindow(async () => {
     const browser = await createSkykitBrowser({

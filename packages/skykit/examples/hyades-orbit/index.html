@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyKit Hyades Orbit</title>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #02040b;
+        color: #f7fbff;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      #viewer {
+        width: 100%;
+        height: 100%;
+        cursor: grab;
+        touch-action: none;
+      }
+
+      #viewer:active {
+        cursor: grabbing;
+      }
+
+      .panel {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        display: grid;
+        gap: 10px;
+        padding: 12px 14px;
+        border: 1px solid rgba(180, 210, 235, 0.24);
+        border-radius: 8px;
+        background: rgba(4, 9, 18, 0.78);
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+      }
+
+      .panel label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        line-height: 1.2;
+        white-space: nowrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="viewer" aria-label="SkyKit Hyades orbit example"></div>
+    <form class="panel">
+      <label><input data-layer-toggle="hyades" type="checkbox" checked /> Hyades sphere</label>
+      <label><input data-layer-toggle="radio" type="checkbox" checked /> Sol radio bubble</label>
+    </form>
+
+    <script type="module">
+      import * as THREE from 'three';
+      import {
+        createKeyboardNavigationPlugin,
+        createObject3dPlugin,
+        createSkykitAnimationLoop,
+        createSkykitViewer,
+        createSkyOrbitPlugin,
+        createStreamingStarsPlugin,
+      } from '@found-in-space/skykit';
+      import {
+        OCTREE_DEFAULT,
+        createStarOctreeProviderService,
+      } from '@found-in-space/star-octree-provider';
+      import {
+        combineStrategies,
+        createObserverShellStrategy,
+        createSphereVolumeStrategy,
+      } from '@found-in-space/star-trees';
+      import { createThreeStarField } from '@found-in-space/three-star-field';
+
+      const UNITS_PER_PARSEC = 0.001;
+      const HYADES_CENTER_PC = Object.freeze({ x: 17.574, y: 42.316, z: 13.963 });
+      const HYADES_RADIUS_PC = 8;
+      const RADIO_BUBBLE_RADIUS_PC = 40;
+
+      const host = document.querySelector('#viewer');
+      if (!host) throw new Error('Hyades orbit example requires #viewer.');
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setClearColor(0x02040b, 1);
+
+      const camera = new THREE.PerspectiveCamera(58, 1, 0.0001, 1000);
+      const provider = createStarOctreeProviderService({ url: OCTREE_DEFAULT });
+      const starField = createThreeStarField({ limitingMagnitude: 7.0, exposure: 2400 });
+
+      const hyadesMarker = createBubble(HYADES_RADIUS_PC * UNITS_PER_PARSEC, 0x73d5ff, 0.10);
+      const radioBubble = createBubble(RADIO_BUBBLE_RADIUS_PC * UNITS_PER_PARSEC, 0xf2c879, 0.045);
+
+      hyadesMarker.name = 'hyades-orbit-marker';
+      radioBubble.name = 'sol-radio-bubble';
+      hyadesMarker.position.copy(toRenderPosition(HYADES_CENTER_PC));
+      radioBubble.position.copy(toRenderPosition({ x: 0, y: 0, z: 0 }));
+
+      const viewer = await createSkykitViewer({
+        host,
+        renderer,
+        camera,
+        view: {
+          observerPc: { x: 0, y: 0, z: 0 },
+          lookAt: { targetPc: HYADES_CENTER_PC },
+          coordinateUnitsPerParsec: UNITS_PER_PARSEC,
+          limitingMagnitude: 7.0,
+        },
+        plugins: [
+          createStreamingStarsPlugin({
+            id: 'hyades-orbit-stars',
+            provider,
+            renderer: starField,
+            session: {
+              strategy: combineStrategies([
+                createObserverShellStrategy(),
+                createSphereVolumeStrategy({
+                  centerPc: HYADES_CENTER_PC,
+                  radiusPc: HYADES_RADIUS_PC,
+                }),
+              ]),
+            },
+          }),
+          createObject3dPlugin({
+            id: 'hyades-marker',
+            object3d: hyadesMarker,
+            anchorMode: 'world-space',
+            disposeObject: true,
+          }),
+          createObject3dPlugin({
+            id: 'sol-radio-bubble',
+            object3d: radioBubble,
+            anchorMode: 'world-space',
+            disposeObject: true,
+          }),
+          createKeyboardNavigationPlugin({ speedPcPerSec: 3 }),
+          createSkyOrbitPlugin({
+            target: host,
+            centerPc: HYADES_CENTER_PC,
+          }),
+        ],
+      });
+
+      const loop = createSkykitAnimationLoop(viewer);
+
+      for (const input of document.querySelectorAll('[data-layer-toggle]')) {
+        input.addEventListener('change', () => {
+          if (input.dataset.layerToggle === 'hyades') hyadesMarker.visible = input.checked;
+          if (input.dataset.layerToggle === 'radio') radioBubble.visible = input.checked;
+        });
+      }
+
+      function resize() {
+        viewer.resize({
+          width: host.clientWidth || 1,
+          height: host.clientHeight || 1,
+          devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+        });
+      }
+
+      window.addEventListener('resize', resize);
+      window.addEventListener('beforeunload', () => {
+        loop.dispose();
+        void viewer.dispose();
+        void provider.dispose?.();
+      });
+
+      resize();
+      loop.start();
+
+      function createBubble(radius, color, opacity) {
+        const group = new THREE.Group();
+        const geometry = new THREE.SphereGeometry(radius, 48, 24);
+        const fill = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity,
+          depthWrite: false,
+        }));
+        const wire = new THREE.Mesh(geometry.clone(), new THREE.MeshBasicMaterial({
+          color,
+          wireframe: true,
+          transparent: true,
+          opacity: Math.min(0.75, opacity * 5),
+          depthWrite: false,
+        }));
+        group.add(fill, wire);
+        return group;
+      }
+
+      function toRenderPosition(pointPc) {
+        return new THREE.Vector3(
+          pointPc.x * UNITS_PER_PARSEC,
+          pointPc.y * UNITS_PER_PARSEC,
+          pointPc.z * UNITS_PER_PARSEC,
+        );
+      }
+    </script>
+  </body>
+</html>

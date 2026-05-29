@@ -11,10 +11,19 @@ import {
 
 import {
   IDENTITY_QUATERNION as SPATIAL_IDENTITY_QUATERNION,
+  LOCAL_RIGHT as SPATIAL_LOCAL_RIGHT,
+  LOCAL_UP as SPATIAL_LOCAL_UP,
+  addVectors as addSpatialVectors,
+  applyQuaternion as applySpatialQuaternion,
+  computeSpatialLookAtOrientation,
   createSpatialPoseTransition,
   createSpatialNavigationAutomation,
+  normalizeDirection as normalizeSpatialDirection,
+  quaternionFromAxisAngle as spatialQuaternionFromAxisAngle,
   resolveSpatialLookAt,
   resolveSpatialTarget,
+  subtractVectors as subtractSpatialVectors,
+  vectorLength as spatialVectorLength,
 } from '@found-in-space/spatial';
 
 import { SKYKIT_ACTIONS, SKYKIT_CONTROLS } from './actions.js';
@@ -40,6 +49,7 @@ import {
  * @typedef {import('./index.d.ts').SkykitKeyboardNavigationOptions} SkykitKeyboardNavigationOptions
  * @typedef {import('./index.d.ts').SkykitKeyboardNavigationBindingContext} SkykitKeyboardNavigationBindingContext
  * @typedef {import('./index.d.ts').SkykitDragLookOptions} SkykitDragLookOptions
+ * @typedef {import('./index.d.ts').SkykitOrbitDragOptions} SkykitOrbitDragOptions
  * @typedef {import('./index.d.ts').SkykitStatusPluginOptions} SkykitStatusPluginOptions
  * @typedef {import('./index.d.ts').Vector3Like} Vector3Like
  */
@@ -60,6 +70,9 @@ export const SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS = Object.freeze({
 });
 
 const DEFAULT_BOOST_KEYS = Object.freeze(['ShiftLeft', 'ShiftRight', 'Shift']);
+const DEFAULT_ORBIT_SENSITIVITY_RADIANS_PER_PIXEL = 0.00115;
+const DEFAULT_ORBIT_WORLD_UP = Object.freeze({ x: 0, y: 1, z: 0 });
+const ORBIT_EPSILON = 1e-9;
 
 const LEGACY_KEYBOARD_ACTION_ALIASES = Object.freeze({
   forward: SKYKIT_ACTIONS.ship.moveForward,
@@ -750,6 +763,348 @@ export function createMouseLookPlugin(options = {}) {
 }
 
 /**
+ * @param {SkykitOrbitDragOptions} [options]
+ * @returns {SkykitPlugin & {
+ *   getSnapshot(): unknown;
+ *   setEnabled(nextEnabled: boolean): void;
+ *   setCenter(nextCenter: import('@found-in-space/spatial').SpatialTargetInput | import('./index.d.ts').SkykitLookAtInput | Vector3Like | null): void;
+ * }}
+ */
+export function createSkyOrbitPlugin(options = {}) {
+  const id = options.id ?? 'sky-orbit';
+  const sensitivityRadiansPerPixel = positiveFinite(
+    options.sensitivityRadiansPerPixel,
+    DEFAULT_ORBIT_SENSITIVITY_RADIANS_PER_PIXEL,
+  );
+  const verticalSensitivityRadiansPerPixel = positiveFinite(
+    options.verticalSensitivityRadiansPerPixel,
+    sensitivityRadiansPerPixel,
+  );
+  const horizontalAxisMode = options.horizontalAxisMode === 'world-up' ? 'world-up' : 'screen-up';
+  const worldUp = normalizeOrbitDirection(options.worldUp) ?? cloneVector3(DEFAULT_ORBIT_WORLD_UP);
+  const button = Number.isInteger(options.button) ? Number(options.button) : 0;
+  const fallbackCenter = normalizeOrbitFallbackCenter(options.fallbackCenter);
+  const lockLookAt = options.lockLookAt !== false;
+  const centerPcInput = options.centerPc;
+  let configuredCenter = options.center;
+  let enabled = options.enabled !== false;
+  let attached = false;
+  let pointerId = /** @type {number | null} */ (null);
+  let lastClientX = /** @type {number | null} */ (null);
+  let lastClientY = /** @type {number | null} */ (null);
+  let lastCenterPc = /** @type {Vector3Like | null} */ (null);
+  let lastRadiusPc = /** @type {number | null} */ (null);
+  /** @type {{ centerPc: Vector3Like; radial: Vector3Like; radiusPc: number; up: Vector3Like; right: Vector3Like } | null} */
+  let dragState = null;
+  /** @type {EventTarget | null} */
+  let activeTarget = null;
+  /** @type {{ setPointerCapture?: (pointerId: number) => void; releasePointerCapture?: (pointerId: number) => void } | null} */
+  let pointerCaptureTarget = null;
+  /** @type {import('./index.d.ts').SkykitViewer | null} */
+  let viewer = null;
+
+  /** @type {SkykitThreePart & {
+   *   setEnabled(nextEnabled: boolean): void;
+   *   setCenter(nextCenter: import('@found-in-space/spatial').SpatialTargetInput | import('./index.d.ts').SkykitLookAtInput | Vector3Like | null): void;
+   * }}
+   */
+  const part = {
+    id,
+    priority: options.priority,
+    attach(context) {
+      viewer = context.viewer;
+      activeTarget = options.target ?? getDefaultEventTarget();
+      activeTarget?.addEventListener?.('pointerdown', onPointerDown);
+      activeTarget?.addEventListener?.('pointermove', onPointerMove);
+      activeTarget?.addEventListener?.('pointerup', onPointerUp);
+      activeTarget?.addEventListener?.('pointercancel', onPointerUp);
+      attached = Boolean(activeTarget);
+    },
+    detach() {
+      clearDragState({ releaseCapture: true });
+      activeTarget?.removeEventListener?.('pointerdown', onPointerDown);
+      activeTarget?.removeEventListener?.('pointermove', onPointerMove);
+      activeTarget?.removeEventListener?.('pointerup', onPointerUp);
+      activeTarget?.removeEventListener?.('pointercancel', onPointerUp);
+      activeTarget = null;
+      pointerCaptureTarget = null;
+      viewer = null;
+      attached = false;
+      lastCenterPc = null;
+      lastRadiusPc = null;
+    },
+    dispose() {
+      this.detach?.();
+    },
+    getSnapshot,
+    setEnabled,
+    setCenter,
+  };
+
+  /** @type {SkykitPlugin & {
+   *   getSnapshot(): unknown;
+   *   setEnabled(nextEnabled: boolean): void;
+   *   setCenter(nextCenter: import('@found-in-space/spatial').SpatialTargetInput | import('./index.d.ts').SkykitLookAtInput | Vector3Like | null): void;
+   * }}
+   */
+  const plugin = {
+    id,
+    setup(context) {
+      context.addPart(part);
+    },
+    getSnapshot,
+    setEnabled,
+    setCenter,
+  };
+
+  return plugin;
+
+  /** @param {Event} event */
+  function onPointerDown(event) {
+    if (!enabled || !viewer) return;
+    const pointerEvent = /** @type {{ button?: unknown; pointerId?: unknown; clientX?: unknown; clientY?: unknown; preventDefault?: () => void; currentTarget?: unknown }} */ (event);
+    if (Number(pointerEvent.button ?? 0) !== button) return;
+    const view = viewer.getViewState();
+    const centerPc = resolveOrbitCenter(view);
+    if (!centerPc || !isQuaternionLike(view.orientationIcrs)) return;
+    const orientationIcrs = /** @type {import('./index.d.ts').QuaternionLike} */ (view.orientationIcrs);
+    const radial = subtractSpatialVectors(view.observerPc, centerPc);
+    const radiusPc = spatialVectorLength(radial);
+    if (!(radiusPc > ORBIT_EPSILON)) return;
+    const frame = deriveOrbitCameraFrame(orientationIcrs);
+    if (!frame) return;
+    dragState = {
+      centerPc,
+      radial,
+      radiusPc,
+      up: frame.up,
+      right: frame.right,
+    };
+    lastCenterPc = cloneVector3(centerPc);
+    lastRadiusPc = radiusPc;
+    pointerId = Number.isFinite(Number(pointerEvent.pointerId)) ? Number(pointerEvent.pointerId) : null;
+    lastClientX = Number.isFinite(Number(pointerEvent.clientX)) ? Number(pointerEvent.clientX) : null;
+    lastClientY = Number.isFinite(Number(pointerEvent.clientY)) ? Number(pointerEvent.clientY) : null;
+    pointerCaptureTarget = /** @type {{ releasePointerCapture?: (pointerId: number) => void; setPointerCapture?: (pointerId: number) => void } | null} */ (
+      pointerEvent.currentTarget ?? activeTarget
+    );
+    if (pointerId != null) {
+      try {
+        pointerCaptureTarget?.setPointerCapture?.(pointerId);
+      } catch {
+        // Some DOM implementations throw when capture is not available for the pointer.
+      }
+    }
+    viewer.actions.setControlValue('skykit:navigation.manualLookActive', true, { source: id });
+    if (options.preventDefault !== false) pointerEvent.preventDefault?.();
+  }
+
+  /** @param {Event} event */
+  function onPointerMove(event) {
+    if (!enabled || !dragState || !viewer) return;
+    const pointerEvent = /** @type {{ pointerId?: unknown; clientX?: unknown; clientY?: unknown; movementX?: unknown; movementY?: unknown; preventDefault?: () => void }} */ (event);
+    const eventPointerId = Number(pointerEvent.pointerId);
+    if (pointerId != null && Number.isFinite(eventPointerId) && eventPointerId !== pointerId) return;
+    const clientX = Number(pointerEvent.clientX);
+    const clientY = Number(pointerEvent.clientY);
+    let movementX = finiteNumber(pointerEvent.movementX, 0);
+    let movementY = finiteNumber(pointerEvent.movementY, 0);
+    if (Number.isFinite(clientX) && Number.isFinite(clientY)) {
+      movementX = lastClientX == null ? 0 : clientX - lastClientX;
+      movementY = lastClientY == null ? 0 : clientY - lastClientY;
+      lastClientX = clientX;
+      lastClientY = clientY;
+    }
+    if (movementX === 0 && movementY === 0) return;
+
+    const next = computeNextOrbitDragState(
+      dragState,
+      movementX * sensitivityRadiansPerPixel,
+      movementY * verticalSensitivityRadiansPerPixel,
+    );
+    if (!next) return;
+    dragState = next.state;
+    lastCenterPc = cloneVector3(next.state.centerPc);
+    lastRadiusPc = next.state.radiusPc;
+    viewer.actions.setControlValue('skykit:navigation.manualLookActive', true, { source: id });
+    viewer.requestViewState(next.patch, id);
+    if (options.preventDefault !== false) pointerEvent.preventDefault?.();
+  }
+
+  /** @param {Event} event */
+  function onPointerUp(event) {
+    if (!dragState && pointerId == null) return;
+    const pointerEvent = /** @type {{ pointerId?: unknown; preventDefault?: () => void; currentTarget?: unknown }} */ (event);
+    const eventPointerId = Number(pointerEvent.pointerId);
+    if (pointerId != null && Number.isFinite(eventPointerId) && eventPointerId !== pointerId) return;
+    clearDragState({
+      releaseCapture: true,
+      currentTarget: /** @type {{ releasePointerCapture?: (pointerId: number) => void } | null} */ (pointerEvent.currentTarget ?? null),
+    });
+    if (options.preventDefault !== false) pointerEvent.preventDefault?.();
+  }
+
+  /**
+   * @param {{ centerPc: Vector3Like; radial: Vector3Like; radiusPc: number; up: Vector3Like; right: Vector3Like }} state
+   * @param {number} horizontalRad
+   * @param {number} verticalRad
+   * @returns {{ state: { centerPc: Vector3Like; radial: Vector3Like; radiusPc: number; up: Vector3Like; right: Vector3Like }; patch: Partial<import('./index.d.ts').SkykitViewState> } | null}
+   */
+  function computeNextOrbitDragState(state, horizontalRad, verticalRad) {
+    const horizontalAxis = horizontalAxisMode === 'world-up' ? worldUp : state.up;
+    const horizontalDelta = spatialQuaternionFromAxisAngle(horizontalAxis, horizontalRad);
+    let radial = applySpatialQuaternion(state.radial, horizontalDelta);
+    let up = applySpatialQuaternion(state.up, horizontalDelta);
+    let right = applySpatialQuaternion(state.right, horizontalDelta);
+    const verticalAxis = normalizeOrbitDirection(right);
+    if (!verticalAxis) return null;
+    const verticalDelta = spatialQuaternionFromAxisAngle(verticalAxis, verticalRad);
+    radial = applySpatialQuaternion(radial, verticalDelta);
+    up = applySpatialQuaternion(up, verticalDelta);
+    right = verticalAxis;
+
+    const nextObserverPc = addSpatialVectors(state.centerPc, radial);
+    const nextRadiusPc = spatialVectorLength(radial);
+    const normalizedUp = normalizeOrbitDirection(up);
+    const normalizedRight = normalizeOrbitDirection(right);
+    if (!normalizedUp || !normalizedRight || !(nextRadiusPc > ORBIT_EPSILON)) return null;
+
+    if (!lockLookAt) {
+      return {
+        state: {
+          centerPc: cloneVector3(state.centerPc),
+          radial,
+          radiusPc: nextRadiusPc,
+          up: normalizedUp,
+          right: normalizedRight,
+        },
+        patch: { observerPc: nextObserverPc },
+      };
+    }
+
+    const nextOrientationIcrs = computeSpatialLookAtOrientation({
+      position: nextObserverPc,
+      target: state.centerPc,
+      up: normalizedUp,
+    });
+    if (!nextOrientationIcrs) return null;
+    const frame = deriveOrbitCameraFrame(nextOrientationIcrs);
+    if (!frame) return null;
+    return {
+      state: {
+        centerPc: cloneVector3(state.centerPc),
+        radial,
+        radiusPc: nextRadiusPc,
+        up: frame.up,
+        right: frame.right,
+      },
+      patch: {
+        observerPc: nextObserverPc,
+        targetPc: cloneVector3(state.centerPc),
+        orientationIcrs: nextOrientationIcrs,
+      },
+    };
+  }
+
+  /** @param {import('./index.d.ts').SkykitViewState} view */
+  function resolveOrbitCenter(view) {
+    if (configuredCenter != null) {
+      return resolveOrbitCenterInput(configuredCenter, view);
+    }
+    if (centerPcInput != null) {
+      return resolveOrbitCenterInput(centerPcInput, view);
+    }
+    if ((fallbackCenter === 'targetPc' || fallbackCenter === 'lookAt') && view.targetPc) {
+      return cloneVector3(view.targetPc);
+    }
+    if (fallbackCenter === 'lookAt' && view.lookAt) {
+      return resolveOrbitCenterInput(view.lookAt, view);
+    }
+    if (fallbackCenter === 'origin') {
+      return { x: 0, y: 0, z: 0 };
+    }
+    return null;
+  }
+
+  /**
+   * @param {unknown} input
+   * @param {import('./index.d.ts').SkykitViewState} view
+   * @returns {Vector3Like | null}
+   */
+  function resolveOrbitCenterInput(input, view) {
+    try {
+      const target = resolveSpatialTarget(
+        /** @type {import('@found-in-space/spatial').SpatialTargetInput} */ (input),
+        { observerPc: view.observerPc },
+      );
+      const resolvedTarget = unwrapResolvedVector(target);
+      if (resolvedTarget) return resolvedTarget;
+      const lookAt = resolveSpatialLookAt(
+        /** @type {import('@found-in-space/spatial').SpatialLookAtSpec | string} */ (input),
+        { observerPc: view.observerPc },
+      );
+      if (lookAt && typeof /** @type {Promise<unknown>} */ (lookAt).then === 'function') return null;
+      const resolvedLookAt = /** @type {import('@found-in-space/spatial').SpatialResolvedLookAt | null} */ (lookAt);
+      return resolvedLookAt?.targetPc ? cloneVector3(resolvedLookAt.targetPc) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function getSnapshot() {
+    return {
+      id,
+      enabled,
+      attached,
+      dragging: Boolean(dragState),
+      centerPc: lastCenterPc ? cloneVector3(lastCenterPc) : null,
+      radiusPc: lastRadiusPc,
+      sensitivityRadiansPerPixel,
+      verticalSensitivityRadiansPerPixel,
+      horizontalAxisMode,
+      worldUp: horizontalAxisMode === 'world-up' ? cloneVector3(worldUp) : null,
+    };
+  }
+
+  /** @param {boolean} nextEnabled */
+  function setEnabled(nextEnabled) {
+    enabled = Boolean(nextEnabled);
+    if (!enabled) clearDragState({ releaseCapture: true });
+  }
+
+  /**
+   * @param {import('@found-in-space/spatial').SpatialTargetInput | import('./index.d.ts').SkykitLookAtInput | Vector3Like | null} nextCenter
+   */
+  function setCenter(nextCenter) {
+    configuredCenter = nextCenter;
+    if (!dragState) {
+      lastCenterPc = null;
+      lastRadiusPc = null;
+    }
+  }
+
+  /**
+   * @param {{ releaseCapture?: boolean; currentTarget?: { releasePointerCapture?: (pointerId: number) => void } | null }} [options]
+   */
+  function clearDragState(options = {}) {
+    if (options.releaseCapture && pointerId != null) {
+      const captureTarget = options.currentTarget ?? pointerCaptureTarget;
+      try {
+        captureTarget?.releasePointerCapture?.(pointerId);
+      } catch {
+        // Pointer capture release is best-effort across DOM shims and browsers.
+      }
+    }
+    pointerId = null;
+    lastClientX = null;
+    lastClientY = null;
+    dragState = null;
+    pointerCaptureTarget = null;
+    viewer?.actions.setControlValue('skykit:navigation.manualLookActive', false, { source: id });
+  }
+}
+
+/**
  * @param {SkykitDragLookOptions & { dragMode: 'grab' | 'look' }} options
  * @returns {SkykitPlugin & { getSnapshot(): unknown }}
  */
@@ -992,6 +1347,52 @@ export function createSkykitStatusPlugin(options = {}) {
 
 function getDefaultEventTarget() {
   return typeof globalThis.addEventListener === 'function' ? globalThis : null;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {'targetPc' | 'lookAt' | 'origin' | 'none'}
+ */
+function normalizeOrbitFallbackCenter(value) {
+  const fallback = String(value ?? 'targetPc');
+  return fallback === 'lookAt' || fallback === 'origin' || fallback === 'none'
+    ? fallback
+    : 'targetPc';
+}
+
+/**
+ * @param {import('./index.d.ts').QuaternionLike} orientation
+ * @returns {{ up: Vector3Like; right: Vector3Like } | null}
+ */
+function deriveOrbitCameraFrame(orientation) {
+  const q = normalizeQuaternion(orientation, IDENTITY_QUATERNION);
+  const up = normalizeOrbitDirection(applySpatialQuaternion(SPATIAL_LOCAL_UP, q));
+  const right = normalizeOrbitDirection(applySpatialQuaternion(SPATIAL_LOCAL_RIGHT, q));
+  return up && right ? { up, right } : null;
+}
+
+/** @param {unknown} value */
+function unwrapResolvedVector(value) {
+  if (!value || typeof value !== 'object') return null;
+  if (typeof /** @type {Promise<unknown>} */ (value).then === 'function') return null;
+  return normalizeOrbitVector(value);
+}
+
+/** @param {unknown} value */
+function normalizeOrbitVector(value) {
+  if (!value || typeof value !== 'object') return null;
+  const vector = /** @type {{ x?: unknown; y?: unknown; z?: unknown }} */ (value);
+  const x = Number(vector.x);
+  const y = Number(vector.y);
+  const z = Number(vector.z);
+  return [x, y, z].every(Number.isFinite) ? { x, y, z } : null;
+}
+
+/** @param {unknown} value */
+function normalizeOrbitDirection(value) {
+  const vector = normalizeOrbitVector(value);
+  if (!vector || !(spatialVectorLength(vector) > ORBIT_EPSILON)) return null;
+  return normalizeSpatialDirection(vector);
 }
 
 

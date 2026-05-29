@@ -88,7 +88,7 @@ Supported embed attributes:
 | `data-skykit-exposure` | Star-field exposure value. |
 | `data-skykit-observer` | Initial observer target. Accepts `x,y,z` parsec coordinates or RA/Dec/distance text. |
 | `data-skykit-look-at` | Initial look target. Accepts RA/Dec text, decimal RA/Dec, RA/Dec/distance text, or `x,y,z` parsec coordinates. |
-| `data-skykit-mouse-mode` | `grab` by default; `look`, `mouse-look`, `mouselook`, `game`, or `strafe` use mouse-look dragging; `none`, `off`, or `false` disable pointer drag. |
+| `data-skykit-mouse-mode` | `grab` by default; `look`, `mouse-look`, `mouselook`, `game`, or `strafe` use mouse-look dragging; `orbit`, `object-orbit`, `orbital`, or `inspect` orbit around a concrete target; `none`, `off`, or `false` disable pointer drag. |
 | `data-skykit-persistent-cache` | Persistent Cache API storage is on by default; use `off`, `false`, `no`, `0`, or `disabled` to opt out. |
 | `data-skykit-constellations` | Turns on the browser constellation capability. Use `western`, a manifest URL, or pair it with `data-skykit-constellation-manifest`. Omit the attribute to disable constellations. |
 | `data-skykit-constellation-manifest` | Explicit skyculture manifest URL for the browser constellation capability. |
@@ -100,6 +100,18 @@ directional look. Observer-relative shorthand and
 `data-skykit-coordinate-origin` are not part of the embed attribute API; use the
 JavaScript `createSkykitBrowser()` or `createSkykitViewer()` path for custom
 startup state beyond the table above.
+
+Orbit mouse mode uses a resolved `targetPc` as its default center, so pair it
+with a concrete look target:
+
+```html
+<div
+  data-skykit-browser
+  data-skykit-look-at="17.574, 42.316, 13.963"
+  data-skykit-mouse-mode="orbit"
+  style="width: 100%; height: 520px; background: #02040b"
+></div>
+```
 
 The host dispatches `skykit-browser-ready` with `{ browser, viewer }` in
 `event.detail` after startup, and `skykit-browser-error` if startup fails. The
@@ -184,6 +196,36 @@ manifest for UI metadata. When displaying names, prefer
 English value can be a gloss such as "Hunter", while the native display name is
 "Orion". See [`../../docs/constellations.md`](../../docs/constellations.md) for the
 full loading and metadata rules.
+
+## Orbit Around An Object
+
+Use `createSkyOrbitPlugin()` when drag should move around a target rather than
+rotate the view in place. Specify centers in parsecs:
+
+```js
+createSkyOrbitPlugin({
+  target: host,
+  centerPc: HYADES_CENTER_PC,
+});
+```
+
+If the initial view resolves a concrete `targetPc`, the plugin can use that as
+the default center:
+
+```js
+const viewer = await createSkykitViewer({
+  host,
+  renderer,
+  camera,
+  view: {
+    observerPc: { x: 0, y: 0, z: 0 },
+    lookAt: { targetPc: HYADES_CENTER_PC },
+  },
+  plugins: [
+    createSkyOrbitPlugin({ target: host }),
+  ],
+});
+```
 
 For small scripted interactions, use the browser handle:
 

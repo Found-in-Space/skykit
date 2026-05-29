@@ -19,6 +19,7 @@ import {
   createKeyboardNavigationPlugin,
   createObject3dPlugin,
   createMouseLookPlugin,
+  createSkyOrbitPlugin,
   createSkykitNavigationPlugin,
   createSkyGrabPlugin,
   createSkykitStatusPlugin,
@@ -189,6 +190,7 @@ export async function createSkykitBrowser(input = {}) {
         SKYKIT_CONTROLS,
         createRaDecLookAt,
         createObject3dPlugin,
+        createSkyOrbitPlugin,
         createSkykitNavigationPlugin,
         parseDeclination,
         parseRightAscension,
@@ -276,6 +278,12 @@ function createLazyConstellationsFacade(browser, host) {
 function createPointerPlugins(options, host) {
   const mouseMode = normalizeMouseMode(options.mouseMode);
   if (options.grab === false || mouseMode === 'none') return [];
+  if (mouseMode === 'orbit') {
+    return [createSkyOrbitPlugin({
+      target: host,
+      ...(options.grab ?? {}),
+    })];
+  }
   const pointerOptions = {
     target: host,
     sensitivityRadiansPerPixel: 0.00075,
@@ -293,6 +301,7 @@ function normalizeMouseMode(value) {
   if (mode === 'look' || mode === 'mouse-look' || mode === 'mouselook' || mode === 'game' || mode === 'strafe') {
     return mode === 'strafe' ? 'strafe' : 'look';
   }
+  if (mode === 'orbit' || mode === 'object-orbit' || mode === 'orbital' || mode === 'inspect') return 'orbit';
   if (mode === 'none' || mode === 'off' || mode === 'false') return 'none';
   return 'grab';
 }

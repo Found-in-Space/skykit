@@ -163,7 +163,8 @@ export async function resolveViewLookAtInput(input = {}, options = {}) {
   return {
     ...input,
     lookAt: /** @type {import('./index.d.ts').SkykitLookAtInput | null} */ (resolvedLook.lookAt),
-    targetPc: resolvedLook.targetPc,
+    targetPc: resolvedLook.targetPc
+      ?? (input.targetPc == null ? null : normalizeVector3(input.targetPc, { x: 0, y: 0, z: 0 })),
     orientationIcrs: resolvedLook.orientationIcrs,
   };
 }
