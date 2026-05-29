@@ -27,6 +27,16 @@ import { disposeObjectTree, resolveAnchorRoot } from './utils.js';
 
 /**
  * @typedef {{
+ *   part: SkykitThreePart;
+ *   order: number;
+ *   attached: boolean;
+ *   started: boolean;
+ *   disposed: boolean;
+ * }} LayerChildPartRecord
+ */
+
+/**
+ * @typedef {{
  *   layer: SkykitHostedLayer;
  *   id: string;
  *   order: number;
@@ -41,7 +51,11 @@ import { disposeObjectTree, resolveAnchorRoot } from './utils.js';
  *   disposed: boolean;
  *   teardowns: SkykitPluginTeardown[];
  *   objects: LayerObjectRecord[];
+ *   childParts: LayerChildPartRecord[];
+ *   nextChildOrder: number;
  *   lastState: SkykitLayerState | null;
+ *   lastView: SkykitViewState | null;
+ *   lastSize: SkykitViewportSize | null;
  * }} LayerRecord
  */
 
@@ -95,6 +109,7 @@ export function createSkykitLayerHostPlugin(options = {}) {
           mounted: record.attached && !record.disposed,
           started: record.started && !record.disposed,
           setupComplete: record.setupComplete,
+          childPartCount: record.childParts.filter((child) => !child.disposed).length,
           snapshot: record.layer.getSnapshot?.() ?? null,
         })),
       };
@@ -129,7 +144,11 @@ export function createSkykitLayerHostPlugin(options = {}) {
       disposed: false,
       teardowns: [],
       objects: [],
+      childParts: [],
+      nextChildOrder: 0,
       lastState: null,
+      lastView: null,
+      lastSize: null,
     };
     record.part = createLayerPart(record);
     return record;
@@ -166,40 +185,43 @@ function createLayerPart(record) {
       await ensureSetup(record, context);
       if (record.disposed || !record.context) return;
       mountObjects(record);
-      await record.layer.attach?.(record.context);
+      await runAttachLifecycle(record);
       record.attached = true;
+      mountObjects(record);
+      await syncPendingChildParts(record);
     },
     async start(context) {
       await ensureSetup(record, context);
       if (record.disposed || !record.context) return;
-      await record.layer.start?.(record.context);
+      await runStartLifecycle(record);
       record.started = true;
+      await syncPendingChildParts(record);
     },
     setView(view) {
       if (record.disposed || !record.context || !record.baseContext) return;
-      record.layer.setView?.(view, record.context);
-      notifyState(record, createLayerState(record.baseContext, view));
+      record.lastView = view;
+      runSetViewLifecycle(record, view);
     },
     update(frame) {
       if (record.disposed || !record.context) return;
-      notifyState(record, createLayerStateFromFrame(frame));
-      record.layer.update?.(frame, record.context);
+      runFrameLifecycle(record, 'update', frame);
     },
     beforeRender(frame) {
       if (record.disposed || !record.context) return;
-      record.layer.beforeRender?.(frame, record.context);
+      runFrameLifecycle(record, 'beforeRender', frame);
     },
     afterRender(frame) {
       if (record.disposed || !record.context) return;
-      record.layer.afterRender?.(frame, record.context);
+      runFrameLifecycle(record, 'afterRender', frame);
     },
     resize(size) {
       if (record.disposed || !record.context) return;
-      record.layer.resize?.(size, record.context);
+      record.lastSize = size;
+      runResizeLifecycle(record, size);
     },
     async detach() {
       if (!record.context) return;
-      await record.layer.detach?.(record.context);
+      await runDetachLifecycle(record);
       unmountObjects(record);
       record.attached = false;
       record.started = false;
@@ -214,6 +236,7 @@ function createLayerPart(record) {
         started: record.started && !record.disposed,
         setupComplete: record.setupComplete,
         objectCount: record.objects.length,
+        childPartCount: record.childParts.filter((child) => !child.disposed).length,
         layer: record.layer.getSnapshot?.() ?? null,
       };
     },
@@ -255,7 +278,7 @@ function createLayerContext(record, context) {
     ...context,
     products,
     addPart(part) {
-      return trackTeardown(record, context.addPart(part));
+      return addChildPart(record, part);
     },
     addDisposable(disposable) {
       return trackTeardown(record, context.addDisposable(disposable));
@@ -274,6 +297,28 @@ function createLayerContext(record, context) {
       return trackTeardown(record, products.provide(key, value, metadata));
     },
   };
+}
+
+/**
+ * @param {LayerRecord} record
+ * @param {SkykitThreePart} part
+ * @returns {SkykitPluginTeardown}
+ */
+function addChildPart(record, part) {
+  if (!part || typeof part !== 'object') {
+    throw new TypeError('SkyKit parts must be objects.');
+  }
+  /** @type {LayerChildPartRecord} */
+  const child = {
+    part,
+    order: record.nextChildOrder++,
+    attached: false,
+    started: false,
+    disposed: false,
+  };
+  record.childParts.push(child);
+  queueChildPartSync(record, child);
+  return trackTeardown(record, () => removeChildPart(record, child));
 }
 
 /**
@@ -356,7 +401,7 @@ async function disposeRecord(record) {
   if (record.disposed) return;
   record.disposed = true;
   if (record.context && record.attached) {
-    await record.layer.detach?.(record.context);
+    await runDetachLifecycle(record);
     unmountObjects(record);
     record.attached = false;
     record.started = false;
@@ -370,10 +415,212 @@ async function disposeRecord(record) {
   record.teardowns.length = 0;
   unmountObjects(record);
   record.objects.length = 0;
+  record.childParts.length = 0;
   record.context = null;
   record.baseContext = null;
   record.attached = false;
   record.started = false;
+}
+
+/** @param {LayerRecord} record */
+async function runAttachLifecycle(record) {
+  for (const item of orderedLifecycleItems(record)) {
+    if (item.kind === 'layer') {
+      await record.layer.attach?.(/** @type {SkykitLayerContext} */ (record.context));
+    } else {
+      await attachChildPart(record, item.child);
+    }
+  }
+}
+
+/** @param {LayerRecord} record */
+async function runStartLifecycle(record) {
+  for (const item of orderedLifecycleItems(record)) {
+    if (item.kind === 'layer') {
+      await record.layer.start?.(/** @type {SkykitLayerContext} */ (record.context));
+    } else {
+      await startChildPart(record, item.child);
+    }
+  }
+}
+
+/**
+ * @param {LayerRecord} record
+ * @param {SkykitViewState} view
+ */
+function runSetViewLifecycle(record, view) {
+  const layerState = record.baseContext ? createLayerState(record.baseContext, view) : null;
+  for (const item of orderedLifecycleItems(record)) {
+    if (item.kind === 'layer') {
+      record.layer.setView?.(view, /** @type {SkykitLayerContext} */ (record.context));
+      if (layerState) notifyState(record, layerState);
+    } else if (item.child.attached && item.child.started) {
+      item.child.part.setView?.(view);
+    }
+  }
+}
+
+/**
+ * @param {LayerRecord} record
+ * @param {'update' | 'beforeRender' | 'afterRender'} hook
+ * @param {SkykitThreeFrame} frame
+ */
+function runFrameLifecycle(record, hook, frame) {
+  const layerState = hook === 'update' ? createLayerStateFromFrame(frame) : null;
+  for (const item of orderedLifecycleItems(record)) {
+    if (item.kind === 'layer') {
+      if (layerState) notifyState(record, layerState);
+      record.layer[hook]?.(frame, /** @type {SkykitLayerContext} */ (record.context));
+    } else if (item.child.attached && item.child.started) {
+      item.child.part[hook]?.(frame);
+    }
+  }
+}
+
+/**
+ * @param {LayerRecord} record
+ * @param {SkykitViewportSize} size
+ */
+function runResizeLifecycle(record, size) {
+  for (const item of orderedLifecycleItems(record)) {
+    if (item.kind === 'layer') {
+      record.layer.resize?.(size, /** @type {SkykitLayerContext} */ (record.context));
+    } else if (item.child.attached) {
+      item.child.part.resize?.(size);
+    }
+  }
+}
+
+/** @param {LayerRecord} record */
+async function runDetachLifecycle(record) {
+  for (const item of orderedLifecycleItems(record).reverse()) {
+    if (item.kind === 'layer') {
+      await record.layer.detach?.(/** @type {SkykitLayerContext} */ (record.context));
+    } else {
+      await detachChildPart(item.child);
+    }
+  }
+}
+
+/**
+ * @param {LayerRecord} record
+ * @returns {Array<
+ *   | { kind: 'layer'; priority: number; order: number }
+ *   | { kind: 'child'; priority: number; order: number; child: LayerChildPartRecord }
+ * >}
+ */
+function orderedLifecycleItems(record) {
+  return [
+    {
+      kind: /** @type {'layer'} */ ('layer'),
+      priority: record.layer.priority ?? 0,
+      order: 0,
+    },
+    ...record.childParts
+      .filter((child) => !child.disposed)
+      .map((child) => ({
+        kind: /** @type {'child'} */ ('child'),
+        priority: child.part.priority ?? 0,
+        order: child.order + 1,
+        child,
+      })),
+  ].sort((left, right) => left.priority - right.priority || left.order - right.order);
+}
+
+/**
+ * @param {LayerRecord} record
+ * @param {LayerChildPartRecord} child
+ */
+function queueChildPartSync(record, child) {
+  void syncChildPart(record, child).catch((error) => {
+    emitChildPartError(record, child, 'sync', error);
+  });
+}
+
+/** @param {LayerRecord} record */
+async function syncPendingChildParts(record) {
+  for (const child of [...record.childParts]) {
+    await syncChildPart(record, child);
+  }
+}
+
+/**
+ * @param {LayerRecord} record
+ * @param {LayerChildPartRecord} child
+ */
+async function syncChildPart(record, child) {
+  if (!record.context || child.disposed) return;
+  if (record.attached && !child.attached) {
+    await attachChildPart(record, child);
+  }
+  if (record.started && !child.started) {
+    await startChildPart(record, child);
+  }
+  if (record.lastView && child.attached && child.started) {
+    child.part.setView?.(record.lastView);
+  }
+  if (record.lastSize && child.attached) {
+    child.part.resize?.(record.lastSize);
+  }
+}
+
+/**
+ * @param {LayerRecord} record
+ * @param {LayerChildPartRecord} child
+ */
+async function attachChildPart(record, child) {
+  if (!record.context || child.disposed || child.attached) return;
+  await child.part.attach?.(record.context);
+  child.attached = true;
+}
+
+/**
+ * @param {LayerRecord} record
+ * @param {LayerChildPartRecord} child
+ */
+async function startChildPart(record, child) {
+  if (!record.context || child.disposed || child.started) return;
+  await child.part.start?.(record.context);
+  child.started = true;
+}
+
+/** @param {LayerChildPartRecord} child */
+async function detachChildPart(child) {
+  if (child.disposed || !child.attached) return;
+  await child.part.detach?.();
+  child.attached = false;
+  child.started = false;
+}
+
+/**
+ * @param {LayerRecord} record
+ * @param {LayerChildPartRecord} child
+ */
+async function removeChildPart(record, child) {
+  const index = record.childParts.indexOf(child);
+  if (index >= 0) record.childParts.splice(index, 1);
+  if (child.disposed) return;
+  await detachChildPart(child);
+  child.disposed = true;
+  child.started = false;
+  child.attached = false;
+  await child.part.dispose?.();
+}
+
+/**
+ * @param {LayerRecord} record
+ * @param {LayerChildPartRecord} child
+ * @param {string} phase
+ * @param {unknown} error
+ */
+function emitChildPartError(record, child, phase, error) {
+  record.context?.emit({
+    type: 'layer/child-part-error',
+    layerId: record.id,
+    partId: child.part.id ?? null,
+    phase,
+    error: error instanceof Error ? error.message : String(error),
+  });
 }
 
 /**

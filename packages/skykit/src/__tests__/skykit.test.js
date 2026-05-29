@@ -155,6 +155,31 @@ function assertStrategyBehavior(strategy) {
   }
 }
 
+function assertCallOrder(calls, expected) {
+  let offset = 0;
+  for (const call of expected) {
+    const index = calls.indexOf(call, offset);
+    assert.notEqual(index, -1, `Expected ${call} after ${calls.slice(0, offset).join(', ')}`);
+    offset = index + 1;
+  }
+}
+
+function createLifecycleSpyPart(id, calls, priority = 0) {
+  return {
+    id,
+    priority,
+    attach() { calls.push(`${id}.attach`); },
+    start() { calls.push(`${id}.start`); },
+    setView(view) { calls.push(`${id}.setView:${view.revision}`); },
+    update() { calls.push(`${id}.update`); },
+    beforeRender() { calls.push(`${id}.beforeRender`); },
+    afterRender() { calls.push(`${id}.afterRender`); },
+    resize(size) { calls.push(`${id}.resize:${size.width}`); },
+    detach() { calls.push(`${id}.detach`); },
+    dispose() { calls.push(`${id}.dispose`); },
+  };
+}
+
 test('createSkykitViewer creates roots, mounts renderer, runs lifecycle, and disposes cleanly', async () => {
   const host = createHost();
   const renderer = createRenderer();
@@ -338,6 +363,95 @@ test('layer host routes lifecycle, state, object mounts, products, and dynamic l
   assert.equal(viewer.roots.observerContentRoot.children.includes(object), false);
 });
 
+test('layer host owns child parts added through layer context', async () => {
+  const calls = [];
+  let addDynamicChild = null;
+  let removeSetupChild = null;
+
+  const setupChild = createLifecycleSpyPart('setup-child', calls, -1);
+  const dynamicChild = createLifecycleSpyPart('dynamic-child', calls, 1);
+  const host = createSkykitLayerHostPlugin({
+    id: 'host',
+    layers: [
+      {
+        id: 'hosted',
+        priority: 0,
+        setup(ctx) {
+          calls.push('layer.setup');
+          removeSetupChild = ctx.addPart(setupChild);
+          addDynamicChild = () => ctx.addPart(dynamicChild);
+        },
+        attach() { calls.push('layer.attach'); },
+        start() { calls.push('layer.start'); },
+        setView(view) { calls.push(`layer.setView:${view.revision}`); },
+        update() { calls.push('layer.update'); },
+        beforeRender() { calls.push('layer.beforeRender'); },
+        afterRender() { calls.push('layer.afterRender'); },
+        resize(size) { calls.push(`layer.resize:${size.width}`); },
+        detach() { calls.push('layer.detach'); },
+        dispose() { calls.push('layer.dispose'); },
+      },
+    ],
+  });
+
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [host],
+  });
+
+  assertCallOrder(calls, [
+    'layer.setup',
+    'setup-child.attach',
+    'layer.attach',
+    'setup-child.start',
+    'layer.start',
+    'setup-child.setView:0',
+    'layer.setView:0',
+  ]);
+  assert.equal(host.getSnapshot().layers[0].childPartCount, 1);
+
+  viewer.frame(0.1);
+  assertCallOrder(calls, ['setup-child.update', 'layer.update']);
+  assertCallOrder(calls, ['setup-child.beforeRender', 'layer.beforeRender']);
+  assertCallOrder(calls, ['setup-child.afterRender', 'layer.afterRender']);
+
+  viewer.resize({ width: 320, height: 240, devicePixelRatio: 1 });
+  assertCallOrder(calls, ['setup-child.resize:320', 'layer.resize:320']);
+
+  removeSetupChild();
+  await flushMicrotasks();
+
+  assert.ok(calls.includes('setup-child.detach'));
+  assert.ok(calls.includes('setup-child.dispose'));
+  assert.equal(host.getSnapshot().layers[0].childPartCount, 0);
+
+  const removeDynamicChild = addDynamicChild();
+  await flushMicrotasks();
+
+  assertCallOrder(calls, [
+    'dynamic-child.attach',
+    'dynamic-child.start',
+    'dynamic-child.setView:1',
+    'dynamic-child.resize:320',
+  ]);
+  assert.equal(host.getSnapshot().layers[0].childPartCount, 1);
+
+  viewer.frame(0.1);
+  assert.ok(calls.includes('dynamic-child.update'));
+
+  removeDynamicChild();
+  await flushMicrotasks();
+
+  assert.ok(calls.includes('dynamic-child.detach'));
+  assert.ok(calls.includes('dynamic-child.dispose'));
+  assert.equal(host.getSnapshot().layers[0].childPartCount, 0);
+
+  await viewer.dispose();
+
+  assert.ok(calls.includes('layer.detach'));
+  assert.ok(calls.includes('layer.dispose'));
+});
+
 test('constellation and coordinate-frame layers publish spatial feature and waypoint products', async () => {
   const products = createSkykitProductRegistryPlugin({ id: 'products' });
   const constellationLayer = createSkykitConstellationLayer({
@@ -362,9 +476,11 @@ test('constellation and coordinate-frame layers publish spatial feature and wayp
         },
       ],
     },
+    art: { loading: 'lazy' },
     publish: {
       features: 'features:constellations/western',
       waypoints: 'waypoints:constellations/western',
+      catalog: 'surfaces:constellation-art/western',
     },
   });
   const frameLayer = createSkykitCoordinateFrameMarkerLayer({
@@ -375,32 +491,38 @@ test('constellation and coordinate-frame layers publish spatial feature and wayp
       waypoints: 'waypoints:frames/galactic',
     },
   });
+  const layerHost = createSkykitLayerHostPlugin({
+    layers: [constellationLayer, frameLayer],
+  });
 
   const viewer = await createSkykitViewer({
     renderer: createRenderer(),
     plugins: [
       products,
-      createSkykitLayerHostPlugin({
-        layers: [constellationLayer, frameLayer],
-      }),
+      layerHost,
     ],
   });
 
   const constellationFeatures = products.get('features:constellations/western');
   const constellationWaypoints = products.get('waypoints:constellations/western');
+  const constellationCatalog = products.get('surfaces:constellation-art/western');
   const frameFeatures = products.get('features:frames/galactic');
   const frameWaypoints = products.get('waypoints:frames/galactic');
 
   assert.equal(constellationFeatures.type, 'FeatureCollection');
   assert.equal(constellationFeatures.features.some((feature) => feature.frame === 'observer-sky'), true);
   assert.equal(constellationWaypoints[0].target.targetPc.x > 0, true);
+  assert.equal(typeof constellationCatalog.list, 'function');
   assert.equal(frameFeatures.features.some((feature) => feature.kind === 'coordinate-frame:axis'), true);
   assert.equal(frameWaypoints.length > 0, true);
   assert.equal(viewer.roots.observerContentRoot.children.some((child) => child.name === 'constellation-boundaries'), true);
+  assert.equal(viewer.roots.observerContentRoot.children.some((child) => child.name === 'western-constellations:art'), true);
+  assert.equal(layerHost.getSnapshot().layers[0].childPartCount, 1);
 
   await viewer.dispose();
 
   assert.equal(products.get('features:constellations/western'), null);
+  assert.equal(products.get('surfaces:constellation-art/western'), null);
   assert.equal(products.get('features:frames/galactic'), null);
 });
 

@@ -588,6 +588,7 @@ export interface SkykitLayerHostSnapshot {
     mounted: boolean;
     started: boolean;
     setupComplete: boolean;
+    childPartCount: number;
     snapshot: unknown;
   }>;
 }
