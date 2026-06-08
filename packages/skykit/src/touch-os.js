@@ -41,6 +41,12 @@ const DEFAULT_PANEL_DRIVER_OPTIONS = Object.freeze({
   pointerClaimPolicy: 'block-on-hit',
   transparent: true,
 });
+const DEFAULT_XR_TABLET_PANEL_ID = 'skykit-xr-tablet-panel';
+const DEFAULT_XR_TABLET_SURFACE_METRICS = Object.freeze({ width: 420, height: 560, pixelDensity: 1 });
+const DEFAULT_XR_TABLET_PANEL_OFFSET = Object.freeze({ x: 0.04, y: 0.02, z: -0.08 });
+const DEFAULT_XR_TABLET_PANEL_WIDTH = 0.32;
+const DEFAULT_XR_TABLET_PANEL_HEIGHT = 0.44;
+const DEFAULT_XR_TABLET_TILT_RADIANS = -0.22;
 const DEFAULT_TABLET_LAUNCHER_LAYOUT = Object.freeze({
   tileWidth: 84,
   tileHeight: 88,
@@ -632,6 +638,74 @@ export function createSkykitXrPanelHostPlugin(options) {
 }
 
 /**
+ * Create a standard SkyKit XR arm tablet panel from ordinary touch apps.
+ *
+ * @param {import('./touch-os.d.ts').SkykitXrTabletPanelPluginOptions} options
+ * @returns {import('./touch-os.d.ts').SkykitXrPanelHostPlugin}
+ */
+export function createSkykitXrTabletPanelPlugin(options) {
+  if (!options || typeof options !== 'object') {
+    throw new TypeError('createSkykitXrTabletPanelPlugin requires options.');
+  }
+
+  const id = options.id ?? DEFAULT_XR_TABLET_PANEL_ID;
+  const hand = options.hand === 'right' ? 'right' : 'left';
+  const handRootKey = hand === 'right' ? 'rightHandRoot' : 'leftHandRoot';
+  const apps = Array.from(options.apps ?? []);
+  const surfaceMetricsInput = options.surfaceMetrics ?? {};
+  const surfaceMetrics = {
+    ...surfaceMetricsInput,
+    width: positiveInteger(surfaceMetricsInput.width, DEFAULT_XR_TABLET_SURFACE_METRICS.width),
+    height: positiveInteger(surfaceMetricsInput.height, DEFAULT_XR_TABLET_SURFACE_METRICS.height),
+    pixelDensity: positiveFinite(surfaceMetricsInput.pixelDensity, DEFAULT_XR_TABLET_SURFACE_METRICS.pixelDensity),
+  };
+  const driverOptions = options.driverOptions ?? {};
+  const panelWidth = options.panelWidth === undefined
+    ? positiveFinite(driverOptions.panelWidth, DEFAULT_XR_TABLET_PANEL_WIDTH)
+    : positiveFinite(options.panelWidth, DEFAULT_XR_TABLET_PANEL_WIDTH);
+  const panelHeight = options.panelHeight === undefined
+    ? positiveFinite(driverOptions.panelHeight, DEFAULT_XR_TABLET_PANEL_HEIGHT)
+    : positiveFinite(options.panelHeight, DEFAULT_XR_TABLET_PANEL_HEIGHT);
+  const offset = {
+    x: finiteNumber(options.offset?.x, DEFAULT_XR_TABLET_PANEL_OFFSET.x),
+    y: finiteNumber(options.offset?.y, DEFAULT_XR_TABLET_PANEL_OFFSET.y),
+    z: finiteNumber(options.offset?.z, DEFAULT_XR_TABLET_PANEL_OFFSET.z),
+  };
+  const tiltRadians = finiteNumber(options.tiltRadians, DEFAULT_XR_TABLET_TILT_RADIANS);
+  const updatePlacement = driverOptions.updatePlacement ?? ((mesh, frame) => {
+    if (frame.parent?.visible === false) return false;
+    applyLocalTabletPanelPlacement(mesh, { offset, tiltRadians });
+    return true;
+  });
+  const root = createSkykitTabletRoot({
+    ...(options.tablet ?? {}),
+    apps,
+  });
+
+  return createSkykitXrPanelHostPlugin({
+    ...options,
+    id,
+    driver: 'scene',
+    root,
+    surfaceMetrics,
+    parent(frame) {
+      return resolveXrTabletHandRoot(frame, handRootKey);
+    },
+    driverOptions: {
+      panelWidth: DEFAULT_XR_TABLET_PANEL_WIDTH,
+      panelHeight: DEFAULT_XR_TABLET_PANEL_HEIGHT,
+      transparent: true,
+      depthTest: false,
+      renderOrder: 50,
+      ...driverOptions,
+      panelWidth,
+      panelHeight,
+      updatePlacement,
+    },
+  });
+}
+
+/**
  * Route touch-os action outputs into a SkyKit action registry.
  *
  * @param {Iterable<unknown>} outputs
@@ -1052,6 +1126,30 @@ function resolveTouchOsPanelDriverFactory(driver) {
 function resolveAnchorPose(anchorPose, frame) {
   const resolved = typeof anchorPose === 'function' ? anchorPose(frame) : anchorPose;
   return resolved ?? undefined;
+}
+
+/**
+ * @param {import('three').Object3D} mesh
+ * @param {{ offset: { x: number; y: number; z: number }; tiltRadians: number }} options
+ */
+function applyLocalTabletPanelPlacement(mesh, options) {
+  mesh.position.set(0, 0, 0);
+  mesh.quaternion.identity();
+  mesh.scale.set(1, 1, 1);
+  mesh.rotateX(options.tiltRadians);
+  mesh.translateX(options.offset.x);
+  mesh.translateY(options.offset.y);
+  mesh.translateZ(options.offset.z);
+}
+
+/**
+ * @param {import('./index.d.ts').SkykitThreeFrame} frame
+ * @param {'leftHandRoot' | 'rightHandRoot'} handRootKey
+ * @returns {import('three').Object3D | undefined}
+ */
+function resolveXrTabletHandRoot(frame, handRootKey) {
+  const rig = /** @type {Record<string, import('three').Object3D> | undefined} */ (frame.xr?.rig);
+  return rig?.[handRootKey];
 }
 
 /**

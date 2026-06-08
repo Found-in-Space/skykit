@@ -11,8 +11,8 @@ import { createSkykitAnimationLoop } from '../animation-loop.js';
 import { createSkykitLayerHostPlugin } from '../layer-host.js';
 import { createSkykitProductRegistryPlugin, getSkykitProductRegistry } from '../products.js';
 import { createSkykitStarSourcePlugin } from '../star-source.js';
+import { createSkykitStellarSkyLayer } from '../stellar-sky-layer.js';
 import { createSkykitViewer } from '../viewer.js';
-import { createStreamingStarsPlugin } from '../plugins.js';
 import {
   createSkykitXrComposition,
   createSkykitXrPickBridgePlugin,
@@ -40,7 +40,7 @@ const DEFAULT_STAR_PICK_ATTRIBUTES = Object.freeze(['objectRef', 'pickMeta']);
  * @typedef {import('../index.d.ts').SkykitProductKey} SkykitProductKey
  * @typedef {import('../index.d.ts').SkykitStarCellSource} SkykitStarCellSource
  * @typedef {import('../index.d.ts').SkykitStarSourcePublishOptions} SkykitStarSourcePublishOptions
- * @typedef {import('../index.d.ts').SkykitStreamingStarsPlugin} SkykitStreamingStarsPlugin
+ * @typedef {import('../index.d.ts').SkykitStellarSkyLayer} SkykitStellarSkyLayer
  * @typedef {import('../index.d.ts').SkykitViewState} SkykitViewState
  * @typedef {import('../index.d.ts').SkykitViewer} SkykitViewer
  * @typedef {import('../index.d.ts').SkykitViewerOptions} SkykitViewerOptions
@@ -69,7 +69,7 @@ const DEFAULT_STAR_PICK_ATTRIBUTES = Object.freeze(['objectRef', 'pickMeta']);
  *   source: SkykitStarCellSource | null;
  *   sourcePlugins: SkykitPlugin[];
  *   starField: ThreeStarField | null;
- *   starLayer: SkykitStreamingStarsPlugin | null;
+ *   starLayer: SkykitStellarSkyLayer | null;
  *   ownsProvider: boolean;
  *   ownsStarField: boolean;
  * }} VrStarBundle
@@ -92,9 +92,9 @@ export async function createSkykitVrViewer(options = {}) {
   const xr = createVrXrComposition(options.xr, renderer, camera, view);
   const products = createVrProducts(options.products);
   const callerPlugins = Array.from(options.plugins ?? []);
-  const stars = createVrStarBundle(options.stars, view, callerPlugins);
+  const stars = createVrStarBundle(options.stars, view, callerPlugins, options.layerHost !== false);
   const sourcePlugins = createVrSourceInputPlugins(options.sources);
-  const layerHost = createVrLayerHost(options.layerHost, options.layers);
+  const layerHost = createVrLayerHost(options.layerHost, options.layers, stars.starLayer);
   const pickBridge = createVrPickBridge(xr, options.pickBridge);
   const starPicking = createVrStarPicking(stars, xr, options.stars);
   const instruments = Array.from(options.instruments ?? []);
@@ -104,7 +104,6 @@ export async function createSkykitVrViewer(options = {}) {
     ...(products.plugin ? [products.plugin] : []),
     ...stars.sourcePlugins,
     ...sourcePlugins,
-    ...(stars.starLayer ? [stars.starLayer] : []),
     ...(layerHost ? [layerHost] : []),
     ...(pickBridge ? [pickBridge] : []),
     ...(starPicking ? [starPicking] : []),
@@ -334,9 +333,10 @@ function createVrProducts(options) {
  * @param {SkykitVrStarsOptions | false | undefined} options
  * @param {Partial<SkykitViewState>} view
  * @param {SkykitPluginInput[]} callerPlugins
+ * @param {boolean} hostedLayersEnabled
  * @returns {VrStarBundle}
  */
-function createVrStarBundle(options, view, callerPlugins) {
+function createVrStarBundle(options, view, callerPlugins, hostedLayersEnabled) {
   if (options === false) {
     return {
       provider: null,
@@ -383,16 +383,16 @@ function createVrStarBundle(options, view, callerPlugins) {
     limitingMagnitude: positiveNumber(view.limitingMagnitude, DEFAULT_LIMITING_MAGNITUDE),
   });
   const ownsStarField = !stars.renderer;
-  const starLayer = stars.layer === false
+  const starLayer = stars.layer === false || !hostedLayersEnabled
     ? null
-    : createStreamingStarsPlugin({
+    : createSkykitStellarSkyLayer({
         id: `${id}:renderer`,
-        source,
-        renderer: createNonOwningStarField(starField),
-        session: stars.session,
         strategy,
         attributes,
+        publish: false,
         ...((stars.layer && typeof stars.layer === 'object') ? stars.layer : {}),
+        source,
+        renderer: createNonOwningStarField(starField),
       });
   return {
     provider,
@@ -487,21 +487,35 @@ function createVrSourcePlugins(options) {
 /**
  * @param {SkykitVrViewerOptions['layerHost']} layerHost
  * @param {Iterable<SkykitHostedLayer> | undefined} layers
+ * @param {SkykitHostedLayer | null} starLayer
  * @returns {SkykitLayerHostPlugin | null}
  */
-function createVrLayerHost(layerHost, layers) {
+function createVrLayerHost(layerHost, layers, starLayer) {
   if (layerHost === false) return null;
+  const explicitLayers = Array.from(layers ?? []);
   if (isLayerHostPlugin(layerHost)) {
     const plugin = /** @type {SkykitLayerHostPlugin} */ (layerHost);
-    for (const layer of layers ?? []) {
+    if (starLayer) {
+      plugin.addLayer(starLayer);
+    }
+    for (const layer of explicitLayers) {
       plugin.addLayer(layer);
     }
     return plugin;
   }
-  if (layerHost || layers) {
+  const layerHostOptions = layerHost && typeof layerHost === 'object'
+    ? /** @type {SkykitLayerHostOptions} */ (layerHost)
+    : {};
+  const optionLayers = Array.from(layerHostOptions.layers ?? []);
+  const hostedLayers = [
+    ...(starLayer ? [starLayer] : []),
+    ...optionLayers,
+    ...explicitLayers,
+  ];
+  if (layerHost || hostedLayers.length > 0) {
     return createSkykitLayerHostPlugin({
-      ...((layerHost && typeof layerHost === 'object') ? layerHost : {}),
-      layers,
+      ...layerHostOptions,
+      layers: hostedLayers,
     });
   }
   return null;

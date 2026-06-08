@@ -39,8 +39,9 @@ test('xr free-roam demo uses restored alpha XR regressions defaults', () => {
 
   assert.match(source, /createDefaultThreeStarFieldMaterialProfile/);
   assert.doesNotMatch(source, /createVrThreeStarFieldMaterialProfile/);
+  assert.match(source, /createSkykitXrComposition/);
+  assert.match(source, /createSkykitXrTabletPanelPlugin/);
   assert.match(source, /createSkykitXrRayVisualPlugin/);
-  assert.match(source, /createSkykitXrBodyPlugin/);
   assert.match(source, /createSurfaceShell/);
   assert.match(source, /createMetaSidecarProviderService/);
   assert.match(source, /deriveMetaSidecarUrlFromRenderUrl/);
@@ -51,13 +52,16 @@ test('xr free-roam demo uses restored alpha XR regressions defaults', () => {
   assert.match(source, /primaryActionId:\s*XR_DEMO_ACTIONS\.goSelected/);
   assert.match(source, /primaryActionLabel:\s*'Fly to'/);
   assert.match(source, /homeControl:\s*'button'/);
-  assert.match(source, /pointerType:\s*'ray'/);
-  assert.match(source, /return xrRig\.leftHandRoot/);
-  assert.match(source, /latestPanelFrame = rootContext\?\.frame \?\? latestPanelFrame/);
+  assert.match(source, /rays:\s*\[rightRaySource\]/);
+  assert.doesNotMatch(source, /createRightHandTouchPointerSource/);
+  assert.doesNotMatch(source, /createXrRayPointerSource/);
+  assert.doesNotMatch(source, /createTouchOsPanelPlugin/);
+  assert.doesNotMatch(source, /createSkykitTabletRoot/);
   assert.doesNotMatch(source, /dragThreshold/);
   assert.doesNotMatch(source, /driver:\s*'pose-anchored'/);
   assert.doesNotMatch(source, /anchorPose/);
   assert.doesNotMatch(source, /latestPanelFrame = frame/);
+  assert.doesNotMatch(source, /latestPanelFrame = rootContext/);
   assert.doesNotMatch(source, /createChoiceGroup/);
   assert.doesNotMatch(source, /createSlider/);
   assert.doesNotMatch(source, /createToggle/);

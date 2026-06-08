@@ -6,11 +6,14 @@ import { createRuntime } from '@found-in-space/touch-os';
 import {
   SKYKIT_ACTIONS,
   createSkykitActionRegistry,
+  createSkykitProductRegistryPlugin,
+  createSkykitViewer,
 } from '../index.js';
 import {
   createSkykitShipControlsRoot,
   createSkykitSurfaceApp,
   createSkykitTabletRoot,
+  createSkykitXrTabletPanelPlugin,
   createTouchOsHudPlugin,
   createTouchOsPanelPlugin,
   dispatchTouchOsActionOutputs,
@@ -101,6 +104,144 @@ test('createSkykitTabletRoot builds a tablet app shell from touch apps', () => {
   const snapshot = runtime.render();
   assert.equal(snapshot.commands.some((command) => command.role === 'tablet-home-button'), true);
   assert.equal(snapshot.commands.some((command) => command.role === 'tablet-home-bar'), false);
+});
+
+test('createSkykitXrTabletPanelPlugin builds a tablet root from apps and tablet options', () => {
+  const app = createSkykitSurfaceApp({
+    id: 'app.xr.surface',
+    name: 'XR Surface',
+    node: createSkykitShipControlsRoot({ id: 'xr-surface-child', movePad: false, verticalControls: false }),
+  });
+  const appStates = { 'app.xr.surface': { ready: true } };
+  let addedPart = null;
+  let createdRuntimeOptions = null;
+
+  const plugin = createSkykitXrTabletPanelPlugin({
+    id: 'test-xr-tablet',
+    apps: [app],
+    tablet: {
+      id: 'test-xr-tablet-root',
+      appStates,
+      homeKey: false,
+      homeControl: 'bar',
+    },
+    createRuntime(options) {
+      createdRuntimeOptions = options;
+      return createRuntimeStub();
+    },
+    driverHandle: createPanelDriverStub(),
+  });
+  plugin.setup(createContext(createSkykitActionRegistry(), (part) => {
+    addedPart = part;
+  }));
+
+  assert.ok(addedPart);
+  assert.ok(createdRuntimeOptions);
+  assert.equal(createdRuntimeOptions.root.id, 'test-xr-tablet-root');
+  assert.equal(createdRuntimeOptions.root.component.kind, 'app-shell');
+  assert.equal(createdRuntimeOptions.root.props.homeKey, false);
+  assert.equal(createdRuntimeOptions.root.props.appStates, appStates);
+  assert.deepEqual(
+    createdRuntimeOptions.root.props.registry.list().map((manifest) => manifest.id),
+    ['app.xr.surface'],
+  );
+});
+
+test('createSkykitXrTabletPanelPlugin resolves default and right-hand parents', () => {
+  const cases = [
+    { hand: undefined, expected: 'left' },
+    { hand: 'right', expected: 'right' },
+  ];
+
+  for (const testCase of cases) {
+    const driver = createPanelDriverStub();
+    let addedPart = null;
+    const plugin = createSkykitXrTabletPanelPlugin({
+      id: `test-xr-tablet-${testCase.expected}`,
+      apps: [],
+      ...(testCase.hand ? { hand: testCase.hand } : {}),
+      runtime: createRuntimeStub(),
+      driverHandle: driver,
+    });
+    plugin.setup(createContext(createSkykitActionRegistry(), (part) => {
+      addedPart = part;
+    }));
+
+    const leftHandRoot = new THREE.Group();
+    const rightHandRoot = new THREE.Group();
+    addedPart.update(createXrFrame({
+      rig: { leftHandRoot, rightHandRoot },
+      presenting: false,
+    }));
+
+    assert.equal(driver.frames[0].parent, testCase.expected === 'left' ? leftHandRoot : rightHandRoot);
+  }
+});
+
+test('createSkykitXrTabletPanelPlugin delegates default right-ray pointer input to the XR panel host', () => {
+  let addedPart = null;
+  let createdDriverOptions = null;
+  const samples = [];
+  const driver = createPanelDriverStub(null, (frame) => {
+    for (const pointerSource of createdDriverOptions.pointerSources) {
+      samples.push(...pointerSource.sample(frame));
+    }
+  });
+  const plugin = createSkykitXrTabletPanelPlugin({
+    id: 'test-xr-tablet-pointer',
+    apps: [],
+    runtime: createRuntimeStub(),
+    createDriver(options) {
+      createdDriverOptions = options;
+      return driver;
+    },
+  });
+  plugin.setup(createContext(createSkykitActionRegistry(), (part) => {
+    addedPart = part;
+  }));
+
+  addedPart.update(createXrFrame({
+    presenting: true,
+    rays: { right: fixedRaySource() },
+    session: { inputSources: [controllerInput('right', [], true)] },
+  }));
+
+  assert.ok(createdDriverOptions);
+  assert.equal(createdDriverOptions.pointerSources.length, 1);
+  assert.equal(createdDriverOptions.panelWidth, 0.32);
+  assert.equal(createdDriverOptions.panelHeight, 0.44);
+  assert.equal(createdDriverOptions.transparent, true);
+  assert.equal(createdDriverOptions.depthTest, false);
+  assert.equal(createdDriverOptions.renderOrder, 50);
+  assert.equal(samples.length, 1);
+  assert.equal(samples[0].transport, 'ray');
+  assert.equal(samples[0].pointerId, 'test-xr-tablet-pointer:fixed-ray');
+  assert.equal(samples[0].handedness, 'right');
+  assert.equal(samples[0].phase, 'down');
+});
+
+test('createSkykitXrTabletPanelPlugin publishes its blocker product', async () => {
+  const products = createSkykitProductRegistryPlugin();
+  const driver = createPanelDriverStub({ blocked: true, length: 2 });
+  const panel = createSkykitXrTabletPanelPlugin({
+    id: 'test-xr-tablet-blocker',
+    apps: [],
+    runtime: createRuntimeStub(),
+    driverHandle: driver,
+    blockerProductKey: 'interaction:test-xr-tablet/blocker',
+  });
+  const viewer = await createSkykitViewer({ plugins: [products, panel] });
+
+  const blocker = products.get('interaction:test-xr-tablet/blocker');
+  assert.equal(blocker, panel);
+  assert.deepEqual(blocker.blockRay({}, { maxDistance: 10 }), {
+    blocked: true,
+    consumed: true,
+    distance: 2,
+    hit: { blocked: true, length: 2 },
+  });
+
+  await viewer.dispose();
 });
 
 test('createSkykitSurfaceApp wraps display nodes and emits app events', () => {
@@ -536,6 +677,72 @@ test('createTouchOsPanelPlugin mounts pose-anchored panels, forwards outputs, an
   assert.equal(runtime.disposed, true);
 });
 
+function createRuntimeStub() {
+  return {
+    setRoot(root) {
+      this.root = root;
+    },
+    render() {
+      return { commands: [], sharedSurfaceRevision: 0 };
+    },
+    dispatchInput() {
+      return { handled: false, componentId: undefined, targetId: undefined, outputs: [] };
+    },
+    resize() {},
+    tick() {},
+    takeOutputs() {
+      return [];
+    },
+    getServices() {
+      return {};
+    },
+    getInteraction() {
+      return {};
+    },
+    getBounds() {
+      return undefined;
+    },
+    isLayoutDirty() {
+      return false;
+    },
+    isRenderDirty() {
+      return false;
+    },
+    dispose() {
+      this.disposed = true;
+    },
+  };
+}
+
+function createPanelDriverStub(hit = null, onUpdate = null) {
+  return {
+    frames: [],
+    attach() {
+      this.attached = true;
+    },
+    update(frame) {
+      this.frames.push(frame);
+      onUpdate?.(frame);
+    },
+    detach() {
+      this.attached = false;
+    },
+    render() {
+      return { commands: [], sharedSurfaceRevision: 0 };
+    },
+    getHit() {
+      return hit ? { ...hit } : null;
+    },
+    getCompositeSurfaces() {
+      return [];
+    },
+    getPointerState() {
+      return undefined;
+    },
+    clearPointer() {},
+  };
+}
+
 function createContext(actions, addPart) {
   return {
     mode: 'three',
@@ -570,6 +777,52 @@ function createContext(actions, addPart) {
     },
     scheduleTask() {
       return () => {};
+    },
+  };
+}
+
+function createXrFrame(options = {}) {
+  const leftHandRoot = new THREE.Group();
+  const rightHandRoot = new THREE.Group();
+  return {
+    ...createFrame(0.5),
+    xr: {
+      presenting: options.presenting ?? true,
+      frame: options.xrFrame ?? {},
+      referenceSpace: options.referenceSpace ?? {},
+      session: options.session ?? { inputSources: [] },
+      rig: options.rig ?? { leftHandRoot, rightHandRoot },
+      rays: options.rays ?? { right: fixedRaySource() },
+    },
+  };
+}
+
+function fixedRaySource() {
+  return {
+    id: 'fixed-ray-source',
+    getRay() {
+      return {
+        id: 'fixed-ray',
+        kind: 'target-ray',
+        handedness: 'right',
+        origin: { x: 0, y: 0, z: 0 },
+        direction: { x: 0, y: 0, z: -1 },
+        length: 10,
+      };
+    },
+    getSnapshot() {
+      return { id: 'fixed-ray-source' };
+    },
+    dispose() {},
+  };
+}
+
+function controllerInput(handedness, axes, pressed) {
+  return {
+    handedness,
+    gamepad: {
+      axes,
+      buttons: [{ pressed, touched: pressed, value: pressed ? 1 : 0 }],
     },
   };
 }

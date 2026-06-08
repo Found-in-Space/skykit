@@ -27,7 +27,8 @@ async function start() {
   const starField = createThreeStarField({ limitingMagnitude: 7.5, exposure: 2500 });
   const waypointLayer = createWaypointLayer(targetProduct);
 
-  const vr = await createSkykitVrViewer({
+  let vr = null;
+  vr = await createSkykitVrViewer({
     host,
     renderer,
     stars: {
@@ -84,7 +85,7 @@ async function start() {
   let cleanedUp = false;
 
   function writeSnapshot() {
-    if (!snapshot) return;
+    if (!snapshot || !vr) return;
     const state = vr.getSnapshot();
     snapshot.textContent = JSON.stringify({
       id: state.id,
@@ -98,7 +99,7 @@ async function start() {
   async function cleanup() {
     if (cleanedUp) return;
     cleanedUp = true;
-    await vr.dispose();
+    await vr?.dispose();
     await provider.dispose?.();
     starField.dispose();
     renderer.dispose();

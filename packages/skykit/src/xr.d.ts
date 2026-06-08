@@ -36,13 +36,13 @@ import type {
   SkykitStarCellDemand,
   SkykitStarSourcePublishOptions,
   SkykitStarSourceRestartRetentionPolicy,
-  SkykitStreamingStarsPlugin,
+  SkykitStellarSkyLayer,
+  SkykitStellarSkyLayerOptions,
   SkykitThreeFrame,
   SkykitViewState,
   SkykitViewer,
   SkykitViewerOptions,
   SkykitViewportSize,
-  StreamingStarLayerOptions,
 } from './index.js';
 
 export type SkykitXrVector3 = SpatialVector3;
@@ -660,7 +660,7 @@ export interface SkykitVrStarsOptions {
 
   publish?: false | SkykitStarSourcePublishOptions;
 
-  layer?: false | Omit<StreamingStarLayerOptions, 'source' | 'provider' | 'renderer'>;
+  layer?: false | Omit<SkykitStellarSkyLayerOptions, 'source' | 'renderer'>;
 
   pick?: false | true | SkykitVrStarPickOptions;
 }
@@ -687,7 +687,7 @@ export interface SkykitVrViewer {
   readonly products: SkykitProductRegistryPlugin | null;
   readonly starSource: SkykitStarCellSource | null;
   readonly starField: ThreeStarField | null;
-  readonly starLayer: SkykitStreamingStarsPlugin | null;
+  readonly starLayer: SkykitStellarSkyLayer | null;
   readonly layerHost: SkykitLayerHostPlugin | null;
   readonly pickBridge: SkykitXrPickBridgePlugin | null;
   readonly pickRouter: SkykitXrPickRouter | null;

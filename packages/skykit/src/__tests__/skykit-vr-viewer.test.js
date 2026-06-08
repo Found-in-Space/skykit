@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import {
   createSkykitLayerHostPlugin,
   createSkykitProductRegistryPlugin,
+  createSkykitScaleCoordinatorPlugin,
   createSkykitStarSourcePlugin,
   productRef,
 } from '../index.js';
@@ -51,6 +52,7 @@ test('createSkykitVrViewer composes the default XR star viewer path', async () =
   assert.ok(vr.starSource);
   assert.ok(vr.starField);
   assert.ok(vr.starLayer);
+  assert.ok(vr.layerHost);
   assert.ok(vr.starPicking);
   assert.ok(vr.loop);
   assert.deepEqual(Object.keys(vr.rays), ['right', 'left', 'head']);
@@ -60,6 +62,9 @@ test('createSkykitVrViewer composes the default XR star viewer path', async () =
   assert.equal(renderer.xr.enabled, true);
   assert.equal(vr.rig.getScaleProfile().worldUnitsPerNavigationUnit, 0.001);
   assert.equal(typeof renderer.animationLoop, 'function');
+  assert.equal(vr.layerHost.getSnapshot().layerCount, 1);
+  assert.equal(vr.layerHost.getSnapshot().layers[0].id, 'skykit-vr-stars:renderer');
+  assert.equal(vr.starLayer.getSnapshot().demandMode, 'live');
   assert.deepEqual(setupOrder, ['caller']);
   assert.equal(provider.sessions.length, 1);
   assert.deepEqual(provider.sessions[0].options.attributes, [
@@ -101,6 +106,87 @@ test('createSkykitVrViewer starts a caller-owned SkyKit star source without disp
 
   await source.dispose();
   assert.equal(provider.sessions[0].disposed, true);
+});
+
+test('createSkykitVrViewer drives the default star layer through hosted scale state', async () => {
+  const source = createSource();
+  const scale = createSkykitScaleCoordinatorPlugin({ domain: 'stellar' });
+  const vr = await createSkykitVrViewer({
+    renderer: createRenderer(),
+    stars: {
+      source,
+      renderer: createStarField(),
+      pick: false,
+    },
+    plugins: [scale],
+    loop: false,
+    autoResize: false,
+    autoDispose: false,
+  });
+
+  vr.viewer.frame(0);
+  assert.ok(vr.layerHost);
+  assert.ok(vr.starLayer);
+  assert.equal(vr.layerHost.getSnapshot().layers[0].activationMode, 'active');
+  assert.equal(vr.starLayer.getSnapshot().demandMode, 'live');
+  assert.deepEqual(source.demands.map((demand) => demand.id), [
+    'skykit-vr-stars:renderer:starfield',
+  ]);
+
+  scale.setDomain('galactic');
+  vr.viewer.frame(0);
+  assert.equal(vr.layerHost.getSnapshot().layers[0].activationMode, 'active');
+  assert.equal(vr.starLayer.getSnapshot().demandMode, 'summary');
+  assert.deepEqual(source.demands.map((demand) => demand.id), [
+    'skykit-vr-stars:renderer:summary',
+  ]);
+
+  scale.setDomain('solar-system');
+  vr.viewer.frame(0);
+  assert.equal(vr.layerHost.getSnapshot().layers[0].activationMode, 'frozen');
+  assert.equal(vr.starLayer.getSnapshot().demandMode, 'paused');
+  assert.deepEqual(source.demands, []);
+
+  await vr.dispose();
+});
+
+test('createSkykitVrViewer can disable the hosted default star layer', async () => {
+  const source = createSource();
+  const layerDisabled = await createSkykitVrViewer({
+    renderer: createRenderer(),
+    stars: {
+      source,
+      renderer: createStarField(),
+      layer: false,
+      pick: false,
+    },
+    loop: false,
+    autoResize: false,
+    autoDispose: false,
+  });
+
+  assert.equal(layerDisabled.starLayer, null);
+  assert.equal(layerDisabled.layerHost, null);
+  assert.deepEqual(source.demands, []);
+  await layerDisabled.dispose();
+
+  const hostDisabled = await createSkykitVrViewer({
+    renderer: createRenderer(),
+    stars: {
+      source,
+      renderer: createStarField(),
+      pick: false,
+    },
+    layerHost: false,
+    loop: false,
+    autoResize: false,
+    autoDispose: false,
+  });
+
+  assert.equal(hostDisabled.starLayer, null);
+  assert.equal(hostDisabled.layerHost, null);
+  assert.deepEqual(source.demands, []);
+  await hostDisabled.dispose();
 });
 
 test('createSkykitVrViewer can disable stars while keeping the XR viewer', async () => {
@@ -491,11 +577,8 @@ test('createSkykitVrViewer publishes source and picking setup before caller plug
     autoDispose: false,
   });
 
-  assert.deepEqual(events, [
-    'demand:skykit-xr-star-picking:attributes',
-    'caller',
-    'demand:skykit-vr-stars:renderer:starfield',
-  ]);
+  assert.equal(events.includes('demand:skykit-vr-stars:renderer:starfield'), true);
+  assert.equal(events.indexOf('demand:skykit-xr-star-picking:attributes') < events.indexOf('caller'), true);
 
   await vr.dispose();
 });

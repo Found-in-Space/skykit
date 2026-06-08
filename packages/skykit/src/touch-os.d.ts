@@ -244,6 +244,21 @@ export interface SkykitXrPanelHostPlugin extends TouchOsPanelPlugin, SkykitXrPic
   getSnapshot(): unknown;
 }
 
+export interface SkykitXrTabletPanelPluginOptions
+  extends Omit<
+    SkykitXrPanelHostPluginOptions,
+    'root' | 'driver' | 'parent' | 'surfaceMetrics'
+  > {
+  apps: Iterable<TouchAppModule>;
+  tablet?: Omit<SkykitTabletRootOptions, 'apps'>;
+  hand?: 'left' | 'right';
+  surfaceMetrics?: Partial<SurfaceMetrics>;
+  panelWidth?: number;
+  panelHeight?: number;
+  offset?: { x?: number; y?: number; z?: number };
+  tiltRadians?: number;
+}
+
 export interface DispatchTouchOsActionOutputsOptions {
   sourcePrefix?: string;
 }
@@ -305,6 +320,9 @@ export declare function createSkykitSurfaceApp<TState = unknown>(
 export declare function createTouchOsHudPlugin(options: TouchOsHudPluginOptions): TouchOsHudPlugin;
 export declare function createTouchOsPanelPlugin(options: TouchOsPanelPluginOptions): TouchOsPanelPlugin;
 export declare function createSkykitXrPanelHostPlugin(options: SkykitXrPanelHostPluginOptions): SkykitXrPanelHostPlugin;
+export declare function createSkykitXrTabletPanelPlugin(
+  options: SkykitXrTabletPanelPluginOptions
+): SkykitXrPanelHostPlugin;
 
 export declare function dispatchTouchOsActionOutputs(
   outputs: Iterable<unknown>,
