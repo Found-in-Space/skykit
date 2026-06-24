@@ -253,3 +253,6 @@ Not implemented yet:
 - GPU pick routing or built-in star-specific XR pick effects.
 - a journey runtime that drives `skykit:navigation.*` actions.
 - published lesson docs that replace every legacy XR demo end to end.
+
+Website-facing quickstart and advanced-composition planning for the next XR
+lesson lives in [`xr-website-experience-plan.md`](./xr-website-experience-plan.md).
