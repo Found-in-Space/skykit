@@ -107,9 +107,10 @@ SkyKit XR does not own:
 - journeys, authored chapters, star catalogs, sidecars, H-alpha, dust, or
   galaxy products.
 - beginner-facing label/facts policy for picked stars. XR picking may transport
-  renderer pick details, but public lessons should resolve `StarObjectRef` or a
-  semantic fallback and optionally enrich through sidecars at the facade or app
-  layer.
+  renderer pick details, but public lessons should use bookmarkable public star
+  identity when the star stream provides it and optionally enrich through
+  sidecars at the facade or app layer. Do not invent fallback IDs unless a real
+  feature cannot provide the public identity.
 
 ---
 
@@ -258,6 +259,8 @@ Not implemented yet:
 - beginner-facing XR selection/metadata parity. The current low-level XR star
   picking plugin can request identity attributes through the star source, but its
   public event label is still storage-shaped until an app or facade enriches it.
+  The beginner facade should expose bookmarkable public identity rather than
+  storage-derived labels.
 - a journey runtime that drives `skykit:navigation.*` actions.
 - published lesson docs that replace every legacy XR demo end to end.
 

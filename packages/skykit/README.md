@@ -47,7 +47,8 @@ keys are readable conventions, not globally reserved names. Recommended initial
 patterns include `stars:stellar/source`, `stars:stellar/store`,
 `features:constellations/western`, `waypoints:constellations/western`,
 `features:frames/galactic`, `surfaces:constellation-art/western`, and
-`selection:primary`.
+`selection:primary`. Here `selection:primary` means the current/default selection
+slot, not a final beginner-facing label.
 
 Use the registry directly from a plugin when one plugin owns a handle and another
 plugin should discover it later:

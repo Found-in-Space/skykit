@@ -85,19 +85,22 @@ Planning decisions should use this order:
 1. Stabilize the shared beginner facade before website XR lessons. The next work
    is not a website overhaul; it is a SkyKit interface stabilization pass.
 2. Make inspect, selection, products, actions, sidecar metadata, and viewer
-   handles consistent across 2D/data, desktop 3D, and XR.
-3. Close the XR star-selection identity gap before publishing beginner XR
-   lessons. Picks should expose `StarObjectRef` when available, a semantic
-   fallback when not, and optional sidecar labels/facts through app or facade
-   policy.
+   handles consistent across 2D/data, desktop 3D, and XR, starting with parity
+   with the current browser viewer.
+3. Close the XR star-selection identity gap as part of API stabilization, before
+   any website XR curation. Star picks should use the unique bookmarkable star
+   identity when requested from the stream. Do not add fallback IDs, shims,
+   aliases, or compatibility wrappers unless a real feature cannot produce that
+   identity and the degraded shape is explicit.
 4. Keep curated coordinates, route targets, story manifests, and label/facts
    choices in the website or application domain. SkyKit provides ICRS/parsec and
    RA/Dec target contracts, actions, products, and inspection hooks.
-5. Preserve package boundaries and reproducibility. Star streams stay with
+5. Preserve package boundaries and intentional examples. Star streams stay with
    providers, identity with `star-trees`, rendering with renderer packages,
    spatial math with `spatial`, WebXR rig/input/rays/sessions with `skykit/xr`,
-   and surfaces with touch-os. Repository examples need clear development or
-   advanced-use labels and checked paths before website links depend on them.
+   and surfaces with touch-os. Repository examples should be deliberately
+   created and clearly labeled as development or advanced-use material until the
+   website curates them.
 
 ## Quickstart Target
 
@@ -134,7 +137,9 @@ The exact entrypoint and attribute names can change, but the learner promise is:
   loaded cells, current products, selected object, active frame of reference,
   view state, action sources, stream status, and sidecar lookup state where
   available.
-- desktop viewing remains useful when immersive WebXR is unavailable.
+- WebXR availability is explicit. The embed should support the checklist/status
+  format used by the current demos, and it should not promise a full equivalent
+  desktop fallback unless the application intentionally provides one.
 
 ## Alignment With The 2D/Browser Viewer
 
@@ -254,8 +259,8 @@ Star selection should be consistent across paths. A star picked in desktop, 2D,
 
 ```txt
 pick hit
-  -> StarObjectRef when available
-  -> semantic cell key + ordinal fallback
+  -> StarObjectRef / bookmarkable star identity
+  -> explicit non-star authored identity when the pick is not a catalogue star
   -> sidecar lookup when configured
   -> label/facts policy owned by the app or facade
 ```
@@ -267,12 +272,14 @@ and 2D app lessons. It may keep low-level pick details for advanced uses, but
 the beginner path needs a label/facts pipeline that teaches catalogue identity
 instead of storage detail.
 
-Current implementation gap to close before public website XR lessons: the VR
-preset asks the star source for `objectRef` and `pickMeta`, but the low-level XR
-star-picking plugin still emits a storage-shaped fallback label when no app
-resolver is installed. The beginner facade should reuse the desktop star-pick
-metadata resolver pattern or an equivalent selection/sidecar facade so XR,
-desktop picking, and data lessons expose the same identity model.
+Current implementation gap to close during API stabilization: the VR preset asks
+the star source for `objectRef` and `pickMeta`, but the low-level XR star-picking
+plugin still emits a storage-shaped fallback label when no app resolver is
+installed. The beginner facade should reuse the desktop star-pick metadata
+resolver pattern or an equivalent selection/sidecar facade so XR, desktop
+picking, and data examples expose the same identity model. The default beginner
+path should fail visibly or mark identity unavailable rather than silently
+inventing another public star ID.
 
 Debug globals may still exist for development, but the public inspect feature
 should be explicit, documented, and available through ordinary handles, actions,
@@ -435,7 +442,9 @@ The journey controller should be an app/plugin-level composition over actions,
 products, and events. It should not be a hidden mode inside the star provider or
 XR session plugin.
 
-Journey data should follow the same product pattern as browser layers:
+Journey data should follow the same product pattern as browser layers. In this
+document, `selection:primary` means "the current/default selection slot"; the
+public facade can use friendlier method names over that product key.
 
 ```txt
 features:journeys/<id>
@@ -494,10 +503,10 @@ advanced code already uses.
 1. Beginner facade baseline
 
    Stabilize the beginner-facing SkyKit facade before the website overhaul
-   depends on it. The facade should work for desktop browser viewing first, then
-   grow into XR without changing the extension ladder: attributes, readiness,
-   installable plugins/add-ons, app-owned objects/layers, actions, products,
-   status, inspect, and selection.
+   depends on it. The facade should reach parity with the current browser viewer,
+   then grow into XR without changing the extension ladder: attributes,
+   readiness, installable plugins/add-ons, app-owned objects/layers, actions,
+   products, status, inspect, and selection.
 
 2. Inspect and selection parity
 
@@ -508,10 +517,13 @@ advanced code already uses.
 
 3. Browser-grade XR preset
 
-   Add an XR preset and optional embed entry that can create an XR-capable viewer
-   from DOM attributes or package options, report status, install a user-gesture
-   Enter VR control, register readiness, and keep desktop fallback behavior
-   useful. The preset should be recreatable with direct package imports.
+   Add an XR preset and `@found-in-space/skykit/xr-embed` side-effect entry that
+   can create an XR-capable viewer from DOM attributes or package options, report
+   status, install an accessible default user-gesture Enter VR control, support
+   an author-supplied button selector, register readiness on the same
+   browser-style handle shape, and expose a checklist/status path for devices
+   without active WebXR. The preset should be recreatable with direct package
+   imports.
 
 4. Layer quickstart capabilities
 
@@ -536,11 +548,10 @@ advanced code already uses.
 
    Keep repository examples categorized as development or advanced package
    examples. Publish website lessons later, once the SkyKit facade is stable
-   enough to be the beginner public path. Before linking from `../website`,
-   verify that every referenced repository example path exists and is described
-   as development, advanced-use, or website-curated. Add fake-XR, DOM, and smoke
-   tests for embed startup, status, session entry binding, global readiness,
-   inspect, selection, sidecar lookup, and plugin/layer installation.
+   enough to be the beginner public path. Create the examples the project wants
+   to teach, label them intentionally, and add fake-XR, DOM, and smoke tests for
+   embed startup, status, session entry binding, global readiness, inspect,
+   selection, sidecar lookup, and plugin/layer installation.
 
 ## Success Criteria
 
@@ -549,7 +560,7 @@ advanced code already uses.
 - A static page can create an XR-capable star viewer with one host element, one
   status target, and one module script.
 - The quickstart provides a compliant user-gesture path into WebXR and a readable
-  fallback when WebXR is unavailable.
+  availability/checklist state when WebXR is unavailable or inactive.
 - Desktop, 2D/data, 3D, and XR paths share the same mental model for viewer
   handles, semantic actions, products, selection, sidecar metadata, and
   inspection.
@@ -576,23 +587,40 @@ advanced code already uses.
 - The advanced examples can recreate the quickstart behavior with direct package
   imports and no private SkyKit internals.
 - Repository examples are clearly categorized as development examples or
-  advanced-use examples. The beginner public path is curated later in the
-  website, using the stabilized SkyKit facade.
+  advanced-use examples. Beginner public lessons are deferred until the API feels
+  complete enough to curate in the website.
 
-## Open Decisions
+## Resolved Decisions
 
-- Should the side-effect entry be `@found-in-space/skykit/xr-embed`, an extension
-  of `@found-in-space/skykit/embed`, or both?
-- Should the auto-created Enter VR control be injected into the host, adjacent to
-  the host, or always supplied by an author-selected button?
-- Should `Skykit.whenReady()` return both desktop and XR browser handles, or
-  should XR use a distinct readiness namespace?
-- What is the smallest stable `inspect` facade shape, and which details remain
-  debug-only development output?
-- What is the smallest stable `selection` facade shape for star refs, layer
-  objects, authored waypoints, XR rays, and sidecar-enriched facts?
-- Which sidecar label/facts policy should be first-party beginner behavior, and
-  which formatting choices should stay app-owned?
+- Use the same beginner handle model as the browser viewer. `Skykit.whenReady()`
+  should return a browser-style handle; XR adds optional XR fields and methods
+  rather than a separate readiness namespace.
+- Use a separate `@found-in-space/skykit/xr-embed` side-effect entry, sharing
+  browser embed conventions while keeping normal browser embeds from importing XR
+  code.
+- Inject an accessible default Enter VR control, and allow authors to point at
+  their own user-gesture button. Keep the demo checklist/status format; do not
+  require a full desktop fallback.
+- Start with a stable inspect facade that can report snapshot, streams, products,
+  actions, selection, and view state, with XR details present only when XR exists.
+- Make selection product-backed and parity-focused first. Treat
+  `selection:primary` as the current/default selection slot; decide labels and
+  richer naming later.
+- Prefer bookmarkable public star identity for star picks. Do not invent fallback
+  IDs unless a concrete feature truly cannot provide the public identity.
+- Defer website XR lessons until the API is feature-complete enough to feel
+  stable.
+- Create the examples the project wants to create; do not let speculative link
+  checks drive the API plan.
+
+## Still Open
+
+- What exact method names and return shapes should the stable `inspect` facade
+  expose?
+- What exact method names should the beginner `selection` facade expose over the
+  current/default selection slot?
+- Which sidecar lookup behavior belongs in the facade, and which label/facts
+  formatting choices stay app-owned?
 - Which infinity layers should be first-party quickstart capabilities versus
   package examples?
 - What exact product-key conventions should the first journey examples use for

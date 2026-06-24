@@ -86,8 +86,7 @@ The current website SkyKit path is use-case based:
 
 That ladder is the public beginner baseline. Repository examples should support
 it as reproducible source material, but they are not automatically public
-lessons. Before a repository example is linked from the website, categorize it as
-one of:
+lessons. When creating repository examples, choose the category deliberately:
 
 ```txt
 development example
