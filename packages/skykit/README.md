@@ -34,6 +34,11 @@ The beginner website entries are use-case bounded:
 independent. Authored chapters stay in website or example code and call SkyKit
 navigation actions directly.
 
+The public beginner lessons live in the sibling `../website` project. Examples
+in this package are package-development or advanced-use material until the
+website deliberately curates them into lessons with stable imports and checked
+links.
+
 ## Runtime Products
 
 SkyKit plugins can publish runtime products: typed handles for things that are
@@ -139,11 +144,13 @@ const layers = createSkykitLayerHostPlugin({
 
 ## VR viewer preset
 
-`createSkykitVrViewer()` is the beginner WebXR path. It is a convenience over
+`createSkykitVrViewer()` is the current package-level WebXR preset and the
+candidate foundation for a future beginner XR facade. It is a convenience over
 `createSkykitViewer()` plus `createSkykitXrComposition()`: the returned object
 still exposes the viewer, XR composition, product registry, shared star source,
 star field, layer host, rays, pick bridge, animation loop, and other public
-handles.
+handles. Public website XR lessons should wait until the facade also has stable
+status, inspect, selection, readiness, and sidecar-label behavior.
 
 ```js
 import { createSkykitVrViewer } from '@found-in-space/skykit/xr';
@@ -668,7 +675,7 @@ Standalone browser examples live in the private workspace app at
 
 The optional `@found-in-space/skykit/touch-os` subpath wires touch-os HUD
 outputs into SkyKit actions. It keeps richer panel rendering in touch-os while
-removing repeated app glue for pseudo-keys and status displays.
+removing repeated app glue for action buttons and status displays.
 
 ```js
 import {

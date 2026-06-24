@@ -1,11 +1,15 @@
-# Found in Space Learning Path
+# Found in Space Package Learning Architecture
 
 Status: current alpha-direction document.
 
-This document is about replacing this repository's local SkyKit proof-of-concept
-demos with clear lessons that teach how to use the package-based project. It is
-not describing the public website lesson status, and it is not a wishlist for
-future packages.
+This document describes the package-learning architecture for this repository.
+The public beginner path lives in the sibling `../website` project. SkyKit
+repository examples are development examples or advanced-use examples unless the
+website deliberately curates them into lessons.
+
+The next work is not a website overhaul. It is to stabilize a pseudo-stable,
+feature-rich, beginner-friendly SkyKit interface first, so the website can expose
+that interface later without teaching temporary alpha seams.
 
 The proof-of-concept phase is complete. The old root demos and old `src/`
 implementation are still useful as reference material, but the live learning
@@ -65,7 +69,42 @@ reserves the `skykit:` namespace for built-in meanings such as
 `skykit:navigation.transitionTo`; lessons, games, and websites can register
 their own namespaces such as `lesson:*`, `game:*`, or `website:*`.
 
-## Package Examples Versus SkyKit Lessons
+## Website Baseline And Example Categories
+
+The current website SkyKit path is use-case based:
+
+```txt
+../website/src/pages/learn-build/skykit/
+  -> paste a browser viewer
+  -> use a ready browser handle
+  -> automate semantic navigation
+  -> add app-owned objects
+  -> query data without Three.js
+  -> enrich StarObjectRef rows with sidecar metadata
+  -> build a small 2D app
+```
+
+That ladder is the public beginner baseline. Repository examples should support
+it as reproducible source material, but they are not automatically public
+lessons. Before a repository example is linked from the website, categorize it as
+one of:
+
+```txt
+development example
+  -> tests package internals, fake XR, diagnostics, or migration behavior
+
+advanced-use example
+  -> teaches direct package composition for authors already past the beginner facade
+
+website-curated lesson
+  -> lives in ../website with beginner copy, stable imports, and reproducible links
+```
+
+Every website-curated lesson should use the same mental model across 2D/data,
+desktop 3D, and XR: viewer handles, semantic actions, products, public star
+identity, sidecar metadata, selection, inspect/debug, and app-owned extensions.
+
+## Package Examples Versus SkyKit Composition
 
 Package examples teach one package directly:
 
@@ -105,7 +144,7 @@ skykit/parallax
   -> consume those controls as target-relative observer motion
 ```
 
-SkyKit lessons teach composition:
+SkyKit repository examples and future website-curated lessons teach composition:
 
 ```txt
 viewer
@@ -117,7 +156,7 @@ viewer
   + small custom plugin
 ```
 
-Website-facing lessons are use-case bounded rather than lesson-bundle bounded:
+Website-facing lessons are use-case bounded rather than package-bundle bounded:
 
 ```txt
 Viewer: embed.js for no-code, viewer.js for JavaScript customization
@@ -125,13 +164,15 @@ Data: data.js for rows, labels, lists, maps, and renderer-independent games
 ```
 
 Root `demos/` pages and the old root `src/` implementation are legacy
-transition sandboxes. App-level SkyKit examples live in `apps/examples/`;
-focused package learning work should prefer:
+transition sandboxes. App-level examples should be explicit about whether they
+are development material, advanced-use material, or website-curated lessons.
+Focused package learning work should prefer:
 
 ```txt
 apps/examples/
 packages/<package>/examples/
 packages/skykit/examples/
+../website/src/live-examples/skykit/    # only when curated as public lessons
 ```
 
 ## Current Package Reference
@@ -224,15 +265,15 @@ skykit/xr
   surfaces
 
 skykit
-  composes focused packages into teachable viewers and lessons
+  composes focused packages into teachable viewers and examples
 ```
 
 Star streaming uses `@found-in-space/star-trees` cell deltas directly. There is
 no generic product stream layer in the alpha package map.
 
-## Lesson Design Checklist
+## Lesson And Example Design Checklist
 
-A good alpha lesson should:
+A good alpha package example or website-curated lesson should:
 
 - open directly into a usable experience
 - show one package capability clearly
@@ -241,6 +282,7 @@ A good alpha lesson should:
 - expose star identity as `StarObjectRef` and cells as `StarCellKey`
 - avoid octree storage details in UI, bookmarks, and save data
 - avoid private viewer internals
+- expose inspect/debug as a learning surface, not only as development state
 - point learners to the package that owns the behavior they want to change
 
 When a lesson needs high-throughput star data, it should use provider sessions,

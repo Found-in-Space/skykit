@@ -78,6 +78,27 @@ Those examples may show diagnostics, package internals, fake-XR harnesses, and
 larger composition patterns. They should not be treated as the public beginner
 path until a website lesson intentionally curates them.
 
+## Priority Order
+
+Planning decisions should use this order:
+
+1. Stabilize the shared beginner facade before website XR lessons. The next work
+   is not a website overhaul; it is a SkyKit interface stabilization pass.
+2. Make inspect, selection, products, actions, sidecar metadata, and viewer
+   handles consistent across 2D/data, desktop 3D, and XR.
+3. Close the XR star-selection identity gap before publishing beginner XR
+   lessons. Picks should expose `StarObjectRef` when available, a semantic
+   fallback when not, and optional sidecar labels/facts through app or facade
+   policy.
+4. Keep curated coordinates, route targets, story manifests, and label/facts
+   choices in the website or application domain. SkyKit provides ICRS/parsec and
+   RA/Dec target contracts, actions, products, and inspection hooks.
+5. Preserve package boundaries and reproducibility. Star streams stay with
+   providers, identity with `star-trees`, rendering with renderer packages,
+   spatial math with `spatial`, WebXR rig/input/rays/sessions with `skykit/xr`,
+   and surfaces with touch-os. Repository examples need clear development or
+   advanced-use labels and checked paths before website links depend on them.
+
 ## Quickstart Target
 
 The future website lesson should be able to start from a shape close to the
@@ -245,6 +266,13 @@ same identity and optional sidecar enrichment path used by the website sidecar
 and 2D app lessons. It may keep low-level pick details for advanced uses, but
 the beginner path needs a label/facts pipeline that teaches catalogue identity
 instead of storage detail.
+
+Current implementation gap to close before public website XR lessons: the VR
+preset asks the star source for `objectRef` and `pickMeta`, but the low-level XR
+star-picking plugin still emits a storage-shaped fallback label when no app
+resolver is installed. The beginner facade should reuse the desktop star-pick
+metadata resolver pattern or an equivalent selection/sidecar facade so XR,
+desktop picking, and data lessons expose the same identity model.
 
 Debug globals may still exist for development, but the public inspect feature
 should be explicit, documented, and available through ordinary handles, actions,
@@ -508,9 +536,11 @@ advanced code already uses.
 
    Keep repository examples categorized as development or advanced package
    examples. Publish website lessons later, once the SkyKit facade is stable
-   enough to be the beginner public path. Add fake-XR, DOM, and smoke tests for
-   embed startup, status, session entry binding, global readiness, inspect,
-   selection, sidecar lookup, and plugin/layer installation.
+   enough to be the beginner public path. Before linking from `../website`,
+   verify that every referenced repository example path exists and is described
+   as development, advanced-use, or website-curated. Add fake-XR, DOM, and smoke
+   tests for embed startup, status, session entry binding, global readiness,
+   inspect, selection, sidecar lookup, and plugin/layer installation.
 
 ## Success Criteria
 

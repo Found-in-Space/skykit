@@ -34,7 +34,7 @@ desktop learning navigation
 optional browser parallax controls
 status helper
 animation loop helper
-debug bridge
+inspect/debug bridge
 browser embed and add-on convenience
 touch-os bridge
 ```
@@ -54,6 +54,14 @@ touch-os             -> owns panels, HUDs, and visual surfaces
 SkyKit should not inspect individual stars during normal streaming, rebuild
 cumulative render arrays, or hide hardcoded loader/renderer registries behind
 string names.
+
+For 2D/data examples, desktop 3D viewers, and future XR lessons, the beginner
+surface should keep one mental model: a viewer handle, semantic actions, runtime
+products, public selection, optional sidecar metadata, inspect/debug snapshots,
+and app-owned extensions. Inspect/debug is an educational surface. A learner
+should be able to see loaded cells, requested attributes, view state, action
+sources, products, selections, labels/facts, and stream state without reading
+private implementation state.
 
 Star loading strategies are part of the shared star-data contract, not SkyKit
 registries. SkyKit may pass strategy objects or strategy-producing functions to
@@ -146,6 +154,13 @@ The browser embed only reads the documented `data-skykit-*` attributes from
 `@found-in-space/skykit`'s README. Other viewer setup belongs in
 `createSkykitBrowser({ ... })` options or the lower-level `createSkykitViewer()`
 composition path.
+
+The public beginner lesson path is curated in `../website`. Repository examples
+under `packages/skykit/examples/` are development or advanced-use examples until
+the website deliberately promotes them into lessons. A future XR embed should
+follow the same browser shape before it becomes website lesson material:
+attributes, readiness, ordinary plugin/add-on installation, status, inspect,
+selection, products, and a live viewer handle.
 
 ## Viewer Lifecycle
 
