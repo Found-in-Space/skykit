@@ -63,6 +63,11 @@ should be able to see loaded cells, requested attributes, view state, action
 sources, products, selections, labels/facts, and stream state without reading
 private implementation state.
 
+For dust, H-alpha, and other optically active volumes, see
+[`participating-media.md`](./participating-media.md). Those datasets can publish
+separate products, but physically meaningful rendering should happen through one
+optical-path compositor rather than independent transparent overlays.
+
 Star loading strategies are part of the shared star-data contract, not SkyKit
 registries. SkyKit may pass strategy objects or strategy-producing functions to
 provider sessions, but it must not redefine provider planning, inspect a closed

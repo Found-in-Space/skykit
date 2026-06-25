@@ -50,9 +50,13 @@ patterns include `stars:stellar/source`, `stars:stellar/store`,
 `features:frames/galactic`, `waypoints:frames/galactic`,
 `features:grids/equatorial`, `waypoints:grids/equatorial`,
 `features:grids/galactic`, `waypoints:grids/galactic`,
-`surfaces:constellation-art/western`, and `selection:primary`. Here
+`surfaces:constellation-art/western`, `media:extinction/rezaei2024`,
+`media:emission/halpha/mccallum2025`, and `selection:primary`. Here
 `selection:primary` means the current/default selection slot, not a final
-beginner-facing label.
+beginner-facing label. Participating-media products such as dust and H-alpha
+should be consumed by an optical-path compositor rather than rendered as
+independent transparent overlays; see
+[`docs/participating-media.md`](../../docs/participating-media.md).
 
 The browser-style handles expose the same public runtime surfaces:
 `actions`, `products`, `selection`, and `inspect`. These are not wrapper

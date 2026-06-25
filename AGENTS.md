@@ -157,6 +157,8 @@ package APIs when there is an active consumer.
   Website Content, pin it to a release and keep any live-main caveats explicit.
 - `docs/alpha-rules.md`: alpha rewrite and package-boundary rules.
 - `docs/package-learning-architecture.md`: current teaching path and lessons.
+- `docs/participating-media.md`: dust, H-alpha, and future optically active
+  volume product/compositor semantics.
 - `docs/star-octree-provider.md`: provider/strategy/planner/session semantics.
 - `packages/star-map-canvas/README.md`: Canvas2D starmap package contract.
 - `packages/anchored-image/README.md`: anchored image package contract.
