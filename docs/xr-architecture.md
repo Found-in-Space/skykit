@@ -264,5 +264,5 @@ Not implemented yet:
 - a journey runtime that drives `skykit:navigation.*` actions.
 - published lesson docs that replace every legacy XR demo end to end.
 
-Beginner-facing XR facade and future website lesson planning lives in
-[`xr-website-experience-plan.md`](./xr-website-experience-plan.md).
+Beginner-facing public API and future website lesson planning lives in
+[`skykit-public-api-experience-plan.md`](./skykit-public-api-experience-plan.md).

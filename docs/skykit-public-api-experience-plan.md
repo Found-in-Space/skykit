@@ -1,16 +1,17 @@
-# SkyKit XR Beginner Experience Plan
+# SkyKit Public API Experience Plan
 
-Status: pre-v1 SkyKit interface planning for the pseudo-stable beginner and XR
-surface. This is not a website overhaul plan by itself. The next work should
-stabilize a feature-rich, beginner-friendly SkyKit interface that the website
-can later expose as the public learning path.
+Status: pre-v1 SkyKit public API planning for the pseudo-stable beginner,
+browser, and XR surface. This is not a website overhaul plan by itself. The next
+work should stabilize a feature-rich, beginner-friendly SkyKit interface that
+can deliver a rich sky experience in less than 50 lines of app code, and that
+the website can later expose as the public learning path.
 
-This plan describes the beginner-facing XR direction for SkyKit. The goal is not
-to hide the package architecture behind a monolithic viewer. The goal is to make
-the first useful XR experience small and approachable, then let advanced authors
-keep composing the same public pieces: viewer, XR rig/session, products, layer
-hosts, touch-os surfaces, spatial navigation, star providers, sidecars, inspect
-tools, and app plugins.
+This plan describes the beginner-facing public API direction for SkyKit,
+including XR. The goal is not to hide the package architecture behind a
+monolithic viewer. The goal is to make the first useful sky and XR experiences
+small and approachable, then let advanced authors keep composing the same public
+pieces: viewer, XR rig/session, products, layer hosts, touch-os surfaces,
+spatial navigation, star providers, sidecars, inspect tools, and app plugins.
 
 Read this with [`xr-architecture.md`](./xr-architecture.md) for the low-level XR
 boundary and [`skykit-core-composition.md`](./skykit-core-composition.md) for the
