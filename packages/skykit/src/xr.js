@@ -21,6 +21,7 @@ export {
 } from './xr/composition.js';
 export { createSkykitXrPointerPlugin } from './xr/pointer.js';
 export { createSkykitVrViewer } from './xr/vr-viewer.js';
+export { createSkykitXrBrowser } from './xr-browser.js';
 export {
   createSkykitXrBodyPlugin,
   createSkykitXrNavigationPlugin,

@@ -1,8 +1,17 @@
 import * as THREE from 'three';
 
+import { getSkykitProductRegistry } from './products.js';
+import {
+  createSkykitStarSelectionFromPick,
+  isSkykitSelectionFacade,
+  isSkykitSelectionStore,
+  resolveSkykitStarSelectionLabel,
+} from './selection.js';
+
 const DEFAULT_CLICK_MAX_MOVEMENT_PX = 5;
 const DEFAULT_PICK_ATTRIBUTES = Object.freeze(['position', 'teffLog8', 'magAbs']);
 const DEFAULT_METADATA_ATTRIBUTES = Object.freeze(['objectRef', 'pickMeta']);
+const DEFAULT_SELECTION_PRODUCT = 'selection:primary';
 
 /**
  * @typedef {import('./index.d.ts').SkykitStarPickEvent} SkykitStarPickEvent
@@ -31,6 +40,7 @@ export function createSkykitStarPickingPlugin(options) {
   const clickMaxMovementPx = positiveFinite(options.clickMaxMovementPx, DEFAULT_CLICK_MAX_MOVEMENT_PX);
   const demandAttributes = resolveDemandAttributes(options);
   const metadataResolver = normalizeMetadataResolver(options.metadata);
+  const selectionInput = options.selection;
   /** @type {Map<string, PointerTrack>} */
   const pointers = new Map();
   /** @type {SkykitThreePluginContext | null} */
@@ -219,6 +229,12 @@ export function createSkykitStarPickingPlugin(options) {
       ray,
       view,
     };
+    writePickSelection(selectionInput, context, pick, {
+      label: resolveSkykitStarSelectionLabel(metadata, pick),
+      metadata,
+      source: id,
+      eventType: event.type,
+    });
     context.emit(event);
     await options.onPick?.(event);
   }
@@ -360,6 +376,42 @@ function resolveFallbackLabel(fallbackLabel, pick) {
 /** @param {ThreeStarFieldPickResult} pick */
 function fallbackPickLabel(pick) {
   return `${pick.cellKey}:${pick.objectIndex}`;
+}
+
+/**
+ * @param {import('./index.d.ts').SkykitStarPickingPluginOptions['selection']} selectionInput
+ * @param {SkykitThreePluginContext} context
+ * @param {ThreeStarFieldPickResult} pick
+ * @param {{ label?: string | null; metadata?: import('./index.d.ts').SkykitStarPickMetadata; source: string; eventType: string }} details
+ */
+function writePickSelection(selectionInput, context, pick, details) {
+  if (selectionInput === false) return;
+  const selection = resolveSelectionTarget(selectionInput, context);
+  if (!selection) return;
+  const value = createSkykitStarSelectionFromPick(pick, details);
+  if (isSkykitSelectionFacade(selection)) {
+    selection.set(value, { source: details.source, eventType: details.eventType });
+  } else {
+    selection.setPrimary(value, { source: details.source, eventType: details.eventType });
+  }
+}
+
+/**
+ * @param {import('./index.d.ts').SkykitStarPickingPluginOptions['selection']} selectionInput
+ * @param {SkykitThreePluginContext} context
+ */
+function resolveSelectionTarget(selectionInput, context) {
+  if (isSkykitSelectionFacade(selectionInput) || isSkykitSelectionStore(selectionInput)) {
+    return selectionInput;
+  }
+  const products = getSkykitProductRegistry(context);
+  const key = typeof selectionInput === 'string' && selectionInput
+    ? selectionInput
+    : DEFAULT_SELECTION_PRODUCT;
+  const product = products.get(key);
+  return isSkykitSelectionFacade(product) || isSkykitSelectionStore(product)
+    ? product
+    : null;
 }
 
 /** @param {PointerTrack} track @param {PointerEventLike} pointer */

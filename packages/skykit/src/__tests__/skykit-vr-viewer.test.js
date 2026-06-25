@@ -11,6 +11,7 @@ import {
 } from '../index.js';
 import {
   createSkykitVrViewer,
+  createSkykitXrBrowser,
   createSkykitXrRaySource,
   createSkykitXrRig,
 } from '../xr.js';
@@ -80,6 +81,42 @@ test('createSkykitVrViewer composes the default XR star viewer path', async () =
   assert.equal(renderer.animationLoop, null);
   assert.equal(renderer.disposed, false);
   assert.equal(provider.disposed, false);
+});
+
+test('createSkykitXrBrowser returns a browser-style handle over the VR viewer', async () => {
+  const host = createHost();
+  host.style = {};
+  const renderer = createRenderer();
+  const provider = createProvider();
+  const starField = createStarField();
+
+  const browser = await createSkykitXrBrowser({
+    host,
+    status: false,
+    renderer,
+    provider,
+    stars: { renderer: starField },
+    loop: false,
+    autoResize: false,
+    autoDispose: false,
+  });
+
+  assert.ok(browser.vr);
+  assert.ok(browser.xr);
+  assert.equal(browser.actions, browser.viewer.actions);
+  assert.ok(browser.products.get('stars:stellar/source'));
+  assert.ok(browser.products.get('selection:primary'));
+  assert.equal(browser.selection.get(), null);
+  assert.equal(browser.selection.set({ kind: 'object', id: 'xr-marker' }, { source: 'test' }), true);
+  assert.deepEqual(browser.products.get('selection:primary').getPrimary(), { kind: 'object', id: 'xr-marker' });
+  assert.ok(browser.inspect.getSnapshot().xr);
+  assert.equal(browser.inspect.getStreams().some((stream) => stream.id === 'skykit-vr-stars'), true);
+  assert.equal(browser.starSource, browser.vr.starSource);
+  assert.equal(browser.starField, starField);
+
+  await browser.dispose();
+  assert.equal(provider.disposed, false);
+  assert.equal(starField.disposed, false);
 });
 
 test('createSkykitVrViewer starts a caller-owned SkyKit star source without disposing it', async () => {

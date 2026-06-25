@@ -403,10 +403,66 @@ export interface SkykitProductRef<T = unknown> {
 
 export interface SkykitProductRegistryPlugin extends SkykitPlugin, SkykitProductRegistry {}
 
+export type SkykitSelectionValue =
+  | SkykitStarSelectionValue
+  | SkykitUnavailableStarPickSelectionValue
+  | SkykitObjectSelectionValue
+  | (Record<string, unknown> & { kind?: string });
+
+export interface SkykitStarSelectionValue {
+  kind: 'star';
+  identityAvailable: true;
+  ref: StarObjectRef;
+  label?: string | null;
+  facts?: unknown;
+  pick?: {
+    position?: unknown;
+    distancePc?: number | null;
+    apparentMagnitude?: number | null;
+    visualRadiusPx?: number | null;
+    teffLog8?: number | null;
+    magAbs?: number | null;
+    score?: number | null;
+    angularDistanceDeg?: number | null;
+  } | null;
+  source?: string;
+}
+
+export interface SkykitUnavailableStarPickSelectionValue {
+  kind: 'star-pick-unavailable';
+  identityAvailable: false;
+  reason: string;
+  label?: string | null;
+  diagnostic?: {
+    cellKey?: string | null;
+    objectIndex?: number | null;
+    pickMeta?: unknown;
+  } | null;
+  source?: string;
+}
+
+export interface SkykitObjectSelectionValue {
+  kind: 'object' | 'layer' | 'waypoint' | 'route' | string;
+  id?: string;
+  label?: string | null;
+  target?: unknown;
+  productKey?: SkykitProductKey;
+  source?: string;
+  [key: string]: unknown;
+}
+
 export interface SkykitSelectionStore<T = unknown> {
   getPrimary(): T | null;
   setPrimary(value: T | null, metadata?: Record<string, unknown>): void;
   subscribe(listener: (selection: T | null) => void): SkykitPluginTeardown;
+  getSnapshot(): unknown;
+}
+
+export interface SkykitSelectionFacade<T = SkykitSelectionValue> {
+  get(): T | null;
+  set(value: T | null, metadata?: Record<string, unknown>): boolean;
+  clear(metadata?: Record<string, unknown>): boolean;
+  subscribe(listener: (selection: T | null) => void, options?: { replay?: boolean }): SkykitPluginTeardown;
   getSnapshot(): unknown;
 }
 
@@ -419,6 +475,42 @@ export interface SkykitSelectionProductsPluginOptions<T = unknown> {
   primaryKey?: SkykitProductKey | false;
   hoveredKey?: SkykitProductKey | false;
   metadata?: SkykitProductMetadata;
+}
+
+export interface SkykitInspectStreamSummary {
+  id: string | null;
+  status: string | null;
+  sessionId: string | null;
+  demandCount: number | null;
+  demands: unknown[];
+  cellCount: number | null;
+  starCount: number | null;
+  deltaCount: number | null;
+  lastError: string | null;
+  diagnostics: unknown;
+}
+
+export interface SkykitInspectSnapshot {
+  id: string;
+  view: SkykitViewState;
+  streams: SkykitInspectStreamSummary[];
+  products: SkykitProductRegistrySnapshot | null;
+  actions: SkykitActionRegistrySnapshot;
+  selection: unknown;
+  xr: unknown;
+  diagnostics: {
+    viewer: SkykitViewerSnapshot;
+    runtime: unknown;
+  };
+}
+
+export interface SkykitInspectFacade {
+  getSnapshot(): SkykitInspectSnapshot;
+  getViewState(): SkykitViewState;
+  getStreams(): SkykitInspectStreamSummary[];
+  getProducts(filter?: SkykitProductFilter): SkykitProductSnapshotRecord[];
+  getActions(): SkykitActionRegistrySnapshot;
+  getSelection(): unknown;
 }
 
 export interface SkykitThreePluginContext extends SkykitPluginContext {
@@ -1287,6 +1379,7 @@ export interface SkykitStarPickingPluginOptions {
   attributes?: readonly string[];
   metadata?: SkykitStarPickMetadataResolver | SkykitStarPickMetadataProvider | null;
   metadataAttributes?: readonly string[];
+  selection?: false | SkykitProductKey | SkykitSelectionStore<SkykitSelectionValue> | SkykitSelectionFacade<SkykitSelectionValue>;
   onPick?: (event: SkykitStarPickEvent) => void | Promise<void>;
   onMiss?: (event: SkykitStarPickMissEvent) => void | Promise<void>;
 }
@@ -1599,6 +1692,13 @@ export declare const SKYKIT_CONTROLS: {
   };
 };
 export declare function createSkykitActionRegistry(): SkykitActionRegistry;
+export declare function createSkykitInspectFacade(options: {
+  viewer: SkykitViewer;
+  products?: SkykitProductRegistry | null;
+  selection?: SkykitSelectionFacade | null;
+  getXrSnapshot?: (() => unknown) | null;
+  getRuntimeSnapshot?: (() => unknown) | null;
+}): SkykitInspectFacade;
 export declare function createSkykitProductRegistry(): SkykitProductRegistry;
 export declare function getSkykitProductRegistry(ctx: SkykitPluginContext): SkykitProductRegistry;
 export declare function createSkykitProductRegistryPlugin(options?: { id?: string }): SkykitProductRegistryPlugin;
@@ -1613,6 +1713,28 @@ export declare function resolveSkykitProductInput<T>(
   valueOrRef: T | SkykitProductRef<T> | null | undefined
 ): T | null;
 export declare function createSkykitSelectionStore<T = unknown>(initial?: T | null): SkykitSelectionStore<T>;
+export declare function createSkykitSelectionFacade<T = SkykitSelectionValue>(
+  options?: {
+    store?: SkykitSelectionStore<T> | null;
+    products?: SkykitProductRegistry | null;
+    key?: SkykitProductKey;
+  }
+): SkykitSelectionFacade<T>;
+export declare function isSkykitSelectionStore(value: unknown): value is SkykitSelectionStore;
+export declare function isSkykitSelectionFacade(value: unknown): value is SkykitSelectionFacade;
+export declare function createSkykitStarSelectionFromPick(
+  pick: ThreeStarFieldPickResult,
+  options?: {
+    label?: string | null;
+    metadata?: SkykitStarPickMetadata;
+    source?: string;
+    eventType?: string;
+  }
+): SkykitSelectionValue;
+export declare function resolveSkykitStarSelectionLabel(
+  metadata: SkykitStarPickMetadata,
+  pick: ThreeStarFieldPickResult
+): string;
 export declare function createSkykitSelectionProductsPlugin<T = unknown>(
   options?: SkykitSelectionProductsPluginOptions<T>
 ): SkykitPlugin & {

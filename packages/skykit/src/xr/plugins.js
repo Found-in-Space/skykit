@@ -1,6 +1,14 @@
 import * as THREE from 'three';
 
 import { SKYKIT_ACTIONS, SKYKIT_CONTROLS } from '../actions.js';
+import { getSkykitProductRegistry } from '../products.js';
+import { createSkykitStarPickMetadataResolver } from '../star-picking.js';
+import {
+  createSkykitStarSelectionFromPick,
+  isSkykitSelectionFacade,
+  isSkykitSelectionStore,
+  resolveSkykitStarSelectionLabel,
+} from '../selection.js';
 import {
   cloneQuaternion,
   cloneVector3,
@@ -16,6 +24,8 @@ import { createSkykitXrRaySource } from './rays.js';
 import { enterSkykitXrSession, exitSkykitXrSession, isSkykitXrModeSupported } from './session.js';
 
 const DEFAULT_XR_PICK_ATTRIBUTES = Object.freeze(['position', 'teffLog8', 'magAbs']);
+const DEFAULT_XR_PICK_METADATA_ATTRIBUTES = Object.freeze(['objectRef', 'pickMeta']);
+const DEFAULT_SELECTION_PRODUCT = 'selection:primary';
 
 /**
  * Bridge a SkyKit XR rig into the normal SkyKit observer-rig contract.
@@ -613,9 +623,16 @@ export function createSkykitXrStarPickingPlugin(options) {
       select: options.selectButton ?? { hand: pickHand, button: 'trigger' },
     },
   });
-  const attributes = Array.from(new Set([...(options.attributes ?? []), ...DEFAULT_XR_PICK_ATTRIBUTES]));
+  const metadataResolver = normalizeXrMetadataResolver(options.metadata);
+  const attributes = Array.from(new Set([
+    ...(options.attributes ?? []),
+    ...DEFAULT_XR_PICK_ATTRIBUTES,
+    ...(metadataResolver ? (options.metadataAttributes ?? DEFAULT_XR_PICK_METADATA_ATTRIBUTES) : []),
+  ]));
   /** @type {(() => void) | null} */
   let unregisterDemand = null;
+  /** @type {import('../index.d.ts').SkykitThreePluginContext | null} */
+  let context = null;
   let disposed = false;
   let pickCount = 0;
   let missCount = 0;
@@ -676,18 +693,7 @@ export function createSkykitXrStarPickingPlugin(options) {
         void options.onMiss?.(event);
         return;
       }
-      pickCount += 1;
-      lastPick = pick;
-      const event = /** @type {import('../xr.d.ts').SkykitXrStarPickEvent} */ ({
-        type: 'stars/xr-pick',
-        id,
-        pick,
-        label: `${pick.cellKey}:${pick.objectIndex}`,
-        ray,
-        view: frame.view,
-      });
-      frame.viewer.emit(/** @type {import('../index.d.ts').SkykitEvent} */ (event));
-      void options.onPick?.(event);
+      void finishPick(frame, ray, pick);
     },
     getSnapshot() {
       return {
@@ -709,6 +715,7 @@ export function createSkykitXrStarPickingPlugin(options) {
       disposed = true;
       unregisterDemand?.();
       unregisterDemand = null;
+      context = null;
       controls.dispose?.();
       raySource.dispose?.();
     },
@@ -716,17 +723,150 @@ export function createSkykitXrStarPickingPlugin(options) {
 
   return {
     id,
-    setup(context) {
+    setup(pluginContext) {
+      context = /** @type {import('../index.d.ts').SkykitThreePluginContext} */ (pluginContext);
       if (options.source) {
         unregisterDemand = options.source.addDemand({
           id: `${id}:attributes`,
           attributes,
         });
       }
-      context.addPart(part);
+      pluginContext.addPart(part);
     },
     getSnapshot: () => part.getSnapshot(),
   };
+
+  /**
+   * @param {import('../index.d.ts').SkykitThreeFrame} frame
+   * @param {import('../xr.d.ts').SkykitXrRay} ray
+   * @param {import('@found-in-space/three-star-field').ThreeStarFieldPickResult} pick
+   */
+  async function finishPick(frame, ray, pick) {
+    const metadata = metadataResolver
+      ? await resolveXrMetadata(metadataResolver, pick, frame)
+      : null;
+    const label = resolveSkykitStarSelectionLabel(metadata, pick);
+    const selectionValue = createSkykitStarSelectionFromPick(pick, {
+      label,
+      metadata,
+      source: id,
+      eventType: 'stars/xr-pick',
+    });
+    pickCount += 1;
+    lastPick = pick;
+    writeXrPickSelection(options.selection, context, selectionValue, {
+      source: id,
+      eventType: 'stars/xr-pick',
+    });
+    const starSelection = isPublicStarSelectionValue(selectionValue) ? selectionValue : null;
+    const event = /** @type {import('../xr.d.ts').SkykitXrStarPickEvent} */ ({
+      type: 'stars/xr-pick',
+      id,
+      pick,
+      label,
+      metadata,
+      ref: starSelection?.ref ?? null,
+      identityAvailable: Boolean(starSelection),
+      ray,
+      view: frame.view,
+    });
+    frame.viewer.emit(/** @type {import('../index.d.ts').SkykitEvent} */ (event));
+    await options.onPick?.(event);
+  }
+}
+
+/**
+ * @param {import('../xr.d.ts').SkykitXrStarPickingPluginOptions['metadata']} metadata
+ * @returns {import('../index.d.ts').SkykitStarPickMetadataResolver | null}
+ */
+function normalizeXrMetadataResolver(metadata) {
+  if (!metadata) return null;
+  if (typeof metadata === 'function') return metadata;
+  if (typeof metadata === 'object') {
+    return createSkykitStarPickMetadataResolver({ provider: metadata });
+  }
+  return null;
+}
+
+/**
+ * @param {import('../index.d.ts').SkykitSelectionValue} value
+ * @returns {value is import('../index.d.ts').SkykitStarSelectionValue}
+ */
+function isPublicStarSelectionValue(value) {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      /** @type {{ kind?: unknown; identityAvailable?: unknown; ref?: unknown }} */ (value).kind === 'star' &&
+      /** @type {{ kind?: unknown; identityAvailable?: unknown; ref?: unknown }} */ (value).identityAvailable === true &&
+      /** @type {{ kind?: unknown; identityAvailable?: unknown; ref?: unknown }} */ (value).ref,
+  );
+}
+
+/**
+ * @param {import('../index.d.ts').SkykitStarPickMetadataResolver} resolver
+ * @param {import('@found-in-space/three-star-field').ThreeStarFieldPickResult} pick
+ * @param {import('../index.d.ts').SkykitThreeFrame} frame
+ */
+function resolveXrMetadata(resolver, pick, frame) {
+  return resolver(pick, {
+    context: /** @type {import('../index.d.ts').SkykitThreePluginContext} */ ({
+      mode: 'three',
+      viewer: frame.viewer,
+      scene: frame.scene,
+      renderer: frame.renderer,
+      camera: frame.camera,
+      roots: frame.roots,
+      contentRoot: frame.roots.originContentRoot,
+      navigationRoot: frame.roots.navigationRoot,
+      observerRig: frame.observerRig,
+      actions: frame.viewer.actions,
+      addPart: frame.viewer.addPart?.bind(frame.viewer) ?? (() => () => {}),
+      addDisposable: () => () => {},
+      getViewState: frame.viewer.getViewState?.bind(frame.viewer) ?? (() => frame.view),
+      requestViewState: frame.viewer.requestViewState?.bind(frame.viewer) ?? (() => {}),
+      on: frame.viewer.on?.bind(frame.viewer) ?? (() => () => {}),
+      emit: frame.viewer.emit?.bind(frame.viewer) ?? (() => {}),
+      useStore: (_key, factory) => factory(),
+      useResource: (_key, factory) => factory(),
+      scheduleTask: () => () => {},
+    }),
+    viewer: frame.viewer,
+    view: frame.view,
+  });
+}
+
+/**
+ * @param {import('../xr.d.ts').SkykitXrStarPickingPluginOptions['selection']} selectionInput
+ * @param {import('../index.d.ts').SkykitThreePluginContext | null} context
+ * @param {import('../index.d.ts').SkykitSelectionValue} value
+ * @param {{ source: string; eventType: string }} metadata
+ */
+function writeXrPickSelection(selectionInput, context, value, metadata) {
+  if (selectionInput === false || !context) return;
+  const selection = resolveXrSelectionTarget(selectionInput, context);
+  if (!selection) return;
+  if (isSkykitSelectionFacade(selection)) {
+    selection.set(value, metadata);
+  } else {
+    selection.setPrimary(value, metadata);
+  }
+}
+
+/**
+ * @param {import('../xr.d.ts').SkykitXrStarPickingPluginOptions['selection']} selectionInput
+ * @param {import('../index.d.ts').SkykitThreePluginContext} context
+ */
+function resolveXrSelectionTarget(selectionInput, context) {
+  if (isSkykitSelectionFacade(selectionInput) || isSkykitSelectionStore(selectionInput)) {
+    return selectionInput;
+  }
+  const key = typeof selectionInput === 'string' && selectionInput
+    ? selectionInput
+    : DEFAULT_SELECTION_PRODUCT;
+  const product = getSkykitProductRegistry(context).get(key);
+  return isSkykitSelectionFacade(product) || isSkykitSelectionStore(product)
+    ? product
+    : null;
 }
 
 /**

@@ -256,11 +256,11 @@ Implemented in `@found-in-space/skykit/xr`:
 Not implemented yet:
 
 - GPU pick routing or built-in star-specific XR pick effects.
-- beginner-facing XR selection/metadata parity. The current low-level XR star
-  picking plugin can request identity attributes through the star source, but its
-  public event label is still storage-shaped until an app or facade enriches it.
-  The beginner facade should expose bookmarkable public identity rather than
-  storage-derived labels.
+- built-in sidecar label/facts policy for beginner-facing XR selections. The
+  low-level XR star picking plugin and XR browser facade now propagate
+  bookmarkable `StarObjectRef` identity into pick events and product-backed
+  selection when the star source provides `objectRef`; remaining work is the
+  label/facts enrichment policy, not identity plumbing.
 - a journey runtime that drives `skykit:navigation.*` actions.
 - published lesson docs that replace every legacy XR demo end to end.
 

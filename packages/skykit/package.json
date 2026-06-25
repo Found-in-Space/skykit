@@ -35,6 +35,14 @@
       "types": "./src/embed.d.ts",
       "default": "./src/embed.js"
     },
+    "./xr-browser": {
+      "types": "./src/xr-browser.d.ts",
+      "default": "./src/xr-browser.js"
+    },
+    "./xr-embed": {
+      "types": "./src/xr-embed.d.ts",
+      "default": "./src/xr-embed.js"
+    },
     "./viewer": {
       "types": "./src/viewer-entry.d.ts",
       "default": "./src/viewer-entry.js"
@@ -62,7 +70,8 @@
     "README.md"
   ],
   "sideEffects": [
-    "./src/embed.js"
+    "./src/embed.js",
+    "./src/xr-embed.js"
   ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",

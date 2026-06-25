@@ -102,6 +102,39 @@ Planning decisions should use this order:
    created and clearly labeled as development or advanced-use material until the
    website curates them.
 
+## Progress Update 2026-06-25
+
+The first API stabilization pass has landed in `@found-in-space/skykit`:
+
+- `createSkykitBrowser()` now returns browser handles with `actions`,
+  `products`, `selection`, and `inspect`, backed by the real viewer action
+  registry, product registry, product-backed current selection, and inspect
+  facade.
+- Shared inspect and selection facades now cover snapshots, streams, products,
+  actions, selection, and view state. XR handles add XR/runtime details through
+  the same inspect surface when XR exists.
+- Desktop and XR star picking can write product-backed selection values to
+  `selection:primary`. Public `StarObjectRef` identity is preferred for star
+  picks; when identity is unavailable, the selection shape is explicitly
+  degraded and keeps storage details diagnostic.
+- `createSkykitXrBrowser()` provides the browser-style XR handle over the VR
+  viewer preset, with `vr`, `xr`, `rig`, `session`, `rays`, `enter()`,
+  `exit()`, object/layer helpers, products, selection, actions, and inspect.
+- `@found-in-space/skykit/xr-embed` is now a separate side-effect entry for
+  `[data-skykit-xr]`, sharing browser embed readiness/global conventions while
+  keeping normal embeds from importing XR code. It supports status JSON,
+  checklist rows, a default accessible Enter VR button, and an author-supplied
+  `data-skykit-enter-vr` selector.
+- Focused tests cover browser facade parity, XR browser parity, product-backed
+  selection, XR star identity propagation, DOM/embed startup, readiness,
+  checklist/status, Enter VR binding, and the existing fake-XR/plugin/layer
+  paths.
+
+Remaining work before website XR lessons: sidecar-backed label/facts policy for
+the facade, richer inspect action trace/history, first-party infinity-layer
+quickstart choices beyond constellations, touch-os examples, journey hooks, and
+website curation.
+
 ## Quickstart Target
 
 The future website lesson should be able to start from a shape close to the
@@ -272,14 +305,13 @@ and 2D app lessons. It may keep low-level pick details for advanced uses, but
 the beginner path needs a label/facts pipeline that teaches catalogue identity
 instead of storage detail.
 
-Current implementation gap to close during API stabilization: the VR preset asks
-the star source for `objectRef` and `pickMeta`, but the low-level XR star-picking
-plugin still emits a storage-shaped fallback label when no app resolver is
-installed. The beginner facade should reuse the desktop star-pick metadata
-resolver pattern or an equivalent selection/sidecar facade so XR, desktop
-picking, and data examples expose the same identity model. The default beginner
-path should fail visibly or mark identity unavailable rather than silently
-inventing another public star ID.
+Closed in the first stabilization pass: the VR preset asks the star source for
+`objectRef` and `pickMeta`, the low-level XR star-picking plugin can resolve
+metadata through the same resolver pattern as desktop picking, and both desktop
+and XR picking can write product-backed selections. The default beginner path
+marks identity unavailable explicitly rather than silently inventing another
+public star ID. Remaining work is sidecar-backed label/facts policy in the
+facade, not identity plumbing.
 
 Debug globals may still exist for development, but the public inspect feature
 should be explicit, documented, and available through ordinary handles, actions,
@@ -458,7 +490,9 @@ but the examples should make discovery and composition obvious.
 
 ## Proposed Package Surface
 
-These names are planning placeholders, not final API commitments.
+These names are now the initial alpha API surface for the first stabilization
+pass. The exact return shapes may still evolve before v1, but new work should
+prefer extending these handles over adding parallel wrapper layers.
 
 ```txt
 @found-in-space/skykit/xr
@@ -502,27 +536,26 @@ advanced code already uses.
 
 1. Beginner facade baseline
 
-   Stabilize the beginner-facing SkyKit facade before the website overhaul
-   depends on it. The facade should reach parity with the current browser viewer,
-   then grow into XR without changing the extension ladder: attributes,
-   readiness, installable plugins/add-ons, app-owned objects/layers, actions,
-   products, status, inspect, and selection.
+   Status: initial pass complete. `createSkykitBrowser()` exposes `actions`,
+   `products`, `selection`, and `inspect`; browser add-on contexts expose the
+   same surfaces. `createSkykitXrBrowser()` follows the same handle model while
+   adding XR-specific handles and session entry.
 
 2. Inspect and selection parity
 
-   Create the shared inspect/selection model that can be used by 2D data
-   examples, desktop 3D viewers, and XR. Include star identity, sidecar-enriched
-   labels/facts, layer picks, current products, stream status, view state, action
-   trace, and XR session/ray details where available.
+   Status: initial pass complete for products, streams, actions snapshot, view
+   state, selection, XR runtime snapshots, and product-backed star picks. Still
+   open: sidecar-enriched labels/facts as a facade policy, richer action trace
+   history, and non-star layer/waypoint selection examples.
 
 3. Browser-grade XR preset
 
-   Add an XR preset and `@found-in-space/skykit/xr-embed` side-effect entry that
-   can create an XR-capable viewer from DOM attributes or package options, report
-   status, install an accessible default user-gesture Enter VR control, support
-   an author-supplied button selector, register readiness on the same
-   browser-style handle shape, and expose a checklist/status path for devices
-   without active WebXR. The preset should be recreatable with direct package
+   Status: initial pass complete. `createSkykitXrBrowser()` and
+   `@found-in-space/skykit/xr-embed` create XR-capable viewers from package
+   options or DOM attributes, report status, install an accessible default
+   user-gesture Enter VR control, support an author-supplied button selector,
+   register readiness on the same browser-style global, and expose
+   checklist/status state. The preset remains recreatable with direct package
    imports.
 
 4. Layer quickstart capabilities
@@ -615,10 +648,13 @@ advanced code already uses.
 
 ## Still Open
 
-- What exact method names and return shapes should the stable `inspect` facade
-  expose?
-- What exact method names should the beginner `selection` facade expose over the
-  current/default selection slot?
+- Which parts of the initial `inspect` snapshot should be documented as stable
+  before v1, and which should remain diagnostic?
+- Whether the initial `selection` method names `get`, `set`, `clear`,
+  `subscribe`, and `getSnapshot` are enough for website lessons, or whether a
+  friendlier alias layer belongs only in the website.
+- How much action trace/history should the inspect facade own beyond the current
+  action registry snapshot.
 - Which sidecar lookup behavior belongs in the facade, and which label/facts
   formatting choices stay app-owned?
 - Which infinity layers should be first-party quickstart capabilities versus

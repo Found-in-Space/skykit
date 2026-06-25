@@ -50,6 +50,13 @@ patterns include `stars:stellar/source`, `stars:stellar/store`,
 `selection:primary`. Here `selection:primary` means the current/default selection
 slot, not a final beginner-facing label.
 
+The browser-style handles expose the same public runtime surfaces:
+`actions`, `products`, `selection`, and `inspect`. These are not wrapper
+registries; they are the viewer action registry, runtime product registry, the
+product-backed current selection facade, and a read-only inspect facade for
+snapshots, streams, products, actions, selection, view state, and XR details
+when XR exists.
+
 Use the registry directly from a plugin when one plugin owns a handle and another
 plugin should discover it later:
 
@@ -143,31 +150,37 @@ const layers = createSkykitLayerHostPlugin({
 });
 ```
 
-## VR viewer preset
+## XR viewer presets
 
 `createSkykitVrViewer()` is the current package-level WebXR preset and the
-candidate foundation for a future beginner XR facade. It is a convenience over
+lower-level foundation for authored XR examples. It is a convenience over
 `createSkykitViewer()` plus `createSkykitXrComposition()`: the returned object
 still exposes the viewer, XR composition, product registry, shared star source,
 star field, layer host, rays, pick bridge, animation loop, and other public
-handles. Public website XR lessons should wait until the facade also has stable
-status, inspect, selection, readiness, and sidecar-label behavior.
+handles.
+
+`createSkykitXrBrowser()` is the browser-style XR handle. It keeps the same
+beginner handle model as `createSkykitBrowser()` and adds `vr`, `xr`, `rig`,
+`session`, `rays`, `enter()`, `exit()`, layer helpers, and XR-specific runtime
+handles. Its default star picking writes public `StarObjectRef` selections to
+`selection:primary` when identity is available; storage details such as
+`cellKey:objectIndex` stay diagnostic rather than beginner-facing identity.
 
 ```js
-import { createSkykitVrViewer } from '@found-in-space/skykit/xr';
+import { createSkykitXrBrowser } from '@found-in-space/skykit/xr';
 import {
   OCTREE_DEFAULT,
   createStarOctreeProviderService,
 } from '@found-in-space/star-octree-provider';
 
 const provider = createStarOctreeProviderService({ url: OCTREE_DEFAULT });
-const vr = await createSkykitVrViewer({
+const sky = await createSkykitXrBrowser({
   host: document.querySelector('#viewer'),
   stars: { provider },
 });
 
 button.addEventListener('click', () => {
-  void vr.enter();
+  void sky.enter();
 });
 ```
 
@@ -199,6 +212,30 @@ WebXR session entry must be called from a user gesture. Advanced applications
 can still spell out the raw path with `createSkykitViewer()`,
 `createSkykitXrComposition()`, `createSkykitStarSourcePlugin()`, and ordinary
 plugins; the preset does not replace those lower-level APIs.
+
+For static-page XR experiments, use the separate `xr-embed` entry so normal
+embeds do not import XR code:
+
+```html
+<div
+  data-skykit-xr
+  data-skykit-status="#xr-status"
+  data-skykit-xr-mode="immersive-vr"
+  data-skykit-reference-space="local-floor"
+  style="width:100%;height:70vh;background:#02040b"
+></div>
+
+<pre id="xr-status">Starting XR...</pre>
+
+<script type="module" src="https://esm.sh/@found-in-space/skykit@0.2.0/xr-embed?bundle&deps=three@0.170.0"></script>
+```
+
+`xr-embed` injects an accessible Enter VR button by default. Provide
+`data-skykit-enter-vr="#my-button"` to use an authored button. Checklist rows
+with `data-preflight-check="skykit"`, `"stars"`, or `"xr"` receive `data-state`
+updates, and child `[data-preflight-check-status]` elements receive the status
+text. Public website XR lessons should still wait until the API is deliberately
+curated into the sibling website.
 
 ## Paste into a static page or CMS
 

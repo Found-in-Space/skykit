@@ -25,13 +25,22 @@ import {
   createSkykitStatusPlugin,
   createStreamingStarsPlugin,
 } from './plugins.js';
+import { createSkykitInspectFacade } from './inspect.js';
 import { createObject3dLayer } from './layers.js';
+import { createSkykitProductRegistryPlugin } from './products.js';
+import {
+  createSkykitSelectionFacade,
+  createSkykitSelectionProductsPlugin,
+} from './selection.js';
+import { createSkykitStarSourcePlugin } from './star-source.js';
 import { createSkykitViewer } from './viewer.js';
 
 const DEFAULT_LIMITING_MAGNITUDE = 6.5;
 const DEFAULT_EXPOSURE = 2400;
 const DEFAULT_UNITS_PER_PARSEC = 0.001;
 const DEFAULT_MAX_DEVICE_PIXEL_RATIO = 2;
+const DEFAULT_STAR_SOURCE_PRODUCT = 'stars:stellar/source';
+const DEFAULT_STAR_STORE_PRODUCT = 'stars:stellar/store';
 
 /**
  * Create the default browser star viewer used by the starter lessons.
@@ -60,10 +69,27 @@ export async function createSkykitBrowser(input = {}) {
     url: options.octreeUrl ?? OCTREE_DEFAULT,
     persistentCache: normalizePersistentCacheMode(options.persistentCache),
   });
+  const strategy = options.strategy ?? options.session?.strategy ?? createObserverShellStrategy();
+  const starSource = createSkykitStarSourcePlugin({
+    id: 'stars-source',
+    provider,
+    priority: 100,
+    session: stripStarSourceSessionOptions(options.session),
+    publish: {
+      source: DEFAULT_STAR_SOURCE_PRODUCT,
+      store: DEFAULT_STAR_STORE_PRODUCT,
+      metadata: {
+        label: 'Stellar source',
+        tags: ['browser', 'stellar'],
+      },
+    },
+  });
   const starField = options.starField ?? createThreeStarField({
     limitingMagnitude,
     exposure: positive(options.exposure, DEFAULT_EXPOSURE),
   });
+  const products = createSkykitProductRegistryPlugin({ id: 'skykit-browser-products' });
+  const selectionProducts = createSkykitSelectionProductsPlugin({ id: 'skykit-browser-selection' });
 
   renderer.setClearColor?.(options.background ?? 0x02040b, 1);
   if (host.style && options.disableTouchAction !== false) host.style.touchAction = 'none';
@@ -80,14 +106,15 @@ export async function createSkykitBrowser(input = {}) {
       ...(options.view ?? {}),
     },
     plugins: [
+      products,
+      selectionProducts,
+      starSource,
       createStreamingStarsPlugin({
         id: 'stars',
-        provider,
+        source: starSource,
         renderer: starField,
-        session: {
-          strategy: options.strategy ?? createObserverShellStrategy(),
-          ...(options.session ?? {}),
-        },
+        strategy,
+        attributes: options.session?.attributes,
       }),
       ...(options.keyboard === false ? [] : [
         createKeyboardNavigationPlugin({
@@ -103,6 +130,15 @@ export async function createSkykitBrowser(input = {}) {
 
   const loop = createSkykitAnimationLoop(viewer, options.loop);
   const capabilities = new Set();
+  const selection = createSkykitSelectionFacade({
+    store: selectionProducts.primary,
+    products,
+  });
+  const inspect = createSkykitInspectFacade({
+    viewer,
+    products,
+    selection,
+  });
   /** @type {Array<() => void | Promise<void>>} */
   const browserDisposables = [];
   let disposed = false;
@@ -115,6 +151,10 @@ export async function createSkykitBrowser(input = {}) {
     starField,
     loop,
     capabilities,
+    actions: viewer.actions,
+    products,
+    selection,
+    inspect,
     install,
     addObject,
     resize,
@@ -195,6 +235,9 @@ export async function createSkykitBrowser(input = {}) {
         parseDeclination,
         parseRightAscension,
         parseSpatialLookAtText,
+        products,
+        selection,
+        inspect,
       },
     };
   }
@@ -316,10 +359,10 @@ function normalizePersistentCacheMode(value) {
 function createStatusPlugin(target) {
   return createSkykitStatusPlugin({
     intervalSeconds: 0.5,
-    render({ viewer }) {
-      const stars = viewer.parts.find((part) => part.id === 'stars')?.snapshot;
+    render({ viewer: viewerSnapshot }) {
+      const stars = viewerSnapshot.parts.find((part) => part.id === 'stars')?.snapshot;
       target.textContent = JSON.stringify({
-        observerPc: viewer.view.observerPc,
+        observerPc: viewerSnapshot.view.observerPc,
         starsLoaded: stars?.renderer?.starCount ?? 0,
         stream: stars?.status ?? 'starting',
       }, null, 2);
@@ -349,6 +392,13 @@ function isElementLike(value) {
 function positive(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+/** @param {import('@found-in-space/star-octree-provider').StarOctreeSessionOptions | undefined} session */
+function stripStarSourceSessionOptions(session) {
+  if (!session) return undefined;
+  const { strategy: _strategy, attributes: _attributes, ...rest } = session;
+  return rest;
 }
 
 /**

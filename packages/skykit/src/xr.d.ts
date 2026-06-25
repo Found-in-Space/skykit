@@ -16,6 +16,10 @@ import type {
 } from '@found-in-space/three-star-field';
 import type * as THREE from 'three';
 import type {
+  SkykitXrBrowser,
+  SkykitXrBrowserOptions,
+} from './xr-browser.js';
+import type {
   SkykitAnimationLoop,
   SkykitAnimationLoopOptions,
   SkykitActionId,
@@ -30,10 +34,16 @@ import type {
   SkykitProductKey,
   SkykitProductRef,
   SkykitProductRegistryPlugin,
+  SkykitSelectionFacade,
+  SkykitSelectionStore,
+  SkykitSelectionValue,
   SkykitSpatialLayerSource,
   SkykitSceneRoots,
   SkykitStarCellSource,
   SkykitStarCellDemand,
+  SkykitStarPickMetadata,
+  SkykitStarPickMetadataProvider,
+  SkykitStarPickMetadataResolver,
   SkykitStarSourcePublishOptions,
   SkykitStarSourceRestartRetentionPolicy,
   SkykitStellarSkyLayer,
@@ -576,6 +586,9 @@ export interface SkykitXrStarPickEvent extends SkykitEvent {
   id: string;
   pick: ThreeStarFieldPickResult;
   label: string;
+  metadata: SkykitStarPickMetadata;
+  ref: unknown;
+  identityAvailable: boolean;
   ray: SkykitXrRay;
   view: SkykitViewState;
 }
@@ -599,6 +612,9 @@ export interface SkykitXrStarPickingPluginOptions {
   handedness?: 'left' | 'right' | string;
   selectButton?: SkykitXrButtonBinding;
   attributes?: readonly string[];
+  metadata?: SkykitStarPickMetadataResolver | SkykitStarPickMetadataProvider | null;
+  metadataAttributes?: readonly string[];
+  selection?: false | SkykitProductKey | SkykitSelectionStore<SkykitSelectionValue> | SkykitSelectionFacade<SkykitSelectionValue>;
   pickOptions?: ThreeStarFieldPickOptions;
   onPick?: (event: SkykitXrStarPickEvent) => void | Promise<void>;
   onMiss?: (event: SkykitXrStarPickMissEvent) => void | Promise<void>;
@@ -717,6 +733,7 @@ export declare function createSkykitXrComposition(options?: SkykitXrCompositionO
 export declare function createSkykitXrPickBridgePlugin(options: SkykitXrPickBridgePluginOptions): SkykitXrPickBridgePlugin;
 export declare function createSkykitXrPointerPlugin(options: SkykitXrPointerPluginOptions): SkykitXrPointerPlugin;
 export declare function createSkykitVrViewer(options?: SkykitVrViewerOptions): Promise<SkykitVrViewer>;
+export declare function createSkykitXrBrowser(options?: SkykitXrBrowserOptions): Promise<SkykitXrBrowser>;
 export declare function createSkykitXrObserverRig(options: CreateSkykitXrObserverRigOptions): SkykitObserverRig;
 export declare function createSkykitXrSessionPlugin(options?: SkykitXrSessionPluginOptions): SkykitXrSessionPlugin;
 export declare function createSkykitXrNavigationPlugin(options?: SkykitXrNavigationPluginOptions): SkykitXrNavigationPlugin;

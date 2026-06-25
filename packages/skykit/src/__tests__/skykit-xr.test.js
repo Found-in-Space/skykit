@@ -28,6 +28,7 @@ import {
   createSkykitActionRegistry,
   createSkykitLayerHostPlugin,
   createSkykitProductRegistryPlugin,
+  createSkykitSelectionProductsPlugin,
   createSkykitViewer,
   productRef,
 } from '../index.js';
@@ -877,6 +878,99 @@ test('skykit/xr star picking fires only on trigger edge and registers attribute-
   assert.equal(emitted.filter((event) => event.type === 'stars/xr-pick').length, 2);
 });
 
+test('skykit/xr star picking writes public star identity to product-backed selection', async () => {
+  const actions = createSkykitActionRegistry();
+  const products = createSkykitProductRegistryPlugin({ id: 'products' });
+  const selectionProducts = createSkykitSelectionProductsPlugin({ id: 'selection' });
+  let part = null;
+  const demands = [];
+  const emitted = [];
+  const pickEvents = [];
+  const objectRef = {
+    datasetId: 'gaia-dr3',
+    level: 5,
+    mortonCode: '001abc',
+    ordinal: 42,
+  };
+  const plugin = createSkykitXrStarPickingPlugin({
+    renderer: {
+      pick() {
+        return {
+          cellKey: 'cell-storage-key',
+          objectIndex: 2,
+          objectRef,
+          pickMeta: { row: 13 },
+          position: { x: 1, y: 2, z: 3 },
+          magAbs: 4,
+        };
+      },
+    },
+    source: {
+      addDemand(demand) {
+        demands.push(demand);
+        return () => {};
+      },
+    },
+    raySource: fixedRaySource(),
+    metadata(pick) {
+      return {
+        ref: pick.objectRef,
+        label: 'Test Star',
+        facts: {
+          primaryLabel: 'Ignored because label wins',
+        },
+      };
+    },
+    onPick(event) {
+      pickEvents.push(event);
+    },
+  });
+  const context = createPluginContext({
+    actions,
+    addPart(nextPart) {
+      part = nextPart;
+    },
+    emit(event) {
+      emitted.push(event);
+    },
+  });
+  products.setup(context);
+  selectionProducts.setup(context);
+  plugin.setup(context);
+
+  part.update(createXrFrame({
+    actions,
+    emit(event) {
+      emitted.push(event);
+    },
+    inputSources: [{
+      handedness: 'right',
+      gamepad: {
+        axes: [],
+        buttons: [{ pressed: true, touched: true, value: 1 }],
+      },
+    }],
+  }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const event = emitted.find((entry) => entry.type === 'stars/xr-pick');
+  const selection = products.get('selection:primary').getPrimary();
+  assert.deepEqual(demands[0], {
+    id: 'skykit-xr-star-picking:attributes',
+    attributes: ['position', 'teffLog8', 'magAbs', 'objectRef', 'pickMeta'],
+  });
+  assert.equal(event.identityAvailable, true);
+  assert.deepEqual(event.ref, objectRef);
+  assert.equal(event.label, 'Test Star');
+  assert.equal(pickEvents[0], event);
+  assert.equal(selection.kind, 'star');
+  assert.equal(selection.identityAvailable, true);
+  assert.deepEqual(selection.ref, objectRef);
+  assert.equal(selection.label, 'Test Star');
+  assert.equal(selection.diagnostic, undefined);
+});
+
 test('skykit/xr star picking respects panel blockers before renderer picks', () => {
   let part = null;
   let pickCount = 0;
@@ -934,6 +1028,7 @@ test('skykit/xr star picking respects panel blockers before renderer picks', () 
 
 function createPluginContext(overrides = {}) {
   const actions = overrides.actions ?? createSkykitActionRegistry();
+  const stores = overrides.stores ?? new Map();
   return {
     mode: 'three',
     viewer: { id: 'test-viewer', actions },
@@ -963,8 +1058,9 @@ function createPluginContext(overrides = {}) {
       return () => {};
     },
     emit: overrides.emit ?? (() => {}),
-    useStore(_key, factory) {
-      return factory();
+    useStore(key, factory) {
+      if (!stores.has(key)) stores.set(key, factory());
+      return stores.get(key);
     },
     useResource(_key, factory) {
       return factory();

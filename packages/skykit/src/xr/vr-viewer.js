@@ -24,6 +24,7 @@ const DEFAULT_LIMITING_MAGNITUDE = 7.5;
 const DEFAULT_MAX_DEVICE_PIXEL_RATIO = 2;
 const DEFAULT_STAR_SOURCE_PRODUCT = 'stars:stellar/source';
 const DEFAULT_STAR_STORE_PRODUCT = 'stars:stellar/store';
+const DEFAULT_SELECTION_PRODUCT = 'selection:primary';
 const DEFAULT_STAR_ATTRIBUTES = Object.freeze(['position', 'teffLog8', 'magAbs']);
 const DEFAULT_STAR_PICK_ATTRIBUTES = Object.freeze(['objectRef', 'pickMeta']);
 
@@ -561,6 +562,7 @@ function createVrStarPicking(stars, xr, starOptions) {
     raySource: createNonOwningRaySource(resolved.ray),
     handedness: rest.handedness ?? (resolved.key === 'right' ? 'right' : 'any'),
     attributes: rest.attributes ?? DEFAULT_STAR_PICK_ATTRIBUTES,
+    selection: rest.selection ?? DEFAULT_SELECTION_PRODUCT,
   });
 }
 

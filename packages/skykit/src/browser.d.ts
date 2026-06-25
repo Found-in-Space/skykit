@@ -8,14 +8,19 @@ import type * as THREE from 'three';
 
 import type {
   Object3dLayerOptions,
+  SkykitActionRegistry,
   SkykitAnimationLoop,
   SkykitAnimationLoopOptions,
   SkykitDragLookOptions,
+  SkykitInspectFacade,
   SkykitLookAtInput,
   SkykitKeyboardNavigationOptions,
   SkykitOrbitDragOptions,
   SkykitPluginInput,
   SkykitPluginTeardown,
+  SkykitProductRegistryPlugin,
+  SkykitSelectionFacade,
+  SkykitSelectionValue,
   SkykitThreePart,
   SkykitViewState,
   SkykitViewer,
@@ -142,6 +147,10 @@ export interface SkykitBrowser {
   starField: ThreeStarField;
   loop: SkykitAnimationLoop;
   capabilities: Set<string>;
+  actions: SkykitActionRegistry;
+  products: SkykitProductRegistryPlugin;
+  selection: SkykitSelectionFacade<SkykitSelectionValue>;
+  inspect: SkykitInspectFacade;
   constellations: SkykitBrowserConstellationsFacade;
   install(input: SkykitBrowserInstallInput): Promise<SkykitPluginTeardown>;
   addObject(

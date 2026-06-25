@@ -47,6 +47,20 @@ test('createSkykitBrowser wires the starter viewer and extra plugins', async () 
     assert.equal(provider.sessions[0].updateViewCalls.length, 2);
     assert.deepEqual(extraPartCalls, ['attach', 'start']);
     assert.match(status.textContent, /"starsLoaded": 0/);
+    assert.equal(browser.actions, browser.viewer.actions);
+    assert.ok(browser.products.get('stars:stellar/source'));
+    assert.ok(browser.products.get('stars:stellar/store'));
+    assert.equal(browser.selection.get(), null);
+    assert.equal(browser.selection.set({ kind: 'object', id: 'lesson-marker' }, { source: 'test' }), true);
+    assert.deepEqual(browser.selection.get(), { kind: 'object', id: 'lesson-marker' });
+    assert.deepEqual(browser.products.get('selection:primary').getPrimary(), { kind: 'object', id: 'lesson-marker' });
+    assert.equal(browser.inspect.getSnapshot().id, browser.viewer.id);
+    assert.deepEqual(
+      browser.inspect.getProducts({ kind: 'stars' }).map((product) => product.key),
+      ['stars:stellar/source', 'stars:stellar/store'],
+    );
+    assert.equal(browser.inspect.getStreams().some((stream) => stream.id === 'stars'), true);
+    assert.equal(browser.inspect.getSelection().current.kind, 'object');
 
     const marker = new THREE.Object3D();
     const markerHandle = browser.addObject(marker, {

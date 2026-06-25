@@ -12,6 +12,7 @@ export {
 } from './actions.js';
 export { createSkykitAnimationLoop } from './animation-loop.js';
 export { createSkykitDebugBridge, installSkykitDebugGlobal } from './debug.js';
+export { createSkykitInspectFacade } from './inspect.js';
 export {
   createSkykitCoordinateFrameMarkerLayer,
   createSkykitCoordinateFrameMarkerPlugin,
@@ -44,8 +45,13 @@ export {
   getSkykitScaleStore,
 } from './scale.js';
 export {
+  createSkykitSelectionFacade,
   createSkykitSelectionProductsPlugin,
   createSkykitSelectionStore,
+  createSkykitStarSelectionFromPick,
+  isSkykitSelectionFacade,
+  isSkykitSelectionStore,
+  resolveSkykitStarSelectionLabel,
 } from './selection.js';
 export { createSkykitStarInstrumentPlugin } from './star-instrument.js';
 export {
