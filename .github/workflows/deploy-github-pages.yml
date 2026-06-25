@@ -1,7 +1,7 @@
-# Build demo bundles with Vite and deploy to GitHub Pages (project site: /skykit/).
+# Build documentation and demo bundles with Vite and deploy to GitHub Pages (project site: /skykit/).
 #
 # Repo settings → Pages → Build and deployment → Source: GitHub Actions.
-name: Deploy demos to GitHub Pages
+name: Deploy SkyKit to GitHub Pages
 
 on:
   push:
@@ -29,13 +29,22 @@ jobs:
           cache: npm
 
       - run: npm ci
-      - run: npm run build
+      - run: npm run build:pages
         env:
           SKYKIT_PUBLIC_BASE: /skykit/
-      - name: Verify demo artifact pages
+      - name: Verify Pages artifact
         run: |
           test -f dist/index.html
+          test -f dist/docs/index.html
+          test -f dist/examples/index.html
+          test -f dist/examples/free-roam/index.html
+          test -f dist/examples/vr-viewer/index.html
+          test -f dist/examples/xr-free-roam/index.html
+          test -f dist/legacy/index.html
+          test -f dist/legacy/dust-roam/index.html
+          test -f dist/legacy/h-alpha-volume/index.html
           test -f dist/apps/examples/free-roam/index.html
+          test -f dist/apps/examples/vr-viewer/index.html
           test -f dist/apps/examples/xr-free-roam/index.html
           test -f dist/demos/dust-roam.html
           test -f dist/demos/h-alpha-volume.html

@@ -4,11 +4,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const localTouchOsPath = path.resolve(
-  __dirname,
-  process.env.TOUCH_OS_LOCAL_PATH ?? '../touch-os',
-);
-const localTouchOsAliases = fs.existsSync(path.join(localTouchOsPath, 'src/index.ts'))
+const localTouchOsPath = process.env.TOUCH_OS_LOCAL_PATH
+  ? path.resolve(__dirname, process.env.TOUCH_OS_LOCAL_PATH)
+  : null;
+const localTouchOsAliases = localTouchOsPath && fs.existsSync(path.join(localTouchOsPath, 'src/index.ts'))
   ? [
       {
         find: '@found-in-space/touch-os/hosts/three',
@@ -53,6 +52,7 @@ export default defineConfig({
       input: {
         index: path.resolve(__dirname, 'index.html'),
         skykitFreeRoam: path.resolve(__dirname, 'apps/examples/free-roam/index.html'),
+        skykitVrViewer: path.resolve(__dirname, 'apps/examples/vr-viewer/index.html'),
         skykitXrFreeRoam: path.resolve(__dirname, 'apps/examples/xr-free-roam/index.html'),
         dustRoam: path.resolve(__dirname, 'demos/dust-roam.html'),
         hAlphaVolume: path.resolve(__dirname, 'demos/h-alpha-volume.html'),

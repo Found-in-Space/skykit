@@ -30,6 +30,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
+    "build:pages": "vite build && node ./scripts/build-pages-artifact.js",
     "verify:pages-urls": "node ./scripts/verify-pages-urls.js",
     "dev:examples": "npm run dev --workspace @found-in-space/skykit-examples",
     "build:examples": "npm run build --workspace @found-in-space/skykit-examples",
@@ -57,6 +58,7 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
+    "marked": "^18.0.5",
     "playwright": "1.60.0",
     "typescript": "^5.9.3",
     "vite": "^6.0.0"

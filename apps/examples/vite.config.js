@@ -4,11 +4,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const localTouchOsPath = path.resolve(
-  __dirname,
-  process.env.TOUCH_OS_LOCAL_PATH ?? '../../../touch-os',
-);
-const localTouchOsAliases = fs.existsSync(path.join(localTouchOsPath, 'src/index.ts'))
+const localTouchOsPath = process.env.TOUCH_OS_LOCAL_PATH
+  ? path.resolve(__dirname, process.env.TOUCH_OS_LOCAL_PATH)
+  : null;
+const localTouchOsAliases = localTouchOsPath && fs.existsSync(path.join(localTouchOsPath, 'src/index.ts'))
   ? [
       {
         find: '@found-in-space/touch-os/hosts/three',
