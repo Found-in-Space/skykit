@@ -21,6 +21,8 @@ import { createObject3dLayer } from './layers.js';
 import { createSkykitNavigationPlugin, createSkykitStatusPlugin } from './plugins.js';
 import { createSkykitProductRegistryPlugin } from './products.js';
 import {
+  createSkykitLayerSelectionFromPick,
+  createSkykitLayerSelectionPlugin,
   createSkykitSelectionFacade,
   createSkykitSelectionProductsPlugin,
 } from './selection.js';
@@ -48,6 +50,7 @@ export async function createSkykitXrBrowser(input = {}) {
     ? options.products
     : createSkykitProductRegistryPlugin({ id: 'skykit-xr-browser-products' });
   const selectionProducts = createSkykitSelectionProductsPlugin({ id: 'skykit-xr-browser-selection' });
+  const layerSelection = createSkykitLayerSelectionPlugin({ id: 'skykit-xr-browser-layer-selection' });
   const selection = createSkykitSelectionFacade({
     store: selectionProducts.primary,
     products,
@@ -66,6 +69,7 @@ export async function createSkykitXrBrowser(input = {}) {
     stars: normalizeStarsOptions(options, providerBundle.provider),
     plugins: [
       selectionProducts,
+      layerSelection,
       ...(statusTarget ? [createStatusPlugin(statusTarget, () => browser)] : []),
       ...(options.plugins ?? []),
     ],
@@ -258,6 +262,8 @@ function createBrowserAddonContext(addon, browser, host) {
       SKYKIT_CONTROLS,
       createRaDecLookAt,
       createSkykitNavigationPlugin,
+      createSkykitLayerSelectionFromPick,
+      createSkykitLayerSelectionPlugin,
       parseDeclination,
       parseRightAscension,
       parseSpatialLookAtText,

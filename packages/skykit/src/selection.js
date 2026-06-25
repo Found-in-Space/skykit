@@ -4,6 +4,18 @@ import { getSkykitProductRegistry } from './products.js';
 const DEFAULT_PRIMARY_SELECTION_PRODUCT = 'selection:primary';
 const DEFAULT_HOVERED_SELECTION_PRODUCT = 'selection:hovered';
 const STAR_IDENTITY_UNAVAILABLE_LABEL = 'Star identity unavailable';
+const DEFAULT_LAYER_SELECTION_SOURCE = 'layer-pick';
+const OMIT_COMPACT_SELECTION_KEYS = new Set([
+  'route',
+  'ray',
+  'blocker',
+  'object',
+  'object3d',
+  'threeObject',
+  'targetObject',
+  'event',
+  'nativeEvent',
+]);
 
 /**
  * @template T
@@ -196,6 +208,120 @@ export function createSkykitSelectionProductsPlugin(options = {}) {
 }
 
 /**
+ * @param {unknown} hitOrRoute
+ * @param {import('./index.d.ts').SkykitLayerSelectionOptions} [options]
+ * @returns {import('./index.d.ts').SkykitSelectionValue | null}
+ */
+export function createSkykitLayerSelectionFromPick(hitOrRoute, options = {}) {
+  const hit = resolveLayerPickHit(hitOrRoute);
+  if (!hit) return null;
+
+  const hitRecord = /** @type {Record<string, unknown>} */ (hit);
+  const defaults = createLayerSelectionDefaults(hitRecord, options);
+
+  if (hitRecord.selection != null) {
+    const explicit = compactSelectionValue(hitRecord.selection);
+    return explicit ? applyLayerSelectionDefaults(explicit, defaults, hitRecord) : null;
+  }
+
+  const waypoint = objectRecord(hitRecord.waypoint);
+  if (waypoint) {
+    return createLayerSelectionFromIdentity(waypoint, hitRecord, defaults, {
+      kind: 'waypoint',
+      useObjectKind: false,
+    });
+  }
+
+  const feature = objectRecord(hitRecord.feature);
+  if (feature) {
+    return createLayerSelectionFromIdentity(feature, hitRecord, defaults, {
+      kind: 'layer',
+      useObjectKind: true,
+    });
+  }
+
+  const kind = cleanLabel(hitRecord.kind);
+  const id = cleanIdentifier(hitRecord.id);
+  if (!kind || !id) return null;
+
+  return applyLayerSelectionDefaults({
+    kind,
+    id,
+    ...(cleanLabel(hitRecord.label) ? { label: cleanLabel(hitRecord.label) } : {}),
+    ...(cloneCompactValue(hitRecord.target) !== undefined ? { target: cloneCompactValue(hitRecord.target) } : {}),
+  }, defaults, hitRecord);
+}
+
+/**
+ * @param {import('./index.d.ts').SkykitLayerSelectionPluginOptions} [options]
+ * @returns {import('./index.d.ts').SkykitPlugin & { getSnapshot(): unknown }}
+ */
+export function createSkykitLayerSelectionPlugin(options = {}) {
+  const id = options.id ?? 'skykit-layer-selection';
+  const actionId = options.actionId ?? SKYKIT_ACTIONS.selection.select;
+  const pointerActionId = options.pointerActionId === false
+    ? null
+    : options.pointerActionId ?? SKYKIT_ACTIONS.xr.pointerSelect;
+  /** @type {Array<() => void>} */
+  const teardowns = [];
+  let disposed = false;
+  let conversionCount = 0;
+  let writeCount = 0;
+  let ignoredCount = 0;
+  /** @type {import('./index.d.ts').SkykitSelectionValue | null} */
+  let lastSelection = null;
+
+  return {
+    id,
+    setup(context) {
+      /** @param {import('./index.d.ts').SkykitActionHandlerContext} event */
+      const handler = (event) => {
+        const source = actionMetadataSource(event.metadata) ?? options.source ?? id;
+        const value = createSkykitLayerSelectionFromPick(event.payload, {
+          source,
+          productKey: options.productKey,
+          layerId: options.layerId,
+        });
+        if (!value) {
+          ignoredCount += 1;
+          return null;
+        }
+        conversionCount += 1;
+        lastSelection = value;
+        if (writeLayerSelection(options.selection, context, value, {
+          source,
+          eventType: event.id === pointerActionId ? 'xr/pointer-select' : 'selection/select',
+          actionId: event.id,
+        })) {
+          writeCount += 1;
+        }
+        return value;
+      };
+      teardowns.push(context.actions.registerAction(actionId, handler, { label: 'Select layer target' }));
+      if (pointerActionId && pointerActionId !== actionId) {
+        teardowns.push(context.actions.registerAction(pointerActionId, handler, { label: 'Select XR pointer target' }));
+      }
+      return () => {
+        disposed = true;
+        for (const teardown of teardowns.splice(0).reverse()) teardown();
+      };
+    },
+    getSnapshot() {
+      return {
+        id,
+        disposed,
+        actionId,
+        pointerActionId,
+        conversionCount,
+        writeCount,
+        ignoredCount,
+        lastSelection,
+      };
+    },
+  };
+}
+
+/**
  * @param {unknown} value
  * @returns {value is import('./index.d.ts').SkykitSelectionStore}
  */
@@ -280,6 +406,219 @@ export function resolveSkykitStarSelectionLabel(metadata, pick) {
     ?? (resolvePublicStarRef(/** @type {{ objectRef?: unknown }} */ (pick ?? {}).objectRef)
       ? 'Selected star'
       : STAR_IDENTITY_UNAVAILABLE_LABEL);
+}
+
+/**
+ * @param {unknown} hitOrRoute
+ * @returns {Record<string, unknown> | null}
+ */
+function resolveLayerPickHit(hitOrRoute) {
+  const record = objectRecord(hitOrRoute);
+  if (!record) return null;
+  const routeType = cleanLabel(record.type);
+  if (routeType === 'hit' || routeType === 'miss' || routeType === 'blocked') {
+    if (routeType !== 'hit') return null;
+    return objectRecord(record.hit);
+  }
+  return record;
+}
+
+/**
+ * @param {Record<string, unknown>} hit
+ * @param {import('./index.d.ts').SkykitLayerSelectionOptions} options
+ */
+function createLayerSelectionDefaults(hit, options) {
+  return {
+    source: cleanLabel(hit.source) ?? cleanLabel(options.source) ?? DEFAULT_LAYER_SELECTION_SOURCE,
+    productKey: cleanLabel(hit.productKey) ?? cleanLabel(options.productKey),
+    layerId: cleanLabel(hit.layerId) ?? cleanLabel(options.layerId),
+  };
+}
+
+/**
+ * @param {Record<string, unknown>} object
+ * @param {Record<string, unknown>} hit
+ * @param {{ source: string; productKey: string | null; layerId: string | null }} defaults
+ * @param {{ kind: string; useObjectKind: boolean }} options
+ * @returns {import('./index.d.ts').SkykitLayerSelectionValue | null}
+ */
+function createLayerSelectionFromIdentity(object, hit, defaults, options) {
+  const properties = objectRecord(object.properties);
+  const id = cleanIdentifier(object.id) ?? cleanIdentifier(properties?.id);
+  if (!id) return null;
+  const kind = options.useObjectKind
+    ? cleanLabel(object.kind) ?? cleanLabel(properties?.kind) ?? options.kind
+    : options.kind;
+  const label = cleanLabel(object.label) ?? cleanLabel(properties?.label) ?? cleanLabel(hit.label);
+  const target = firstCompactValue(object.target, properties?.target, hit.target);
+  const value = /** @type {import('./index.d.ts').SkykitLayerSelectionValue} */ ({
+    kind,
+    id,
+    ...(label ? { label } : {}),
+    ...(target !== undefined ? { target } : {}),
+  });
+  const layerId = cleanLabel(object.layerId) ?? cleanLabel(properties?.layerId);
+  const productKey = cleanLabel(object.productKey) ?? cleanLabel(properties?.productKey);
+  const source = cleanLabel(object.source) ?? cleanLabel(properties?.source);
+  return /** @type {import('./index.d.ts').SkykitLayerSelectionValue} */ (applyLayerSelectionDefaults(value, {
+    source: source ?? defaults.source,
+    productKey: productKey ?? defaults.productKey,
+    layerId: layerId ?? defaults.layerId,
+  }, hit));
+}
+
+/**
+ * @param {import('./index.d.ts').SkykitSelectionValue} value
+ * @param {{ source: string; productKey: string | null; layerId: string | null }} defaults
+ * @param {Record<string, unknown>} hit
+ * @returns {import('./index.d.ts').SkykitSelectionValue}
+ */
+function applyLayerSelectionDefaults(value, defaults, hit) {
+  const output = /** @type {Record<string, unknown> & import('./index.d.ts').SkykitSelectionValue} */ ({ ...value });
+  if (!cleanLabel(output.source)) output.source = defaults.source;
+  if (!cleanLabel(output.productKey) && defaults.productKey) output.productKey = defaults.productKey;
+  if (!cleanLabel(output.layerId) && defaults.layerId) output.layerId = defaults.layerId;
+  if (output.pick === undefined) {
+    const pick = summarizeLayerPick(hit);
+    if (pick) output.pick = pick;
+  }
+  return output;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {import('./index.d.ts').SkykitSelectionValue | null}
+ */
+function compactSelectionValue(value) {
+  const record = objectRecord(value);
+  if (!record) return null;
+  /** @type {Record<string, unknown>} */
+  const output = {};
+  for (const [key, entry] of Object.entries(record)) {
+    if (OMIT_COMPACT_SELECTION_KEYS.has(key)) continue;
+    const compact = cloneCompactValue(entry);
+    if (compact !== undefined) output[key] = compact;
+  }
+  return Object.keys(output).length > 0
+    ? /** @type {import('./index.d.ts').SkykitSelectionValue} */ (output)
+    : null;
+}
+
+/** @param {Record<string, unknown>} hit */
+function summarizeLayerPick(hit) {
+  const explicitPick = cloneCompactValue(hit.pick);
+  if (explicitPick !== undefined) return explicitPick;
+  /** @type {Record<string, unknown>} */
+  const pick = {};
+  for (const key of ['position', 'point', 'worldPosition', 'localPosition']) {
+    const value = cloneCompactValue(hit[key]);
+    if (value !== undefined) pick[key] = value;
+  }
+  for (const key of ['distance', 'distancePc', 't', 'score']) {
+    const value = finiteOrNull(hit[key]);
+    if (value !== null) pick[key] = value;
+  }
+  return Object.keys(pick).length > 0 ? pick : null;
+}
+
+/**
+ * @param {import('./index.d.ts').SkykitLayerSelectionPluginOptions['selection']} selectionInput
+ * @param {import('./index.d.ts').SkykitPluginContext} context
+ * @param {import('./index.d.ts').SkykitSelectionValue} value
+ * @param {Record<string, unknown>} metadata
+ */
+function writeLayerSelection(selectionInput, context, value, metadata) {
+  if (selectionInput === false) return false;
+  const selection = resolveLayerSelectionTarget(selectionInput, context);
+  if (!selection) return false;
+  if (isSkykitSelectionFacade(selection)) {
+    return selection.set(value, metadata);
+  }
+  selection.setPrimary(value, metadata);
+  return true;
+}
+
+/**
+ * @param {import('./index.d.ts').SkykitLayerSelectionPluginOptions['selection']} selectionInput
+ * @param {import('./index.d.ts').SkykitPluginContext} context
+ */
+function resolveLayerSelectionTarget(selectionInput, context) {
+  if (isSkykitSelectionFacade(selectionInput) || isSkykitSelectionStore(selectionInput)) {
+    return selectionInput;
+  }
+  const key = typeof selectionInput === 'string' && selectionInput
+    ? selectionInput
+    : DEFAULT_PRIMARY_SELECTION_PRODUCT;
+  const product = getSkykitProductRegistry(context).get(key);
+  return isSkykitSelectionFacade(product) || isSkykitSelectionStore(product)
+    ? product
+    : null;
+}
+
+/** @param {unknown} value */
+function objectRecord(value) {
+  return value && typeof value === 'object'
+    ? /** @type {Record<string, unknown>} */ (value)
+    : null;
+}
+
+/** @param {unknown} value */
+function cleanIdentifier(value) {
+  return cleanLabel(value);
+}
+
+/**
+ * @param  {...unknown} values
+ * @returns {unknown}
+ */
+function firstCompactValue(...values) {
+  for (const value of values) {
+    const compact = cloneCompactValue(value);
+    if (compact !== undefined) return compact;
+  }
+  return undefined;
+}
+
+/** @param {unknown} value */
+function cloneCompactValue(value) {
+  return cloneCompactValueWithSeen(value, 0, new WeakSet());
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} depth
+ * @param {WeakSet<object>} seen
+ * @returns {unknown}
+ */
+function cloneCompactValueWithSeen(value, depth, seen) {
+  if (value === undefined || typeof value === 'function' || typeof value === 'symbol') return undefined;
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'object') return undefined;
+  if (seen.has(value)) return undefined;
+  if (depth >= 6) return undefined;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    const entries = value
+      .map((entry) => cloneCompactValueWithSeen(entry, depth + 1, seen))
+      .filter((entry) => entry !== undefined);
+    seen.delete(value);
+    return entries;
+  }
+  /** @type {Record<string, unknown>} */
+  const output = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (OMIT_COMPACT_SELECTION_KEYS.has(key)) continue;
+    const compact = cloneCompactValueWithSeen(entry, depth + 1, seen);
+    if (compact !== undefined) output[key] = compact;
+  }
+  seen.delete(value);
+  return Object.keys(output).length > 0 ? output : undefined;
+}
+
+/** @param {Record<string, unknown> | undefined} metadata */
+function actionMetadataSource(metadata) {
+  return cleanLabel(metadata?.source);
 }
 
 /** @param {unknown} value */

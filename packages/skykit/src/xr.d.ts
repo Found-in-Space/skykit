@@ -27,6 +27,7 @@ import type {
   SkykitHostedLayer,
   SkykitLayerHostOptions,
   SkykitLayerHostPlugin,
+  SkykitLayerPickHit,
   SkykitObserverRig,
   SkykitPlugin,
   SkykitPluginInput,
@@ -298,9 +299,13 @@ export interface SkykitXrBlockerResult {
   hit?: unknown;
 }
 
+export type SkykitXrPickTargetResult =
+  | SkykitLayerPickHit
+  | any;
+
 export type SkykitXrPickTarget =
-  | ((ray: SkykitXrRay, context: SkykitXrRayContext & { maxDistance?: number | null }) => any)
-  | { pick?: (ray: SkykitXrRay, context: SkykitXrRayContext & { maxDistance?: number | null }) => any };
+  | ((ray: SkykitXrRay, context: SkykitXrRayContext & { maxDistance?: number | null }) => SkykitXrPickTargetResult)
+  | { pick?: (ray: SkykitXrRay, context: SkykitXrRayContext & { maxDistance?: number | null }) => SkykitXrPickTargetResult };
 
 export interface SkykitXrPickRouteResult {
   type: 'hit' | 'miss' | 'blocked';

@@ -15,6 +15,7 @@ import {
   createSkykitXrObserverRig,
   createSkykitXrPickBridgePlugin,
   createSkykitXrPickRouter,
+  createSkykitXrPointerPlugin,
   createSkykitXrRaySource,
   createSkykitXrRayVisualPlugin,
   createSkykitXrRig,
@@ -25,7 +26,9 @@ import {
   isSkykitXrModeSupported,
 } from '../xr.js';
 import {
+  SKYKIT_ACTIONS,
   createSkykitActionRegistry,
+  createSkykitLayerSelectionPlugin,
   createSkykitLayerHostPlugin,
   createSkykitProductRegistryPlugin,
   createSkykitSelectionProductsPlugin,
@@ -973,6 +976,74 @@ test('skykit/xr star picking writes public star identity to product-backed selec
   assert.equal(selection.label, 'Test Star');
   assert.equal(selection.facts.source, 'gaia');
   assert.equal(selection.diagnostic, undefined);
+});
+
+test('skykit/xr pointer routes explicit layer hits to product-backed selection', async () => {
+  const actions = createSkykitActionRegistry();
+  const products = createSkykitProductRegistryPlugin({ id: 'products' });
+  const selectionProducts = createSkykitSelectionProductsPlugin({ id: 'selection' });
+  const layerSelection = createSkykitLayerSelectionPlugin();
+  let part = null;
+  const routes = [];
+  const pointer = createSkykitXrPointerPlugin({
+    raySource: fixedRaySource(),
+    visual: false,
+    targets: [{
+      pick() {
+        return {
+          distance: 1,
+          waypoint: {
+            id: 'xr:arrival',
+            label: 'XR arrival',
+            target: { targetPc: { x: 7, y: 8, z: 9 } },
+            layerId: 'xr-route',
+          },
+          productKey: 'waypoints:xr-route',
+        };
+      },
+    }],
+    onRoute(route) {
+      routes.push(route);
+    },
+  });
+  const context = createPluginContext({
+    actions,
+    addPart(nextPart) {
+      part = nextPart;
+    },
+  });
+  products.setup(context);
+  selectionProducts.setup(context);
+  layerSelection.setup(context);
+  pointer.setup(context);
+
+  part.update(createXrFrame({
+    actions,
+    inputSources: [{
+      handedness: 'right',
+      gamepad: {
+        axes: [],
+        buttons: [{ pressed: true, touched: true, value: 1 }],
+      },
+    }],
+  }));
+  await Promise.resolve();
+
+  assert.equal(routes[0].type, 'hit');
+  assert.equal(
+    actions.listActions().some((entry) => entry.id === SKYKIT_ACTIONS.xr.pointerSelect),
+    true,
+  );
+  assert.deepEqual(products.get('selection:primary').getPrimary(), {
+    kind: 'waypoint',
+    id: 'xr:arrival',
+    label: 'XR arrival',
+    target: { targetPc: { x: 7, y: 8, z: 9 } },
+    source: 'skykit-xr-pointer',
+    productKey: 'waypoints:xr-route',
+    layerId: 'xr-route',
+    pick: { distance: 1 },
+  });
 });
 
 test('skykit/xr star picking respects panel blockers before renderer picks', () => {

@@ -48,6 +48,7 @@ export const SKYKIT_ACTIONS = Object.freeze({
   }),
   selection: Object.freeze({
     clear: 'skykit:selection.clear',
+    select: 'skykit:selection.select',
     flyToSelected: 'skykit:selection.flyToSelected',
     openExternal: 'skykit:selection.openExternal',
   }),

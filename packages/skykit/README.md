@@ -71,6 +71,14 @@ selections use `StarObjectRef` when available; unavailable identity is reported
 as `kind: 'star-pick-unavailable'` with storage details kept under
 `diagnostic`.
 
+Browser-style handles also install a small layer-selection bridge by default.
+Invoke `SKYKIT_ACTIONS.selection.select` with an explicit public hit such as
+`{ waypoint }`, `{ feature }`, `{ selection }`, or `{ kind, id }` to write the
+same compact value to `selection:primary`. XR pointer routes use the same bridge
+through `SKYKIT_ACTIONS.xr.pointerSelect` when their route hit has public
+identity. Misses, blockers, Three.js object names, storage offsets, and route
+internals do not become public selection IDs.
+
 Use the registry directly from a plugin when one plugin owns a handle and another
 plugin should discover it later:
 
@@ -181,7 +189,9 @@ handles. Its default star picking writes public `StarObjectRef` selections to
 `cellKey:objectIndex` stay diagnostic rather than beginner-facing identity.
 `stars.pick.metadata` accepts the same resolver or sidecar-like provider shape
 as desktop picking. It also exposes the same first-party capability handles,
-including `constellations` and `frames`.
+including `constellations` and `frames`. XR pointer targets that return explicit
+waypoint, feature, selection, or `{ kind, id }` hits update the same public
+selection slot through the default layer-selection bridge.
 
 ```js
 import { createSkykitXrBrowser } from '@found-in-space/skykit/xr';

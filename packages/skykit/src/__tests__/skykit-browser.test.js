@@ -6,6 +6,7 @@ import {
   installSkykitBrowserGlobal,
   registerBrowserInstance,
 } from '../browser-addons.js';
+import { SKYKIT_ACTIONS } from '../actions.js';
 import { createSkykitBrowser } from '../browser.js';
 
 test('createSkykitBrowser wires the starter viewer and extra plugins', async () => {
@@ -117,6 +118,60 @@ test('createSkykitBrowser registers resize and page-lifecycle cleanup by default
       'pagehide',
       'beforeunload',
     ]);
+  });
+});
+
+test('createSkykitBrowser selects public layer hits through the default semantic action', async () => {
+  await withFakeWindow(async () => {
+    const browser = await createSkykitBrowser({
+      host: createHost(),
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+      mouseMode: 'none',
+    });
+
+    await browser.actions.invoke(SKYKIT_ACTIONS.selection.select, {
+      waypoint: {
+        id: 'lesson:arrival',
+        label: 'Arrival point',
+        target: { targetPc: { x: 1, y: 2, z: 3 } },
+        layerId: 'lesson-route',
+      },
+      productKey: 'waypoints:lesson-route',
+    }, { source: 'lesson-plugin' });
+
+    assert.deepEqual(browser.selection.get(), {
+      kind: 'waypoint',
+      id: 'lesson:arrival',
+      label: 'Arrival point',
+      target: { targetPc: { x: 1, y: 2, z: 3 } },
+      source: 'lesson-plugin',
+      productKey: 'waypoints:lesson-route',
+      layerId: 'lesson-route',
+    });
+    assert.equal(
+      browser.inspect.getHistory().some((entry) => (
+        entry.type === 'action' &&
+        entry.eventType === 'action/invoke' &&
+        entry.actionId === SKYKIT_ACTIONS.selection.select
+      )),
+      true,
+    );
+    assert.equal(
+      browser.inspect.getHistory().some((entry) => (
+        entry.type === 'selection' &&
+        entry.selection?.id === 'lesson:arrival' &&
+        entry.selection?.layerId === 'lesson-route'
+      )),
+      true,
+    );
+
+    await browser.dispose();
   });
 });
 

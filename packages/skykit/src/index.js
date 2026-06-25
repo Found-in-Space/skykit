@@ -46,6 +46,8 @@ export {
 } from './scale.js';
 export {
   createSkykitSelectionFacade,
+  createSkykitLayerSelectionFromPick,
+  createSkykitLayerSelectionPlugin,
   createSkykitSelectionProductsPlugin,
   createSkykitSelectionStore,
   createSkykitStarSelectionFromPick,

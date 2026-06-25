@@ -29,6 +29,8 @@ import {
   createSkykitLayerHostPlugin,
   createSkykitProductRegistryPlugin,
   createRaDecLookAt,
+  createSkykitLayerSelectionFromPick,
+  createSkykitLayerSelectionPlugin,
   createSkykitInspectFacade,
   createMouseLookPlugin,
   createSkyGrabPlugin,
@@ -1469,6 +1471,142 @@ test('star picking plugin ignores drag gestures and reports misses without clear
   assert.equal(selected.cellKey, 'existing-cell');
 
   await missViewer.dispose();
+});
+
+test('layer selection helper converts only explicit public pick identities', () => {
+  assert.deepEqual(
+    createSkykitLayerSelectionFromPick({
+      selection: { kind: 'layer', id: 'grid:equator', label: 'Equator' },
+      productKey: 'features:grid',
+      layerId: 'grid',
+      distance: 2,
+    }, { source: 'lesson' }),
+    {
+      kind: 'layer',
+      id: 'grid:equator',
+      label: 'Equator',
+      source: 'lesson',
+      productKey: 'features:grid',
+      layerId: 'grid',
+      pick: { distance: 2 },
+    },
+  );
+
+  assert.deepEqual(
+    createSkykitLayerSelectionFromPick({
+      waypoint: {
+        id: 'galactic:north-pole',
+        label: 'Galactic north pole',
+        kind: 'coordinate-frame:pole',
+        target: { targetPc: { x: 0, y: 0, z: 8 } },
+        layerId: 'coordinate-frame:galactic',
+      },
+      productKey: 'waypoints:frames/galactic',
+    }, { source: 'frame-layer' }),
+    {
+      kind: 'waypoint',
+      id: 'galactic:north-pole',
+      label: 'Galactic north pole',
+      target: { targetPc: { x: 0, y: 0, z: 8 } },
+      source: 'frame-layer',
+      productKey: 'waypoints:frames/galactic',
+      layerId: 'coordinate-frame:galactic',
+    },
+  );
+
+  assert.deepEqual(
+    createSkykitLayerSelectionFromPick({
+      feature: {
+        id: 'galactic:plane',
+        label: 'Galactic plane',
+        layerId: 'coordinate-frame:galactic',
+      },
+      productKey: 'features:frames/galactic',
+    }, { source: 'frame-layer' }),
+    {
+      kind: 'layer',
+      id: 'galactic:plane',
+      label: 'Galactic plane',
+      source: 'frame-layer',
+      productKey: 'features:frames/galactic',
+      layerId: 'coordinate-frame:galactic',
+    },
+  );
+
+  assert.deepEqual(
+    createSkykitLayerSelectionFromPick({
+      feature: {
+        id: 'galactic:x-axis',
+        kind: 'coordinate-frame:axis',
+        label: 'Galactic X axis',
+      },
+    }, { source: 'frame-layer' }),
+    {
+      kind: 'coordinate-frame:axis',
+      id: 'galactic:x-axis',
+      label: 'Galactic X axis',
+      source: 'frame-layer',
+    },
+  );
+
+  assert.deepEqual(
+    createSkykitLayerSelectionFromPick({
+      kind: 'object',
+      id: 'lesson-marker',
+      label: 'Lesson marker',
+      target: { targetPc: { x: 1, y: 2, z: 3 } },
+    }, { source: 'lesson-plugin' }),
+    {
+      kind: 'object',
+      id: 'lesson-marker',
+      label: 'Lesson marker',
+      target: { targetPc: { x: 1, y: 2, z: 3 } },
+      source: 'lesson-plugin',
+    },
+  );
+
+  assert.equal(createSkykitLayerSelectionFromPick({ object: { name: 'mesh-name' } }), null);
+  assert.equal(createSkykitLayerSelectionFromPick({ kind: 'object', label: 'Missing id' }), null);
+  assert.equal(createSkykitLayerSelectionFromPick({ type: 'miss', hit: null }), null);
+  assert.equal(createSkykitLayerSelectionFromPick({ type: 'blocked', hit: { waypoint: { id: 'blocked' } } }), null);
+});
+
+test('layer selection plugin writes semantic selections without clearing on route misses', async () => {
+  const products = createSkykitProductRegistryPlugin({ id: 'products' });
+  const selectionProducts = createSkykitSelectionProductsPlugin({ id: 'selection' });
+  const layerSelection = createSkykitLayerSelectionPlugin();
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [products, selectionProducts, layerSelection],
+  });
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.selection.select, {
+    waypoint: {
+      id: 'route:start',
+      label: 'Route start',
+      target: { targetPc: { x: 4, y: 5, z: 6 } },
+      layerId: 'lesson-route',
+    },
+    productKey: 'waypoints:lesson-route',
+  }, { source: 'test' });
+
+  const selected = products.get('selection:primary').getPrimary();
+  assert.deepEqual(selected, {
+    kind: 'waypoint',
+    id: 'route:start',
+    label: 'Route start',
+    target: { targetPc: { x: 4, y: 5, z: 6 } },
+    source: 'test',
+    productKey: 'waypoints:lesson-route',
+    layerId: 'lesson-route',
+  });
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.selection.select, { type: 'miss', hit: null }, { source: 'test' });
+  assert.equal(products.get('selection:primary').getPrimary(), selected);
+  assert.equal(layerSelection.getSnapshot().writeCount, 1);
+  assert.equal(layerSelection.getSnapshot().ignoredCount, 1);
+
+  await viewer.dispose();
 });
 
 test('star picking demand adds attributes but no extra cell strategy', async () => {

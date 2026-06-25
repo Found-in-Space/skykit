@@ -406,6 +406,7 @@ export interface SkykitProductRegistryPlugin extends SkykitPlugin, SkykitProduct
 export type SkykitSelectionValue =
   | SkykitStarSelectionValue
   | SkykitUnavailableStarPickSelectionValue
+  | SkykitLayerSelectionValue
   | SkykitObjectSelectionValue
   | (Record<string, unknown> & { kind?: string });
 
@@ -446,8 +447,84 @@ export interface SkykitObjectSelectionValue {
   id?: string;
   label?: string | null;
   target?: unknown;
+  layerId?: string;
+  productKey?: SkykitProductKey;
+  pick?: unknown;
+  source?: string;
+  [key: string]: unknown;
+}
+
+export interface SkykitLayerSelectionValue extends SkykitObjectSelectionValue {
+  kind: 'object' | 'layer' | 'waypoint' | 'route' | string;
+  id?: string;
+  label?: string | null;
+  target?: unknown;
+  layerId?: string;
   productKey?: SkykitProductKey;
   source?: string;
+  pick?: SkykitLayerSelectionPickSummary | null;
+}
+
+export interface SkykitLayerSelectionPickSummary {
+  position?: unknown;
+  point?: unknown;
+  worldPosition?: unknown;
+  localPosition?: unknown;
+  distance?: number;
+  distancePc?: number;
+  t?: number;
+  score?: number;
+  [key: string]: unknown;
+}
+
+export interface SkykitLayerSelectionOptions {
+  source?: string;
+  productKey?: SkykitProductKey;
+  layerId?: string;
+}
+
+export interface SkykitLayerPickHit {
+  selection?: SkykitSelectionValue | SkykitLayerSelectionValue | null;
+  waypoint?: (Record<string, unknown> & {
+    id?: string;
+    label?: string | null;
+    target?: unknown;
+    layerId?: string;
+    productKey?: SkykitProductKey;
+    source?: string;
+  }) | null;
+  feature?: (Record<string, unknown> & {
+    id?: string;
+    kind?: string;
+    label?: string | null;
+    target?: unknown;
+    layerId?: string;
+    productKey?: SkykitProductKey;
+    source?: string;
+    properties?: Record<string, unknown>;
+  }) | null;
+  kind?: string;
+  id?: string;
+  label?: string | null;
+  target?: unknown;
+  layerId?: string;
+  productKey?: SkykitProductKey;
+  source?: string;
+  pick?: unknown;
+  position?: unknown;
+  point?: unknown;
+  worldPosition?: unknown;
+  localPosition?: unknown;
+  distance?: number;
+  distancePc?: number;
+  t?: number;
+  score?: number;
+  [key: string]: unknown;
+}
+
+export interface SkykitLayerPickRouteLike {
+  type?: 'hit' | 'miss' | 'blocked' | string;
+  hit?: SkykitLayerPickHit | null;
   [key: string]: unknown;
 }
 
@@ -477,6 +554,13 @@ export interface SkykitSelectionProductsPluginOptions<T = unknown> {
   metadata?: SkykitProductMetadata;
 }
 
+export interface SkykitLayerSelectionPluginOptions extends SkykitLayerSelectionOptions {
+  id?: string;
+  selection?: false | SkykitProductKey | SkykitSelectionStore<SkykitSelectionValue> | SkykitSelectionFacade<SkykitSelectionValue>;
+  actionId?: SkykitActionId;
+  pointerActionId?: false | SkykitActionId;
+}
+
 export interface SkykitInspectStreamSummary {
   id: string | null;
   status: string | null;
@@ -500,6 +584,8 @@ export interface SkykitInspectSelectionSummary {
   reason?: string | null;
   diagnostic?: unknown;
   id?: string | null;
+  layerId?: string | null;
+  target?: unknown;
   productKey?: string | null;
   source?: string | null;
 }
@@ -1702,6 +1788,7 @@ export declare const SKYKIT_ACTIONS: {
   };
   readonly selection: {
     readonly clear: 'skykit:selection.clear';
+    readonly select: 'skykit:selection.select';
     readonly flyToSelected: 'skykit:selection.flyToSelected';
     readonly openExternal: 'skykit:selection.openExternal';
   };
@@ -1762,6 +1849,10 @@ export declare function createSkykitStarSelectionFromPick(
     eventType?: string;
   }
 ): SkykitSelectionValue;
+export declare function createSkykitLayerSelectionFromPick(
+  hitOrRoute?: SkykitLayerPickHit | SkykitLayerPickRouteLike | null,
+  options?: SkykitLayerSelectionOptions
+): SkykitSelectionValue | null;
 export declare function resolveSkykitStarSelectionLabel(
   metadata: SkykitStarPickMetadata,
   pick: ThreeStarFieldPickResult
@@ -1771,6 +1862,11 @@ export declare function createSkykitSelectionProductsPlugin<T = unknown>(
 ): SkykitPlugin & {
   readonly primary: SkykitSelectionStore<T>;
   readonly hovered: SkykitSelectionStore<T> | null;
+  getSnapshot(): unknown;
+};
+export declare function createSkykitLayerSelectionPlugin(
+  options?: SkykitLayerSelectionPluginOptions
+): SkykitPlugin & {
   getSnapshot(): unknown;
 };
 export declare function createAnchoredImageCatalog(

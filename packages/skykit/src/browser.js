@@ -29,6 +29,8 @@ import { createSkykitInspectFacade } from './inspect.js';
 import { createObject3dLayer } from './layers.js';
 import { createSkykitProductRegistryPlugin } from './products.js';
 import {
+  createSkykitLayerSelectionFromPick,
+  createSkykitLayerSelectionPlugin,
   createSkykitSelectionFacade,
   createSkykitSelectionProductsPlugin,
 } from './selection.js';
@@ -92,6 +94,7 @@ export async function createSkykitBrowser(input = {}) {
   });
   const products = createSkykitProductRegistryPlugin({ id: 'skykit-browser-products' });
   const selectionProducts = createSkykitSelectionProductsPlugin({ id: 'skykit-browser-selection' });
+  const layerSelection = createSkykitLayerSelectionPlugin({ id: 'skykit-browser-layer-selection' });
   const starPicking = createBrowserStarPicking(options, host, starSource, starField);
 
   renderer.setClearColor?.(options.background ?? 0x02040b, 1);
@@ -111,6 +114,7 @@ export async function createSkykitBrowser(input = {}) {
     plugins: [
       products,
       selectionProducts,
+      layerSelection,
       starSource,
       createStreamingStarsPlugin({
         id: 'stars',
@@ -242,6 +246,8 @@ export async function createSkykitBrowser(input = {}) {
         parseDeclination,
         parseRightAscension,
         parseSpatialLookAtText,
+        createSkykitLayerSelectionFromPick,
+        createSkykitLayerSelectionPlugin,
         products,
         selection,
         inspect,

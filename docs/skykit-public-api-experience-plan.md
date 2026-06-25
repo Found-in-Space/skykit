@@ -121,6 +121,13 @@ The browser/XR facade stabilization work has landed in
   picks; when identity is unavailable, the selection shape is explicitly
   degraded and keeps storage details diagnostic. Desktop and XR picking share
   sidecar-style `getMeta(ref)` enrichment for labels and facts when configured.
+- Explicit non-star layer hits can use the shared selection bridge:
+  `createSkykitLayerSelectionFromPick()` converts public `{ selection }`,
+  `{ waypoint }`, `{ feature }`, or `{ kind, id }` hits into compact selection
+  values, and `createSkykitLayerSelectionPlugin()` registers
+  `skykit:selection.select` plus the default XR pointer-select bridge. Browser
+  and XR browser facades install it by default; misses and blockers leave
+  selection unchanged.
 - `createSkykitBrowser()` installs star picking by default when the supplied
   star renderer supports `pick()`. Applications can opt out with `pick: false`
   or pass `pick.metadata` for app/sidecar enrichment. The browser handle exposes
@@ -146,12 +153,13 @@ The browser/XR facade stabilization work has landed in
   `data-skykit-enter-vr` selector.
 - Focused tests cover browser facade parity, XR browser parity, product-backed
   selection, sidecar enrichment, unavailable identity degradation, inspect
-  history, XR star identity propagation, DOM/embed startup, readiness,
-  checklist/status, Enter VR binding, and the existing fake-XR/plugin/layer
-  paths.
+  history, explicit layer-selection conversion, browser semantic selection,
+  XR pointer layer selection, XR star identity propagation, DOM/embed startup,
+  readiness, checklist/status, Enter VR binding, and the existing
+  fake-XR/plugin/layer paths.
 
 Remaining work before website XR lessons: meridian/grid overlay choices, richer
-non-star layer picking examples, touch-os examples, journey hooks, and website
+rendered non-star layer examples, touch-os examples, journey hooks, and website
 curation.
 
 ## Quickstart Target
@@ -338,6 +346,13 @@ providers with `getMeta(ref)`, XR browser picking uses the same resolver path,
 and inspect records a bounded serializable history of semantic action events and
 selection changes.
 
+Closed in the layer-selection bridge pass: explicit non-star hits with public
+`selection`, `waypoint`, `feature`, or `{ kind, id }` identity can write compact
+product-backed selections through `skykit:selection.select`; XR pointer routes
+feed the same bridge through `skykit:xr.pointer.select`. Misses and blockers do
+not clear selection, and route internals or renderer object names are not used
+as IDs.
+
 Implementation choices to preserve:
 
 - Public star selections keep the stable fields `kind`, `identityAvailable`,
@@ -349,6 +364,10 @@ Implementation choices to preserve:
   renderer/join context but is not a public star ID fallback.
 - Desktop and XR picking share one metadata resolver and selection builder so
   future lesson code does not fork identity semantics by surface.
+- Public non-star selections keep stable `kind`, `id`, `label`, `target`,
+  `layerId`, `productKey`, `source`, and compact `pick` fields when supplied by
+  the public hit. They are never derived from renderer names, route internals, or
+  storage offsets.
 - Inspect history is an operator/teaching aid, not an event bus. It stores a
   bounded summary for recent actions and selections; high-volume data remains on
   product streams.
@@ -590,13 +609,14 @@ advanced code already uses.
 
    Status: complete for products, streams, actions snapshot, bounded
    action/selection history, view state, selection, XR runtime snapshots,
-   product-backed star picks, and sidecar-enriched star labels/facts. The
+   product-backed star picks, explicit layer/waypoint pick selections, and
+   sidecar-enriched star labels/facts. The
    current implementation deliberately keeps sidecar lookup on public
    `StarObjectRef`, stores unavailable-pick storage fields only in
    `diagnostic`, and shares the same resolver/selection builder across desktop
-   and XR. Browser coordinate-frame waypoints now demonstrate non-star
-   selection through the public selection and inspect surfaces. Still open:
-   richer layer-picking examples for authored non-star objects.
+   and XR. Browser coordinate-frame waypoints and XR pointer routes can now feed
+   non-star selection through the public selection and inspect surfaces. Still
+   open: richer rendered layer-picking examples for authored non-star objects.
 
 3. Browser-grade XR preset
 
@@ -693,6 +713,9 @@ advanced code already uses.
   richer naming later.
 - Prefer bookmarkable public star identity for star picks. Do not invent fallback
   IDs unless a concrete feature truly cannot provide the public identity.
+- Require explicit authored public identity for non-star picks: `selection`,
+  `waypoint`, `feature`, or `{ kind, id }`. Do not derive non-star selection IDs
+  from renderer object names, route internals, or storage offsets.
 - Keep sidecar enrichment keyed by public `StarObjectRef`; label and facts
   wording remains app/provider policy.
 - Keep inspect action/selection history bounded, serializable, and compact.
@@ -712,8 +735,8 @@ advanced code already uses.
   friendlier alias layer belongs only in the website.
 - Which meridian/grid overlays should be first-party quickstart capabilities
   versus package examples?
-- How rich public non-star layer picking should be before the website depends on
-  it, beyond explicit app/waypoint selection values.
+- Which richer rendered non-star layer picking examples should graduate into
+  first-party quickstarts beyond the explicit app/waypoint selection bridge.
 - What exact product-key conventions should the first journey examples use for
   facts, highlights, active selections, and route state?
 - Which guided-journey hooks belong in core SkyKit, and which belong in a

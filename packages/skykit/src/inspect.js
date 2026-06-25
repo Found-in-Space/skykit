@@ -266,13 +266,18 @@ function summarizeSelection(value) {
       source: typeof record.source === 'string' ? record.source : null,
     };
   }
-  return {
+  /** @type {import('./index.d.ts').SkykitInspectSelectionSummary} */
+  const summary = {
     kind,
     id: typeof record.id === 'string' ? record.id : null,
     label: typeof record.label === 'string' ? record.label : null,
     productKey: typeof record.productKey === 'string' ? record.productKey : null,
     source: typeof record.source === 'string' ? record.source : null,
   };
+  if (typeof record.layerId === 'string') summary.layerId = record.layerId;
+  if (record.target !== undefined) summary.target = summarizePayload(record.target);
+  if (record.pick !== undefined) summary.pick = summarizePayload(record.pick);
+  return summary;
 }
 
 /** @param {import('./index.d.ts').SkykitActionEvent} event */
