@@ -3,13 +3,16 @@
 Status: current alpha-direction document.
 
 This document describes the package-learning architecture for this repository.
-The public beginner path lives in the sibling `../website` project. SkyKit
-repository examples are development examples or advanced-use examples unless the
-website deliberately curates them into lessons.
+Technical Documentation and Examples and Demos live in this repository. The
+public beginner path is Published Website Content in
+`Found-in-Space/found-in-space.github.io`. SkyKit repository Examples and Demos
+are development-oriented or advanced-use material unless Published Website
+Content deliberately curates them into lessons.
 
-The next work is not a website overhaul. It is to stabilize a pseudo-stable,
-feature-rich, beginner-friendly SkyKit interface first, so the website can expose
-that interface later without teaching temporary alpha seams.
+The next work is not a Published Website Content overhaul. It is to stabilize a
+pseudo-stable, feature-rich, beginner-friendly SkyKit interface first, so
+Published Website Content can expose that interface later without teaching
+temporary alpha seams.
 
 The proof-of-concept phase is complete. The old root demos and old `src/`
 implementation are still useful as reference material, but the live learning
@@ -24,11 +27,11 @@ learner opens a lesson
 ```
 
 Core `@found-in-space/skykit` should stay slim. It composes focused packages
-into teachable viewers and examples; it should not take ownership of data
-loading, rendering, XR, sidecars, or scientific star interpretation. Beginner
-subpaths such as `@found-in-space/skykit/data` may re-export and lightly compose
-focused packages for website use-cases, but the durable package boundaries stay
-with the focused packages.
+into teachable viewers and Examples and Demos; it should not take ownership of
+data loading, rendering, XR, sidecars, or scientific star interpretation.
+Beginner subpaths such as `@found-in-space/skykit/data` may re-export and
+lightly compose focused packages for Published Website Content use-cases, but
+the durable package boundaries stay with the focused packages.
 
 ## Teaching Principles
 
@@ -66,15 +69,15 @@ add another strategy kind to SkyKit or a provider planner.
 Lesson controls should use semantic actions rather than fake keypresses. SkyKit
 reserves the `skykit:` namespace for built-in meanings such as
 `skykit:ship.move.forward`, `skykit:viewer.reset`, and
-`skykit:navigation.transitionTo`; lessons, games, and websites can register
+`skykit:navigation.transitionTo`; lessons, games, and applications can register
 their own namespaces such as `lesson:*`, `game:*`, or `website:*`.
 
-## Website Baseline And Example Categories
+## Published Website Content Baseline And Example Categories
 
-The current website SkyKit path is use-case based:
+The current Published Website Content SkyKit path is use-case based:
 
 ```txt
-../website/src/pages/learn-build/skykit/
+found-in-space.github.io/src/pages/learn-build/skykit/
   -> paste a browser viewer
   -> use a ready browser handle
   -> automate semantic navigation
@@ -84,9 +87,10 @@ The current website SkyKit path is use-case based:
   -> build a small 2D app
 ```
 
-That ladder is the public beginner baseline. Repository examples should support
-it as reproducible source material, but they are not automatically public
-lessons. When creating repository examples, choose the category deliberately:
+That ladder is the public beginner baseline. Repository Examples and Demos
+should support it as reproducible source material, but they are not
+automatically public lessons. When creating repository Examples and Demos,
+choose the category deliberately:
 
 ```txt
 development example
@@ -95,13 +99,14 @@ development example
 advanced-use example
   -> teaches direct package composition for authors already past the beginner facade
 
-website-curated lesson
-  -> lives in ../website with beginner copy, stable imports, and reproducible links
+Published Website Content lesson
+  -> lives in found-in-space.github.io with beginner copy, stable imports, and reproducible links
 ```
 
-Every website-curated lesson should use the same mental model across 2D/data,
-desktop 3D, and XR: viewer handles, semantic actions, products, public star
-identity, sidecar metadata, selection, inspect/debug, and app-owned extensions.
+Every Published Website Content lesson should use the same mental model across
+2D/data, desktop 3D, and XR: viewer handles, semantic actions, products, public
+star identity, sidecar metadata, selection, inspect/debug, and app-owned
+extensions.
 
 ## Package Examples Versus SkyKit Composition
 
@@ -143,7 +148,8 @@ skykit/parallax
   -> consume those controls as target-relative observer motion
 ```
 
-SkyKit repository examples and future website-curated lessons teach composition:
+SkyKit repository Examples and Demos and future Published Website Content
+lessons teach composition:
 
 ```txt
 viewer
@@ -155,7 +161,8 @@ viewer
   + small custom plugin
 ```
 
-Website-facing lessons are use-case bounded rather than package-bundle bounded:
+Published Website Content lessons are use-case bounded rather than
+package-bundle bounded:
 
 ```txt
 Viewer: embed.js for no-code, viewer.js for JavaScript customization
@@ -164,14 +171,15 @@ Data: data.js for rows, labels, lists, maps, and renderer-independent games
 
 Root `demos/` pages and the old root `src/` implementation are legacy
 transition sandboxes. App-level examples should be explicit about whether they
-are development material, advanced-use material, or website-curated lessons.
+are development material, advanced-use material, or candidates for Published
+Website Content.
 Focused package learning work should prefer:
 
 ```txt
 apps/examples/
 packages/<package>/examples/
 packages/skykit/examples/
-../website/src/live-examples/skykit/    # only when curated as public lessons
+found-in-space.github.io/src/live-examples/skykit/    # only when curated as public lessons
 ```
 
 ## Current Package Reference
@@ -233,7 +241,7 @@ packages/skykit/examples/
   status helper, navigation actions/plugin backed by spatial, animation loop,
   desktop observer rig, debug bridge, browser embed/add-on global, lazy
   constellation and coordinate-frame browser/XR capabilities, touch-os bridge,
-  beginner `viewer` and `data` subpaths for public website use-cases,
+  beginner `viewer` and `data` subpaths for Published Website Content use-cases,
   and optional `skykit/xr` WebXR rig/input/ray/session/depth/navigation/picking
   helpers
 ```
@@ -272,7 +280,7 @@ no generic product stream layer in the alpha package map.
 
 ## Lesson And Example Design Checklist
 
-A good alpha package example or website-curated lesson should:
+A good alpha package example or Published Website Content lesson should:
 
 - open directly into a usable experience
 - show one package capability clearly

@@ -66,11 +66,11 @@ node --test          # run all tests
 node --test --watch  # watch mode
 ```
 
-Standalone SkyKit app examples live under `apps/examples/`. Focused package
-examples can still live under `packages/*/examples/`; the old root `demos/`
-proof-of-concept sandboxes stay as legacy reference material. Public lessons
-live on the website. The deploy build keeps the selected demo pages under one
-root `dist/index.html` so GitHub Pages can publish a single linked demo site.
+Examples and Demos live under `apps/examples/`, `packages/*/examples/`, and the
+old root `demos/` proof-of-concept sandboxes. Public lessons are Published
+Website Content in `Found-in-Space/found-in-space.github.io`. The deploy build
+keeps the selected demo pages under one root `dist/index.html` so GitHub Pages
+can publish a single linked demo site at `https://foundin.space/skykit`.
 
 Constellation art examples use the published
 `@found-in-space/stellarium-skycultures-western` package APIs. See
@@ -87,5 +87,5 @@ path, the app-composition path, and skyculture metadata naming rules.
 - [`docs/constellations.md`](./docs/constellations.md): constellation loading paths and skyculture metadata naming rules
 - [`docs/skykit-core-composition.md`](./docs/skykit-core-composition.md): current alpha direction for core `@found-in-space/skykit`
 - [`docs/xr-architecture.md`](./docs/xr-architecture.md): current alpha boundary for `@found-in-space/spatial` and `@found-in-space/skykit/xr`
-- [`docs/chapter-and-camera-timeline-architecture.md`](./docs/chapter-and-camera-timeline-architecture.md): current alpha boundary for website chapters and Studio camera timelines
+- [`docs/chapter-and-camera-timeline-architecture.md`](./docs/chapter-and-camera-timeline-architecture.md): current alpha boundary for Published Website Content chapters and Studio camera timelines
 - [`docs/releasing.md`](./docs/releasing.md): Changesets release flow for publishable packages

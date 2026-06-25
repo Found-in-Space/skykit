@@ -115,9 +115,9 @@ This package-composition path is the current pattern used by:
 - [`found-in-space.github.io/src/scripts/free-roam-viewer.js`](https://github.com/Found-in-Space/found-in-space.github.io/blob/main/src/scripts/free-roam-viewer.js)
 - [`found-in-space.github.io/src/scripts/parallax-viewer.js`](https://github.com/Found-in-Space/found-in-space.github.io/blob/main/src/scripts/parallax-viewer.js)
 
-Older website scripts that import legacy constellation helpers directly from
-`@found-in-space/skykit` are historical reference material, not the current
-alpha package API.
+Older Published Website Content scripts that import legacy constellation helpers
+directly from `@found-in-space/skykit` are historical reference material, not
+the current alpha package API.
 
 ## Metadata Names
 

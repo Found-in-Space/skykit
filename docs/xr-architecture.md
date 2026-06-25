@@ -259,11 +259,12 @@ Implemented in `@found-in-space/skykit/xr`:
 Not implemented yet:
 
 - GPU pick routing or built-in star-specific XR pick effects.
-- published beginner lessons that use sidecar-enriched XR selections and
-  coordinate-frame marker waypoints. The runtime API support exists; website
-  curation is still deferred.
+- Published Website Content beginner lessons that use sidecar-enriched XR
+  selections, coordinate-frame marker waypoints, and coordinate grid overlays.
+  The runtime API support exists; content curation is still deferred.
 - a journey runtime that drives `skykit:navigation.*` actions.
 - published lesson docs that replace every legacy XR demo end to end.
 
-Beginner-facing public API and future website lesson planning lives in
+Beginner-facing public API and future Published Website Content lesson planning
+lives in
 [`skykit-public-api-experience-plan.md`](./skykit-public-api-experience-plan.md).

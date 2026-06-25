@@ -1,5 +1,9 @@
 data
 
+# Optional machine-local agent hints. Do not commit personal checkout paths,
+# credentials, editor state, or local workflow notes.
+AGENTS.local.md
+
 # Logs
 logs
 *.log

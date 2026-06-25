@@ -1,5 +1,17 @@
 # Agent Instructions
 
+## Local Agent Hints
+
+- `AGENTS.md` is the checked-in project contract for agents and contributors.
+- `AGENTS.local.md` is the optional machine-local companion file. It is ignored
+  by git and may contain local checkout paths, preferred ports, private service
+  URLs, or temporary workflow hints.
+- Do not require `AGENTS.local.md` to exist, do not reference it from shipped
+  docs, and do not copy its contents into committed files. If it exists, treat
+  it as a hint layer below this file and below explicit user instructions.
+- Use `AGENTS.local.md` for machine-specific notes such as "the website checkout
+  is at `../website`"; keep portable repository conventions here.
+
 ## JavaScript / Node.js Project
 
 - Runtime: plain ES modules (`"type": "module"`).
@@ -113,6 +125,36 @@ package APIs when there is an active consumer.
 
 ## Documentation
 
+- Use these terms when discussing documentation destinations:
+  **Technical Documentation**, **Examples and Demos** (also acceptable:
+  **Technical Examples** when contrasting with website material), and
+  **Published Website Content** (also acceptable: **Website Content** when the
+  release-pinned/public context is already clear). If a request just says
+  "docs" and the destination is ambiguous, choose based on the rules below or
+  ask a concise clarifying question.
+- Technical Documentation lives in this repository, primarily under `docs/` and
+  package `README.md` files. It traces the current live implementation on
+  `main`, can be ahead of the latest npm release, and should explain package
+  contracts, architecture, release mechanics, and feature semantics for people
+  working with the code. It is deployed with this repository's GitHub Action
+  from `main` to `https://foundin.space/skykit`.
+- Examples and Demos live in this repository under package `examples/`,
+  `apps/examples/`, root `demos/`, and similar demo/sandbox locations. They are
+  runnable showcases or composition sandboxes for the current workspace and may
+  be short-lived while work is in progress. They are also deployed with this
+  repository's GitHub Action from `main` to `https://foundin.space/skykit`.
+- Published Website Content lives in the separate
+  `https://github.com/Found-in-Space/found-in-space.github.io` repository. It is
+  learner-facing and release-pinned: tutorials, astronomy lessons, and public
+  pages should generally use stable published SkyKit versions instead of live
+  workspace imports, except for explicit development-preview cases. A local
+  checkout may exist at `../website`, but that path is machine-specific and
+  belongs in `AGENTS.local.md`, not in tracked repository instructions.
+- Do not move content between these destinations casually. Use Technical
+  Documentation for implementation truth, Examples and Demos for runnable
+  current-main showcases, and Published Website Content for stable public
+  lessons or astronomy storytelling. When promoting an example into Published
+  Website Content, pin it to a release and keep any live-main caveats explicit.
 - `docs/alpha-rules.md`: alpha rewrite and package-boundary rules.
 - `docs/package-learning-architecture.md`: current teaching path and lessons.
 - `docs/star-octree-provider.md`: provider/strategy/planner/session semantics.
@@ -121,8 +163,8 @@ package APIs when there is an active consumer.
 - `docs/skykit-core-composition.md`: core SkyKit composition contract.
 - `docs/xr-architecture.md`: spatial navigation and SkyKit XR subpath
   boundaries.
-- `docs/chapter-and-camera-timeline-architecture.md`: shared website chapter
-  and Studio camera timeline boundary.
+- `docs/chapter-and-camera-timeline-architecture.md`: shared Published Website
+  Content chapter and Studio camera timeline boundary.
 
 ## WebXR And Scene Graph Constraints
 

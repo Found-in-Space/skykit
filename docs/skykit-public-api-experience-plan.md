@@ -1,10 +1,11 @@
 # SkyKit Public API Experience Plan
 
 Status: pre-v1 SkyKit public API planning for the pseudo-stable beginner,
-browser, and XR surface. This is not a website overhaul plan by itself. The next
-work should stabilize a feature-rich, beginner-friendly SkyKit interface that
-can deliver a rich sky experience in less than 50 lines of app code, and that
-the website can later expose as the public learning path.
+browser, and XR surface. This is Technical Documentation, not a Published
+Website Content overhaul plan by itself. The next work should stabilize a
+feature-rich, beginner-friendly SkyKit interface that can deliver a rich sky
+experience in less than 50 lines of app code, and that Published Website Content
+can later expose as the public learning path.
 
 This plan describes the beginner-facing public API direction for SkyKit,
 including XR. The goal is not to hide the package architecture behind a
@@ -17,35 +18,37 @@ Read this with [`xr-architecture.md`](./xr-architecture.md) for the low-level XR
 boundary and [`skykit-core-composition.md`](./skykit-core-composition.md) for the
 plugin, action, layer, and browser embed model.
 
-## Website Review Baseline
+## Published Website Content Review Baseline
 
-Reviewing the current `../website` implementation changes the planning baseline:
+Reviewing the current `Found-in-Space/found-in-space.github.io` implementation
+changes the planning baseline:
 
-- The website is the beginner public path. Its current SkyKit path lives in
-  `../website/src/pages/learn-build/skykit/index.astro`, with runnable examples
-  under `../website/src/live-examples/skykit/`. SkyKit repository examples are
-  development examples or advanced-use examples unless the website deliberately
-  promotes them.
-- The current website already teaches a good progression: paste a browser
-  viewer, move and automate the view, add app-owned objects, query provider
-  streams without Three.js, resolve sidecar metadata, and build a small 2D app.
-  The individual lessons in `../website/src/pages/learn-build/skykit/` and
+- Published Website Content is the beginner public path. Its current SkyKit path
+  lives in `src/pages/learn-build/skykit/index.astro`, with runnable examples
+  under `src/live-examples/skykit/` in the Published Website Content
+  repository. SkyKit repository Examples and Demos are development-oriented or
+  advanced-use material unless
+  Published Website Content deliberately promotes them.
+- The current Published Website Content already teaches a good progression:
+  paste a browser viewer, move and automate the view, add app-owned objects,
+  query provider streams without Three.js, resolve sidecar metadata, and build a
+  small 2D app. The individual lessons in `src/pages/learn-build/skykit/` and
   their live examples make this ladder concrete. SkyKit should preserve that
   ladder instead of replacing it with an XR-only path.
-- The website Build pages in `../website/src/pages/build/` already expose
+- The Published Website Content Build pages in `src/pages/build/` already expose
   catalogue download, Gaia/Hipparcos merging, quality flags, overrides, spatial
   indexing, and browser streaming. SkyKit should link to and support that
   reproducibility story; it does not need to own pipeline documentation.
-- Public topic viewers in `../website/src/pages/learn/topic/` and
-  `../website/src/scripts/*viewer.js` use app-authored scene targets and
-  lesson-specific coordinates. Those are application/domain data, not SkyKit
-  data. SkyKit should provide clear ICRS/parsec/RA-Dec target contracts and
-  inspection hooks, but it should not own curated website lesson coordinates.
-- There is no public website XR path yet. The current public SkyKit examples are
-  browser/data examples built around `data-skykit-browser`, package imports,
-  live notebooks, and app-owned scripts. The next SkyKit work should therefore
-  stabilize the beginner facade before the website exposes it as public XR
-  learning material.
+- Public topic viewers in `src/pages/learn/topic/` and
+  `src/scripts/*viewer.js` use app-authored scene targets and lesson-specific
+  coordinates. Those are application/domain data, not SkyKit data. SkyKit should
+  provide clear ICRS/parsec/RA-Dec target contracts and inspection hooks, but it
+  should not own curated Published Website Content lesson coordinates.
+- There is no public Published Website Content XR path yet. The current public
+  SkyKit examples are browser/data examples built around `data-skykit-browser`,
+  package imports, live notebooks, and app-owned scripts. The next SkyKit work
+  should therefore stabilize the beginner facade before Published Website
+  Content exposes it as public XR learning material.
 - Debug and inspect tools are not just developer conveniences. They are part of
   the educational experience: learners should be able to see what data is loaded,
   what frame of reference is active, which strategy is streaming cells, what star
@@ -74,34 +77,36 @@ install ordinary plugins, and expose inspectable handles. It should not
 introduce hidden string registries, private controller calls, fake keypresses, or
 a separate XR-only wrapper architecture.
 
-There is a third category: development and advanced examples in this repository.
-Those examples may show diagnostics, package internals, fake-XR harnesses, and
-larger composition patterns. They should not be treated as the public beginner
-path until a website lesson intentionally curates them.
+There is a third category: Examples and Demos in this repository. Those examples
+may show diagnostics, package internals, fake-XR harnesses, and larger
+composition patterns. They should not be treated as the public beginner path
+until Published Website Content intentionally curates them.
 
 ## Priority Order
 
 Planning decisions should use this order:
 
-1. Stabilize the shared beginner facade before website XR lessons. The next work
-   is not a website overhaul; it is a SkyKit interface stabilization pass.
+1. Stabilize the shared beginner facade before Published Website Content XR
+   lessons. The next work is not a Published Website Content overhaul; it is a
+   SkyKit interface stabilization pass.
 2. Make inspect, selection, products, actions, sidecar metadata, and viewer
    handles consistent across 2D/data, desktop 3D, and XR, starting with parity
    with the current browser viewer.
 3. Close the XR star-selection identity gap as part of API stabilization, before
-   any website XR curation. Star picks should use the unique bookmarkable star
-   identity when requested from the stream. Do not add fallback IDs, shims,
-   aliases, or compatibility wrappers unless a real feature cannot produce that
-   identity and the degraded shape is explicit.
+   any Published Website Content XR curation. Star picks should use the unique
+   bookmarkable star identity when requested from the stream. Do not add fallback
+   IDs, shims, aliases, or compatibility wrappers unless a real feature cannot
+   produce that identity and the degraded shape is explicit.
 4. Keep curated coordinates, route targets, story manifests, and label/facts
-   choices in the website or application domain. SkyKit provides ICRS/parsec and
-   RA/Dec target contracts, actions, products, and inspection hooks.
+   choices in the Published Website Content or application domain. SkyKit
+   provides ICRS/parsec and RA/Dec target contracts, actions, products, and
+   inspection hooks.
 5. Preserve package boundaries and intentional examples. Star streams stay with
    providers, identity with `star-trees`, rendering with renderer packages,
    spatial math with `spatial`, WebXR rig/input/rays/sessions with `skykit/xr`,
-   and surfaces with touch-os. Repository examples should be deliberately
-   created and clearly labeled as development or advanced-use material until the
-   website curates them.
+   and surfaces with touch-os. Repository Examples and Demos should be
+   deliberately created and clearly labeled as development or advanced-use
+   material until Published Website Content curates them.
 
 ## Progress Update 2026-06-25
 
@@ -163,15 +168,14 @@ The browser/XR facade stabilization work has landed in
   readiness, checklist/status, Enter VR binding, and the existing
   fake-XR/plugin/layer paths.
 
-Remaining work before website XR lessons: meridian/grid overlay choices, richer
-rendered non-star layer examples, touch-os examples, journey hooks, and website
-curation.
+Remaining work before Published Website Content XR lessons: richer rendered
+non-star layer examples, touch-os examples, journey hooks, and content curation.
 
 ## Quickstart Target
 
-The future website lesson should be able to start from a shape close to the
-current browser embed. SkyKit should support this shape before the website
-overhaul depends on it:
+The future Published Website Content lesson should be able to start from a shape
+close to the current browser embed. SkyKit should support this shape before the
+Published Website Content overhaul depends on it:
 
 ```html
 <div
@@ -242,8 +246,8 @@ XR should preserve that shape:
 - larger examples should switch to package imports and direct composition rather
   than accumulating more `data-skykit-*` attributes.
 
-The current website SkyKit path adds another important teaching sequence that
-the XR work should preserve:
+The current Published Website Content SkyKit path adds another important
+teaching sequence that the XR work should preserve:
 
 ```txt
 viewer first
@@ -334,10 +338,10 @@ pick hit
 
 The current XR star-picking event shape must not stop at
 `cellKey:objectIndex` for beginner-facing examples. XR picking should expose the
-same identity and optional sidecar enrichment path used by the website sidecar
-and 2D app lessons. It may keep low-level pick details for advanced uses, but
-the beginner path needs a label/facts pipeline that teaches catalogue identity
-instead of storage detail.
+same identity and optional sidecar enrichment path used by Published Website
+Content sidecars and 2D app lessons. It may keep low-level pick details for
+advanced uses, but the beginner path needs a label/facts pipeline that teaches
+catalogue identity instead of storage detail.
 
 Closed in the first stabilization pass: the VR preset asks the star source for
 `objectRef` and `pickMeta`, the low-level XR star-picking plugin can resolve
@@ -464,8 +468,8 @@ Coordinate grids follow it too: static pages can request
 
 Spatial layers are content that has a meaningful position, scale, or route in
 the world. Examples include extra authored stars, the red dwarf for the Hail Mary
-website journey, nebulae, H-alpha or dust structures, and an ultra-large-scale
-Milky Way illustration.
+Published Website Content journey, nebulae, H-alpha or dust structures, and an
+ultra-large-scale Milky Way illustration.
 
 These should not be folded into the star octree provider. They should be product
 or provider lanes that applications compose beside the star source:
@@ -525,8 +529,8 @@ and consume them through `productRef(...)`.
 
 Guided journeys need hooks more than they need a single delivery surface. A
 journey may present itself through touch-os, captions, DOM, audio, haptics, or a
-website-specific shell. SkyKit should supply the runtime hooks that let those
-delivery choices react to and modify the world.
+Published Website Content shell. SkyKit should supply the runtime hooks that let
+those delivery choices react to and modify the world.
 
 Required hooks:
 
@@ -556,8 +560,9 @@ facts:journeys/<id>
 selection:primary
 ```
 
-These keys are conventions, not registries. A website may choose its own keys,
-but the examples should make discovery and composition obvious.
+These keys are conventions, not registries. Published Website Content or an app
+may choose its own keys, but the examples should make discovery and composition
+obvious.
 
 ## Proposed Package Surface
 
@@ -640,11 +645,11 @@ advanced code already uses.
 
 4. Layer quickstart capabilities
 
-   Status: initial pass complete for constellations and standard coordinate
-   frame markers. Keep meridian/grid overlays and simple authored spatial object
-   examples on the same public layer/product pattern. Richer app examples should
-   stay on direct package composition, and app-authored coordinates or lesson
-   manifests should remain outside SkyKit.
+   Status: initial pass complete for constellations, standard coordinate frame
+   markers, and equatorial/galactic coordinate grids. Keep simple authored
+   spatial object examples on the same public layer/product pattern. Richer app
+   examples should stay on direct package composition, and app-authored
+   coordinates or lesson manifests should remain outside SkyKit.
 
 5. Touch-os bridge examples
 
@@ -658,19 +663,20 @@ advanced code already uses.
    demonstrate automated travel, highlighted targets, nearby facts, and an
    interchangeable delivery surface.
 
-7. Documentation, examples, and website readiness
+7. Technical Documentation, Examples and Demos, and Published Website Content readiness
 
-   Keep repository examples categorized as development or advanced package
-   examples. Publish website lessons later, once the SkyKit facade is stable
-   enough to be the beginner public path. Create the examples the project wants
-   to teach, label them intentionally, and add fake-XR, DOM, and smoke tests for
-   embed startup, status, session entry binding, global readiness, inspect,
-   selection, sidecar lookup, and plugin/layer installation.
+   Keep repository Examples and Demos categorized as development or advanced
+   package examples. Promote lessons into Published Website Content later, once
+   the SkyKit facade is stable enough to be the beginner public path. Create the
+   examples the project wants to teach, label them intentionally, and add
+   fake-XR, DOM, and smoke tests for embed startup, status, session entry
+   binding, global readiness, inspect, selection, sidecar lookup, and
+   plugin/layer installation.
 
 ## Success Criteria
 
 - SkyKit has a pseudo-stable beginner facade that works as a teaching surface
-  before the next website overhaul consumes it.
+  before the next Published Website Content overhaul consumes it.
 - A static page can create an XR-capable star viewer with one host element, one
   status target, and one module script.
 - The quickstart provides a compliant user-gesture path into WebXR and a readable
@@ -688,9 +694,9 @@ advanced code already uses.
 - A learner can change navigation behavior through options, actions, or plugins.
 - XR quickstart attributes, readiness, add-ons, status, and capability facades
   follow the same patterns as the browser viewer wherever the concepts overlap.
-- Constellations and coordinate-frame markers install as infinity layers, not
-  star-provider changes. Meridian/grid overlays should use the same pattern when
-  added.
+- Constellations, coordinate-frame markers, and coordinate grids install as
+  infinity layers, not star-provider changes. Future sky overlays should use the
+  same pattern when added.
 - Constellations keep the same two-path model: browser/XR capability for
   pasteable pages, package-composed layers for advanced apps.
 - Authored stars, nebulae, and Milky Way illustrations install as spatial layers
@@ -699,11 +705,12 @@ advanced code already uses.
   the same in desktop preview and immersive XR.
 - A guided journey can listen to world state and invoke navigation, highlighting,
   layer visibility, facts, and audio/panel delivery through public hooks.
-- The advanced examples can recreate the quickstart behavior with direct package
-  imports and no private SkyKit internals.
-- Repository examples are clearly categorized as development examples or
-  advanced-use examples. Beginner public lessons are deferred until the API feels
-  complete enough to curate in the website.
+- The advanced Examples and Demos can recreate the quickstart behavior with
+  direct package imports and no private SkyKit internals.
+- Repository Examples and Demos are clearly categorized as development-oriented
+  material, advanced-use material, or public-content candidates. Beginner public
+  lessons are deferred until the API
+  feels complete enough to curate in Published Website Content.
 
 ## Resolved Decisions
 
@@ -731,8 +738,8 @@ advanced code already uses.
 - Keep inspect action/selection history bounded, serializable, and compact.
 - Use the browser capability pattern for standard coordinate-frame markers while
   keeping custom marker sets on direct hosted-layer composition.
-- Defer website XR lessons until the API is feature-complete enough to feel
-  stable.
+- Defer Published Website Content XR lessons until the API is feature-complete
+  enough to feel stable.
 - Create the examples the project wants to create; do not let speculative link
   checks drive the API plan.
 
@@ -741,13 +748,13 @@ advanced code already uses.
 - Which parts of the initial `inspect` snapshot should be documented as stable
   before v1, and which should remain diagnostic?
 - Whether the initial `selection` method names `get`, `set`, `clear`,
-  `subscribe`, and `getSnapshot` are enough for website lessons, or whether a
-  friendlier alias layer belongs only in the website.
-- Which meridian/grid overlays should be first-party quickstart capabilities
-  versus package examples?
+  `subscribe`, and `getSnapshot` are enough for Published Website Content
+  lessons, or whether a friendlier alias layer belongs only in that repository.
+- Which remaining meridian/ecliptic overlays should be first-party quickstart
+  capabilities versus package examples?
 - Which richer rendered non-star layer picking examples should graduate into
   first-party quickstarts beyond the explicit app/waypoint selection bridge.
 - What exact product-key conventions should the first journey examples use for
   facts, highlights, active selections, and route state?
 - Which guided-journey hooks belong in core SkyKit, and which belong in a
-  website/app-owned journey plugin?
+  Published Website Content or app-owned journey plugin?

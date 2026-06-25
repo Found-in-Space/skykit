@@ -1,10 +1,10 @@
 # Chapter And Camera Timeline Architecture
 
-SkyKit core does not own a guided-tour runtime. Website topics keep chapter
-behavior in their viewer scripts, and Studio owns deterministic camera timeline
-authoring/export.
+SkyKit core does not own a guided-tour runtime. Published Website Content topic
+viewers keep chapter behavior in their viewer scripts, and Studio owns
+deterministic camera timeline authoring/export.
 
-## Website Chapters
+## Published Website Content Chapters
 
 A topic viewer should define a `chapters` object keyed by chapter ID. Each
 chapter exposes a label and an `activate(ctx)` function:

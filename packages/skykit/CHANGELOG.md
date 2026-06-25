@@ -65,7 +65,8 @@
 
 ### Minor Changes
 
-- Add beginner viewer and data subpath entries for website use-cases.
+- Add beginner viewer and data subpath entries for Published Website Content
+  use-cases.
 
 ## 0.2.0-alpha.1
 

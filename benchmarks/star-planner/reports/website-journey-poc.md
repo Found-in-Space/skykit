@@ -1,11 +1,12 @@
-# Website Journey Benchmark POC Findings
+# Published Website Content Journey Benchmark POC Findings
 
 Run date: 2026-05-21
 
-This note records the first directional old-vs-new website journey benchmark.
-It is not intended to be statistically rigorous. The goal is to provide a
-quick guardrail for whether preloading changes are improving or regressing the
-journey experience, and to point at the next thing worth optimizing.
+This note records the first directional old-vs-new Published Website Content
+journey benchmark. It is not intended to be statistically rigorous. The goal is
+to provide a quick guardrail for whether preloading changes are improving or
+regressing the journey experience, and to point at the next thing worth
+optimizing.
 
 ## Run Context
 
@@ -13,9 +14,11 @@ journey experience, and to point at the next thing worth optimizing.
 - Benchmark command:
   `npm run bench:journey -- --target old=http://127.0.0.1:4323 --target new=http://127.0.0.1:4322 --timeout-ms 180000`
 - Chromium: `148.0.7778.96`
-- Old website: detached `origin/main`, commit `56e4574`
-- New website: `feature/skykit-alpha-parallax`, commit `338dc2f`
-- SkyKit sources used by new website: commit `480b13f` plus local alpha edits
+- Old Published Website Content: detached `origin/main`, commit `56e4574`
+- New Published Website Content: `feature/skykit-alpha-parallax`, commit
+  `338dc2f`
+- SkyKit sources used by new Published Website Content: commit `480b13f` plus
+  local alpha edits
 
 The reported numbers are from the second pass, after both dev servers had
 already optimized dependencies. A first cold dev-server pass produced a Vite
@@ -30,9 +33,9 @@ optimizer 504 on old HR and was discarded for comparison.
 
 `blankTravelRatio` is the share of samples in the travel window that failed the
 visibility threshold. Lower is better. `timeToFirstVisibleMs` is measured after
-the Omega Centauri click. Old website runs do not expose the same SkyKit
-internal counters, so old readiness is visual/screenshot based; new HR also has
-SkyKit session/debug counters.
+the Omega Centauri click. Old Published Website Content runs do not expose the
+same SkyKit internal counters, so old readiness is visual/screenshot based; new
+HR also has SkyKit session/debug counters.
 
 ## Results
 
@@ -63,26 +66,27 @@ comparison. These are not five-sigma benchmark claims. They are a lab notebook
 for what changed, whether the journey moved in the right direction, and what
 the counters imply should be optimized next.
 
-### 1. Website Authored HR Omega Centauri Prewarm
+### 1. Published Website Content Authored HR Omega Centauri Prewarm
 
 Change:
 
-- Added website-only HR preload hints for the authored NGC 752 -> Omega
-  Centauri route in `website/src/scripts/hr-diagram-viewer.js`.
+- Added Published Website Content-only HR preload hints for the authored NGC
+  752 -> Omega Centauri route in
+  `found-in-space.github.io/src/scripts/hr-diagram-viewer.js`.
 - Built path corridor hints with `buildTravelVolumeRequests()` from the
   authored orbit-transfer path.
 - Added a lower-priority destination/orbit sphere.
 - Wired journey `onPreloadHints` to
   `createSkykitStarPreloadRequestsFromSpatialHints()` and
   `provider.warmCells()`.
-- Added website-side dedupe, in-flight tracking, and cancellation for inactive
-  hints.
+- Added Published Website Content-side dedupe, in-flight tracking, and
+  cancellation for inactive hints.
 - Kept generic provider/tree APIs unchanged.
 
 Verification:
 
 - `node --check src/scripts/hr-diagram-viewer.js`
-- `SKYKIT_LOCAL_PATH=../skykit TOUCH_OS_LOCAL_PATH=../touch-os npm run build`
+- `SKYKIT_LOCAL_PATH=/path/to/skykit TOUCH_OS_LOCAL_PATH=/path/to/touch-os npm run build`
 - `npm run bench:journey -- --target current=http://127.0.0.1:4322 --timeout-ms 180000`
 
 Directional result:
@@ -176,22 +180,23 @@ Decision:
 
 Keep the generic warm-to-current changes as enabling infrastructure, but do
 not count them as a performance improvement yet. The next optimization should
-focus on website/journey warm timing and current-demand arrival semantics:
-prewarm must complete before or during the authored travel envelope, and the
-session must have destination demand active by arrival.
+focus on Published Website Content journey warm timing and current-demand
+arrival semantics: prewarm must complete before or during the authored travel
+envelope, and the session must have destination demand active by arrival.
 
 ### 3. Benchmark Health And Demand-Timeline Trace
 
 Change:
 
-- Added milestone samples to the website journey benchmark: before measure,
-  after click, mid-travel, arrival, and final settle.
+- Added milestone samples to the Published Website Content journey benchmark:
+  before measure, after click, mid-travel, arrival, and final settle.
 - Added record health fields for browser errors, canvas/debug availability,
   setup visibility, measured visibility, sample coverage, and warnings.
 - Kept old-main support visual-only: old pages do not need alpha debug
   snapshots and still use screenshot/canvas visibility.
-- Added cluster-tour SkyKit debug registration on the current website branch so
-  clusters can report the same renderer/session counters as HR.
+- Added cluster-tour SkyKit debug registration on the current Published Website
+  Content branch so clusters can report the same renderer/session counters as
+  HR.
 - Added bounded setup visibility polling before the measured jump. If the setup
   scene never becomes visible, the run is marked unhealthy instead of silently
   treating a blank setup as a valid journey start.
@@ -248,7 +253,8 @@ at a fine enough granularity.
 
 Change:
 
-- Moved the Omega Centauri corridor into authored website HR lesson code.
+- Moved the Omega Centauri corridor into authored Published Website Content HR
+  lesson code.
 - Built one canonical NGC 752-side route to the Omega Centauri arrival orbit,
   plus the exact reverse point set for return travel.
 - Started pinned page-load warming for the canonical corridor and destination
@@ -329,8 +335,8 @@ should make HR demand route-aware during Omega transfer: hold the last useful
 inner volume until route/destination demand is active, activate destination
 volume demand before arrival, and only then tune provider scheduling if
 in-flight backlog remains high. That still preserves the architecture: the
-website/journey layer decides what matters; the provider generically warms and
-promotes cells.
+Published Website Content journey layer decides what matters; the provider
+generically warms and promotes cells.
 
 ### 5. Route-Aware HR Demand With Decoded Memory Lease
 
@@ -583,20 +589,21 @@ debugging clue, not a perfect scorecard.
 
 ## How To Rerun
 
-From the meta workspace:
+From local checkouts. Replace the paths with your own
+`Found-in-Space/found-in-space.github.io` and SkyKit checkout locations:
 
 ```sh
-# Current alpha website
-cd website
-SKYKIT_LOCAL_PATH=../skykit TOUCH_OS_LOCAL_PATH=../touch-os \
+# Current alpha Published Website Content
+cd /path/to/found-in-space.github.io
+SKYKIT_LOCAL_PATH=/path/to/skykit TOUCH_OS_LOCAL_PATH=/path/to/touch-os \
   npm run dev -- --host 127.0.0.1 --port 4322
 
 # Old main worktree
-cd ../_worktrees/website-main
+cd /path/to/found-in-space.github.io-main
 npm run dev -- --host 127.0.0.1 --port 4323
 
 # Benchmark
-cd ../skykit
+cd /path/to/skykit
 npm run bench:journey -- \
   --target old=http://127.0.0.1:4323 \
   --target new=http://127.0.0.1:4322 \

@@ -137,7 +137,8 @@ browser handle; they do not replace the core plugin model.
 
 First-party browser capabilities are lazy-loaded by the browser handle. The
 current built-in capabilities are constellation loading with optional anchored
-art, and standard coordinate-frame marker layers:
+art, standard coordinate-frame marker layers, and standard coordinate grid
+overlays:
 
 ```html
 <div
@@ -145,13 +146,16 @@ art, and standard coordinate-frame marker layers:
   data-skykit-constellations="western"
   data-skykit-constellation-art="lazy"
   data-skykit-frames="galactic,solar"
+  data-skykit-grids="equatorial,galactic"
 ></div>
 ```
 
 Standalone applications that already compose SkyKit plugins should use package
 APIs directly instead of importing `@found-in-space/skykit/browser-constellations`
-or `@found-in-space/skykit/browser-frames` as data APIs. Custom coordinate-frame
-markers belong on `createSkykitCoordinateFrameMarkerLayer()` and an ordinary
+`@found-in-space/skykit/browser-frames`, or
+`@found-in-space/skykit/browser-grids` as data APIs. Custom coordinate-frame
+markers belong on `createSkykitCoordinateFrameMarkerLayer()`, custom coordinate
+grids belong on `createSkykitCoordinateGridLayer()`, and both use an ordinary
 layer host.
 
 The browser embed only reads the documented `data-skykit-*` attributes from
@@ -159,12 +163,13 @@ The browser embed only reads the documented `data-skykit-*` attributes from
 `createSkykitBrowser({ ... })` options or the lower-level `createSkykitViewer()`
 composition path.
 
-The public beginner lesson path is curated in `../website`. Repository examples
-under `packages/skykit/examples/` are development or advanced-use examples until
-the website deliberately promotes them into lessons. A future XR embed should
-follow the same browser shape before it becomes website lesson material:
-attributes, readiness, ordinary plugin/add-on installation, status, inspect,
-selection, products, and a live viewer handle.
+The public beginner lesson path is Published Website Content curated in
+`Found-in-Space/found-in-space.github.io`. Repository Examples and Demos under
+`packages/skykit/examples/` are development-oriented or advanced-use material
+until Published Website Content deliberately promotes them into lessons. A
+future XR embed should follow the same browser shape before it becomes Published
+Website Content lesson material: attributes, readiness, ordinary plugin/add-on
+installation, status, inspect, selection, products, and a live viewer handle.
 
 ## Viewer Lifecycle
 

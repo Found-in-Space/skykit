@@ -20,23 +20,24 @@ strategies. SkyKit passes strategies through to provider sessions; it does not
 redefine planning, inspect strategy kinds, or hide loader registries behind
 string names.
 
-## Website Use-Cases
+## Published Website Content Use-Cases
 
-The beginner website entries are use-case bounded:
+The beginner Published Website Content entries are use-case bounded:
 
-| Use-case | Website owner says | Public entry |
+| Use-case | Content owner says | Public entry |
 | --- | --- | --- |
 | Viewer | "Put stars on my page and let me customize the scene." | `embed.js`, `viewer.js` |
 | Data | "Give me star data so I can render, list, map, or game it myself." | `data.js` |
 
 `embed.js` is the no-code viewer entry. It is not a separate use-case.
 `viewer.js` is the JavaScript-customizable viewer entry. `data.js` is renderer
-independent. Authored chapters stay in website or example code and call SkyKit
-navigation actions directly.
+independent. Authored chapters stay in Published Website Content or Examples and
+Demos code and call SkyKit navigation actions directly.
 
-The public beginner lessons live in the sibling `../website` project. Examples
-in this package are package-development or advanced-use material until the
-website deliberately curates them into lessons with stable imports and checked
+The public beginner lessons live in the
+`Found-in-Space/found-in-space.github.io` repository. Examples and Demos in this
+package are package-development or advanced-use material until Published Website
+Content deliberately curates them into lessons with stable imports and checked
 links.
 
 ## Runtime Products
@@ -275,8 +276,8 @@ embeds do not import XR code:
 `data-skykit-enter-vr="#my-button"` to use an authored button. Checklist rows
 with `data-preflight-check="skykit"`, `"stars"`, or `"xr"` receive `data-state`
 updates, and child `[data-preflight-check-status]` elements receive the status
-text. Public website XR lessons should still wait until the API is deliberately
-curated into the sibling website.
+text. Published Website Content XR lessons should still wait until the API is
+deliberately curated into `Found-in-Space/found-in-space.github.io`.
 
 ## Paste into a static page or CMS
 
@@ -577,9 +578,10 @@ const stars = await loadStarRows({
 
 ## Author Chapters
 
-Keep named chapters in the website or example script. Each chapter can call
-navigation actions such as `skykit:navigation.transitionTo` and
-`skykit:navigation.orbit` from its own `goTo(id)` dispatcher.
+Keep named chapters in Published Website Content or the Example and Demo script
+that owns the lesson flow. Each chapter can call navigation actions such as
+`skykit:navigation.transitionTo` and `skykit:navigation.orbit` from its own
+`goTo(id)` dispatcher.
 
 Use the lower-level factories when an example is teaching composition or replacing
 a part of the stack:
@@ -754,7 +756,7 @@ above. It is a no-code path convenience. Larger examples
 should switch to `createSkykitViewer()` or `createSkykitBrowser({ plugins })`
 and install ordinary core plugins directly.
 
-Standalone browser examples live in the private workspace app at
+Standalone browser Examples and Demos live in this repository at
 `../../apps/examples/`:
 
 - `../../apps/examples/free-roam/` composes streamed stars, picking, metadata,
