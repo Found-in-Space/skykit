@@ -465,6 +465,48 @@ test('browser constellations capability loads manifest boundaries without art', 
   });
 });
 
+test('browser coordinate frame capability publishes features, waypoints, and inspectable selections', async () => {
+  await withFakeWindow(async () => {
+    const browser = await createSkykitBrowser({
+      host: createHost(),
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+    });
+
+    const frames = await browser.frames.load({ frames: ['galactic', 'solar'] });
+    const snapshot = frames.getSnapshot();
+
+    assert.equal(snapshot.frameCount, 2);
+    assert.equal(browser.capabilities.has('skykit:browser.coordinate-frames'), true);
+    assert.equal(browser.products.get('features:frames/galactic').type, 'FeatureCollection');
+    assert.equal(browser.products.get('features:frames/solar').type, 'FeatureCollection');
+
+    const waypoints = browser.products.get('waypoints:frames/galactic');
+    const waypoint = waypoints.find((entry) => entry.id === 'galactic:north-pole') ?? waypoints[0];
+    const selection = {
+      kind: 'object',
+      id: waypoint.id,
+      label: waypoint.label,
+      productKey: 'waypoints:frames/galactic',
+      source: 'test',
+    };
+    assert.equal(browser.selection.set(selection, { source: 'test' }), true);
+    assert.deepEqual(
+      browser.inspect.getHistory().find((entry) => entry.type === 'selection')?.selection,
+      selection,
+    );
+    assert.equal(frames.hide(), false);
+    assert.equal(frames.show(), true);
+
+    await browser.dispose();
+  });
+});
+
 test('Skykit browser global resolves existing and future browsers and installs add-ons once', async () => {
   await withFakeWindow(async () => {
     const service = installSkykitBrowserGlobal(/** @type {typeof globalThis} */ ({}));

@@ -249,6 +249,9 @@ Implemented in `@found-in-space/skykit/xr`:
   plugin, and star-picking plugin.
 - `createSkykitVrViewer()` turnkey VR starfield preset built on the public
   viewer, product, layer-host, shared star-source, and XR composition APIs.
+- `createSkykitXrBrowser()` browser-style handle parity over the VR preset,
+  including actions, products, selection, inspect history, sidecar-enriched star
+  selections, constellations, and coordinate-frame marker capabilities.
 - `stars/xr-pick`, `stars/xr-pick-miss`, and blocker events for applications to
   handle without renderer-specific controller code.
 - fake-XR tests for rig, controls, rays, routing, depth, and sessions.
@@ -256,11 +259,9 @@ Implemented in `@found-in-space/skykit/xr`:
 Not implemented yet:
 
 - GPU pick routing or built-in star-specific XR pick effects.
-- published beginner lessons that use sidecar-enriched XR selections. The
-  low-level XR star picking plugin and XR browser facade now propagate
-  bookmarkable `StarObjectRef` identity into pick events and product-backed
-  selection, and `stars.pick.metadata` can enrich labels/facts from sidecar-like
-  providers with `getMeta(ref)`.
+- published beginner lessons that use sidecar-enriched XR selections and
+  coordinate-frame marker waypoints. The runtime API support exists; website
+  curation is still deferred.
 - a journey runtime that drives `skykit:navigation.*` actions.
 - published lesson docs that replace every legacy XR demo end to end.
 

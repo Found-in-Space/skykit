@@ -15,10 +15,12 @@ import type {
   SkykitInspectFacade,
   SkykitLookAtInput,
   SkykitPlugin,
+  SkykitCoordinateFrameId,
   SkykitKeyboardNavigationOptions,
   SkykitOrbitDragOptions,
   SkykitPluginInput,
   SkykitPluginTeardown,
+  SkykitProductMetadata,
   SkykitProductRegistryPlugin,
   SkykitSelectionFacade,
   SkykitSelectionValue,
@@ -107,6 +109,25 @@ export interface SkykitBrowserConstellationsFacade {
   dispose?(): void;
 }
 
+export interface SkykitBrowserCoordinateFramesOptions {
+  frames?: SkykitCoordinateFrameId | Iterable<SkykitCoordinateFrameId> | string;
+  visible?: boolean;
+  priority?: number;
+  radiusPc?: number;
+  publish?: false | {
+    metadata?: SkykitProductMetadata;
+  };
+}
+
+export interface SkykitBrowserCoordinateFramesFacade {
+  load(options?: SkykitBrowserCoordinateFramesOptions): Promise<SkykitBrowserCoordinateFramesFacade>;
+  show(): boolean | Promise<boolean>;
+  hide(): boolean | Promise<boolean>;
+  toggle(force?: boolean): boolean | Promise<boolean>;
+  getSnapshot(): unknown | Promise<unknown>;
+  dispose?(): void;
+}
+
 export interface SkykitBrowserOptions {
   host?: SkykitBrowserHost;
   status?: boolean | SkykitBrowserStatusTarget | null;
@@ -159,6 +180,7 @@ export interface SkykitBrowser {
   selection: SkykitSelectionFacade<SkykitSelectionValue>;
   inspect: SkykitInspectFacade;
   constellations: SkykitBrowserConstellationsFacade;
+  frames: SkykitBrowserCoordinateFramesFacade;
   install(input: SkykitBrowserInstallInput): Promise<SkykitPluginTeardown>;
   addObject(
     object3d: THREE.Object3D,

@@ -44,6 +44,11 @@ test('startSkykitXrEmbeds starts XR browsers with status, Enter VR, and global r
         this.options = options;
       },
     },
+    frames: {
+      async load(options) {
+        this.options = options;
+      },
+    },
     async enter() {
       entered = true;
     },
@@ -59,6 +64,7 @@ test('startSkykitXrEmbeds starts XR browsers with status, Enter VR, and global r
   host.dataset.skykitPersistentCache = 'off';
   host.dataset.skykitXrMode = 'immersive-vr';
   host.dataset.skykitReferenceSpace = 'bounded-floor';
+  host.dataset.skykitFrames = 'galactic,solar';
   status.id = 'status';
   sessionStatus.dataset.sessionStatus = '';
   document.body.appendChild(host);
@@ -95,6 +101,7 @@ test('startSkykitXrEmbeds starts XR browsers with status, Enter VR, and global r
     assert.equal(createdOptions[0].host, host);
     assert.equal(createdOptions[0].status, '#status');
     assert.equal(createdOptions[0].persistentCache, 'off');
+    assert.deepEqual(browser.frames.options, { frames: 'galactic,solar' });
     assert.deepEqual(createdOptions[0].xr, {
       mode: 'immersive-vr',
       referenceSpaceType: 'bounded-floor',

@@ -119,6 +119,28 @@ test('createSkykitXrBrowser returns a browser-style handle over the VR viewer', 
   assert.equal(starField.disposed, false);
 });
 
+test('createSkykitXrBrowser exposes coordinate frame capability through the browser handle', async () => {
+  const browser = await createSkykitXrBrowser({
+    host: createHost(),
+    status: false,
+    renderer: createRenderer(),
+    provider: createProvider(),
+    stars: { renderer: createStarField() },
+    loop: false,
+    autoResize: false,
+    autoDispose: false,
+  });
+
+  const frames = await browser.frames.load({ frames: 'galactic,solar' });
+
+  assert.equal(frames.getSnapshot().frameCount, 2);
+  assert.equal(browser.capabilities.has('skykit:browser.coordinate-frames'), true);
+  assert.equal(browser.products.get('features:frames/galactic').type, 'FeatureCollection');
+  assert.equal(browser.products.get('waypoints:frames/solar').length > 0, true);
+
+  await browser.dispose();
+});
+
 test('createSkykitXrBrowser passes sidecar metadata into default star picking selections', async () => {
   const objectRef = {
     datasetId: 'gaia-dr3',

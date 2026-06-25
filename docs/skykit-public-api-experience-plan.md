@@ -132,6 +132,10 @@ The browser/XR facade stabilization work has landed in
   semantic action events and selection changes with payload/value summaries and
   selection summaries, and it is available through both `inspect.getHistory()`
   and `inspect.getSnapshot().history`.
+- The first layer quickstart capability beyond constellations has landed:
+  `browser.frames` / `xrBrowser.frames` lazy-load coordinate-frame marker
+  layers, publish `features:frames/<frame>` and `waypoints:frames/<frame>`, and
+  can be requested from embeds with `data-skykit-frames`.
 - `createSkykitXrBrowser()` provides the browser-style XR handle over the VR
   viewer preset, with `vr`, `xr`, `rig`, `session`, `rays`, `enter()`,
   `exit()`, object/layer helpers, products, selection, actions, and inspect.
@@ -146,8 +150,8 @@ The browser/XR facade stabilization work has landed in
   checklist/status, Enter VR binding, and the existing fake-XR/plugin/layer
   paths.
 
-Remaining work before website XR lessons: first-party infinity-layer quickstart
-choices beyond constellations, touch-os examples, journey hooks, and website
+Remaining work before website XR lessons: meridian/grid overlay choices, richer
+non-star layer picking examples, touch-os examples, journey hooks, and website
 curation.
 
 ## Quickstart Target
@@ -161,6 +165,7 @@ overhaul depends on it:
   data-skykit-xr
   data-skykit-status="#skykit-status"
   data-skykit-look-at="05h 36m 12.81s, -01deg 12m 06.9s"
+  data-skykit-frames="galactic"
   style="width:100%;height:500px;background:#02040b"
 ></div>
 
@@ -419,10 +424,13 @@ waypoints:constellations/<skyculture>
 surfaces:constellation-art/<skyculture>
 ```
 
-Meridian lines, coordinate frames, and grids should follow the same pattern:
-simple first-party capability when useful for lessons, direct hosted-layer
-composition for application code, and product publication such as
-`features:frames/<frame>` and `waypoints:frames/<frame>`.
+Coordinate frames now follow the same pattern: static pages can request the
+standard marker layer with `data-skykit-frames="galactic"` or
+`data-skykit-frames="galactic,solar"`, browser/XR handles can call
+`frames.load()`, and advanced apps can still install
+`createSkykitCoordinateFrameMarkerLayer()` directly for authored marker sets.
+Meridian lines and grids should follow this same pattern when their reusable
+renderer/layer shape is clear.
 
 ### Spatial Layers
 
@@ -555,6 +563,8 @@ interface SkykitXrBrowser {
   addObject(object3d: THREE.Object3D, options?: SkykitBrowserObjectOptions): SkykitBrowserObjectHandle;
   addLayer(layer: SkykitHostedLayer): SkykitLayerHandle;
   constellations: SkykitBrowserConstellationsFacade;
+  frames: SkykitBrowserCoordinateFramesFacade;
+  starPicking: SkykitPlugin | null;
   actions: SkykitActionRegistry;
   products: SkykitProductRegistryPlugin | null;
   inspect: SkykitInspectFacade;
@@ -584,7 +594,9 @@ advanced code already uses.
    current implementation deliberately keeps sidecar lookup on public
    `StarObjectRef`, stores unavailable-pick storage fields only in
    `diagnostic`, and shares the same resolver/selection builder across desktop
-   and XR. Still open: non-star layer/waypoint selection examples.
+   and XR. Browser coordinate-frame waypoints now demonstrate non-star
+   selection through the public selection and inspect surfaces. Still open:
+   richer layer-picking examples for authored non-star objects.
 
 3. Browser-grade XR preset
 
@@ -598,10 +610,11 @@ advanced code already uses.
 
 4. Layer quickstart capabilities
 
-   Make constellations, meridian/grid overlays, and simple authored spatial
-   objects installable without private code. Keep richer app examples on direct
-   package composition. Do not move app-authored coordinates or lesson manifests
-   into SkyKit.
+   Status: initial pass complete for constellations and standard coordinate
+   frame markers. Keep meridian/grid overlays and simple authored spatial object
+   examples on the same public layer/product pattern. Richer app examples should
+   stay on direct package composition, and app-authored coordinates or lesson
+   manifests should remain outside SkyKit.
 
 5. Touch-os bridge examples
 
@@ -645,8 +658,9 @@ advanced code already uses.
 - A learner can change navigation behavior through options, actions, or plugins.
 - XR quickstart attributes, readiness, add-ons, status, and capability facades
   follow the same patterns as the browser viewer wherever the concepts overlap.
-- Constellations and meridian lines install as infinity layers, not star-provider
-  changes.
+- Constellations and coordinate-frame markers install as infinity layers, not
+  star-provider changes. Meridian/grid overlays should use the same pattern when
+  added.
 - Constellations keep the same two-path model: browser/XR capability for
   pasteable pages, package-composed layers for advanced apps.
 - Authored stars, nebulae, and Milky Way illustrations install as spatial layers
@@ -679,6 +693,11 @@ advanced code already uses.
   richer naming later.
 - Prefer bookmarkable public star identity for star picks. Do not invent fallback
   IDs unless a concrete feature truly cannot provide the public identity.
+- Keep sidecar enrichment keyed by public `StarObjectRef`; label and facts
+  wording remains app/provider policy.
+- Keep inspect action/selection history bounded, serializable, and compact.
+- Use the browser capability pattern for standard coordinate-frame markers while
+  keeping custom marker sets on direct hosted-layer composition.
 - Defer website XR lessons until the API is feature-complete enough to feel
   stable.
 - Create the examples the project wants to create; do not let speculative link
@@ -691,12 +710,10 @@ advanced code already uses.
 - Whether the initial `selection` method names `get`, `set`, `clear`,
   `subscribe`, and `getSnapshot` are enough for website lessons, or whether a
   friendlier alias layer belongs only in the website.
-- How much action trace/history should the inspect facade own beyond the current
-  action registry snapshot.
-- Which sidecar lookup behavior belongs in the facade, and which label/facts
-  formatting choices stay app-owned?
-- Which infinity layers should be first-party quickstart capabilities versus
-  package examples?
+- Which meridian/grid overlays should be first-party quickstart capabilities
+  versus package examples?
+- How rich public non-star layer picking should be before the website depends on
+  it, beyond explicit app/waypoint selection values.
 - What exact product-key conventions should the first journey examples use for
   facts, highlights, active selections, and route state?
 - Which guided-journey hooks belong in core SkyKit, and which belong in a

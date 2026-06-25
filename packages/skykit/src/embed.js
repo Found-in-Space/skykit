@@ -57,6 +57,11 @@ async function installRequestedCapabilities(host, browser) {
       art: data.skykitConstellationArt,
     });
   }
+  if (data.skykitFrames != null) {
+    await browser.frames.load({
+      frames: data.skykitFrames,
+    });
+  }
 }
 
 /** @param {Element} host */

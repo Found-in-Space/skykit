@@ -232,7 +232,7 @@ packages/skykit/examples/
   navigation helper, sky-grab and mouse-look helpers, parallax subpath plugins,
   status helper, navigation actions/plugin backed by spatial, animation loop,
   desktop observer rig, debug bridge, browser embed/add-on global, lazy
-  constellation browser capability, touch-os bridge,
+  constellation and coordinate-frame browser/XR capabilities, touch-os bridge,
   beginner `viewer` and `data` subpaths for public website use-cases,
   and optional `skykit/xr` WebXR rig/input/ray/session/depth/navigation/picking
   helpers

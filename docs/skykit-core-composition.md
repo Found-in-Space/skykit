@@ -136,19 +136,23 @@ factory name or registry key. Add-ons install ordinary plugins or use the
 browser handle; they do not replace the core plugin model.
 
 First-party browser capabilities are lazy-loaded by the browser handle. The
-current built-in capability is constellation loading and optional anchored art:
+current built-in capabilities are constellation loading with optional anchored
+art, and standard coordinate-frame marker layers:
 
 ```html
 <div
   data-skykit-browser
   data-skykit-constellations="western"
   data-skykit-constellation-art="lazy"
+  data-skykit-frames="galactic,solar"
 ></div>
 ```
 
 Standalone applications that already compose SkyKit plugins should use package
 APIs directly instead of importing `@found-in-space/skykit/browser-constellations`
-as a data API.
+or `@found-in-space/skykit/browser-frames` as data APIs. Custom coordinate-frame
+markers belong on `createSkykitCoordinateFrameMarkerLayer()` and an ordinary
+layer host.
 
 The browser embed only reads the documented `data-skykit-*` attributes from
 `@found-in-space/skykit`'s README. Other viewer setup belongs in

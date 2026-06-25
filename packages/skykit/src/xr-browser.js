@@ -116,6 +116,7 @@ export async function createSkykitXrBrowser(input = {}) {
     dispose,
   };
   browser.constellations = createLazyConstellationsFacade(browser, host);
+  browser.frames = createLazyCoordinateFramesFacade(browser, host);
   return browser;
 
   /**
@@ -299,6 +300,42 @@ function createLazyConstellationsFacade(browser, host) {
     },
     async setArt(mode) {
       return (await loadCapability()).setArt(mode);
+    },
+    async getSnapshot() {
+      return (await loadCapability()).getSnapshot();
+    },
+  };
+}
+
+/**
+ * @param {import('./xr-browser.d.ts').SkykitXrBrowser | null} browser
+ * @param {Element | import('./browser.d.ts').SkykitBrowserHost} host
+ * @returns {import('./browser.d.ts').SkykitBrowserCoordinateFramesFacade}
+ */
+function createLazyCoordinateFramesFacade(browser, host) {
+  /** @type {Promise<import('./browser.d.ts').SkykitBrowserCoordinateFramesFacade> | null} */
+  let loaded = null;
+  const loadCapability = (options = {}) => {
+    loaded ??= import('./browser-frames.js')
+      .then((module) => module.installSkykitCoordinateFramesBrowserCapability({
+        browser: /** @type {import('./browser.d.ts').SkykitBrowser} */ (browser),
+        host,
+        options,
+      }));
+    return loaded;
+  };
+  return {
+    async load(options) {
+      return loadCapability(options);
+    },
+    async show() {
+      return (await loadCapability()).show();
+    },
+    async hide() {
+      return (await loadCapability()).hide();
+    },
+    async toggle(force) {
+      return (await loadCapability()).toggle(force);
     },
     async getSnapshot() {
       return (await loadCapability()).getSnapshot();
