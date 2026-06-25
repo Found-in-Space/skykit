@@ -119,6 +119,76 @@ test('createSkykitXrBrowser returns a browser-style handle over the VR viewer', 
   assert.equal(starField.disposed, false);
 });
 
+test('createSkykitXrBrowser passes sidecar metadata into default star picking selections', async () => {
+  const objectRef = {
+    datasetId: 'gaia-dr3',
+    level: 5,
+    mortonCode: '001abc',
+    ordinal: 42,
+  };
+  const metadataCalls = [];
+  const raySource = fixedRaySource('right-ray', 'right');
+  const starField = createStarField({
+    pickResult: {
+      cellKey: 'storage-cell',
+      objectIndex: 2,
+      objectRef,
+      pickMeta: null,
+      position: { x: 1, y: 2, z: 3 },
+      distancePc: 10,
+      apparentMagnitude: 2,
+      visualRadiusPx: 4,
+      teffLog8: 128,
+      magAbs: 1,
+      score: 0.5,
+      angularDistanceDeg: 0.1,
+    },
+  });
+  const browser = await createSkykitXrBrowser({
+    host: createHost(),
+    status: false,
+    renderer: createRenderer(),
+    provider: createProvider(),
+    stars: {
+      renderer: starField,
+      pick: {
+        ray: raySource,
+        metadata: {
+          async getMeta(ref) {
+            metadataCalls.push(ref);
+            return {
+              fields: { primaryLabel: 'XR Sidecar Star' },
+              hd: 12345,
+            };
+          },
+        },
+      },
+    },
+    loop: false,
+    autoResize: false,
+    autoDispose: false,
+  });
+
+  browser.viewer.frame(0.016, {
+    xr: {
+      presenting: true,
+      frame: {},
+      session: { inputSources: [triggerInput('right')] },
+      referenceSpace: {},
+    },
+  });
+  await flushMicrotasks();
+
+  assert.ok(browser.starPicking);
+  assert.deepEqual(metadataCalls, [objectRef]);
+  assert.equal(browser.selection.get().kind, 'star');
+  assert.deepEqual(browser.selection.get().ref, objectRef);
+  assert.equal(browser.selection.get().label, 'XR Sidecar Star');
+  assert.equal(browser.selection.get().facts.hd, 12345);
+
+  await browser.dispose();
+});
+
 test('createSkykitVrViewer starts a caller-owned SkyKit star source without disposing it', async () => {
   const provider = createProvider();
   const source = createSkykitStarSourcePlugin({ provider });
@@ -956,7 +1026,7 @@ function createSource() {
   };
 }
 
-function createStarField() {
+function createStarField(options = {}) {
   return {
     object3d: new THREE.Group(),
     disposed: false,
@@ -970,11 +1040,12 @@ function createStarField() {
     },
     pick(ray, options) {
       this.pickCalls.push({ ray, options });
-      return {
+      return this.pickResult ?? {
         cellKey: 'cell-a',
         objectIndex: 0,
       };
     },
+    pickResult: options.pickResult,
     getVisibleBounds() {
       return null;
     },
@@ -989,6 +1060,12 @@ function createStarField() {
       this.disposed = true;
     },
   };
+}
+
+async function flushMicrotasks(count = 10) {
+  for (let index = 0; index < count; index += 1) {
+    await Promise.resolve();
+  }
 }
 
 function fixedRaySource(id, handedness) {

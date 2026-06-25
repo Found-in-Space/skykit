@@ -105,19 +105,33 @@ Planning decisions should use this order:
 
 ## Progress Update 2026-06-25
 
-The first API stabilization pass has landed in `@found-in-space/skykit`:
+The browser/XR facade stabilization work has landed in
+`@found-in-space/skykit`:
 
 - `createSkykitBrowser()` now returns browser handles with `actions`,
   `products`, `selection`, and `inspect`, backed by the real viewer action
   registry, product registry, product-backed current selection, and inspect
   facade.
 - Shared inspect and selection facades now cover snapshots, streams, products,
-  actions, selection, and view state. XR handles add XR/runtime details through
-  the same inspect surface when XR exists.
+  actions, bounded action/selection history, selection, and view state. XR
+  handles add XR/runtime details through the same inspect surface when XR
+  exists.
 - Desktop and XR star picking can write product-backed selection values to
   `selection:primary`. Public `StarObjectRef` identity is preferred for star
   picks; when identity is unavailable, the selection shape is explicitly
-  degraded and keeps storage details diagnostic.
+  degraded and keeps storage details diagnostic. Desktop and XR picking share
+  sidecar-style `getMeta(ref)` enrichment for labels and facts when configured.
+- `createSkykitBrowser()` installs star picking by default when the supplied
+  star renderer supports `pick()`. Applications can opt out with `pick: false`
+  or pass `pick.metadata` for app/sidecar enrichment. The browser handle exposes
+  the plugin as `browser.starPicking`.
+- The sidecar resolver calls `getMeta(ref)` only with a valid `StarObjectRef`.
+  It does not derive public identity from `cellKey`, `objectIndex`, `pickMeta`,
+  node keys, offsets, or other storage details.
+- Inspect history is intentionally bounded and serializable. It records recent
+  semantic action events and selection changes with payload/value summaries and
+  selection summaries, and it is available through both `inspect.getHistory()`
+  and `inspect.getSnapshot().history`.
 - `createSkykitXrBrowser()` provides the browser-style XR handle over the VR
   viewer preset, with `vr`, `xr`, `rig`, `session`, `rays`, `enter()`,
   `exit()`, object/layer helpers, products, selection, actions, and inspect.
@@ -127,14 +141,14 @@ The first API stabilization pass has landed in `@found-in-space/skykit`:
   checklist rows, a default accessible Enter VR button, and an author-supplied
   `data-skykit-enter-vr` selector.
 - Focused tests cover browser facade parity, XR browser parity, product-backed
-  selection, XR star identity propagation, DOM/embed startup, readiness,
+  selection, sidecar enrichment, unavailable identity degradation, inspect
+  history, XR star identity propagation, DOM/embed startup, readiness,
   checklist/status, Enter VR binding, and the existing fake-XR/plugin/layer
   paths.
 
-Remaining work before website XR lessons: sidecar-backed label/facts policy for
-the facade, richer inspect action trace/history, first-party infinity-layer
-quickstart choices beyond constellations, touch-os examples, journey hooks, and
-website curation.
+Remaining work before website XR lessons: first-party infinity-layer quickstart
+choices beyond constellations, touch-os examples, journey hooks, and website
+curation.
 
 ## Quickstart Target
 
@@ -295,8 +309,8 @@ Star selection should be consistent across paths. A star picked in desktop, 2D,
 pick hit
   -> StarObjectRef / bookmarkable star identity
   -> explicit non-star authored identity when the pick is not a catalogue star
-  -> sidecar lookup when configured
-  -> label/facts policy owned by the app or facade
+  -> sidecar lookup with getMeta(ref) when configured
+  -> label/facts policy owned by the app or facade, never storage-derived ids
 ```
 
 The current XR star-picking event shape must not stop at
@@ -311,8 +325,28 @@ Closed in the first stabilization pass: the VR preset asks the star source for
 metadata through the same resolver pattern as desktop picking, and both desktop
 and XR picking can write product-backed selections. The default beginner path
 marks identity unavailable explicitly rather than silently inventing another
-public star ID. Remaining work is sidecar-backed label/facts policy in the
-facade, not identity plumbing.
+public star ID.
+
+Closed in the sidecar/history pass: desktop browser picking is installed by
+default when `starField.pick()` is available, `pick.metadata` accepts sidecar
+providers with `getMeta(ref)`, XR browser picking uses the same resolver path,
+and inspect records a bounded serializable history of semantic action events and
+selection changes.
+
+Implementation choices to preserve:
+
+- Public star selections keep the stable fields `kind`, `identityAvailable`,
+  `ref`, `label`, `facts`, and summarized `pick`.
+- Missing star identity is explicit: `kind: 'star-pick-unavailable'`,
+  `identityAvailable: false`, and low-level storage details live only under
+  `diagnostic`.
+- Sidecar lookup is keyed by public `StarObjectRef`; `pickMeta` is useful
+  renderer/join context but is not a public star ID fallback.
+- Desktop and XR picking share one metadata resolver and selection builder so
+  future lesson code does not fork identity semantics by surface.
+- Inspect history is an operator/teaching aid, not an event bus. It stores a
+  bounded summary for recent actions and selections; high-volume data remains on
+  product streams.
 
 Debug globals may still exist for development, but the public inspect feature
 should be explicit, documented, and available through ordinary handles, actions,
@@ -544,10 +578,13 @@ advanced code already uses.
 
 2. Inspect and selection parity
 
-   Status: initial pass complete for products, streams, actions snapshot, view
-   state, selection, XR runtime snapshots, and product-backed star picks. Still
-   open: sidecar-enriched labels/facts as a facade policy, richer action trace
-   history, and non-star layer/waypoint selection examples.
+   Status: complete for products, streams, actions snapshot, bounded
+   action/selection history, view state, selection, XR runtime snapshots,
+   product-backed star picks, and sidecar-enriched star labels/facts. The
+   current implementation deliberately keeps sidecar lookup on public
+   `StarObjectRef`, stores unavailable-pick storage fields only in
+   `diagnostic`, and shares the same resolver/selection builder across desktop
+   and XR. Still open: non-star layer/waypoint selection examples.
 
 3. Browser-grade XR preset
 

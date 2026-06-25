@@ -873,7 +873,7 @@ test('skykit/xr star picking fires only on trigger edge and registers attribute-
   assert.equal(picks.length, 1);
   assert.deepEqual(demands[0], {
     id: 'skykit-xr-star-picking:attributes',
-    attributes: ['position', 'teffLog8', 'magAbs'],
+    attributes: ['position', 'teffLog8', 'magAbs', 'objectRef', 'pickMeta'],
   });
   assert.equal(emitted.filter((event) => event.type === 'stars/xr-pick').length, 2);
 });
@@ -912,14 +912,17 @@ test('skykit/xr star picking writes public star identity to product-backed selec
       },
     },
     raySource: fixedRaySource(),
-    metadata(pick) {
-      return {
-        ref: pick.objectRef,
-        label: 'Test Star',
-        facts: {
-          primaryLabel: 'Ignored because label wins',
-        },
-      };
+    metadata: {
+      getMeta(ref) {
+        return {
+          ref,
+          fields: {
+            primaryLabel: 'Test Star',
+          },
+          source: 'gaia',
+          source_id: '42',
+        };
+      },
     },
     onPick(event) {
       pickEvents.push(event);
@@ -968,6 +971,7 @@ test('skykit/xr star picking writes public star identity to product-backed selec
   assert.equal(selection.identityAvailable, true);
   assert.deepEqual(selection.ref, objectRef);
   assert.equal(selection.label, 'Test Star');
+  assert.equal(selection.facts.source, 'gaia');
   assert.equal(selection.diagnostic, undefined);
 });
 

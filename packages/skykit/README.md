@@ -54,8 +54,16 @@ The browser-style handles expose the same public runtime surfaces:
 `actions`, `products`, `selection`, and `inspect`. These are not wrapper
 registries; they are the viewer action registry, runtime product registry, the
 product-backed current selection facade, and a read-only inspect facade for
-snapshots, streams, products, actions, selection, view state, and XR details
-when XR exists.
+snapshots, streams, products, actions, bounded action/selection history,
+selection, view state, and XR details when XR exists.
+
+When the star renderer supports `pick()`, `createSkykitBrowser()` installs
+desktop star picking by default and exposes the plugin as `browser.starPicking`.
+Use `pick: false` to opt out, or pass `pick: { metadata }` to enrich public
+star selections from a sidecar-like provider with `getMeta(ref)`. Public star
+selections use `StarObjectRef` when available; unavailable identity is reported
+as `kind: 'star-pick-unavailable'` with storage details kept under
+`diagnostic`.
 
 Use the registry directly from a plugin when one plugin owns a handle and another
 plugin should discover it later:
@@ -165,6 +173,8 @@ beginner handle model as `createSkykitBrowser()` and adds `vr`, `xr`, `rig`,
 handles. Its default star picking writes public `StarObjectRef` selections to
 `selection:primary` when identity is available; storage details such as
 `cellKey:objectIndex` stay diagnostic rather than beginner-facing identity.
+`stars.pick.metadata` accepts the same resolver or sidecar-like provider shape
+as desktop picking.
 
 ```js
 import { createSkykitXrBrowser } from '@found-in-space/skykit/xr';

@@ -14,6 +14,7 @@ import type {
   SkykitDragLookOptions,
   SkykitInspectFacade,
   SkykitLookAtInput,
+  SkykitPlugin,
   SkykitKeyboardNavigationOptions,
   SkykitOrbitDragOptions,
   SkykitPluginInput,
@@ -21,6 +22,7 @@ import type {
   SkykitProductRegistryPlugin,
   SkykitSelectionFacade,
   SkykitSelectionValue,
+  SkykitStarPickingPluginOptions,
   SkykitThreePart,
   SkykitViewState,
   SkykitViewer,
@@ -112,6 +114,7 @@ export interface SkykitBrowserOptions {
   camera?: THREE.PerspectiveCamera;
   provider?: StarOctreeProviderService;
   starField?: ThreeStarField;
+  pick?: false | true | SkykitBrowserStarPickOptions;
   octreeUrl?: string;
   persistentCache?: SkykitPersistentCacheMode | string;
   strategy?: StarCellStrategy;
@@ -139,12 +142,16 @@ export interface SkykitBrowserOptions {
   disableTouchAction?: boolean;
 }
 
+export interface SkykitBrowserStarPickOptions
+  extends Omit<SkykitStarPickingPluginOptions, 'renderer' | 'source'> {}
+
 export interface SkykitBrowser {
   viewer: SkykitViewer;
   renderer: THREE.WebGLRenderer;
   camera: THREE.PerspectiveCamera;
   provider: StarOctreeProviderService;
   starField: ThreeStarField;
+  starPicking: (SkykitPlugin & { getSnapshot?(): unknown }) | null;
   loop: SkykitAnimationLoop;
   capabilities: Set<string>;
   actions: SkykitActionRegistry;

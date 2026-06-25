@@ -181,6 +181,7 @@ export async function createSkykitXrBrowser(input = {}) {
     for (const disposable of browserDisposables.splice(0).reverse()) {
       await disposable();
     }
+    inspect.dispose?.();
     await vr.dispose();
     if (providerBundle.ownsProvider) await providerBundle.provider?.dispose?.();
   }

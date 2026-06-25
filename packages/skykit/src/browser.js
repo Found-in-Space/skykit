@@ -33,6 +33,7 @@ import {
   createSkykitSelectionProductsPlugin,
 } from './selection.js';
 import { createSkykitStarSourcePlugin } from './star-source.js';
+import { createSkykitStarPickingPlugin } from './star-picking.js';
 import { createSkykitViewer } from './viewer.js';
 
 const DEFAULT_LIMITING_MAGNITUDE = 6.5;
@@ -41,6 +42,7 @@ const DEFAULT_UNITS_PER_PARSEC = 0.001;
 const DEFAULT_MAX_DEVICE_PIXEL_RATIO = 2;
 const DEFAULT_STAR_SOURCE_PRODUCT = 'stars:stellar/source';
 const DEFAULT_STAR_STORE_PRODUCT = 'stars:stellar/store';
+const DEFAULT_SELECTION_PRODUCT = 'selection:primary';
 
 /**
  * Create the default browser star viewer used by the starter lessons.
@@ -90,6 +92,7 @@ export async function createSkykitBrowser(input = {}) {
   });
   const products = createSkykitProductRegistryPlugin({ id: 'skykit-browser-products' });
   const selectionProducts = createSkykitSelectionProductsPlugin({ id: 'skykit-browser-selection' });
+  const starPicking = createBrowserStarPicking(options, host, starSource, starField);
 
   renderer.setClearColor?.(options.background ?? 0x02040b, 1);
   if (host.style && options.disableTouchAction !== false) host.style.touchAction = 'none';
@@ -116,6 +119,7 @@ export async function createSkykitBrowser(input = {}) {
         strategy,
         attributes: options.session?.attributes,
       }),
+      ...(starPicking ? [starPicking] : []),
       ...(options.keyboard === false ? [] : [
         createKeyboardNavigationPlugin({
           speedPcPerSec: positive(options.speedPcPerSec, 2),
@@ -149,6 +153,7 @@ export async function createSkykitBrowser(input = {}) {
     camera,
     provider,
     starField,
+    starPicking,
     loop,
     capabilities,
     actions: viewer.actions,
@@ -179,6 +184,7 @@ export async function createSkykitBrowser(input = {}) {
     for (const disposable of browserDisposables.splice(0).reverse()) {
       await disposable();
     }
+    inspect.dispose?.();
     loop.dispose();
     await viewer.dispose();
     if (!options.provider) await provider.dispose?.();
@@ -272,6 +278,26 @@ export async function createSkykitBrowser(input = {}) {
       dispose: remove,
     };
   }
+}
+
+/**
+ * @param {import('./browser.d.ts').SkykitBrowserOptions} options
+ * @param {Element | import('./browser.d.ts').SkykitBrowserHost} host
+ * @param {import('./index.d.ts').SkykitStarCellSource} source
+ * @param {import('@found-in-space/three-star-field').ThreeStarField} starField
+ * @returns {(import('./index.d.ts').SkykitPlugin & { getSnapshot?(): unknown }) | null}
+ */
+function createBrowserStarPicking(options, host, source, starField) {
+  if (options.pick === false || typeof starField.pick !== 'function') return null;
+  const pickOptions = options.pick === true || options.pick == null ? {} : options.pick;
+  const { target, ...rest } = pickOptions;
+  return createSkykitStarPickingPlugin({
+    ...rest,
+    target: target ?? /** @type {import('./index.d.ts').SkykitStarPickingTarget} */ (host),
+    renderer: starField,
+    source,
+    selection: rest.selection ?? DEFAULT_SELECTION_PRODUCT,
+  });
 }
 
 /** @param {unknown} input */

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { metaSidecarEntryDisplayFields } from '@found-in-space/meta-sidecar-provider';
 
 import { getSkykitProductRegistry } from './products.js';
 import {
@@ -273,22 +274,26 @@ export function createSkykitStarPickMetadataResolver(options = {}) {
   const fallbackLabel = options.fallbackLabel;
 
   return async function resolveSkykitStarPickMetadata(pick) {
-    const ref = pick.objectRef ?? pick.pickMeta ?? null;
+    const ref = resolvePublicStarRef(pick.objectRef);
     let label = '';
     /** @type {any} */
     let facts = null;
 
     if (provider && ref) {
-      if (typeof provider.resolvePrimaryLabel === 'function') {
+      if (typeof provider.getMeta === 'function') {
+        facts = await provider.getMeta(ref);
+        label = labelFromSidecarFacts(facts);
+      }
+      if (!label && typeof provider.resolvePrimaryLabel === 'function') {
         label = String((await provider.resolvePrimaryLabel(ref)) ?? '').trim();
       }
-      if (!label && typeof provider.resolveFacts === 'function') {
+      if ((!label || facts == null) && typeof provider.resolveFacts === 'function') {
         facts = await provider.resolveFacts(ref);
-        label = String(facts?.facts?.primaryLabel ?? '').trim();
+        if (!label) label = labelFromFacts(facts);
       }
     }
 
-    if (!label) {
+    if (!label && fallbackLabel !== undefined) {
       label = resolveFallbackLabel(fallbackLabel, pick);
     }
 
@@ -306,7 +311,7 @@ export function createSkykitStarPickMetadataResolver(options = {}) {
  */
 function resolveDemandAttributes(options) {
   const attributes = new Set(options.attributes ?? DEFAULT_PICK_ATTRIBUTES);
-  if (options.metadata) {
+  if (options.selection !== false || options.metadata) {
     for (const attribute of options.metadataAttributes ?? DEFAULT_METADATA_ATTRIBUTES) {
       attributes.add(attribute);
     }
@@ -356,6 +361,57 @@ function metadataLabel(metadata) {
   const record = /** @type {{ label?: unknown; primaryLabel?: unknown; facts?: { primaryLabel?: unknown } }} */ (metadata);
   const label = String(record.label ?? record.primaryLabel ?? record.facts?.primaryLabel ?? '').trim();
   return label || null;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {import('@found-in-space/star-trees').StarObjectRef | null}
+ */
+function resolvePublicStarRef(value) {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = /** @type {{ datasetId?: unknown; level?: unknown; mortonCode?: unknown; ordinal?: unknown; cellKey?: unknown }} */ (value);
+  if (
+    Number.isInteger(candidate.level) &&
+    typeof candidate.mortonCode === 'string' &&
+    Number.isInteger(candidate.ordinal) &&
+    candidate.cellKey === undefined
+  ) {
+    return {
+      ...(typeof candidate.datasetId === 'string' || candidate.datasetId === null
+        ? { datasetId: candidate.datasetId }
+        : {}),
+      level: Number(candidate.level),
+      mortonCode: candidate.mortonCode,
+      ordinal: Number(candidate.ordinal),
+    };
+  }
+  return null;
+}
+
+/** @param {unknown} facts */
+function labelFromFacts(facts) {
+  if (!facts || typeof facts !== 'object') return '';
+  const record = /** @type {{ label?: unknown; primaryLabel?: unknown; facts?: { primaryLabel?: unknown }; fields?: { primaryLabel?: unknown }; display?: { primaryLabel?: unknown }; displayFields?: { primaryLabel?: unknown } }} */ (facts);
+  return String(
+    record.label ??
+      record.primaryLabel ??
+      record.facts?.primaryLabel ??
+      record.fields?.primaryLabel ??
+      record.display?.primaryLabel ??
+      record.displayFields?.primaryLabel ??
+      '',
+  ).trim();
+}
+
+/** @param {unknown} facts */
+function labelFromSidecarFacts(facts) {
+  const explicit = labelFromFacts(facts);
+  if (explicit) return explicit;
+  return metaSidecarEntryDisplayFields(
+    facts && typeof facts === 'object'
+      ? /** @type {import('@found-in-space/meta-sidecar-provider').MetaSidecarEntry} */ (facts)
+      : null,
+  ).primaryLabel.trim();
 }
 
 /**

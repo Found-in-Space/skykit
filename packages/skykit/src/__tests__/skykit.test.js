@@ -29,9 +29,12 @@ import {
   createSkykitLayerHostPlugin,
   createSkykitProductRegistryPlugin,
   createRaDecLookAt,
+  createSkykitInspectFacade,
   createMouseLookPlugin,
   createSkyGrabPlugin,
   createSkyOrbitPlugin,
+  createSkykitSelectionFacade,
+  createSkykitSelectionProductsPlugin,
   createSkykitDefaultKeyboardNavigationBindings,
   createSkykitAnimationLoop,
   createSkykitDebugBridge,
@@ -1252,6 +1255,166 @@ test('star picking plugin emits selected stars from click gestures', async () =>
   assert.equal(target.listenerCount('pointerup'), 0);
 });
 
+test('star picking plugin writes public object refs to product-backed selection', async () => {
+  const target = createPointerTarget();
+  const objectRef = {
+    datasetId: 'gaia-dr3',
+    level: 4,
+    mortonCode: '00af',
+    ordinal: 7,
+  };
+  const pickResult = createPickResult({ objectRef });
+  const products = createSkykitProductRegistryPlugin({ id: 'products' });
+  const selectionProducts = createSkykitSelectionProductsPlugin({ id: 'selection' });
+  const plugin = createSkykitStarPickingPlugin({
+    target,
+    renderer: {
+      pick() {
+        return pickResult;
+      },
+    },
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    camera: new THREE.PerspectiveCamera(60, 4 / 3, 0.1, 100),
+    plugins: [products, selectionProducts, plugin],
+  });
+
+  target.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 400, clientY: 300 });
+  target.dispatch('pointerup', { pointerId: 1, clientX: 400, clientY: 300 });
+  await flushMicrotasks();
+
+  const selection = products.get('selection:primary').getPrimary();
+  assert.equal(selection.kind, 'star');
+  assert.equal(selection.identityAvailable, true);
+  assert.deepEqual(selection.ref, objectRef);
+  assert.equal(selection.label, 'Selected star');
+  assert.deepEqual(selection.pick.position, pickResult.position);
+  assert.equal(selection.diagnostic, undefined);
+
+  await viewer.dispose();
+});
+
+test('star picking plugin enriches selections from sidecar-like getMeta providers', async () => {
+  const target = createPointerTarget();
+  const objectRef = {
+    datasetId: 'gaia-dr3',
+    level: 5,
+    mortonCode: '001abc',
+    ordinal: 42,
+  };
+  const facts = {
+    proper_name: 'Sirius',
+    hd: 48915,
+  };
+  const providerCalls = [];
+  const products = createSkykitProductRegistryPlugin({ id: 'products' });
+  const selectionProducts = createSkykitSelectionProductsPlugin({ id: 'selection' });
+  const plugin = createSkykitStarPickingPlugin({
+    target,
+    renderer: {
+      pick() {
+        return createPickResult({ objectRef });
+      },
+    },
+    metadata: {
+      async getMeta(ref) {
+        providerCalls.push(ref);
+        return facts;
+      },
+    },
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    camera: new THREE.PerspectiveCamera(60, 4 / 3, 0.1, 100),
+    plugins: [products, selectionProducts, plugin],
+  });
+
+  target.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 400, clientY: 300 });
+  target.dispatch('pointerup', { pointerId: 1, clientX: 400, clientY: 300 });
+  await flushMicrotasks();
+
+  const selection = products.get('selection:primary').getPrimary();
+  assert.deepEqual(providerCalls, [objectRef]);
+  assert.equal(selection.kind, 'star');
+  assert.deepEqual(selection.ref, objectRef);
+  assert.equal(selection.label, 'Sirius');
+  assert.deepEqual(selection.facts, facts);
+
+  await viewer.dispose();
+});
+
+test('star picking plugin writes unavailable selections without deriving fake ids', async () => {
+  const target = createPointerTarget();
+  const pickResult = createPickResult({
+    objectRef: null,
+    pickMeta: {
+      cellKey: '2:7',
+      level: 2,
+      mortonCode: '7',
+      ordinal: 0,
+      gridX: 0,
+      gridY: 0,
+      gridZ: 0,
+      centerX: 0,
+      centerY: 0,
+      centerZ: 0,
+    },
+  });
+  const providerCalls = [];
+  const products = createSkykitProductRegistryPlugin({ id: 'products' });
+  const selectionProducts = createSkykitSelectionProductsPlugin({ id: 'selection' });
+  const plugin = createSkykitStarPickingPlugin({
+    target,
+    renderer: {
+      pick() {
+        return pickResult;
+      },
+    },
+    metadata: {
+      async getMeta(ref) {
+        providerCalls.push(ref);
+        return { proper_name: 'Should not load' };
+      },
+    },
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    camera: new THREE.PerspectiveCamera(60, 4 / 3, 0.1, 100),
+    plugins: [products, selectionProducts, plugin],
+  });
+
+  target.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 400, clientY: 300 });
+  target.dispatch('pointerup', { pointerId: 1, clientX: 400, clientY: 300 });
+  await flushMicrotasks();
+
+  const selection = products.get('selection:primary').getPrimary();
+  assert.deepEqual(providerCalls, []);
+  assert.equal(selection.kind, 'star-pick-unavailable');
+  assert.equal(selection.identityAvailable, false);
+  assert.equal(selection.ref, undefined);
+  assert.equal(selection.id, undefined);
+  assert.equal(selection.label, 'Star identity unavailable');
+  assert.deepEqual(selection.diagnostic, {
+    cellKey: '2:7',
+    objectIndex: 0,
+    pickMeta: {
+      cellKey: '2:7',
+      level: 2,
+      mortonCode: '7',
+      ordinal: 0,
+      gridX: 0,
+      gridY: 0,
+      gridZ: 0,
+      centerX: 0,
+      centerY: 0,
+      centerZ: 0,
+    },
+  });
+
+  await viewer.dispose();
+});
+
 test('star picking plugin ignores drag gestures and reports misses without clearing selection', async () => {
   const dragTarget = createPointerTarget();
   let pickCalls = 0;
@@ -1372,9 +1535,13 @@ test('star pick metadata resolver uses structural providers and fallback labels'
   const providerCalls = [];
   const resolver = createSkykitStarPickMetadataResolver({
     provider: {
+      getMeta(ref) {
+        providerCalls.push(['getMeta', ref]);
+        return { proper_name: 'Vega' };
+      },
       resolvePrimaryLabel(ref) {
-        providerCalls.push(ref);
-        return 'Vega';
+        providerCalls.push(['resolvePrimaryLabel', ref]);
+        return 'Ignored';
       },
     },
     fallbackLabel: (pick) => `fallback:${pick.cellKey}:${pick.objectIndex}`,
@@ -1391,7 +1558,7 @@ test('star pick metadata resolver uses structural providers and fallback labels'
   const metadata = await resolver(pick, /** @type {any} */ ({}));
 
   assert.equal(metadata.label, 'Vega');
-  assert.equal(providerCalls.length, 1);
+  assert.deepEqual(providerCalls, [['getMeta', pick.objectRef]]);
 
   const fallbackResolver = createSkykitStarPickMetadataResolver({
     fallbackLabel: (nextPick) => `fallback:${nextPick.cellKey}:${nextPick.objectIndex}`,
@@ -1402,6 +1569,81 @@ test('star pick metadata resolver uses structural providers and fallback labels'
   );
 
   assert.equal(fallback.label, 'fallback:cell-b:3');
+
+  const unavailableProviderCalls = [];
+  const unavailable = await createSkykitStarPickMetadataResolver({
+    provider: {
+      getMeta(ref) {
+        unavailableProviderCalls.push(ref);
+        return { proper_name: 'Should not load' };
+      },
+    },
+  })(createPickResult({
+    objectRef: null,
+    pickMeta: {
+      cellKey: 'cell-c',
+      level: 1,
+      mortonCode: 'c',
+      ordinal: 3,
+      gridX: 0,
+      gridY: 0,
+      gridZ: 0,
+      centerX: 0,
+      centerY: 0,
+      centerZ: 0,
+    },
+  }), /** @type {any} */ ({}));
+
+  assert.deepEqual(unavailableProviderCalls, []);
+  assert.equal(unavailable.ref, null);
+  assert.equal(unavailable.label, '');
+});
+
+test('inspect facade records bounded action and selection history', async () => {
+  const products = createSkykitProductRegistryPlugin({ id: 'products' });
+  const selectionProducts = createSkykitSelectionProductsPlugin({ id: 'selection' });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [products, selectionProducts],
+  });
+  const selection = createSkykitSelectionFacade({
+    store: selectionProducts.primary,
+    products,
+  });
+  const inspect = createSkykitInspectFacade({
+    viewer,
+    products,
+    selection,
+    historyLimit: 2,
+  });
+
+  viewer.actions.press('skykit:test.press', { amount: 1 }, { source: 'keyboard' });
+  selection.set({ kind: 'object', id: 'marker-a', label: 'Marker A', source: 'test' }, { source: 'test' });
+  viewer.actions.setControlValue('skykit:test.control', { x: 1 }, { source: 'stick' });
+
+  const history = inspect.getHistory();
+  assert.equal(history.length, 2);
+  assert.equal(history[0].type, 'selection');
+  assert.equal(history[0].eventType, 'selection/change');
+  assert.deepEqual(history[0].selection, {
+    kind: 'object',
+    id: 'marker-a',
+    label: 'Marker A',
+    productKey: null,
+    source: 'test',
+  });
+  assert.equal(history[1].type, 'action');
+  assert.equal(history[1].eventType, 'action/control');
+  assert.equal(history[1].actionId, 'skykit:test.control');
+  assert.equal(history[1].source, 'stick');
+  assert.deepEqual(history[1].value, { x: 1 });
+  assert.doesNotThrow(() => JSON.stringify(inspect.getSnapshot().history));
+
+  inspect.dispose();
+  selection.set({ kind: 'object', id: 'marker-b' }, { source: 'test' });
+  assert.equal(inspect.getHistory().length, 2);
+
+  await viewer.dispose();
 });
 
 test('animation loop drives viewer frames with an injected scheduler and clock', async () => {

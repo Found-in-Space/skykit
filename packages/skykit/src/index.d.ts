@@ -490,6 +490,32 @@ export interface SkykitInspectStreamSummary {
   diagnostics: unknown;
 }
 
+export interface SkykitInspectSelectionSummary {
+  kind: string | null;
+  identityAvailable?: boolean;
+  ref?: unknown;
+  label?: string | null;
+  facts?: unknown;
+  pick?: unknown;
+  reason?: string | null;
+  diagnostic?: unknown;
+  id?: string | null;
+  productKey?: string | null;
+  source?: string | null;
+}
+
+export interface SkykitInspectHistoryEntry {
+  order: number;
+  timeMs: number;
+  type: 'action' | 'selection';
+  eventType: string;
+  actionId?: SkykitActionId;
+  source?: string | null;
+  payload?: unknown;
+  value?: unknown;
+  selection?: SkykitInspectSelectionSummary | null;
+}
+
 export interface SkykitInspectSnapshot {
   id: string;
   view: SkykitViewState;
@@ -497,6 +523,7 @@ export interface SkykitInspectSnapshot {
   products: SkykitProductRegistrySnapshot | null;
   actions: SkykitActionRegistrySnapshot;
   selection: unknown;
+  history: SkykitInspectHistoryEntry[];
   xr: unknown;
   diagnostics: {
     viewer: SkykitViewerSnapshot;
@@ -511,6 +538,8 @@ export interface SkykitInspectFacade {
   getProducts(filter?: SkykitProductFilter): SkykitProductSnapshotRecord[];
   getActions(): SkykitActionRegistrySnapshot;
   getSelection(): unknown;
+  getHistory(): SkykitInspectHistoryEntry[];
+  dispose(): void;
 }
 
 export interface SkykitThreePluginContext extends SkykitPluginContext {
@@ -1316,7 +1345,8 @@ export interface SkykitStarPickPointer {
 }
 
 export interface SkykitStarPickMetadataProvider {
-  resolvePrimaryLabel(ref: StarObjectRef | StarPickMeta): string | Promise<string>;
+  getMeta?(ref: StarObjectRef): unknown | Promise<unknown>;
+  resolvePrimaryLabel?(ref: StarObjectRef | StarPickMeta): string | Promise<string>;
   resolveFacts?(ref: StarObjectRef | StarPickMeta): unknown | Promise<unknown>;
 }
 
@@ -1698,6 +1728,7 @@ export declare function createSkykitInspectFacade(options: {
   selection?: SkykitSelectionFacade | null;
   getXrSnapshot?: (() => unknown) | null;
   getRuntimeSnapshot?: (() => unknown) | null;
+  historyLimit?: number;
 }): SkykitInspectFacade;
 export declare function createSkykitProductRegistry(): SkykitProductRegistry;
 export declare function getSkykitProductRegistry(ctx: SkykitPluginContext): SkykitProductRegistry;

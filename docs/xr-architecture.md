@@ -256,11 +256,11 @@ Implemented in `@found-in-space/skykit/xr`:
 Not implemented yet:
 
 - GPU pick routing or built-in star-specific XR pick effects.
-- built-in sidecar label/facts policy for beginner-facing XR selections. The
+- published beginner lessons that use sidecar-enriched XR selections. The
   low-level XR star picking plugin and XR browser facade now propagate
   bookmarkable `StarObjectRef` identity into pick events and product-backed
-  selection when the star source provides `objectRef`; remaining work is the
-  label/facts enrichment policy, not identity plumbing.
+  selection, and `stars.pick.metadata` can enrich labels/facts from sidecar-like
+  providers with `getMeta(ref)`.
 - a journey runtime that drives `skykit:navigation.*` actions.
 - published lesson docs that replace every legacy XR demo end to end.
 

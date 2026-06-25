@@ -310,6 +310,94 @@ test('createSkykitBrowser treats forbidden Cache API access as disabled', async 
   });
 });
 
+test('createSkykitBrowser installs default star picking when the star field supports pick', async () => {
+  await withFakeWindow(async () => {
+    const host = createPointerHost();
+    const objectRef = {
+      datasetId: 'gaia-dr3',
+      level: 4,
+      mortonCode: '00af',
+      ordinal: 7,
+    };
+    const pickResult = {
+      cellKey: 'cell-a',
+      objectIndex: 0,
+      objectRef,
+      pickMeta: null,
+      position: { x: 1, y: 2, z: 3 },
+      distancePc: 10,
+      apparentMagnitude: 2,
+      visualRadiusPx: 4,
+      teffLog8: 128,
+      magAbs: 1,
+      score: 0.5,
+      angularDistanceDeg: 0.1,
+    };
+    const starField = createStarField({ pickResult });
+    const browser = await createSkykitBrowser({
+      host,
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField,
+      mouseMode: 'none',
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+    });
+
+    assert.ok(browser.starPicking);
+    assert.equal(host.listenerCount('pointerdown'), 1);
+    assert.deepEqual(browser.provider.sessions[0].options.attributes, [
+      'position',
+      'teffLog8',
+      'magAbs',
+      'objectRef',
+      'pickMeta',
+    ]);
+
+    host.dispatch('pointerdown', { button: 0, pointerId: 1, pointerType: 'mouse', clientX: 320, clientY: 180 });
+    host.dispatch('pointerup', { pointerId: 1, pointerType: 'mouse', clientX: 320, clientY: 180 });
+    await flushMicrotasks();
+
+    assert.equal(starField.pickCalls.length, 1);
+    assert.equal(browser.selection.get().kind, 'star');
+    assert.deepEqual(browser.selection.get().ref, objectRef);
+    assert.equal(browser.inspect.getHistory().some((entry) => entry.type === 'selection'), true);
+
+    browser.actions.press('skykit:test.pick-history', { ok: true }, { source: 'test' });
+    const actionEntry = browser.inspect.getHistory().find((entry) => entry.eventType === 'action/press');
+    assert.equal(actionEntry?.actionId, 'skykit:test.pick-history');
+    assert.deepEqual(actionEntry?.payload, { ok: true });
+
+    await browser.dispose();
+    assert.equal(host.listenerCount('pointerdown'), 0);
+  });
+});
+
+test('createSkykitBrowser can opt out of default star picking', async () => {
+  await withFakeWindow(async () => {
+    const host = createPointerHost();
+    const browser = await createSkykitBrowser({
+      host,
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField({ pickResult: { cellKey: 'cell-a', objectIndex: 0 } }),
+      pick: false,
+      mouseMode: 'none',
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+    });
+
+    assert.equal(browser.starPicking, null);
+    assert.equal(host.listenerCount('pointerdown'), 0);
+
+    await browser.dispose();
+  });
+});
+
 test('browser.install adds plugins after startup and cleans returned teardowns', async () => {
   await withFakeWindow(async () => {
     const calls = [];
@@ -612,25 +700,74 @@ function createSession(options) {
   };
 }
 
-function createStarField() {
+function createPointerHost() {
+  const host = createHost();
+  const listeners = new Map();
+  return {
+    ...host,
+    getBoundingClientRect() {
+      return {
+        left: 0,
+        top: 0,
+        width: this.clientWidth,
+        height: this.clientHeight,
+      };
+    },
+    addEventListener(type, listener) {
+      let typeListeners = listeners.get(type);
+      if (!typeListeners) {
+        typeListeners = new Set();
+        listeners.set(type, typeListeners);
+      }
+      typeListeners.add(listener);
+    },
+    removeEventListener(type, listener) {
+      listeners.get(type)?.delete(listener);
+    },
+    dispatch(type, event = {}) {
+      for (const listener of listeners.get(type) ?? []) {
+        listener({ type, ...event });
+      }
+    },
+    listenerCount(type) {
+      return listeners.get(type)?.size ?? 0;
+    },
+  };
+}
+
+function createStarField(options = {}) {
   return {
     object3d: new THREE.Group(),
     disposed: false,
     view: null,
+    pickCalls: [],
     apply() {},
     setView(view) {
       this.view = view;
     },
+    pick: options.pickResult === undefined
+      ? undefined
+      : function pick(ray, pickOptions) {
+          this.pickCalls.push({ ray, options: pickOptions });
+          return options.pickResult;
+        },
     getSnapshot() {
       return {
         starCount: 0,
         hasView: Boolean(this.view),
+        pickCalls: this.pickCalls.length,
       };
     },
     dispose() {
       this.disposed = true;
     },
   };
+}
+
+async function flushMicrotasks(count = 10) {
+  for (let index = 0; index < count; index += 1) {
+    await Promise.resolve();
+  }
 }
 
 function localVectorFromView(view, vector) {

@@ -13,6 +13,7 @@
  *   selection?: SkykitSelectionFacade | null;
  *   getXrSnapshot?: (() => unknown) | null;
  *   getRuntimeSnapshot?: (() => unknown) | null;
+ *   historyLimit?: number;
  * }} options
  * @returns {SkykitInspectFacade}
  */
@@ -23,6 +24,20 @@ export function createSkykitInspectFacade(options) {
   const viewer = options.viewer;
   const products = options.products ?? null;
   const selection = options.selection ?? null;
+  const historyLimit = nonNegativeInteger(options.historyLimit, 50);
+  /** @type {import('./index.d.ts').SkykitInspectHistoryEntry[]} */
+  const history = [];
+  /** @type {Array<() => void>} */
+  const teardowns = [];
+  let historyOrder = 0;
+  let disposed = false;
+
+  if (historyLimit > 0) {
+    teardowns.push(viewer.actions.subscribe(recordActionHistory));
+    if (selection) {
+      teardowns.push(selection.subscribe(recordSelectionHistory));
+    }
+  }
 
   return {
     getSnapshot,
@@ -31,6 +46,8 @@ export function createSkykitInspectFacade(options) {
     getProducts,
     getActions,
     getSelection,
+    getHistory,
+    dispose,
   };
 
   function getSnapshot() {
@@ -42,6 +59,7 @@ export function createSkykitInspectFacade(options) {
       products: products?.getSnapshot?.() ?? null,
       actions: viewer.actions.getSnapshot(),
       selection: selection?.getSnapshot?.() ?? null,
+      history: getHistory(),
       xr: options.getXrSnapshot?.() ?? null,
       diagnostics: {
         viewer: viewerSnapshot,
@@ -80,6 +98,50 @@ export function createSkykitInspectFacade(options) {
 
   function getSelection() {
     return selection?.getSnapshot?.() ?? null;
+  }
+
+  function getHistory() {
+    return history.map((entry) => cloneJsonSafe(entry) ?? entry);
+  }
+
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    for (const teardown of teardowns.splice(0).reverse()) teardown();
+  }
+
+  /** @param {import('./index.d.ts').SkykitActionEvent} event */
+  function recordActionHistory(event) {
+    appendHistory({
+      type: 'action',
+      eventType: event.type,
+      actionId: event.id,
+      source: actionEventSource(event),
+      payload: summarizePayload(/** @type {{ payload?: unknown }} */ (event).payload),
+      value: summarizePayload(/** @type {{ value?: unknown }} */ (event).value),
+      selection: summarizeSelection(selection?.get?.() ?? null),
+    });
+  }
+
+  /** @param {import('./index.d.ts').SkykitSelectionValue | null} value */
+  function recordSelectionHistory(value) {
+    appendHistory({
+      type: 'selection',
+      eventType: 'selection/change',
+      source: selectionSource(value),
+      value: summarizeSelection(value),
+      selection: summarizeSelection(value),
+    });
+  }
+
+  /** @param {Omit<import('./index.d.ts').SkykitInspectHistoryEntry, 'order' | 'timeMs'>} entry */
+  function appendHistory(entry) {
+    history.push({
+      order: historyOrder += 1,
+      timeMs: nowMs(),
+      ...entry,
+    });
+    while (history.length > historyLimit) history.shift();
   }
 }
 
@@ -168,8 +230,70 @@ function summarizeValue(value) {
 }
 
 /** @param {unknown} value */
+function summarizePayload(value) {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  const cloned = cloneJsonSafe(value);
+  if (cloned !== null) return cloned;
+  return summarizeValue(value);
+}
+
+/** @param {import('./index.d.ts').SkykitSelectionValue | null} value */
+function summarizeSelection(value) {
+  if (!value || typeof value !== 'object') return null;
+  const record = /** @type {Record<string, unknown>} */ (value);
+  const kind = typeof record.kind === 'string' ? record.kind : null;
+  if (kind === 'star') {
+    return {
+      kind,
+      identityAvailable: record.identityAvailable === true,
+      ref: cloneJsonSafe(record.ref),
+      label: typeof record.label === 'string' ? record.label : null,
+      facts: summarizePayload(record.facts),
+      pick: cloneJsonSafe(record.pick),
+      source: typeof record.source === 'string' ? record.source : null,
+    };
+  }
+  if (kind === 'star-pick-unavailable') {
+    return {
+      kind,
+      identityAvailable: false,
+      reason: typeof record.reason === 'string' ? record.reason : null,
+      label: typeof record.label === 'string' ? record.label : null,
+      diagnostic: cloneJsonSafe(record.diagnostic),
+      source: typeof record.source === 'string' ? record.source : null,
+    };
+  }
+  return {
+    kind,
+    id: typeof record.id === 'string' ? record.id : null,
+    label: typeof record.label === 'string' ? record.label : null,
+    productKey: typeof record.productKey === 'string' ? record.productKey : null,
+    source: typeof record.source === 'string' ? record.source : null,
+  };
+}
+
+/** @param {import('./index.d.ts').SkykitActionEvent} event */
+function actionEventSource(event) {
+  const direct = /** @type {{ source?: unknown }} */ (event).source;
+  if (typeof direct === 'string' && direct) return direct;
+  const metadata = /** @type {{ metadata?: { source?: unknown } }} */ (event).metadata;
+  return typeof metadata?.source === 'string' && metadata.source ? metadata.source : null;
+}
+
+/** @param {import('./index.d.ts').SkykitSelectionValue | null} value */
+function selectionSource(value) {
+  if (!value || typeof value !== 'object') return null;
+  const source = /** @type {{ source?: unknown }} */ (value).source;
+  return typeof source === 'string' && source ? source : null;
+}
+
+/** @param {unknown} value */
 function cloneJsonSafe(value) {
-  if (value == null) return null;
+  if (value === undefined) return undefined;
+  if (value === null) return null;
   try {
     return JSON.parse(JSON.stringify(value));
   } catch {
@@ -181,4 +305,14 @@ function cloneJsonSafe(value) {
 function finiteOrNull(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+/** @param {unknown} value @param {number} fallback */
+function nonNegativeInteger(value, fallback) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 ? number : fallback;
+}
+
+function nowMs() {
+  return globalThis.performance?.now?.() ?? Date.now();
 }

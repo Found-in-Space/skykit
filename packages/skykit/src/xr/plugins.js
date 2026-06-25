@@ -624,10 +624,11 @@ export function createSkykitXrStarPickingPlugin(options) {
     },
   });
   const metadataResolver = normalizeXrMetadataResolver(options.metadata);
+  const publicSelectionEnabled = options.selection !== false;
   const attributes = Array.from(new Set([
     ...(options.attributes ?? []),
     ...DEFAULT_XR_PICK_ATTRIBUTES,
-    ...(metadataResolver ? (options.metadataAttributes ?? DEFAULT_XR_PICK_METADATA_ATTRIBUTES) : []),
+    ...((publicSelectionEnabled || metadataResolver) ? (options.metadataAttributes ?? DEFAULT_XR_PICK_METADATA_ATTRIBUTES) : []),
   ]));
   /** @type {(() => void) | null} */
   let unregisterDemand = null;
