@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 
-import { raDecToIcrsDirection } from '@found-in-space/spatial';
-
+import {
+  basisForFrame,
+  createPlanePath,
+  scaleVector,
+} from './coordinate-basis.js';
 import { createSkykitLayerHostPlugin } from './layer-host.js';
 
 /**
@@ -19,11 +22,6 @@ import { createSkykitLayerHostPlugin } from './layer-host.js';
 const DEFAULT_RADIUS = 8;
 const DEFAULT_LINE_COLOR = 0x88d7ff;
 const DEFAULT_POINT_COLOR = 0xffd36a;
-const GALACTIC_CENTER_RA_DEG = 266.4051;
-const GALACTIC_CENTER_DEC_DEG = -28.936175;
-const GALACTIC_NORTH_RA_DEG = 192.85948;
-const GALACTIC_NORTH_DEC_DEG = 27.12825;
-const EARTH_OBLIQUITY_DEG = 23.43928;
 
 /**
  * @param {SkykitCoordinateFrameMarkerLayerOptions} options
@@ -167,6 +165,7 @@ function markerToFeature(marker, options) {
     kind: `coordinate-frame:${marker.kind}`,
     label: marker.label,
     frame: 'icrs-pc',
+    ...(marker.pathIcrs ? { pathIcrs: marker.pathIcrs } : {}),
     ...(marker.targetIcrs ? {
       position: marker.targetIcrs,
       target: { targetPc: marker.targetIcrs },
@@ -236,32 +235,6 @@ function axisMarker(id, label, direction, radius) {
   };
 }
 
-/** @param {string} frame */
-function basisForFrame(frame) {
-  if (frame.toLowerCase() === 'galactic') {
-    const north = raDecToIcrsDirection({ raDeg: GALACTIC_NORTH_RA_DEG, decDeg: GALACTIC_NORTH_DEC_DEG })
-      ?? { x: 0, y: 0, z: 1 };
-    const center = raDecToIcrsDirection({ raDeg: GALACTIC_CENTER_RA_DEG, decDeg: GALACTIC_CENTER_DEC_DEG })
-      ?? { x: 1, y: 0, z: 0 };
-    const y = normalizeVector(cross(north, center)) ?? { x: 0, y: 1, z: 0 };
-    const x = normalizeVector(cross(y, north)) ?? center;
-    return { x, y, z: normalizeVector(north) ?? north };
-  }
-  if (frame.toLowerCase() === 'solar') {
-    const obliquity = EARTH_OBLIQUITY_DEG * Math.PI / 180;
-    const x = { x: 1, y: 0, z: 0 };
-    const z = normalizeVector({ x: 0, y: -Math.sin(obliquity), z: Math.cos(obliquity) })
-      ?? { x: 0, y: 0, z: 1 };
-    const y = normalizeVector(cross(z, x)) ?? { x: 0, y: 1, z: 0 };
-    return { x, y, z };
-  }
-  return {
-    x: { x: 1, y: 0, z: 0 },
-    y: { x: 0, y: 1, z: 0 },
-    z: { x: 0, y: 0, z: 1 },
-  };
-}
-
 /** @param {SkykitCoordinateFrameMarker[]} markers */
 function createMarkerObject(markers) {
   const root = new THREE.Group();
@@ -309,50 +282,6 @@ function flattenPoints(points) {
     positions.push(point.x, point.y, point.z);
   }
   return positions;
-}
-
-/** @param {Vector3Like} xAxis @param {Vector3Like} yAxis @param {number} radius @param {number} steps */
-function createPlanePath(xAxis, yAxis, radius, steps) {
-  /** @type {Vector3Like[]} */
-  const points = [];
-  for (let index = 0; index < steps; index += 1) {
-    const angle = index / steps * Math.PI * 2;
-    points.push({
-      x: (Math.cos(angle) * xAxis.x + Math.sin(angle) * yAxis.x) * radius,
-      y: (Math.cos(angle) * xAxis.y + Math.sin(angle) * yAxis.y) * radius,
-      z: (Math.cos(angle) * xAxis.z + Math.sin(angle) * yAxis.z) * radius,
-    });
-  }
-  return points;
-}
-
-/** @param {Vector3Like} vector @param {number} scale */
-function scaleVector(vector, scale) {
-  return {
-    x: vector.x * scale,
-    y: vector.y * scale,
-    z: vector.z * scale,
-  };
-}
-
-/** @param {Vector3Like} left @param {Vector3Like} right */
-function cross(left, right) {
-  return {
-    x: left.y * right.z - left.z * right.y,
-    y: left.z * right.x - left.x * right.z,
-    z: left.x * right.y - left.y * right.x,
-  };
-}
-
-/** @param {Vector3Like} value */
-function normalizeVector(value) {
-  const length = Math.hypot(value.x, value.y, value.z);
-  if (!Number.isFinite(length) || length <= 0) return null;
-  return {
-    x: value.x / length,
-    y: value.y / length,
-    z: value.z / length,
-  };
 }
 
 /** @param {unknown} value @param {number} fallback */

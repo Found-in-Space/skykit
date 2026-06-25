@@ -95,6 +95,11 @@ async function installRequestedCapabilities(host, browser) {
       frames: data.skykitFrames,
     });
   }
+  if (data.skykitGrids != null) {
+    await browser.grids.load({
+      grids: data.skykitGrids,
+    });
+  }
 }
 
 /** @param {Element} host */

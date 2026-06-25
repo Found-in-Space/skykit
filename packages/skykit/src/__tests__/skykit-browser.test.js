@@ -562,6 +562,90 @@ test('browser coordinate frame capability publishes features, waypoints, and ins
   });
 });
 
+test('browser coordinate grid capability publishes features and mirrors frame facade controls', async () => {
+  await withFakeWindow(async () => {
+    const browser = await createSkykitBrowser({
+      host: createHost(),
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+    });
+
+    const grids = await browser.grids.load({ grids: 'equatorial,galactic' });
+    const snapshot = grids.getSnapshot();
+
+    assert.equal(snapshot.gridCount, 2);
+    assert.equal(browser.capabilities.has('skykit:browser.coordinate-grids'), true);
+    assert.equal(browser.products.get('features:grids/equatorial').type, 'FeatureCollection');
+    assert.equal(browser.products.get('features:grids/galactic').features.some((feature) => feature.id === 'galactic:plane'), true);
+    assert.equal(browser.products.get('waypoints:grids/equatorial').some((waypoint) => waypoint.id === 'equatorial:ra-06h'), true);
+    assert.deepEqual(snapshot.products, [
+      'features:grids/equatorial',
+      'waypoints:grids/equatorial',
+      'features:grids/galactic',
+      'waypoints:grids/galactic',
+    ]);
+    assert.equal(grids.hide(), false);
+    assert.equal(grids.toggle(), true);
+    assert.equal(grids.show(), true);
+
+    await browser.dispose();
+  });
+});
+
+test('browser coordinate grid capability defaults to equatorial and galactic grids', async () => {
+  await withFakeWindow(async () => {
+    const browser = await createSkykitBrowser({
+      host: createHost(),
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+    });
+
+    const grids = await browser.grids.load();
+
+    assert.deepEqual(grids.getSnapshot().products, [
+      'features:grids/equatorial',
+      'waypoints:grids/equatorial',
+      'features:grids/galactic',
+      'waypoints:grids/galactic',
+    ]);
+
+    await browser.dispose();
+  });
+});
+
+test('browser coordinate grid capability treats off-like requests as disabled', async () => {
+  await withFakeWindow(async () => {
+    const browser = await createSkykitBrowser({
+      host: createHost(),
+      status: false,
+      renderer: createRenderer(),
+      provider: createProvider(),
+      starField: createStarField(),
+      autoResize: false,
+      autoDispose: false,
+      autoStart: false,
+    });
+
+    const grids = await browser.grids.load({ grids: 'off' });
+
+    assert.equal(grids.getSnapshot().gridCount, 0);
+    assert.equal(browser.capabilities.has('skykit:browser.coordinate-grids'), false);
+    assert.equal(browser.products.get('features:grids/equatorial'), null);
+
+    await browser.dispose();
+  });
+});
+
 test('Skykit browser global resolves existing and future browsers and installs add-ons once', async () => {
   await withFakeWindow(async () => {
     const service = installSkykitBrowserGlobal(/** @type {typeof globalThis} */ ({}));

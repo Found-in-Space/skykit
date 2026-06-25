@@ -143,6 +143,11 @@ The browser/XR facade stabilization work has landed in
   `browser.frames` / `xrBrowser.frames` lazy-load coordinate-frame marker
   layers, publish `features:frames/<frame>` and `waypoints:frames/<frame>`, and
   can be requested from embeds with `data-skykit-frames`.
+- Coordinate grid overlays now use the same first-party layer/product/capability
+  pattern. `browser.grids` / `xrBrowser.grids` load equatorial and galactic
+  observer-centric grid layers, publish `features:grids/<system>` and
+  `waypoints:grids/<system>`, and can be requested from embeds with
+  `data-skykit-grids`.
 - `createSkykitXrBrowser()` provides the browser-style XR handle over the VR
   viewer preset, with `vr`, `xr`, `rig`, `session`, `rays`, `enter()`,
   `exit()`, object/layer helpers, products, selection, actions, and inspect.
@@ -174,6 +179,7 @@ overhaul depends on it:
   data-skykit-status="#skykit-status"
   data-skykit-look-at="05h 36m 12.81s, -01deg 12m 06.9s"
   data-skykit-frames="galactic"
+  data-skykit-grids="equatorial,galactic"
   style="width:100%;height:500px;background:#02040b"
 ></div>
 
@@ -448,8 +454,11 @@ standard marker layer with `data-skykit-frames="galactic"` or
 `data-skykit-frames="galactic,solar"`, browser/XR handles can call
 `frames.load()`, and advanced apps can still install
 `createSkykitCoordinateFrameMarkerLayer()` directly for authored marker sets.
-Meridian lines and grids should follow this same pattern when their reusable
-renderer/layer shape is clear.
+Coordinate grids follow it too: static pages can request
+`data-skykit-grids="equatorial,galactic"`, browser/XR handles can call
+`grids.load()`, and advanced apps can install
+`createSkykitCoordinateGridLayer()` directly. The grid products use
+`features:grids/<system>` and `waypoints:grids/<system>`.
 
 ### Spatial Layers
 
@@ -583,6 +592,7 @@ interface SkykitXrBrowser {
   addLayer(layer: SkykitHostedLayer): SkykitLayerHandle;
   constellations: SkykitBrowserConstellationsFacade;
   frames: SkykitBrowserCoordinateFramesFacade;
+  grids: SkykitBrowserCoordinateGridsFacade;
   starPicking: SkykitPlugin | null;
   actions: SkykitActionRegistry;
   products: SkykitProductRegistryPlugin | null;

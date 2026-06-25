@@ -21,6 +21,7 @@ import {
   SKYKIT_DEFAULT_KEYBOARD_NAVIGATION_BINDINGS,
   createSkykitActionRegistry,
   createKeyboardNavigationPlugin,
+  createSkykitCoordinateGridLayer,
   createDesktopSkykitObserverRig,
   createSkykitCoordinateFrameMarkerLayer,
   createSkykitConstellationLayer,
@@ -570,6 +571,89 @@ test('constellation and coordinate-frame layers publish spatial feature and wayp
   assert.equal(products.get('features:constellations/western'), null);
   assert.equal(products.get('surfaces:constellation-art/western'), null);
   assert.equal(products.get('features:frames/galactic'), null);
+});
+
+test('coordinate grid layers publish stable feature and waypoint products', async () => {
+  const products = createSkykitProductRegistryPlugin({ id: 'products' });
+  const equatorialGrid = createSkykitCoordinateGridLayer({
+    id: 'equatorial-grid',
+    system: 'equatorial',
+    publish: {
+      features: 'features:grids/equatorial',
+      waypoints: 'waypoints:grids/equatorial',
+    },
+  });
+  const galacticGrid = createSkykitCoordinateGridLayer({
+    id: 'galactic-grid',
+    system: 'galactic',
+    publish: {
+      features: 'features:grids/galactic',
+      waypoints: 'waypoints:grids/galactic',
+    },
+  });
+  const layerHost = createSkykitLayerHostPlugin({
+    layers: [equatorialGrid, galacticGrid],
+  });
+
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [
+      products,
+      layerHost,
+    ],
+  });
+
+  const equatorialFeatures = products.get('features:grids/equatorial');
+  const equatorialWaypoints = products.get('waypoints:grids/equatorial');
+  const galacticFeatures = products.get('features:grids/galactic');
+  const galacticWaypoints = products.get('waypoints:grids/galactic');
+  const equatorialIds = equatorialFeatures.features.map((feature) => feature.id);
+  const galacticIds = galacticFeatures.features.map((feature) => feature.id);
+
+  assert.equal(equatorialFeatures.type, 'FeatureCollection');
+  assert.equal(equatorialFeatures.features.length, 23);
+  assert.equal(
+    ['equatorial:ra-00h-meridian', 'equatorial:ra-22h-meridian', 'equatorial:dec-plus-15deg-parallel']
+      .every((id) => equatorialIds.includes(id)),
+    true,
+  );
+  assert.equal(
+    ['equatorial:north-celestial-pole', 'equatorial:south-celestial-pole', 'equatorial:ra-00h', 'equatorial:ra-06h', 'equatorial:ra-12h', 'equatorial:ra-18h']
+      .every((id) => equatorialWaypoints.some((waypoint) => waypoint.id === id)),
+    true,
+  );
+  assert.equal(galacticFeatures.features.length, 17);
+  assert.equal(
+    ['galactic:plane', 'galactic:l-000deg-meridian', 'galactic:b-plus-30deg-parallel']
+      .every((id) => galacticIds.includes(id)),
+    true,
+  );
+  assert.equal(
+    ['galactic:north-pole', 'galactic:south-pole', 'galactic:l-000deg', 'galactic:l-090deg', 'galactic:l-180deg', 'galactic:l-270deg']
+      .every((id) => galacticWaypoints.some((waypoint) => waypoint.id === id)),
+    true,
+  );
+
+  const plane = galacticFeatures.features.find((feature) => feature.id === 'galactic:plane');
+  assert.equal(plane.layerId, 'galactic-grid');
+  assert.equal(plane.kind, 'coordinate-grid:plane');
+  assert.equal(plane.label, 'Galactic plane');
+  assert.equal(plane.frame, 'icrs-pc');
+  assert.equal(Array.isArray(plane.pathIcrs), true);
+  assert.equal(plane.pathIcrs.length > 8, true);
+  const galacticCardinal = galacticWaypoints.find((waypoint) => waypoint.id === 'galactic:l-090deg');
+  assert.equal(galacticCardinal.kind, 'coordinate-grid:cardinal');
+  assert.ok(galacticCardinal.target.targetPc);
+  assert.equal(viewer.roots.observerContentRoot.children.some((child) => child.name === 'coordinate-grid:equatorial'), true);
+  assert.equal(equatorialGrid.getSnapshot().mounted, true);
+  assert.equal(equatorialGrid.hide(), false);
+  assert.equal(equatorialGrid.toggle(), true);
+  assert.equal(equatorialGrid.show(), true);
+
+  await viewer.dispose();
+
+  assert.equal(products.get('features:grids/equatorial'), null);
+  assert.equal(products.get('features:grids/galactic'), null);
 });
 
 test('viewer exposes action registry, emits action events, and resets to initial view', async () => {

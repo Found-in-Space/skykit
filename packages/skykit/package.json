@@ -35,6 +35,10 @@
       "types": "./src/browser-frames.d.ts",
       "default": "./src/browser-frames.js"
     },
+    "./browser-grids": {
+      "types": "./src/browser-grids.d.ts",
+      "default": "./src/browser-grids.js"
+    },
     "./embed": {
       "types": "./src/embed.d.ts",
       "default": "./src/embed.js"

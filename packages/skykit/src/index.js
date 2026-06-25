@@ -18,6 +18,10 @@ export {
   createSkykitCoordinateFrameMarkerPlugin,
 } from './coordinate-frame-markers.js';
 export {
+  createSkykitCoordinateGridLayer,
+  createSkykitCoordinateGridPlugin,
+} from './coordinate-grid-layer.js';
+export {
   createSkykitConstellationLayer,
   createSkykitConstellationPlugin,
 } from './constellation-layer.js';

@@ -171,6 +171,7 @@ export async function createSkykitBrowser(input = {}) {
   };
   browser.constellations = createLazyConstellationsFacade(browser, host);
   browser.frames = createLazyCoordinateFramesFacade(browser, host);
+  browser.grids = createLazyCoordinateGridsFacade(browser, host);
 
   function resize() {
     viewer.resize({
@@ -362,6 +363,42 @@ function createLazyCoordinateFramesFacade(browser, host) {
   const loadCapability = (options = {}) => {
     loaded ??= import('./browser-frames.js')
       .then((module) => module.installSkykitCoordinateFramesBrowserCapability({
+        browser,
+        host,
+        options,
+      }));
+    return loaded;
+  };
+  return {
+    async load(options) {
+      return loadCapability(options);
+    },
+    async show() {
+      return (await loadCapability()).show();
+    },
+    async hide() {
+      return (await loadCapability()).hide();
+    },
+    async toggle(force) {
+      return (await loadCapability()).toggle(force);
+    },
+    async getSnapshot() {
+      return (await loadCapability()).getSnapshot();
+    },
+  };
+}
+
+/**
+ * @param {import('./browser.d.ts').SkykitBrowser} browser
+ * @param {Element | import('./browser.d.ts').SkykitBrowserHost} host
+ * @returns {import('./browser.d.ts').SkykitBrowserCoordinateGridsFacade}
+ */
+function createLazyCoordinateGridsFacade(browser, host) {
+  /** @type {Promise<import('./browser.d.ts').SkykitBrowserCoordinateGridsFacade> | null} */
+  let loaded = null;
+  const loadCapability = (options = {}) => {
+    loaded ??= import('./browser-grids.js')
+      .then((module) => module.installSkykitCoordinateGridsBrowserCapability({
         browser,
         host,
         options,

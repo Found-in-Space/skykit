@@ -47,6 +47,8 @@ keys are readable conventions, not globally reserved names. Recommended initial
 patterns include `stars:stellar/source`, `stars:stellar/store`,
 `features:constellations/western`, `waypoints:constellations/western`,
 `features:frames/galactic`, `waypoints:frames/galactic`,
+`features:grids/equatorial`, `waypoints:grids/equatorial`,
+`features:grids/galactic`, `waypoints:grids/galactic`,
 `surfaces:constellation-art/western`, and `selection:primary`. Here
 `selection:primary` means the current/default selection slot, not a final
 beginner-facing label.
@@ -61,7 +63,9 @@ selection, view state, and XR details when XR exists.
 Browser-style handles also expose lazy first-party capability facades.
 `browser.constellations` loads skyculture boundaries/art, and `browser.frames`
 loads standard coordinate-frame marker layers that publish
-`features:frames/<frame>` and `waypoints:frames/<frame>`.
+`features:frames/<frame>` and `waypoints:frames/<frame>`. `browser.grids`
+loads observer-centric equatorial and galactic coordinate grids that publish
+`features:grids/<system>` and `waypoints:grids/<system>`.
 
 When the star renderer supports `pick()`, `createSkykitBrowser()` installs
 desktop star picking by default and exposes the plugin as `browser.starPicking`.
@@ -146,6 +150,7 @@ becoming hidden factories:
 ```js
 import {
   createSkykitConstellationLayer,
+  createSkykitCoordinateGridLayer,
   createSkykitCoordinateFrameMarkerLayer,
   createSkykitLayerHostPlugin,
 } from '@found-in-space/skykit';
@@ -166,6 +171,13 @@ const layers = createSkykitLayerHostPlugin({
       publish: {
         features: 'features:frames/galactic',
         waypoints: 'waypoints:frames/galactic',
+      },
+    }),
+    createSkykitCoordinateGridLayer({
+      system: 'galactic',
+      publish: {
+        features: 'features:grids/galactic',
+        waypoints: 'waypoints:grids/galactic',
       },
     }),
   ],
@@ -189,9 +201,9 @@ handles. Its default star picking writes public `StarObjectRef` selections to
 `cellKey:objectIndex` stay diagnostic rather than beginner-facing identity.
 `stars.pick.metadata` accepts the same resolver or sidecar-like provider shape
 as desktop picking. It also exposes the same first-party capability handles,
-including `constellations` and `frames`. XR pointer targets that return explicit
-waypoint, feature, selection, or `{ kind, id }` hits update the same public
-selection slot through the default layer-selection bridge.
+including `constellations`, `frames`, and `grids`. XR pointer targets that
+return explicit waypoint, feature, selection, or `{ kind, id }` hits update the
+same public selection slot through the default layer-selection bridge.
 
 ```js
 import { createSkykitXrBrowser } from '@found-in-space/skykit/xr';
@@ -250,6 +262,7 @@ embeds do not import XR code:
   data-skykit-xr-mode="immersive-vr"
   data-skykit-reference-space="local-floor"
   data-skykit-frames="galactic"
+  data-skykit-grids="equatorial,galactic"
   style="width:100%;height:70vh;background:#02040b"
 ></div>
 
@@ -326,6 +339,7 @@ Supported embed attributes:
 | `data-skykit-constellation-assets` | Asset base URL for images referenced by the constellation manifest. Defaults to the manifest directory. |
 | `data-skykit-constellation-art` | `off` by default; `lazy`, `on`, or `true` lazy-load art; `preload` loads all art textures. |
 | `data-skykit-frames` | Turns on standard coordinate-frame marker layers. Use `galactic`, `solar`, or a comma-separated list. An empty attribute defaults to `galactic`; `off` or `false` disables the capability. |
+| `data-skykit-grids` | Turns on standard coordinate grid overlays. Use `equatorial`, `galactic`, or a comma-separated list. An empty attribute defaults to both grids; `off`, `false`, `none`, or `0` disables the capability. |
 
 RA/Dec/distance resolves from the solar origin. Pure RA/Dec remains a
 directional look. Observer-relative shorthand and
@@ -400,6 +414,7 @@ requested. This keeps the one-script beginner path while avoiding bundle bloat.
   data-skykit-constellations="western"
   data-skykit-constellation-art="off"
   data-skykit-frames="galactic,solar"
+  data-skykit-grids="equatorial,galactic"
   style="width:100%;height:520px;background:#02040b"
 ></div>
 ```
@@ -416,12 +431,18 @@ await browser.constellations.setArt('preload');
 await browser.frames.load({ frames: ['galactic', 'solar'] });
 browser.frames.hide();
 browser.frames.show();
+
+await browser.grids.load({ grids: ['equatorial', 'galactic'] });
+browser.grids.hide();
+browser.grids.show();
 ```
 
 The frame capability is for standard marker layers. Apps with custom markers
 should install `createSkykitCoordinateFrameMarkerLayer()` directly through a
-layer host. The constellation browser capability is one of two supported
-constellation loading paths.
+layer host. The grid capability is for standard equatorial and galactic
+overlays; custom authored overlays should use ordinary hosted layers. The
+constellation browser capability is one of two supported constellation loading
+paths.
 For standalone applications that compose SkyKit plugins directly, import the
 published skyculture package APIs instead:
 

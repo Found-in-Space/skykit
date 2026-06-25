@@ -16,6 +16,7 @@ import type {
   SkykitLookAtInput,
   SkykitPlugin,
   SkykitCoordinateFrameId,
+  SkykitCoordinateGridSystemId,
   SkykitKeyboardNavigationOptions,
   SkykitOrbitDragOptions,
   SkykitPluginInput,
@@ -128,6 +129,25 @@ export interface SkykitBrowserCoordinateFramesFacade {
   dispose?(): void;
 }
 
+export interface SkykitBrowserCoordinateGridsOptions {
+  grids?: SkykitCoordinateGridSystemId | Iterable<SkykitCoordinateGridSystemId> | string;
+  visible?: boolean;
+  priority?: number;
+  radiusPc?: number;
+  publish?: false | {
+    metadata?: SkykitProductMetadata;
+  };
+}
+
+export interface SkykitBrowserCoordinateGridsFacade {
+  load(options?: SkykitBrowserCoordinateGridsOptions): Promise<SkykitBrowserCoordinateGridsFacade>;
+  show(): boolean | Promise<boolean>;
+  hide(): boolean | Promise<boolean>;
+  toggle(force?: boolean): boolean | Promise<boolean>;
+  getSnapshot(): unknown | Promise<unknown>;
+  dispose?(): void;
+}
+
 export interface SkykitBrowserOptions {
   host?: SkykitBrowserHost;
   status?: boolean | SkykitBrowserStatusTarget | null;
@@ -181,6 +201,7 @@ export interface SkykitBrowser {
   inspect: SkykitInspectFacade;
   constellations: SkykitBrowserConstellationsFacade;
   frames: SkykitBrowserCoordinateFramesFacade;
+  grids: SkykitBrowserCoordinateGridsFacade;
   install(input: SkykitBrowserInstallInput): Promise<SkykitPluginTeardown>;
   addObject(
     object3d: THREE.Object3D,

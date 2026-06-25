@@ -18,29 +18,46 @@ const skykitGlobal = typeof globalThis !== 'undefined'
 
 if (typeof document !== 'undefined') {
   ready(() => {
-    for (const host of document.querySelectorAll(DEFAULT_SELECTOR)) {
-      if (started.has(host)) continue;
-      started.add(host);
-      void createSkykitBrowser(readOptions(host))
-        .then(async (browser) => {
-          await installRequestedCapabilities(host, browser);
-          if (skykitGlobal) {
-            const unregister = registerBrowserInstance(skykitGlobal, host, browser);
-            await browser.install({
-              id: 'skykit-browser-global-record',
-              install: () => unregister,
-            });
-          }
-          return browser;
-        })
-        .then((browser) => {
-          reportReady(host, browser);
-        })
-        .catch((error) => {
-          reportError(host, error);
-        });
-    }
+    startSkykitBrowserEmbeds();
   });
+}
+
+/**
+ * @param {{
+ *   document?: Document;
+ *   selector?: string;
+ *   createBrowser?: typeof createSkykitBrowser;
+ *   globalService?: import('./browser.d.ts').SkykitBrowserGlobal | null;
+ * }} [options]
+ */
+export function startSkykitBrowserEmbeds(options = {}) {
+  const activeDocument = options.document ?? globalThis.document;
+  if (!activeDocument?.querySelectorAll) return;
+  const selector = options.selector ?? DEFAULT_SELECTOR;
+  const createBrowser = options.createBrowser ?? createSkykitBrowser;
+  const globalService = options.globalService === undefined ? skykitGlobal : options.globalService;
+  for (const host of activeDocument.querySelectorAll(selector)) {
+    if (started.has(host)) continue;
+    started.add(host);
+    void createBrowser(readOptions(host))
+      .then(async (browser) => {
+        await installRequestedCapabilities(host, browser);
+        if (globalService) {
+          const unregister = registerBrowserInstance(globalService, host, browser);
+          await browser.install({
+            id: 'skykit-browser-global-record',
+            install: () => unregister,
+          });
+        }
+        return browser;
+      })
+      .then((browser) => {
+        reportReady(host, browser);
+      })
+      .catch((error) => {
+        reportError(host, error);
+      });
+  }
 }
 
 /**
@@ -60,6 +77,11 @@ async function installRequestedCapabilities(host, browser) {
   if (data.skykitFrames != null) {
     await browser.frames.load({
       frames: data.skykitFrames,
+    });
+  }
+  if (data.skykitGrids != null) {
+    await browser.grids.load({
+      grids: data.skykitGrids,
     });
   }
 }

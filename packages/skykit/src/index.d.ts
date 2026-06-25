@@ -962,6 +962,7 @@ export interface SkykitSpatialFeature {
   frame: SkykitSpatialFeatureFrame;
   target?: SpatialTargetInput;
   position?: Vector3Like;
+  pathIcrs?: Vector3Like[];
   bounds?: SkykitLayerBounds;
   metadata?: Record<string, unknown>;
 }
@@ -1073,6 +1074,60 @@ export interface SkykitCoordinateFrameMarkerLayer extends SkykitHostedLayer {
   hide(): boolean;
   toggle(force?: boolean): boolean;
   getSnapshot(): SkykitCoordinateFrameMarkerLayerSnapshot;
+}
+
+export type SkykitCoordinateGridSystemId = 'equatorial' | 'galactic';
+
+export interface SkykitCoordinateGridLayerOptions {
+  id?: string;
+  priority?: number;
+  system: SkykitCoordinateGridSystemId;
+  visible?: boolean;
+  radiusPc?: number;
+  lineColor?: THREE.ColorRepresentation;
+  lineOpacity?: number;
+  planeColor?: THREE.ColorRepresentation;
+  planeOpacity?: number;
+  waypointColor?: THREE.ColorRepresentation;
+  waypointOpacity?: number;
+  waypointSize?: number;
+  publish?: false | {
+    features?: SkykitProductKey | false;
+    waypoints?: SkykitProductKey | false;
+    metadata?: SkykitProductMetadata;
+  };
+}
+
+export interface SkykitCoordinateGridLineFeature {
+  id: string;
+  label: string;
+  kind: 'meridian' | 'parallel' | 'plane' | 'custom';
+  pathIcrs: Vector3Like[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface SkykitCoordinateGridWaypointFeature {
+  id: string;
+  label: string;
+  kind: 'pole' | 'cardinal' | 'custom';
+  targetIcrs: Vector3Like;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SkykitCoordinateGridLayerSnapshot {
+  id: string;
+  system: string;
+  visible: boolean;
+  lineCount: number;
+  waypointCount: number;
+  mounted: boolean;
+}
+
+export interface SkykitCoordinateGridLayer extends SkykitHostedLayer {
+  show(): boolean;
+  hide(): boolean;
+  toggle(force?: boolean): boolean;
+  getSnapshot(): SkykitCoordinateGridLayerSnapshot;
 }
 
 export interface AnchoredImageCatalogEntry {
@@ -1906,6 +1961,15 @@ export declare function createSkykitCoordinateFrameMarkerPlugin(
   options: SkykitCoordinateFrameMarkerLayerOptions
 ): SkykitPlugin & {
   getLayer(): SkykitCoordinateFrameMarkerLayer;
+  getSnapshot(): unknown;
+};
+export declare function createSkykitCoordinateGridLayer(
+  options: SkykitCoordinateGridLayerOptions
+): SkykitCoordinateGridLayer;
+export declare function createSkykitCoordinateGridPlugin(
+  options: SkykitCoordinateGridLayerOptions
+): SkykitPlugin & {
+  getLayer(): SkykitCoordinateGridLayer;
   getSnapshot(): unknown;
 };
 export declare function createSkykitStarSourcePlugin(options: SkykitStarSourcePluginOptions): SkykitStarCellSource;
