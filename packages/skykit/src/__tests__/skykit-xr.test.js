@@ -79,8 +79,8 @@ test('xr free-roam demo uses restored alpha XR regressions defaults', () => {
   assert.match(source, /XR_CONSTELLATION_ART_RADIUS_WORLD_UNITS\s*=\s*8000/);
   assert.match(source, /createHeadGazeAnchoredImageController/);
   assert.match(source, /setViewDirectionIcrs\?\.\(resolveHeadGazeDirectionIcrs\(body, xrRig, camera\)\)/);
-  assert.match(source, /body\?\.head\?\.orientation/);
-  assert.match(source, /getNavigationPose\?\.\(\)\.orientation/);
+  assert.match(source, /body\?\.head\?\.orientationIcrs/);
+  assert.match(source, /getNavigationPose\?\.\(\)\.orientationIcrs/);
   assert.match(source, /strategy:\s*'nearest'/);
   assert.match(source, /maxAngleDeg:\s*XR_CONSTELLATION_ART_MAX_ANGLE_DEG/);
   assert.match(source, /anchorMode:\s*'observer-centric'/);
@@ -111,8 +111,8 @@ test('skykit/xr rig builds multi-root hierarchy', () => {
   const rig = createSkykitXrRig({
     camera,
     navigationPose: {
-      position: { x: 1, y: 2, z: 3 },
-      orientation: { x: 0, y: 0, z: 0, w: 1 },
+      observerPc: { x: 1, y: 2, z: 3 },
+      orientationIcrs: { x: 0, y: 0, z: 0, w: 1 },
     },
     scaleBandIds: ['galaxy'],
   });
@@ -152,8 +152,8 @@ test('skykit/xr body, rays, and pick router compose generic route results', () =
   const body = createSkykitXrBodyTracker().update({
     rig,
     shipPose: {
-      position: { x: 0, y: 0, z: 0 },
-      orientation: { x: 0, y: 0, z: 0, w: 1 },
+      observerPc: { x: 0, y: 0, z: 0 },
+      orientationIcrs: { x: 0, y: 0, z: 0, w: 1 },
     },
   });
   const raySource = createSkykitXrRaySource({ kind: 'ship-forward', length: 12 });

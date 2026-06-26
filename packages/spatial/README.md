@@ -1,61 +1,53 @@
 # @found-in-space/spatial
 
-Dependency-free coordinates, poses, routes, and navigation helpers.
+Dependency-free spatial semantics for coordinates, poses, aims, paths, routes,
+orbits, timing, preload hints, manual motion, and navigation automation.
 
-This package is deliberately renderer-neutral. It can be used from Canvas,
-Three.js, WebXR, Phaser, Node scripts, future journeys, or any other spatial
-experience without pulling in SkyKit or Three.js.
+This package is renderer-neutral. It can be used from Canvas, Three.js, WebXR,
+Node scripts, Studio export tooling, or any other spatial experience without
+pulling in SkyKit or Three.js.
 
 It owns:
 
 - vector, quaternion, pose, and scale-profile helpers
 - RA/Dec, ICRS direction, equirectangular projection, and target resolution
-- polyline routes, orbit/orbital-insert routes, and smooth path sampling
-- timed position/orientation tracks and materialized preload hints
-- direct, inertial, thrust, fly-to, route-follow, orbit, and look-at motion
-  models
-- `createSpatialNavigationAutomation()` for shared navigation actions
+- target, direction, and orientation aim evaluation
+- polyline, orbit-transfer, and orbital-insert routes
+- path sampling, aim tracks, view transitions, and preload hints
+- direct, inertial, and thrust manual motion models
+- `createSpatialNavigationAutomation()` over canonical routes, orbits, and aims
 
 ```js
 import {
-  createRaDecLookAt,
+  SPATIAL_IDENTITY_QUATERNION,
+  buildSpatialOrbitTransferRoute,
   createSpatialNavigationAutomation,
-  parseSpatialLookAtText,
   raDecDistanceToIcrs,
 } from '@found-in-space/spatial';
 
-const pleiades = raDecDistanceToIcrs({
+const pleiadesPc = raDecDistanceToIcrs({
   raDeg: 56.75,
   decDeg: 24.12,
   distancePc: 136,
 });
 
-const navigation = createSpatialNavigationAutomation({ speed: 20 });
-navigation.flyTo(pleiades);
+const route = buildSpatialOrbitTransferRoute({
+  from: { positionPc: { x: 0, y: 0, z: 0 } },
+  to: { positionPc: pleiadesPc },
+  travel: { kind: 'orbitTransfer', timing: { kind: 'duration', durationSecs: 4 } },
+});
 
-const lookAt = createRaDecLookAt('05h 36m 12.81s', '−01° 12′ 06.9″');
+const navigation = createSpatialNavigationAutomation();
+if (route) navigation.flyRoute(route);
 
-let pose = { position: { x: 0, y: 0, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } };
-pose = navigation.update({ pose, deltaSeconds: 1 / 60 });
+let pose = {
+  observerPc: { x: 0, y: 0, z: 0 },
+  orientationIcrs: SPATIAL_IDENTITY_QUATERNION,
+};
+
+pose = navigation.update({ pose, deltaSecs: 1 / 60 });
 ```
 
-`createRaDecLookAt()` accepts decimal and sexagesimal RA/Dec values. It handles
-forms such as `05h 36m 12.81s`, `05:36:12.81`, `−01° 12′ 06.9″`, and
-`-01:12:06.9`. `parseSpatialLookAtText()` is useful at string-oriented
-boundaries such as HTML attributes or authored content. It returns ordinary
-spatial look-at specs from RA/Dec text, decimal RA/Dec pairs, parsec-space
-vectors, or JSON look specs.
-
-RA/Dec with `distancePc` is interpreted as a heliocentric point from the solar
-origin `{ x: 0, y: 0, z: 0 }`. RA/Dec without distance remains a directional
-look/orientation. Explicit observer-relative coordinate shorthand is deferred;
-callers that need it should combine `raDecToIcrsDirection()` with their own
-observer vector.
-
 `@found-in-space/spatial` does not know about stars, octrees, renderers, DOM,
-WebXR sessions, or journeys. Those packages compose these primitives.
-
-Bookmark targets are deliberately opaque to this package. If an application
-uses a bookmark to point at a star, it should serialize the star cell's
-`StarObjectRef` and resolve it outside `@found-in-space/spatial`; spatial
-helpers only consume the resolved coordinates.
+WebXR sessions, or authored SkyKit action payloads. Applications resolve those
+semantic inputs into canonical spatial objects before calling this package.

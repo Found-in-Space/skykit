@@ -1,5 +1,3 @@
-import { finiteNumber } from '@found-in-space/spatial';
-
 const BUTTON_ALIASES = Object.freeze({
   trigger: 0,
   grip: 1,
@@ -354,4 +352,13 @@ function buttonEqual(a, b) {
  */
 function cloneRecord(record) {
   return Object.fromEntries(Object.entries(record).map(([key, value]) => [key, { .../** @type {object} */ (value) }]));
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ */
+function finiteNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
 }

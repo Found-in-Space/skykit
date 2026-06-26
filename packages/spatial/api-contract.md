@@ -28,8 +28,7 @@ The public API should be small enough to teach and support:
 This rewrite removes the old surface instead of preserving it.
 
 - No deprecated exports.
-- No input aliases for old field names, except explicit bridge fields documented
-  in this contract for current public transition/update/sampling inputs.
+- No input aliases for old field names.
 - No runtime detection of old object shapes.
 - No compatibility wrappers that translate old routes, poses, or waypoints.
 - No hidden private imports from old module files as a supported path.
@@ -45,8 +44,7 @@ legacy route, waypoint, or automation command shapes.
 Migration tables in this document are instructions for editing callers, not
 accepted input formats.
 
-Unless this contract explicitly documents a migration bridge, `normalize*`
-functions accept only the canonical target-contract shape. They return a
+`normalize*` functions accept only the canonical target-contract shape. They return a
 canonical object or throw for malformed input. Use `TypeError` for invalid object
 shape and `RangeError` for invalid finite/range values. Builders and evaluators
 may return `null` only where their contract explicitly allows an impossible
@@ -93,6 +91,7 @@ Function naming:
 - `get*` reads existing state or extracts diagnostics without mutating input.
 - `create*` is reserved for stateful runtime wrappers and established reusable
   math objects such as orbit bases.
+- `build*` is used for durable route/path/profile objects, including aim tracks.
 
 ## Naming Conventions
 
@@ -158,9 +157,9 @@ tangent
 
 ## Removed Name Map
 
-These old names must be edited downstream. Spatial should not accept them except
-where this contract explicitly documents a narrow migration alias. Canonical
-normalized output, samples, snapshots, and diagnostics must never emit old names.
+These old names must be edited downstream. Spatial should not accept them.
+Canonical normalized output, samples, snapshots, and diagnostics must never emit
+old names.
 
 | Old name | Canonical name |
 | --- | --- |
@@ -249,10 +248,6 @@ export interface SpatialTrackDiagnostics {
 
 export interface SpatialSamplingOptions {
   sampleStepSecs?: number;
-
-  /** @deprecated Use sampleStepSecs. Accepted only at documented input boundaries. */
-  stepSecs?: number;
-
   frameRate?: number;
   maxSamples?: number;
 }
@@ -540,8 +535,8 @@ export interface SpatialOrbitBasis {
   centerPc: SpatialVector3;
   radiusPc: number;
   normal: SpatialVector3;
-  radialAxis: SpatialVector3;
-  tangentAxis: SpatialVector3;
+  radial: SpatialVector3;
+  tangent: SpatialVector3;
   referenceAxis: SpatialVector3;
   warnings: SpatialDiagnosticWarning[];
 }
@@ -573,6 +568,14 @@ export function sampleSpatialOrbitPosition(
   angleRad: number,
 ): SpatialVector3;
 export function evaluateSpatialOrbit(orbit: SpatialOrbitSpec, elapsedSecs: number): SpatialOrbitSample;
+export function deriveSpatialOrbitHandoff(input: {
+  positionPc: SpatialVector3;
+  orbit: SpatialOrbitSpec;
+}): {
+  orbit: SpatialOrbitSpec & { initialAngleRad: number };
+  basis: SpatialOrbitBasis;
+  angleRad: number;
+};
 ```
 
 ## Timing
@@ -784,8 +787,9 @@ export interface SpatialRouteEndpoint {
   metadata?: Record<string, unknown>;
 }
 
-export interface SpatialRouteEndpointNormalizeOptions {
+export interface SpatialRouteEndpointBuildOptions {
   role?: 'departure' | 'arrival';
+  referencePose?: SpatialPose;
   fallbackAim?: SpatialAimSpec | null;
   fallbackOrbit?: SpatialOrbitSpec | null;
 }
@@ -834,10 +838,11 @@ export interface SpatialRouteEvaluationOptions {
 
 export interface SpatialRouteSamplingOptions extends SpatialRouteEvaluationOptions, SpatialSamplingOptions {}
 
-export function normalizeSpatialRouteEndpoint(
-  input: SpatialRouteEndpointSpec | SpatialRouteEndpoint | SpatialDestinationSpec | SpatialVector3,
-  options?: SpatialRouteEndpointNormalizeOptions,
-): SpatialRouteEndpoint;
+export function normalizeSpatialRouteEndpointSpec(input: unknown): SpatialRouteEndpointSpec;
+export function buildSpatialRouteEndpoint(
+  input: SpatialRouteEndpointSpec | SpatialDestinationSpec | SpatialVector3,
+  options?: SpatialRouteEndpointBuildOptions,
+): SpatialRouteEndpoint | null;
 
 export function buildSpatialPolylineRoute(input: {
   pointsPc: Iterable<SpatialVector3>;
@@ -849,6 +854,7 @@ export function buildSpatialOrbitTransferRoute(input: {
   from: SpatialRouteEndpointSpec | SpatialRouteEndpoint;
   to: SpatialRouteEndpointSpec | SpatialRouteEndpoint;
   travel?: Extract<SpatialTravelSpec, { kind: 'orbitTransfer' }>;
+  referencePose?: SpatialPose;
   source?: SpatialSourceRef;
 }): SpatialRoute | null;
 
@@ -857,6 +863,7 @@ export function buildSpatialOrbitalInsertRoute(input: {
   orbit: SpatialOrbitSpec;
   destination?: SpatialDestinationSpec;
   travel?: Extract<SpatialTravelSpec, { kind: 'orbitalInsert' }>;
+  referencePose?: SpatialPose;
   source?: SpatialSourceRef;
 }): SpatialRoute | null;
 
@@ -881,6 +888,23 @@ equivalent to `positionPc`: a destination center is usually the object or region
 center, while an endpoint position is the resolved observer/camera position.
 Route builders may derive geometry from endpoints, but they must not erase
 destination, source, or metadata fields from normalized route endpoints.
+
+Destination-to-endpoint resolution is explicit:
+
+1. If `positionPc` is present, use it.
+2. If `destination.orbit` or endpoint `orbit` is present, derive `positionPc`
+   by sampling the orbit at `initialAngleRad` or a builder-selected angle.
+3. If `destination.radiusPc` is present but no orbit/reference axis is present,
+   a builder may derive a radial from `referencePose` to `centerPc`; otherwise
+   it returns `null`.
+4. If only `destination.centerPc` is present, do not silently use it as
+   `positionPc`.
+
+Orbit arrival handoff must preserve angle continuity. When a route has an orbit
+arrival action, `route.arrival.positionPc` is the authoritative handoff
+position. Navigation derives the orbit start angle from that position if
+`arrivalAction.orbit.initialAngleRad` is omitted. Builders should set the
+derived angle when they can.
 
 ## Arrival Actions
 
@@ -954,14 +978,19 @@ export interface SpatialAimTrackSample {
   diagnostics?: SpatialSampleDiagnostics;
 }
 
-export interface SpatialAimEvaluationContext {
-  observerPc?: SpatialVector3;
-  positionSample?: SpatialPathSample;
-  fallbackUp?: SpatialVector3;
-  syntheticTargetDistancePc?: number;
-}
+export type SpatialAimEvaluationContext =
+  | {
+      observerPc: SpatialVector3;
+      fallbackUpIcrs?: SpatialVector3;
+      syntheticTargetDistancePc?: number;
+    }
+  | {
+      positionSample: SpatialPathSample;
+      fallbackUpIcrs?: SpatialVector3;
+      syntheticTargetDistancePc?: number;
+    };
 
-export interface CreateSpatialAimTrackOptions {
+export interface BuildSpatialAimTrackOptions {
   durationSecs?: number;
   defaultInterpolation?: SpatialAimInterpolationSpec;
   duplicateTimePolicy?: SpatialDuplicateTimePolicy;
@@ -1018,10 +1047,9 @@ export type SpatialEasingSpec =
   | { kind: 'cubicBezier'; x1: number; y1: number; x2: number; y2: number };
 
 export interface SpatialTimeRemapSpec {
-  kind: 'linear' | 'eased' | 'profile';
+  kind: 'linear' | 'eased';
   playbackDurationSecs?: number;
   easing?: SpatialEasingSpec;
-  profile?: SpatialTimingProfile;
 }
 
 export interface SpatialPathSample {
@@ -1059,9 +1087,9 @@ export interface SpatialPathDiagnostics {
   warnings: SpatialDiagnosticWarning[];
 }
 
-export function createSpatialAimTrack(
+export function buildSpatialAimTrack(
   keys?: Iterable<SpatialAimKey>,
-  options?: CreateSpatialAimTrackOptions,
+  options?: BuildSpatialAimTrackOptions,
 ): SpatialAimTrack;
 export function evaluateSpatialAimTrack(
   track: SpatialAimTrack,
@@ -1092,6 +1120,15 @@ export function sampleSpatialPathDiagnostics(
 Duplicate-time keys are invalid unless the caller explicitly chooses a
 `duplicateTimePolicy`. Do not silently fall back to the first key.
 
+`positionKeys` must contain at least one key. Empty path specs throw
+`TypeError`. If `aimKeys` is omitted or empty, `aim` is `null` and
+`pose.orientationIcrs` is `SPATIAL_IDENTITY_QUATERNION` unless an explicit
+fallback option is supplied. A single position key holds for the full duration
+with zero velocity. A single aim key holds for the full duration. If an aim key
+requires an observer, evaluation uses the evaluated position sample's
+`pose.observerPc`; `evaluateSpatialAimTrack()` throws `TypeError` if neither
+`observerPc` nor `positionSample.pose.observerPc` is available.
+
 Path timing precedence:
 
 1. `key.timeSecs` is authored path-domain time.
@@ -1100,8 +1137,8 @@ Path timing precedence:
    position and aim lanes.
 4. If `durationSecs` is greater than the latest key time, final keys hold until
    `durationSecs`.
-5. If any key has `timeSecs > durationSecs`, strict normalization fails. A
-   compatibility normalizer may extend `durationSecs` and report a warning.
+5. If any key has `timeSecs > durationSecs`, strict normalization throws
+   `RangeError`.
 6. `durationSecs` never rescales key times.
 7. `timeRemap` is the only mechanism that maps playback elapsed time to
    path-domain time.
@@ -1109,6 +1146,15 @@ Path timing precedence:
    does not alter key timing.
 9. `SpatialRoute.timing` and `SpatialTimingProfile` remain physical route timing:
    speed, acceleration, deceleration, and distance over time.
+
+Sampling precedence:
+
+1. `sampleStepSecs` is canonical and takes precedence over `frameRate`.
+2. If both are supplied and imply different intervals, strict normalization
+   throws `RangeError`.
+3. If neither is supplied, use `1 / 60`.
+4. If `maxSamples` truncates before the end time, diagnostics should report a
+   warning.
 
 Aim interpolation rules:
 
@@ -1135,27 +1181,12 @@ instead of depending on that internal key layout.
 
 ```ts
 export interface SpatialViewTransitionSpec {
-  kind: 'viewTransition';
-
-  from: SpatialViewTransitionEndpoint | SpatialFrameState;
-  to: SpatialViewTransitionEndpoint | SpatialFrameState;
+  from: SpatialFrameState;
+  to: SpatialFrameState;
 
   durationSecs?: number;
-  positionLane?: SpatialTransitionLaneSpec;
-  aimLane?: SpatialTransitionLaneSpec;
-  timing?: SpatialEasingSpec;
-
-  source?: SpatialSourceRef;
-  metadata?: Record<string, unknown>;
-}
-
-export interface SpatialViewTransitionEndpoint {
-  observerPc?: SpatialVector3;
-  aim?: SpatialAimSpec;
-  orientationIcrs?: SpatialQuaternion;
-
-  fovDeg?: number;
-  targetLock?: SpatialTargetLockState | null;
+  position?: SpatialTransitionLaneSpec;
+  aim?: SpatialTransitionLaneSpec;
 
   source?: SpatialSourceRef;
   metadata?: Record<string, unknown>;
@@ -1177,8 +1208,6 @@ export interface SpatialViewTransitionPath {
   to: SpatialFrameState;
 
   diagnostics: SpatialViewTransitionDiagnostics;
-
-  evaluate(elapsedSecs: number): SpatialViewTransitionSample;
 }
 
 export interface SpatialViewTransitionSample {
@@ -1233,21 +1262,12 @@ interpolation and diagnostics behavior.
 
 ```ts
 export interface SpatialPoseTransitionSpec {
-  from: SpatialPose | SpatialPoseTransitionEndpoint;
-  to: SpatialPose | SpatialPoseTransitionEndpoint;
+  from: SpatialPose;
+  to: SpatialPose;
 
   durationSecs?: number;
   movement?: SpatialTransitionLaneSpec;
   orientation?: SpatialTransitionLaneSpec;
-}
-
-export interface SpatialPoseTransitionEndpoint {
-  observerPc?: SpatialVector3;
-  orientationIcrs?: SpatialQuaternion;
-
-  // Accepted only by this retained compatibility bridge.
-  position?: SpatialVector3;
-  orientation?: SpatialQuaternion;
 }
 
 export interface SpatialPoseTransition {
@@ -1256,7 +1276,6 @@ export interface SpatialPoseTransition {
   to: SpatialPose;
   movement?: SpatialTransitionLaneSpec;
   orientation?: SpatialTransitionLaneSpec;
-  evaluate(elapsedSecs: number): SpatialPoseTransitionSample;
 }
 
 export interface SpatialPoseTransitionSample {
@@ -1276,9 +1295,8 @@ export function evaluateSpatialPoseTransition(
 ): SpatialPoseTransitionSample;
 ```
 
-The pose bridge accepts legacy `position` and `orientation` fields only at this
-boundary. Canonical view-transition specs and all normalized output use
-`observerPc` and `orientationIcrs`.
+The pose bridge is retained for pose-only transitions, but it still uses
+canonical `observerPc` and `orientationIcrs` fields.
 
 ## Preload Hints
 
@@ -1341,20 +1359,13 @@ export interface SpatialControlReader {
 export interface SpatialMotionUpdateInput {
   pose: SpatialPose;
   controls?: SpatialControlReader;
-  deltaSecs?: number;
-
-  /** @deprecated Use deltaSecs. Accepted only at documented input boundaries. */
-  deltaSeconds?: number;
-
+  deltaSecs: number;
   scale?: SpatialScaleProfile;
   manualLookActive?: boolean;
 }
 
 export function normalizeSpatialUpdateDelta(input: {
-  deltaSecs?: number;
-
-  /** @deprecated Use deltaSecs. Accepted only at documented input boundaries. */
-  deltaSeconds?: number;
+  deltaSecs: number;
 }): number;
 
 export interface SpatialMotionSnapshot {
@@ -1401,11 +1412,8 @@ export function createInertialSpatialMotionModel(options?: SpatialInertialMotion
 export function createThrustSpatialMotionModel(options?: SpatialThrustMotionOptions): SpatialMotionModel;
 ```
 
-`deltaSecs` is canonical. `deltaSeconds` is accepted only by update-input
-normalization for current caller migration. If both are supplied and differ,
-strict normalization throws; compatibility mode may choose `deltaSecs` and report
-a warning. Snapshots and diagnostics must report canonical `deltaSecs`-based
-values, never `deltaSeconds`.
+`deltaSecs` is canonical and required. Snapshots and diagnostics must report
+canonical `deltaSecs`-based values, never `deltaSeconds`.
 
 ## Navigation Wrapper
 
@@ -1422,11 +1430,7 @@ export interface SpatialNavigationAutomation {
   cancel(): void;
   update(input: {
     pose: SpatialPose;
-    deltaSecs?: number;
-
-    /** @deprecated Use deltaSecs. Accepted only at documented input boundaries. */
-    deltaSeconds?: number;
-
+    deltaSecs: number;
     manualLookActive?: boolean;
   }): SpatialPose;
   getFrameState(): SpatialFrameState;
@@ -1484,13 +1488,12 @@ give those objects to navigation.
 
 Before the rewrite is considered complete:
 
-- `src/index.d.ts` must define the canonical public contract plus only the
-  explicit migration bridge fields named in this document.
+- `src/index.d.ts` must define the canonical public contract.
 - `src/index.js` must export only canonical names.
 - Tests must cover destination-preserving route endpoints and arrival actions,
   target-preserving aim samples and aim tracks, route diagnostics, orbit basis
   sampling, orbital-insert timing, view/pose transition evaluation, path
-  `timeRemap` precedence, canonical `deltaSecs`/`sampleStepSecs` normalization,
+  `timeRemap` precedence, canonical `deltaSecs`/`sampleStepSecs` validation,
   and duplicate-time path policy.
 - Tests should assert that removed legacy field names are not part of normalized
   output.

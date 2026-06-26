@@ -725,7 +725,7 @@ function createHeadGazeAnchoredImageController(controller) {
 }
 
 function resolveHeadGazeDirectionIcrs(body, xrRig, camera) {
-  const headOrientation = normalizeQuaternionLike(body?.head?.orientation);
+  const headOrientation = normalizeQuaternionLike(body?.head?.orientationIcrs);
   if (headOrientation) {
     _headGazeQuaternion.set(
       headOrientation.x,
@@ -733,7 +733,7 @@ function resolveHeadGazeDirectionIcrs(body, xrRig, camera) {
       headOrientation.z,
       headOrientation.w,
     );
-    const shipOrientation = normalizeQuaternionLike(xrRig?.getNavigationPose?.().orientation);
+    const shipOrientation = normalizeQuaternionLike(xrRig?.getNavigationPose?.().orientationIcrs);
     if (shipOrientation) {
       _shipGazeQuaternion.set(
         shipOrientation.x,

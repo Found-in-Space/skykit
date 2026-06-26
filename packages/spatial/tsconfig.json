@@ -4,8 +4,8 @@
     "rootDir": "src"
   },
   "include": [
-    "src/**/*.js",
-    "src/**/*.d.ts"
+    "src/index.js",
+    "src/index.d.ts"
   ],
   "exclude": [
     "src/__tests__/**/*.js"

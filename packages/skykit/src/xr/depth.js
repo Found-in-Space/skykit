@@ -1,4 +1,7 @@
-import { normalizeScaleProfile, normalizeVector3, positiveFinite } from '@found-in-space/spatial';
+import {
+  normalizeSpatialScaleProfile,
+  normalizeSpatialVector3,
+} from '@found-in-space/spatial';
 
 /**
  * @param {import('../xr.d.ts').SkykitXrDepthRangeOptions} [options]
@@ -10,11 +13,11 @@ export function computeSkykitXrDepthRange(options = {}) {
   const marginFactor = positiveFinite(policy.marginFactor, 1.2);
   const minFar = positiveFinite(policy.minFar, 100);
   const maxFar = positiveFinite(policy.maxFar, 2_000_000);
-  const scale = normalizeScaleProfile(options.scale);
-  const observerInput = options.observer && typeof options.observer === 'object' && 'position' in options.observer
-    ? options.observer.position
+  const scale = normalizeSpatialScaleProfile(options.scale);
+  const observerInput = options.observer && typeof options.observer === 'object' && 'observerPc' in options.observer
+    ? options.observer.observerPc
     : options.observer;
-  const observer = normalizeVector3(observerInput, { x: 0, y: 0, z: 0 });
+  const observer = normalizeSpatialVector3(observerInput, { x: 0, y: 0, z: 0 });
   const farthestBoundsDistance = computeFarthestVisibleBoundsDistance(options.visibleBounds, observer);
   const farthestObserverSphereDistance = computeFarthestObserverCentricSphereDistance(options.observerCentricSpheres);
   const requiredNavigationUnits = Math.max(
@@ -117,11 +120,11 @@ function normalizeBounds(value) {
   if (!value || typeof value !== 'object') return null;
   const bounds = /** @type {{ min?: unknown; max?: unknown; minX?: unknown; minY?: unknown; minZ?: unknown; maxX?: unknown; maxY?: unknown; maxZ?: unknown }} */ (value);
   const min = bounds.min
-    ? normalizeVector3(bounds.min, nullVector())
-    : normalizeVector3({ x: bounds.minX, y: bounds.minY, z: bounds.minZ }, nullVector());
+    ? normalizeSpatialVector3(bounds.min, nullVector())
+    : normalizeSpatialVector3({ x: bounds.minX, y: bounds.minY, z: bounds.minZ }, nullVector());
   const max = bounds.max
-    ? normalizeVector3(bounds.max, nullVector())
-    : normalizeVector3({ x: bounds.maxX, y: bounds.maxY, z: bounds.maxZ }, nullVector());
+    ? normalizeSpatialVector3(bounds.max, nullVector())
+    : normalizeSpatialVector3({ x: bounds.maxX, y: bounds.maxY, z: bounds.maxZ }, nullVector());
   if (![min.x, min.y, min.z, max.x, max.y, max.z].every(Number.isFinite)) {
     return null;
   }
@@ -145,4 +148,13 @@ function nullVector() {
     y: Number.NaN,
     z: Number.NaN,
   };
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ */
+function positiveFinite(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
 }

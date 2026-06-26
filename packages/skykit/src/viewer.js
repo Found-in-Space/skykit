@@ -537,17 +537,15 @@ export async function createSkykitViewer(options = {}) {
     return {
       observerPc,
       resolveStar: typeof options.resolveLookAtStar === 'function'
-        ? /** @type {import('@found-in-space/spatial').ResolveSpatialLookAtOptions['resolveStar']} */ (
-          (star, lookAt) => options.resolveLookAtStar?.(
+        ? (
+          (/** @type {unknown} */ star, /** @type {unknown} */ lookAt) => options.resolveLookAtStar?.(
             star,
             /** @type {import('./index.d.ts').SkykitLookAtInput} */ (lookAt),
           )
         )
         : undefined,
       resolveBookmark: typeof options.resolveLookAtBookmark === 'function'
-        ? /** @type {import('@found-in-space/spatial').ResolveSpatialLookAtOptions['resolveBookmark']} */ (
-          (bookmarkId, lookAt) => options.resolveLookAtBookmark?.(bookmarkId, lookAt)
-        )
+        ? ((/** @type {string} */ bookmarkId, /** @type {unknown} */ lookAt) => options.resolveLookAtBookmark?.(bookmarkId, lookAt))
         : undefined,
     };
   }

@@ -181,7 +181,7 @@ Spatial navigation:
 ```js
 import {
   createSpatialNavigationAutomation,
-  computeSpatialLookAtOrientation,
+  evaluateSpatialAim,
   raDecDistanceToIcrs,
 } from '@found-in-space/spatial';
 ```

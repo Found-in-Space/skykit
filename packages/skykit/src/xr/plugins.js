@@ -32,7 +32,7 @@ export function createSkykitXrObserverRig(options) {
     options.coordinateUnitsPerParsec,
     rig.getScaleProfile?.().worldUnitsPerNavigationUnit ?? 1,
   );
-  let previousObserverPc = rig.getNavigationPose().position;
+  let previousObserverPc = rig.getNavigationPose().observerPc;
   let motion = {
     velocityPcPerSec: { x: 0, y: 0, z: 0 },
     speedPcPerSec: 0,
@@ -45,11 +45,11 @@ export function createSkykitXrObserverRig(options) {
     type: 'xr',
     getObserverPc() {
       assertActive();
-      return cloneVector3(rig.getNavigationPose().position);
+      return cloneVector3(rig.getNavigationPose().observerPc);
     },
     getRenderObserverPosition() {
       assertActive();
-      const position = rig.getNavigationPose().position;
+      const position = rig.getNavigationPose().observerPc;
       return {
         x: position.x * coordinateUnitsPerParsec,
         y: position.y * coordinateUnitsPerParsec,
@@ -58,7 +58,7 @@ export function createSkykitXrObserverRig(options) {
     },
     getOrientationIcrs() {
       assertActive();
-      return cloneQuaternion(rig.getNavigationPose().orientation);
+      return cloneQuaternion(rig.getNavigationPose().orientationIcrs);
     },
     getMotion() {
       assertActive();
@@ -69,11 +69,11 @@ export function createSkykitXrObserverRig(options) {
     },
     setObserverPc(observerPc) {
       assertActive();
-      rig.setNavigationPose({ position: normalizeVector3(observerPc, rig.getNavigationPose().position) });
+      rig.setNavigationPose({ observerPc: normalizeVector3(observerPc, rig.getNavigationPose().observerPc) });
     },
     setOrientationIcrs(orientation) {
       assertActive();
-      rig.setNavigationPose({ orientation: normalizeQuaternion(orientation, rig.getNavigationPose().orientation) });
+      rig.setNavigationPose({ orientationIcrs: normalizeQuaternion(orientation, rig.getNavigationPose().orientationIcrs) });
     },
     update(frame) {
       assertActive();
@@ -83,7 +83,7 @@ export function createSkykitXrObserverRig(options) {
         syncScaleProfile();
       }
       const dt = Math.max(0, finiteNumber(frame?.deltaSeconds, 0));
-      const position = rig.getNavigationPose().position;
+      const position = rig.getNavigationPose().observerPc;
       if (dt > 0) {
         const velocity = {
           x: (position.x - previousObserverPc.x) / dt,

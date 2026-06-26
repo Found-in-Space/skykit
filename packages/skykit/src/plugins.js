@@ -10,21 +10,30 @@ import {
 } from '@found-in-space/star-trees';
 
 import {
-  IDENTITY_QUATERNION as SPATIAL_IDENTITY_QUATERNION,
-  LOCAL_RIGHT as SPATIAL_LOCAL_RIGHT,
-  LOCAL_UP as SPATIAL_LOCAL_UP,
-  addVectors as addSpatialVectors,
-  applyQuaternion as applySpatialQuaternion,
-  computeSpatialLookAtOrientation,
+  SPATIAL_IDENTITY_QUATERNION,
+  SPATIAL_LOCAL_RIGHT,
+  SPATIAL_LOCAL_UP,
+  addSpatialVectors,
+  applySpatialQuaternion,
+  buildSpatialOrbitalInsertRoute,
+  buildSpatialOrbitTransferRoute,
+  buildSpatialPolylineRoute,
   createSpatialPoseTransition,
+  evaluateSpatialPoseTransition,
   createSpatialNavigationAutomation,
-  normalizeDirection as normalizeSpatialDirection,
-  quaternionFromAxisAngle as spatialQuaternionFromAxisAngle,
-  resolveSpatialLookAt,
-  resolveSpatialTarget,
-  subtractVectors as subtractSpatialVectors,
-  vectorLength as spatialVectorLength,
+  createSpatialQuaternionFromAxisAngle as spatialQuaternionFromAxisAngle,
+  normalizeSpatialDirection,
+  subtractSpatialVectors,
+  getSpatialVectorLength as spatialVectorLength,
 } from '@found-in-space/spatial';
+import {
+  computeSkykitLookAtOrientation,
+  resolveSkykitLookAt,
+  resolveSkykitLookAtSync,
+  resolveSkykitTarget,
+  resolveSkykitTargetSync,
+  skykitTargetToAimSpec,
+} from './spatial-adapter.js';
 
 import { SKYKIT_ACTIONS, SKYKIT_CONTROLS } from './actions.js';
 import { createObject3dLayer } from './layers.js';
@@ -152,7 +161,7 @@ export function createStreamingStarsPlugin(options) {
  */
 export function createSkykitNavigationPlugin(options = {}) {
   const id = options.id ?? 'navigation';
-  const navigation = options.navigation ?? createSpatialNavigationAutomation(options);
+  const navigation = options.navigation ?? createSpatialNavigationAutomation();
   const scaleProfile = options.scaleProfile ?? { navigationUnits: 'pc', metersPerNavigationUnit: 3.085677581e16 };
   let disposed = false;
   /** @type {import('@found-in-space/spatial').SpatialPoseTransition | null} */
@@ -169,12 +178,12 @@ export function createSkykitNavigationPlugin(options = {}) {
       if (disposed) return;
       if (activeTransition) {
         transitionElapsedSeconds += Math.max(0, finiteNumber(frame.deltaSeconds, 0));
-        const sample = activeTransition.evaluate(transitionElapsedSeconds);
+        const sample = evaluateSpatialPoseTransition(activeTransition, transitionElapsedSeconds);
         const current = frame.view;
-        if (!sameVector(current.observerPc, sample.pose.position) || !sameQuaternion(current.orientationIcrs, sample.pose.orientation)) {
+        if (!sameVector(current.observerPc, sample.pose.observerPc) || !sameQuaternion(current.orientationIcrs, sample.pose.orientationIcrs)) {
           frame.viewer.requestViewState({
-            observerPc: sample.pose.position,
-            orientationIcrs: sample.pose.orientation,
+            observerPc: sample.pose.observerPc,
+            orientationIcrs: sample.pose.orientationIcrs,
           }, id);
         }
         if (sample.complete) {
@@ -188,18 +197,17 @@ export function createSkykitNavigationPlugin(options = {}) {
       }
       const pose = navigation.update({
         pose: {
-          position: frame.view.observerPc,
-          orientation: frame.view.orientationIcrs ?? SPATIAL_IDENTITY_QUATERNION,
+          observerPc: frame.view.observerPc,
+          orientationIcrs: frame.view.orientationIcrs ?? SPATIAL_IDENTITY_QUATERNION,
         },
-        deltaSeconds: frame.deltaSeconds,
-        scale: scaleProfile,
+        deltaSecs: frame.deltaSeconds,
         manualLookActive: Boolean(frame.viewer.actions.getControlValue('skykit:navigation.manualLookActive')),
       });
       const current = frame.view;
-      if (!sameVector(current.observerPc, pose.position) || !sameQuaternion(current.orientationIcrs, pose.orientation)) {
+      if (!sameVector(current.observerPc, pose.observerPc) || !sameQuaternion(current.orientationIcrs, pose.orientationIcrs)) {
         frame.viewer.requestViewState({
-          observerPc: pose.position,
-          orientationIcrs: pose.orientation,
+          observerPc: pose.observerPc,
+          orientationIcrs: pose.orientationIcrs,
         }, id);
       }
     },
@@ -211,7 +219,7 @@ export function createSkykitNavigationPlugin(options = {}) {
       return {
         id,
         disposed,
-        navigation: navigation.getSnapshot?.() ?? null,
+        navigation: navigation.getDiagnostics?.() ?? null,
         transition: activeTransition
           ? {
               active: true,
@@ -244,12 +252,20 @@ export function createSkykitNavigationPlugin(options = {}) {
     const unregisters = [
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.flyTo, async ({ payload }) => {
         const target = await resolveTarget(payload, context);
-        if (target) navigation.flyTo(target, payloadOptions(payload));
+        if (target) {
+          const route = buildRouteToTarget(context.getViewState().observerPc, target, payload);
+          if (route) navigation.flyRoute(route);
+        }
         return target;
       }, { label: 'Fly to target' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.flyPolyline, async ({ payload }) => {
         const points = await resolvePointList(payload, context);
-        if (points.length >= 2) navigation.flyPolyline(points, payloadOptions(payload));
+        if (points.length >= 2) {
+          navigation.flyRoute(buildSpatialPolylineRoute({
+            pointsPc: points,
+            travel: { kind: 'polyline', timing: resolveRouteTiming(payload, points) },
+          }));
+        }
         return points;
       }, { label: 'Fly polyline' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.transitionTo, async ({ payload }) => {
@@ -261,22 +277,33 @@ export function createSkykitNavigationPlugin(options = {}) {
       }, { label: 'Transition to view' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.orbit, async ({ payload }) => {
         const target = await resolveCenter(payload, context);
-        if (target) navigation.orbit(target, payloadOptions(payload));
+        if (target) navigation.orbit(resolveOrbitSpec(target, payload));
         return target;
       }, { label: 'Orbit target' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.orbitalInsert, async ({ payload }) => {
         const target = await resolveCenter(payload, context);
-        if (target) navigation.orbitalInsert(target, payloadOptions(payload));
+        if (target) {
+          const route = buildSpatialOrbitalInsertRoute({
+            from: { positionPc: context.getViewState().observerPc },
+            orbit: resolveOrbitSpec(target, payload),
+            travel: {
+              kind: 'orbitalInsert',
+              timing: resolveRouteTiming(payload),
+              sampleStepSecs: resolveSampleStepSecs(payload),
+            },
+          });
+          if (route) navigation.flyRoute(route);
+        }
         return target;
       }, { label: 'Insert into orbit' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.lookAt, async ({ payload }) => {
         const target = await resolveTarget(payload, context);
-        if (target) navigation.lookAt(target, payloadOptions(payload));
+        if (target) navigation.lookAt(/** @type {import('@found-in-space/spatial').SpatialAimSpec} */ (skykitTargetToAimSpec(target, payloadOptions(payload))));
         return target;
       }, { label: 'Look at target' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.lockAt, async ({ payload }) => {
         const target = await resolveTarget(payload, context);
-        if (target) navigation.lockAt(target, payloadOptions(payload));
+        if (target) navigation.lockAt(/** @type {Extract<import('@found-in-space/spatial').SpatialAimSpec, { kind: 'target' }>} */ (skykitTargetToAimSpec(target, payloadOptions(payload))));
         return target;
       }, { label: 'Lock at target' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.unlockAt, () => {
@@ -286,13 +313,13 @@ export function createSkykitNavigationPlugin(options = {}) {
         activeTransition = null;
         activeTransitionOnArrive = null;
         transitionElapsedSeconds = 0;
-        navigation.cancelMovement();
+        navigation.cancel();
       }, { label: 'Cancel movement' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancelOrientation, () => {
         activeTransition = null;
         activeTransitionOnArrive = null;
         transitionElapsedSeconds = 0;
-        navigation.cancelOrientation();
+        navigation.cancel();
       }, { label: 'Cancel orientation' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancel, () => {
         activeTransition = null;
@@ -315,22 +342,15 @@ export function createSkykitNavigationPlugin(options = {}) {
     if (custom !== undefined) {
       return await custom;
     }
-    return await resolveSpatialTarget(
-      /** @type {import('@found-in-space/spatial').SpatialTargetInput} */ (input),
-      {
-        observerPc: context.getViewState().observerPc,
-        resolveBookmark: typeof options.resolveBookmark === 'function'
-          ? (bookmarkId, original) => {
-            const resolved = options.resolveBookmark?.(
-              bookmarkId,
-              /** @type {import('@found-in-space/spatial').SpatialTargetInput} */ (original),
-              context,
-            );
-            return resolved === undefined ? null : resolved;
-          }
-          : undefined,
-      },
-    );
+    return await resolveSkykitTarget(input, {
+      observerPc: context.getViewState().observerPc,
+      resolveBookmark: typeof options.resolveBookmark === 'function'
+        ? (/** @type {string} */ bookmarkId, /** @type {import('@found-in-space/spatial').SpatialTargetSpec} */ original) => {
+          const resolved = options.resolveBookmark?.(bookmarkId, original, context);
+          return resolved === undefined ? null : resolved;
+        }
+        : undefined,
+    });
   }
 
   /**
@@ -380,14 +400,10 @@ export function createSkykitNavigationPlugin(options = {}) {
       : await resolveTarget(positionInput, context) ?? current.observerPc;
     const lookAtInput = targetSource.lookAt;
     const resolvedLook = lookAtInput !== undefined
-      ? await resolveSpatialLookAt(lookAtInput, {
+      ? await resolveSkykitLookAt(lookAtInput, {
         observerPc: position,
         resolveBookmark: typeof options.resolveBookmark === 'function'
-          ? (bookmarkId, original) => options.resolveBookmark?.(
-            bookmarkId,
-            /** @type {import('@found-in-space/spatial').SpatialTargetInput} */ (original),
-            context,
-          ) ?? null
+          ? (/** @type {string} */ bookmarkId, /** @type {import('@found-in-space/spatial').SpatialTargetSpec} */ original) => options.resolveBookmark?.(bookmarkId, original, context) ?? null
           : undefined,
       })
       : null;
@@ -398,12 +414,12 @@ export function createSkykitNavigationPlugin(options = {}) {
       ?? normalizeQuaternion(orientationInput, current.orientationIcrs ?? IDENTITY_QUATERNION);
     return createSpatialPoseTransition({
       from: {
-        position: current.observerPc,
-        orientation: current.orientationIcrs ?? IDENTITY_QUATERNION,
+        observerPc: current.observerPc,
+        orientationIcrs: current.orientationIcrs ?? IDENTITY_QUATERNION,
       },
       to: {
-        position,
-        orientation,
+        observerPc: position,
+        orientationIcrs: orientation,
       },
       durationSecs: finiteNumber(source.durationSecs ?? targetSource.durationSecs, 1),
       movement: normalizeTransitionLane(source.movement ?? targetSource.movement, source.movementDurationSecs),
@@ -443,7 +459,7 @@ export function createSkykitStarPreloadRequestsFromSpatialHints(hints, options =
   const requests = [];
   for (const hint of Array.from(hints ?? [])) {
     if (!hint || typeof hint !== 'object') continue;
-    if (hint.kind === 'path-volume' && hint.pointsPc.length >= 2 && hint.radiusPc > 0) {
+    if (hint.kind === 'pathVolume' && hint.pointsPc.length >= 2 && hint.radiusPc > 0) {
       requests.push({
         strategy: createWarmStrategy(createPathVolumeStrategy({
           pointsPc: hint.pointsPc,
@@ -456,7 +472,7 @@ export function createSkykitStarPreloadRequestsFromSpatialHints(hints, options =
       });
       continue;
     }
-    if (hint.kind === 'sphere-volume' && hint.radiusPc > 0) {
+    if (hint.kind === 'sphereVolume' && hint.radiusPc > 0) {
       requests.push({
         strategy: createWarmStrategy(createSphereVolumeStrategy({
           centerPc: hint.centerPc,
@@ -469,8 +485,8 @@ export function createSkykitStarPreloadRequestsFromSpatialHints(hints, options =
       });
       continue;
     }
-    if (hint.kind === 'view-lookahead' && hint.lookaheadSecs > 0) {
-      const velocity = cloneVector3(hint.velocity);
+    if (hint.kind === 'viewLookahead' && hint.lookaheadSecs > 0) {
+      const velocity = cloneVector3(hint.velocityPcPerSec);
       requests.push({
         strategy: createLookaheadStrategy({
           base: options.baseStrategy ?? createObserverShellStrategy(),
@@ -478,8 +494,8 @@ export function createSkykitStarPreloadRequestsFromSpatialHints(hints, options =
           tickSecs: hint.lookaheadSecs,
         }),
         view: {
-          observerPc: cloneVector3(hint.pose.position),
-          orientationIcrs: normalizeQuaternion(hint.pose.orientation, IDENTITY_QUATERNION),
+          observerPc: cloneVector3(hint.pose.observerPc),
+          orientationIcrs: normalizeQuaternion(hint.pose.orientationIcrs, IDENTITY_QUATERNION),
           motion: {
             velocityPcPerSec: velocity,
             speedPcPerSec: Math.hypot(velocity.x, velocity.y, velocity.z),
@@ -767,7 +783,7 @@ export function createMouseLookPlugin(options = {}) {
  * @returns {SkykitPlugin & {
  *   getSnapshot(): unknown;
  *   setEnabled(nextEnabled: boolean): void;
- *   setCenter(nextCenter: import('@found-in-space/spatial').SpatialTargetInput | import('./index.d.ts').SkykitLookAtInput | Vector3Like | null): void;
+ *   setCenter(nextCenter: unknown): void;
  * }}
  */
 export function createSkyOrbitPlugin(options = {}) {
@@ -805,7 +821,7 @@ export function createSkyOrbitPlugin(options = {}) {
 
   /** @type {SkykitThreePart & {
    *   setEnabled(nextEnabled: boolean): void;
-   *   setCenter(nextCenter: import('@found-in-space/spatial').SpatialTargetInput | import('./index.d.ts').SkykitLookAtInput | Vector3Like | null): void;
+   *   setCenter(nextCenter: unknown): void;
    * }}
    */
   const part = {
@@ -844,7 +860,7 @@ export function createSkyOrbitPlugin(options = {}) {
   /** @type {SkykitPlugin & {
    *   getSnapshot(): unknown;
    *   setEnabled(nextEnabled: boolean): void;
-   *   setCenter(nextCenter: import('@found-in-space/spatial').SpatialTargetInput | import('./index.d.ts').SkykitLookAtInput | Vector3Like | null): void;
+   *   setCenter(nextCenter: unknown): void;
    * }}
    */
   const plugin = {
@@ -982,10 +998,10 @@ export function createSkyOrbitPlugin(options = {}) {
       };
     }
 
-    const nextOrientationIcrs = computeSpatialLookAtOrientation({
-      position: nextObserverPc,
-      target: state.centerPc,
-      up: normalizedUp,
+    const nextOrientationIcrs = computeSkykitLookAtOrientation({
+      observerPc: nextObserverPc,
+      targetPc: state.centerPc,
+      upIcrs: normalizedUp,
     });
     if (!nextOrientationIcrs) return null;
     const frame = deriveOrbitCameraFrame(nextOrientationIcrs);
@@ -1033,18 +1049,9 @@ export function createSkyOrbitPlugin(options = {}) {
    */
   function resolveOrbitCenterInput(input, view) {
     try {
-      const target = resolveSpatialTarget(
-        /** @type {import('@found-in-space/spatial').SpatialTargetInput} */ (input),
-        { observerPc: view.observerPc },
-      );
-      const resolvedTarget = unwrapResolvedVector(target);
-      if (resolvedTarget) return resolvedTarget;
-      const lookAt = resolveSpatialLookAt(
-        /** @type {import('@found-in-space/spatial').SpatialLookAtSpec | string} */ (input),
-        { observerPc: view.observerPc },
-      );
-      if (lookAt && typeof /** @type {Promise<unknown>} */ (lookAt).then === 'function') return null;
-      const resolvedLookAt = /** @type {import('@found-in-space/spatial').SpatialResolvedLookAt | null} */ (lookAt);
+      const target = /** @type {Vector3Like | null} */ (resolveSkykitTargetSync(input, { observerPc: view.observerPc }));
+      if (target) return cloneVector3(target);
+      const resolvedLookAt = resolveSkykitLookAtSync(input, { observerPc: view.observerPc });
       return resolvedLookAt?.targetPc ? cloneVector3(resolvedLookAt.targetPc) : null;
     } catch {
       return null;
@@ -1073,10 +1080,10 @@ export function createSkyOrbitPlugin(options = {}) {
   }
 
   /**
-   * @param {import('@found-in-space/spatial').SpatialTargetInput | import('./index.d.ts').SkykitLookAtInput | Vector3Like | null} nextCenter
+   * @param {unknown} nextCenter
    */
   function setCenter(nextCenter) {
-    configuredCenter = nextCenter;
+    configuredCenter = /** @type {import('@found-in-space/spatial').SpatialTargetSpec | import('./index.d.ts').SkykitLookAtInput | Vector3Like | null} */ (nextCenter);
     if (!dragState) {
       lastCenterPc = null;
       lastRadiusPc = null;
@@ -1403,14 +1410,6 @@ function normalizeOrbitDirection(value) {
 function payloadOptions(payload) {
   if (!payload || typeof payload !== 'object') return {};
   const options = /** @type {Record<string, unknown>} */ ({ ...payload });
-  if ('angularSpeedRadPerSec' in options) {
-    options.angularSpeed = options.angularSpeedRadPerSec;
-    delete options.angularSpeedRadPerSec;
-  }
-  if ('normal' in options) {
-    options.orbitNormal = options.normal;
-    delete options.normal;
-  }
   delete options.x;
   delete options.y;
   delete options.z;
@@ -1424,6 +1423,81 @@ function payloadOptions(payload) {
   delete options.points;
   delete options.bookmarkId;
   return options;
+}
+
+/**
+ * @param {Vector3Like} startPc
+ * @param {Vector3Like} targetPc
+ * @param {unknown} payload
+ */
+function buildRouteToTarget(startPc, targetPc, payload) {
+  return buildSpatialOrbitTransferRoute({
+    from: { positionPc: startPc },
+    to: { positionPc: targetPc },
+    travel: {
+      kind: 'orbitTransfer',
+      timing: resolveRouteTiming(payload),
+      sampleStepSecs: resolveSampleStepSecs(payload),
+    },
+  });
+}
+
+/**
+ * @param {unknown} payload
+ * @param {Vector3Like[]} [points]
+ */
+function resolveRouteTiming(payload, points) {
+  const source = /** @type {Record<string, unknown>} */ (payload && typeof payload === 'object' ? payload : {});
+  if (source.timing && typeof source.timing === 'object') {
+    return /** @type {import('@found-in-space/spatial').SpatialTimingSpec} */ (source.timing);
+  }
+  if (source.durationSecs !== undefined) {
+    return { kind: 'duration', durationSecs: positiveFinite(source.durationSecs, 1) };
+  }
+  const speed = positiveFinite(source.speedPcPerSec ?? source.speed, Number.NaN);
+  if (Number.isFinite(speed)) {
+    return { kind: 'constantSpeed', speedPcPerSec: speed };
+  }
+  if (points && points.length >= 2) {
+    return { kind: 'duration', durationSecs: Math.max(1, routePointLength(points)) };
+  }
+  return { kind: 'duration', durationSecs: 1 };
+}
+
+/** @param {unknown} payload */
+function resolveSampleStepSecs(payload) {
+  const source = /** @type {Record<string, unknown>} */ (payload && typeof payload === 'object' ? payload : {});
+  return positiveFinite(source.sampleStepSecs, 1 / 60);
+}
+
+/**
+ * @param {Vector3Like} centerPc
+ * @param {unknown} payload
+ * @returns {import('@found-in-space/spatial').SpatialOrbitSpec}
+ */
+function resolveOrbitSpec(centerPc, payload) {
+  const source = /** @type {Record<string, unknown>} */ (payload && typeof payload === 'object' ? payload : {});
+  return {
+    centerPc,
+    radiusPc: positiveFinite(source.radiusPc ?? source.radius, 1),
+    ...(source.orbitNormal !== undefined || source.normal !== undefined ? { orbitNormal: normalizeVector3(source.orbitNormal ?? source.normal, { x: 0, y: 1, z: 0 }) } : {}),
+    ...(source.referenceAxis !== undefined ? { referenceAxis: normalizeVector3(source.referenceAxis, { x: 1, y: 0, z: 0 }) } : {}),
+    ...(source.initialAngleRad !== undefined || source.initialAngle !== undefined ? { initialAngleRad: finiteNumber(source.initialAngleRad ?? source.initialAngle, 0) } : {}),
+    angularSpeedRadPerSec: finiteNumber(source.angularSpeedRadPerSec ?? source.angularSpeed, 0.1),
+  };
+}
+
+/** @param {Vector3Like[]} points */
+function routePointLength(points) {
+  let total = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    total += Math.hypot(
+      points[index].x - points[index - 1].x,
+      points[index].y - points[index - 1].y,
+      points[index].z - points[index - 1].z,
+    );
+  }
+  return total;
 }
 
 /** @param {unknown} payload */

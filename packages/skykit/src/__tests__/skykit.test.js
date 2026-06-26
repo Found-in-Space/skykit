@@ -9,11 +9,13 @@ import {
 } from '@found-in-space/star-trees';
 
 import {
-  LOCAL_UP,
-  applyQuaternion,
-  computeSpatialLookAtOrientation,
-  resolveSpatialTarget,
+  SPATIAL_LOCAL_UP as LOCAL_UP,
+  applySpatialQuaternion as applyQuaternion,
 } from '@found-in-space/spatial';
+import {
+  computeSkykitLookAtOrientation,
+  resolveSkykitTargetSync,
+} from '../spatial-adapter.js';
 import {
   SKYKIT_ACTION_NAMESPACE,
   SKYKIT_ACTIONS,
@@ -338,8 +340,8 @@ test('viewer derives camera orientation from lookAt targets, sky coordinates, an
 
   const siriusSpec = parseSpatialLookAtText('06h 45m 08.9s, -16d 42m 58s, 2.64pc');
   const orionSpec = parseSpatialLookAtText('05h 35m 17.3s, -05d 23m 28s, 414pc');
-  const siriusPc = resolveSpatialTarget(siriusSpec);
-  const orionPc = resolveSpatialTarget(orionSpec);
+  const siriusPc = resolveSkykitTargetSync(siriusSpec);
+  const orionPc = resolveSkykitTargetSync(orionSpec);
   assert.ok(siriusPc && orionPc && orionSpec);
   const solarTargetViewer = await createSkykitViewer({
     renderer: createRenderer(),
@@ -1611,22 +1613,22 @@ test('navigation transition action restores pose with independent lane durations
 test('spatial preload hints map to star-octree requests without exposing provider internals', () => {
   const hints = [
     {
-      kind: 'path-volume',
+      kind: 'pathVolume',
       pointsPc: [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }],
       radiusPc: 2,
     },
     {
-      kind: 'sphere-volume',
+      kind: 'sphereVolume',
       centerPc: { x: 1, y: 2, z: 3 },
       radiusPc: 4,
     },
     {
-      kind: 'view-lookahead',
+      kind: 'viewLookahead',
       pose: {
-        position: { x: 0, y: 0, z: 0 },
-        orientation: { x: 0, y: 0, z: 0, w: 1 },
+        observerPc: { x: 0, y: 0, z: 0 },
+        orientationIcrs: { x: 0, y: 0, z: 0, w: 1 },
       },
-      velocity: { x: 1, y: 0, z: 0 },
+      velocityPcPerSec: { x: 1, y: 0, z: 0 },
       lookaheadSecs: 5,
     },
   ];
@@ -1760,10 +1762,10 @@ test('sky orbit plugin orbits around the target and cleans pointer listeners', a
     sensitivityRadiansPerPixel: 0.01,
   });
   const observerPc = { x: 0, y: 0, z: -10 };
-  const orientationIcrs = computeSpatialLookAtOrientation({
-    position: observerPc,
-    target: center,
-    up: { x: 0, y: 1, z: 0 },
+  const orientationIcrs = computeSkykitLookAtOrientation({
+    observerPc,
+    targetPc: center,
+    upIcrs: { x: 0, y: 1, z: 0 },
   });
   const viewer = await createSkykitViewer({
     renderer: createRenderer(),
@@ -1812,9 +1814,9 @@ test('sky orbit plugin orbits around the target and cleans pointer listeners', a
 
 test('sky orbit plugin ignores pointer down without a concrete center', async () => {
   const center = { x: 0, y: 0, z: 0 };
-  const orientationIcrs = computeSpatialLookAtOrientation({
-    position: { x: 0, y: 0, z: -10 },
-    target: center,
+  const orientationIcrs = computeSkykitLookAtOrientation({
+    observerPc: { x: 0, y: 0, z: -10 },
+    targetPc: center,
   });
   const target = createEventTarget();
   const plugin = createSkyOrbitPlugin({ target });
@@ -1838,9 +1840,9 @@ test('sky orbit plugin ignores pointer down without a concrete center', async ()
 test('sky orbit plugin resolves centerPc shorthand and lets center win over centerPc', async () => {
   const center = { x: 0, y: 0, z: 0 };
   const ignoredCenter = { x: 2, y: 0, z: 0 };
-  const orientationIcrs = computeSpatialLookAtOrientation({
-    position: { x: 0, y: 0, z: -10 },
-    target: center,
+  const orientationIcrs = computeSkykitLookAtOrientation({
+    observerPc: { x: 0, y: 0, z: -10 },
+    targetPc: center,
   });
   const shorthandTarget = createEventTarget();
   const shorthandPlugin = createSkyOrbitPlugin({
@@ -1927,10 +1929,10 @@ test('sky orbit plugin carries a rolled camera up vector through drag look-at or
   const center = { x: 0, y: 0, z: 0 };
   const observerPc = { x: 0, y: 0, z: -10 };
   const rolledUp = normalizeVector({ x: 1, y: 1, z: 0 });
-  const orientationIcrs = computeSpatialLookAtOrientation({
-    position: observerPc,
-    target: center,
-    up: rolledUp,
+  const orientationIcrs = computeSkykitLookAtOrientation({
+    observerPc,
+    targetPc: center,
+    upIcrs: rolledUp,
   });
   const initialUp = applyQuaternion(LOCAL_UP, orientationIcrs);
   const target = createEventTarget();

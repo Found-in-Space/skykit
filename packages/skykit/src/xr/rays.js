@@ -1,9 +1,9 @@
 import {
-  applyQuaternion,
-  cloneVector3,
-  LOCAL_FORWARD,
-  normalizeDirection,
-  normalizePose,
+  applySpatialQuaternion,
+  cloneSpatialVector3,
+  SPATIAL_LOCAL_FORWARD,
+  normalizeSpatialDirection,
+  normalizeSpatialPose,
 } from '@found-in-space/spatial';
 import { poseFromSkykitXrPose, poseFromViewer } from './body.js';
 
@@ -48,7 +48,7 @@ export function createSkykitXrRaySource(options = {}) {
     if (kind === 'ship-forward') {
       const pose = context.rig?.getNavigationPose?.()
         ?? context.body?.ship
-        ?? normalizePose({});
+        ?? normalizeSpatialPose({});
       lastRay = poseToRay(pose, { id, kind, handedness: null, length });
       return lastRay ? cloneRay(lastRay) : null;
     }
@@ -126,8 +126,8 @@ function poseToRay(pose, options) {
     id: options.id,
     kind: options.kind,
     handedness: options.handedness,
-    origin: cloneVector3(pose.position),
-    direction: normalizeDirection(applyQuaternion(LOCAL_FORWARD, pose.orientation)),
+    origin: cloneSpatialVector3(pose.observerPc),
+    direction: normalizeSpatialDirection(applySpatialQuaternion(SPATIAL_LOCAL_FORWARD, pose.orientationIcrs)),
     length: options.length,
   };
 }
@@ -148,8 +148,8 @@ export function normalizeRay(ray, fallback) {
     id: typeof candidate.id === 'string' ? candidate.id : fallback.id,
     kind: typeof candidate.kind === 'string' ? candidate.kind : fallback.kind,
     handedness: typeof candidate.handedness === 'string' ? candidate.handedness : fallback.handedness,
-    origin: normalizePose({ position: candidate.origin }).position,
-    direction: normalizeDirection(normalizePose({ position: candidate.direction }).position),
+    origin: normalizeSpatialPose({ observerPc: candidate.origin }).observerPc,
+    direction: normalizeSpatialDirection(normalizeSpatialPose({ observerPc: candidate.direction }).observerPc),
     length: Number.isFinite(Number(candidate.length)) ? Number(candidate.length) : fallback.length,
   };
 }
@@ -162,8 +162,8 @@ export function cloneRay(ray) {
     id: ray.id,
     kind: ray.kind,
     handedness: ray.handedness,
-    origin: cloneVector3(ray.origin),
-    direction: cloneVector3(ray.direction),
+    origin: cloneSpatialVector3(ray.origin),
+    direction: cloneSpatialVector3(ray.direction),
     length: ray.length,
   };
 }
