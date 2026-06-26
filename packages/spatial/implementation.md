@@ -6,79 +6,7 @@ code. The public names and many canonical object shapes have landed, but the
 items below still need implementation work before the contract can be treated
 as complete.
 
-## 1. Path Interpolation Is Mostly Declarative
-
-Status: not fully landed.
-
-The contract exposes rich path and aim interpolation objects:
-
-- `SpatialPositionInterpolation` supports `hold`, `linear`, `catmullRom`,
-  `cubicBezier`, and `hermite`.
-- `SpatialAimInterpolationSpec` supports `hold`, `slerp`, `targetLinear`,
-  `targetBezier`, and `directionSlerp`.
-- Aim interpolation rules require target-to-target interpolation to preserve
-  `aim.kind === 'target'` and an interpolated `targetPc`.
-
-References:
-
-- Contract: [api-contract.md:1027](./api-contract.md#L1027)
-- Contract aim rules: [api-contract.md:1159](./api-contract.md#L1159)
-- Position key normalization copies `interpolation` without validating or using
-  it: [src/index.js:1518](./src/index.js#L1518)
-- Position evaluation always smoothstep-lerps between key positions:
-  [src/index.js:1570](./src/index.js#L1570)
-- Aim interpolation only slerps orientation-to-orientation and otherwise holds
-  one authored aim until the bracket end: [src/index.js:1617](./src/index.js#L1617)
-
-Current behavior:
-
-- A position key with `{ interpolation: { kind: 'hold' } }` still moves through
-  the segment.
-- A key with `catmullRom`, `cubicBezier`, or `hermite` is accepted but has no
-  effect.
-- Target-to-target aim interpolation does not interpolate `targetPc`; it holds
-  the left target until the bracket crosses to the right key.
-- Mixed-kind aim interpolation does not emit an orientation sample with source
-  diagnostics as described by the contract.
-
-Implementation work:
-
-- Add a strict normalizer for `SpatialPositionInterpolation` and reject
-  unsupported interpolation kinds.
-- Route `evaluatePositionKeys()` through a small interpolation dispatcher:
-  `hold`, `linear`, `catmullRom`, `cubicBezier`, and `hermite`.
-- Compute velocity and acceleration consistently with each interpolation mode.
-  If exact derivatives are not practical for the first pass, document and test
-  numerical derivative behavior.
-- Add a strict normalizer for `SpatialAimInterpolationSpec`.
-- Implement target-to-target interpolation that returns `kind: 'target'` and an
-  interpolated `targetPc`.
-- Implement direction-to-direction interpolation that returns
-  `kind: 'direction'`.
-- Keep orientation-to-orientation slerp behavior, but make it driven by the
-  authored interpolation and easing.
-- For mixed-kind interpolation, evaluate both endpoints to orientation samples,
-  slerp those orientations, return `kind: 'orientation'`, and include source
-  metadata or warnings in diagnostics.
-
-Tests required:
-
-- `hold` position keys keep the prior position until the next key.
-- `linear` position keys produce linear positions and velocities.
-- `catmullRom`, `cubicBezier`, and `hermite` each affect position samples.
-- Target-to-target aim keys interpolate `targetPc` and preserve target kind.
-- Direction-to-direction aim keys preserve direction kind.
-- Mixed-kind aim keys return orientation samples with diagnostics.
-- Unsupported interpolation kinds throw `TypeError`.
-
-Done when:
-
-- `interpolation` fields change evaluated samples as documented.
-- Path samples include meaningful velocity and, where implemented,
-  acceleration diagnostics.
-- Tests cover every public interpolation kind in `index.d.ts`.
-
-## 2. View And Pose Transition Lane Semantics Are Stubbed
+## 1. View And Pose Transition Lane Semantics Are Stubbed
 
 Status: partially landed.
 
@@ -144,7 +72,7 @@ Done when:
 - Lane delay, duration, easing, and interpolation affect evaluated samples.
 - Diagnostics reflect actual lane behavior, not only authored values.
 
-## 3. Orbital Insert Timing And Route Physics Are Placeholder-Level
+## 2. Orbital Insert Timing And Route Physics Are Placeholder-Level
 
 Status: public names landed, behavior not fully landed.
 
@@ -224,7 +152,7 @@ Done when:
   controls.
 - Route evaluation uses the timing profile as the source of distance over time.
 
-## 4. Route Diagnostics Are Too Shallow
+## 3. Route Diagnostics Are Too Shallow
 
 Status: partially landed.
 
@@ -282,7 +210,7 @@ Done when:
 - Route diagnostics distinguish high-fidelity generated routes from fallback
   routes.
 
-## 5. Inertial And Thrust Motion Models Are Aliases Of Direct Motion
+## 4. Inertial And Thrust Motion Models Are Aliases Of Direct Motion
 
 Status: public constructors landed, distinct models not landed.
 

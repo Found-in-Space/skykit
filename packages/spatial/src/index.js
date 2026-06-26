@@ -803,10 +803,13 @@ export function buildSpatialAimTrack(keys = [], options = {}) {
       ? normalizedKeys[normalizedKeys.length - 1].timeSecs
       : 0;
   assertKeysWithinDuration(normalizedKeys, durationSecs);
+  const defaultInterpolation = options.defaultInterpolation === undefined
+    ? undefined
+    : normalizeSpatialAimInterpolationSpec(options.defaultInterpolation);
   return {
     keys: normalizedKeys,
     durationSecs,
-    ...(options.defaultInterpolation !== undefined ? { defaultInterpolation: options.defaultInterpolation } : {}),
+    ...(defaultInterpolation !== undefined ? { defaultInterpolation } : {}),
     duplicateTimePolicy: options.duplicateTimePolicy ?? 'error',
     diagnostics: { durationSecs, duplicateTimePolicy: options.duplicateTimePolicy ?? 'error', warnings: [] },
   };
@@ -817,22 +820,35 @@ export function evaluateSpatialAimTrack(track, timeSecs, context = {}) {
   if (keys.length === 0) throw new TypeError('Aim tracks require at least one key.');
   const clampedTime = clamp(finiteNumber(timeSecs, 0), 0, Math.max(0, finiteNumber(track.durationSecs, 0)));
   const bracket = findTimedBracket(keys, clampedTime);
-  const key = bracket.left;
   const observerPc = context.observerPc ?? context.positionSample?.pose?.observerPc;
-  if (!observerPc && key.aim?.kind === 'target') {
+  const choice = selectAimInterpolation(bracket, track.defaultInterpolation);
+  if (!observerPc && aimInterpolationRequiresObserver(bracket, choice.spec)) {
     throw new TypeError('Target aim track evaluation requires observerPc or positionSample.pose.observerPc.');
   }
-  const sample = evaluateSpatialAim({
+  const interpolated = interpolateAim(bracket, choice, {
     observerPc: observerPc ?? SPATIAL_ZERO_VECTOR,
-    aim: interpolateAim(bracket, clampedTime, context),
+    fallbackUpIcrs: context.fallbackUpIcrs,
     syntheticTargetDistancePc: context.syntheticTargetDistancePc,
   });
+  const sample = evaluateSpatialAim({
+    observerPc: observerPc ?? SPATIAL_ZERO_VECTOR,
+    aim: interpolated.aim,
+    syntheticTargetDistancePc: context.syntheticTargetDistancePc,
+  });
+  const warnings = [
+    ...interpolated.warnings,
+    ...(sample.diagnostics?.warnings ?? []),
+  ];
+  const aimSample = {
+    ...sample,
+    diagnostics: { warnings },
+  };
   return {
     timeSecs: clampedTime,
-    aim: sample,
+    aim: aimSample,
     segmentIndex: bracket.segmentIndex,
-    ...copySource(key),
-    diagnostics: { warnings: [] },
+    ...(interpolated.sourceKey ? copySource(interpolated.sourceKey) : {}),
+    diagnostics: { warnings },
   };
 }
 
@@ -886,6 +902,8 @@ export function evaluateSpatialPath(path, timeSecs, options = {}) {
     aim,
     velocityPcPerSec: positionSample.velocityPcPerSec,
     speedPcPerSec: positionSample.speedPcPerSec,
+    accelerationPcPerSec2: positionSample.accelerationPcPerSec2,
+    accelerationMagnitudePcPerSec2: positionSample.accelerationMagnitudePcPerSec2,
     segmentIndex: positionSample.segmentIndex,
     segmentId: positionSample.segmentId,
     diagnostics: { warnings: [] },
@@ -1520,7 +1538,7 @@ function normalizePositionKeys(keys, duplicateTimePolicy) {
     id: String(key?.id ?? `position-${index}`),
     timeSecs: finiteTime(key?.timeSecs),
     positionPc: normalizeSpatialVector3(key?.positionPc),
-    ...(key?.interpolation !== undefined ? { interpolation: key.interpolation } : {}),
+    interpolation: normalizeSpatialPositionInterpolation(key?.interpolation ?? { kind: 'linear' }),
     ...copySource(key ?? {}),
     ...(key?.metadata && typeof key.metadata === 'object' ? { metadata: { ...key.metadata } } : {}),
   })).sort(compareTime);
@@ -1532,7 +1550,7 @@ function normalizeAimKeys(keys, duplicateTimePolicy) {
     id: String(key?.id ?? `aim-${index}`),
     timeSecs: finiteTime(key?.timeSecs),
     aim: normalizeSpatialAimSpec(key?.aim),
-    ...(key?.interpolation !== undefined ? { interpolation: key.interpolation } : {}),
+    ...(key?.interpolation !== undefined ? { interpolation: normalizeSpatialAimInterpolationSpec(key.interpolation) } : {}),
     ...copySource(key ?? {}),
     ...(key?.metadata && typeof key.metadata === 'object' ? { metadata: { ...key.metadata } } : {}),
   })).sort(compareTime);
@@ -1567,21 +1585,296 @@ function assertKeysWithinDuration(keys, durationSecs) {
   }
 }
 
+function normalizeSpatialPositionInterpolation(input) {
+  if (!input || typeof input !== 'object') {
+    throw new TypeError('Expected SpatialPositionInterpolation object.');
+  }
+  if (input.kind === 'hold' || input.kind === 'linear') {
+    return { kind: input.kind };
+  }
+  if (input.kind === 'catmullRom') {
+    return {
+      kind: 'catmullRom',
+      ...(input.tension !== undefined ? { tension: finiteNumberInRange(input.tension, 0, 1, 'catmullRom tension') } : {}),
+      ...(input.centripetal !== undefined ? { centripetal: input.centripetal !== false } : {}),
+    };
+  }
+  if (input.kind === 'cubicBezier') {
+    return {
+      kind: 'cubicBezier',
+      ...(input.inTangentPc !== undefined ? { inTangentPc: normalizeSpatialVector3(input.inTangentPc) } : {}),
+      ...(input.outTangentPc !== undefined ? { outTangentPc: normalizeSpatialVector3(input.outTangentPc) } : {}),
+    };
+  }
+  if (input.kind === 'hermite') {
+    return {
+      kind: 'hermite',
+      ...(input.inVelocityPcPerSec !== undefined ? { inVelocityPcPerSec: normalizeSpatialVector3(input.inVelocityPcPerSec) } : {}),
+      ...(input.outVelocityPcPerSec !== undefined ? { outVelocityPcPerSec: normalizeSpatialVector3(input.outVelocityPcPerSec) } : {}),
+    };
+  }
+  throw new TypeError(`Unsupported position interpolation kind: ${String(input.kind)}`);
+}
+
+function normalizeSpatialAimInterpolationSpec(input) {
+  if (!input || typeof input !== 'object') {
+    throw new TypeError('Expected SpatialAimInterpolationSpec object.');
+  }
+  if (input.kind === 'hold') return { kind: 'hold' };
+  if (['slerp', 'targetLinear', 'targetBezier', 'directionSlerp'].includes(input.kind)) {
+    return {
+      kind: input.kind,
+      ...(input.easing !== undefined ? { easing: normalizeEasing(input.easing) } : {}),
+    };
+  }
+  throw new TypeError(`Unsupported aim interpolation kind: ${String(input.kind)}`);
+}
+
+function evaluatePositionInterpolation(keys, segmentIndex, t, durationSecs) {
+  const left = keys[segmentIndex];
+  const right = keys[segmentIndex + 1];
+  const interpolation = left.interpolation ?? { kind: 'linear' };
+  if (interpolation.kind === 'hold') {
+    const positionPc = t >= 1 ? right.positionPc : left.positionPc;
+    return {
+      positionPc: cloneSpatialVector3(positionPc),
+      velocityPcPerSec: cloneSpatialVector3(SPATIAL_ZERO_VECTOR),
+      accelerationPcPerSec2: cloneSpatialVector3(SPATIAL_ZERO_VECTOR),
+    };
+  }
+  if (interpolation.kind === 'cubicBezier') {
+    return evaluateCubicBezierPosition(left, right, t, durationSecs);
+  }
+  if (interpolation.kind === 'hermite') {
+    return evaluateHermitePosition(left, right, t, durationSecs);
+  }
+  if (interpolation.kind === 'catmullRom') {
+    return evaluateCatmullRomPosition(keys, segmentIndex, t, durationSecs, interpolation);
+  }
+  return evaluateLinearPosition(left, right, t, durationSecs);
+}
+
+function evaluateLinearPosition(left, right, t, durationSecs) {
+  const velocityPcPerSec = scaleSpatialVector(subtractSpatialVectors(right.positionPc, left.positionPc), 1 / durationSecs);
+  return {
+    positionPc: lerpVector(left.positionPc, right.positionPc, t),
+    velocityPcPerSec,
+    accelerationPcPerSec2: cloneSpatialVector3(SPATIAL_ZERO_VECTOR),
+  };
+}
+
+function evaluateCubicBezierPosition(left, right, t, durationSecs) {
+  const p0 = left.positionPc;
+  const p3 = right.positionPc;
+  const delta = subtractSpatialVectors(p3, p0);
+  const p1 = addSpatialVectors(
+    p0,
+    left.interpolation?.kind === 'cubicBezier' && left.interpolation.outTangentPc
+      ? left.interpolation.outTangentPc
+      : scaleSpatialVector(delta, 1 / 3),
+  );
+  const p2 = addSpatialVectors(
+    p3,
+    right.interpolation?.kind === 'cubicBezier' && right.interpolation.inTangentPc
+      ? right.interpolation.inTangentPc
+      : scaleSpatialVector(delta, -1 / 3),
+  );
+  const u = clamp(t, 0, 1);
+  const oneMinus = 1 - u;
+  const positionPc = addSpatialVectors(
+    addSpatialVectors(
+      scaleSpatialVector(p0, oneMinus ** 3),
+      scaleSpatialVector(p1, 3 * oneMinus * oneMinus * u),
+    ),
+    addSpatialVectors(
+      scaleSpatialVector(p2, 3 * oneMinus * u * u),
+      scaleSpatialVector(p3, u ** 3),
+    ),
+  );
+  const derivative = addSpatialVectors(
+    addSpatialVectors(
+      scaleSpatialVector(subtractSpatialVectors(p1, p0), 3 * oneMinus * oneMinus),
+      scaleSpatialVector(subtractSpatialVectors(p2, p1), 6 * oneMinus * u),
+    ),
+    scaleSpatialVector(subtractSpatialVectors(p3, p2), 3 * u * u),
+  );
+  const secondDerivative = addSpatialVectors(
+    scaleSpatialVector(addSpatialVectors(subtractSpatialVectors(p2, scaleSpatialVector(p1, 2)), p0), 6 * oneMinus),
+    scaleSpatialVector(addSpatialVectors(subtractSpatialVectors(p3, scaleSpatialVector(p2, 2)), p1), 6 * u),
+  );
+  return {
+    positionPc,
+    velocityPcPerSec: scaleSpatialVector(derivative, 1 / durationSecs),
+    accelerationPcPerSec2: scaleSpatialVector(secondDerivative, 1 / (durationSecs * durationSecs)),
+  };
+}
+
+function evaluateHermitePosition(left, right, t, durationSecs) {
+  const p0 = left.positionPc;
+  const p1 = right.positionPc;
+  const defaultVelocity = scaleSpatialVector(subtractSpatialVectors(p1, p0), 1 / durationSecs);
+  const v0 = left.interpolation?.kind === 'hermite' && left.interpolation.outVelocityPcPerSec
+    ? left.interpolation.outVelocityPcPerSec
+    : defaultVelocity;
+  const v1 = right.interpolation?.kind === 'hermite' && right.interpolation.inVelocityPcPerSec
+    ? right.interpolation.inVelocityPcPerSec
+    : defaultVelocity;
+  const m0 = scaleSpatialVector(v0, durationSecs);
+  const m1 = scaleSpatialVector(v1, durationSecs);
+  const u = clamp(t, 0, 1);
+  const u2 = u * u;
+  const u3 = u2 * u;
+  const positionPc = combineSpatialVectors([
+    [p0, 2 * u3 - 3 * u2 + 1],
+    [m0, u3 - 2 * u2 + u],
+    [p1, -2 * u3 + 3 * u2],
+    [m1, u3 - u2],
+  ]);
+  const derivative = combineSpatialVectors([
+    [p0, 6 * u2 - 6 * u],
+    [m0, 3 * u2 - 4 * u + 1],
+    [p1, -6 * u2 + 6 * u],
+    [m1, 3 * u2 - 2 * u],
+  ]);
+  const secondDerivative = combineSpatialVectors([
+    [p0, 12 * u - 6],
+    [m0, 6 * u - 4],
+    [p1, -12 * u + 6],
+    [m1, 6 * u - 2],
+  ]);
+  return {
+    positionPc,
+    velocityPcPerSec: scaleSpatialVector(derivative, 1 / durationSecs),
+    accelerationPcPerSec2: scaleSpatialVector(secondDerivative, 1 / (durationSecs * durationSecs)),
+  };
+}
+
+function evaluateCatmullRomPosition(keys, segmentIndex, t, durationSecs, interpolation) {
+  const tension = interpolation.tension ?? 0;
+  const centripetal = interpolation.centripetal !== false;
+  const pointAt = (u) => {
+    const catmull = centripetal
+      ? centripetalCatmullRomPosition(keys, segmentIndex, u)
+      : uniformCatmullRomPosition(keys, segmentIndex, u);
+    if (tension <= EPSILON) return catmull;
+    const linear = lerpVector(keys[segmentIndex].positionPc, keys[segmentIndex + 1].positionPc, clamp(u, 0, 1));
+    return lerpVector(catmull, linear, tension);
+  };
+  const derivative = finiteDifferenceVector(pointAt, t);
+  return {
+    positionPc: pointAt(t),
+    velocityPcPerSec: scaleSpatialVector(derivative.first, 1 / durationSecs),
+    accelerationPcPerSec2: scaleSpatialVector(derivative.second, 1 / (durationSecs * durationSecs)),
+  };
+}
+
+function catmullRomControlPoints(keys, segmentIndex) {
+  const p1 = keys[segmentIndex].positionPc;
+  const p2 = keys[segmentIndex + 1].positionPc;
+  const p0 = keys[segmentIndex - 1]?.positionPc ?? subtractSpatialVectors(scaleSpatialVector(p1, 2), p2);
+  const p3 = keys[segmentIndex + 2]?.positionPc ?? subtractSpatialVectors(scaleSpatialVector(p2, 2), p1);
+  return { p0, p1, p2, p3 };
+}
+
+function uniformCatmullRomPosition(keys, segmentIndex, t) {
+  const { p0, p1, p2, p3 } = catmullRomControlPoints(keys, segmentIndex);
+  const u = clamp(t, 0, 1);
+  const u2 = u * u;
+  const u3 = u2 * u;
+  return scaleSpatialVector(combineSpatialVectors([
+    [p0, -u3 + 2 * u2 - u],
+    [p1, 3 * u3 - 5 * u2 + 2],
+    [p2, -3 * u3 + 4 * u2 + u],
+    [p3, u3 - u2],
+  ]), 0.5);
+}
+
+function centripetalCatmullRomPosition(keys, segmentIndex, t) {
+  const { p0, p1, p2, p3 } = catmullRomControlPoints(keys, segmentIndex);
+  const t0 = 0;
+  const t1 = catmullRomKnot(t0, p0, p1);
+  const t2 = catmullRomKnot(t1, p1, p2);
+  const t3 = catmullRomKnot(t2, p2, p3);
+  const u = lerp(t1, t2, clamp(t, 0, 1));
+  const a1 = interpolateCentripetalVector(p0, p1, t0, t1, u);
+  const a2 = interpolateCentripetalVector(p1, p2, t1, t2, u);
+  const a3 = interpolateCentripetalVector(p2, p3, t2, t3, u);
+  const b1 = interpolateCentripetalVector(a1, a2, t0, t2, u);
+  const b2 = interpolateCentripetalVector(a2, a3, t1, t3, u);
+  return interpolateCentripetalVector(b1, b2, t1, t2, u);
+}
+
+function catmullRomKnot(previousKnot, a, b) {
+  return previousKnot + Math.max(Math.sqrt(getSpatialVectorLength(subtractSpatialVectors(a, b))), EPSILON);
+}
+
+function interpolateCentripetalVector(a, b, ta, tb, t) {
+  if (Math.abs(tb - ta) <= EPSILON) return cloneSpatialVector3(b);
+  return addSpatialVectors(
+    scaleSpatialVector(a, (tb - t) / (tb - ta)),
+    scaleSpatialVector(b, (t - ta) / (tb - ta)),
+  );
+}
+
+function finiteDifferenceVector(pointAt, t) {
+  const u = clamp(t, 0, 1);
+  const h = 1e-3;
+  const center = pointAt(u);
+  if (u - h >= 0 && u + h <= 1) {
+    const before = pointAt(u - h);
+    const after = pointAt(u + h);
+    return {
+      first: scaleSpatialVector(subtractSpatialVectors(after, before), 1 / (2 * h)),
+      second: scaleSpatialVector(addSpatialVectors(subtractSpatialVectors(after, scaleSpatialVector(center, 2)), before), 1 / (h * h)),
+    };
+  }
+  if (u + 2 * h <= 1) {
+    const first = pointAt(u + h);
+    const second = pointAt(u + 2 * h);
+    return {
+      first: scaleSpatialVector(combineSpatialVectors([
+        [center, -3],
+        [first, 4],
+        [second, -1],
+      ]), 1 / (2 * h)),
+      second: scaleSpatialVector(addSpatialVectors(subtractSpatialVectors(center, scaleSpatialVector(first, 2)), second), 1 / (h * h)),
+    };
+  }
+  const first = pointAt(u - h);
+  const second = pointAt(u - 2 * h);
+  return {
+    first: scaleSpatialVector(combineSpatialVectors([
+      [center, 3],
+      [first, -4],
+      [second, 1],
+    ]), 1 / (2 * h)),
+    second: scaleSpatialVector(addSpatialVectors(subtractSpatialVectors(center, scaleSpatialVector(first, 2)), second), 1 / (h * h)),
+  };
+}
+
 function evaluatePositionKeys(keys, timeSecs) {
   const bracket = findTimedBracket(keys, timeSecs);
   const left = bracket.left;
   const right = bracket.right;
   if (!right || left === right) {
-    return pathPositionSample(timeSecs, left.positionPc, SPATIAL_ZERO_VECTOR, 0, null, left.id);
+    return pathPositionSample(timeSecs, left.positionPc, SPATIAL_ZERO_VECTOR, 0, SPATIAL_ZERO_VECTOR, null, left.id);
   }
   const duration = Math.max(EPSILON, right.timeSecs - left.timeSecs);
-  const t = clamp((timeSecs - left.timeSecs) / duration, 0, 1);
-  const positionPc = lerpVector(left.positionPc, right.positionPc, smoothstep01(t));
-  const velocityPcPerSec = scaleSpatialVector(subtractSpatialVectors(right.positionPc, left.positionPc), 1 / duration);
-  return pathPositionSample(timeSecs, positionPc, velocityPcPerSec, getSpatialVectorLength(velocityPcPerSec), bracket.segmentIndex, left.id);
+  const t = bracket.t;
+  const evaluation = evaluatePositionInterpolation(keys, bracket.segmentIndex, t, duration);
+  return pathPositionSample(
+    timeSecs,
+    evaluation.positionPc,
+    evaluation.velocityPcPerSec,
+    getSpatialVectorLength(evaluation.velocityPcPerSec),
+    evaluation.accelerationPcPerSec2,
+    bracket.segmentIndex,
+    left.id,
+  );
 }
 
-function pathPositionSample(timeSecs, positionPc, velocityPcPerSec, speedPcPerSec, segmentIndex, segmentId) {
+function pathPositionSample(timeSecs, positionPc, velocityPcPerSec, speedPcPerSec, accelerationPcPerSec2, segmentIndex, segmentId) {
+  const acceleration = accelerationPcPerSec2 ?? SPATIAL_ZERO_VECTOR;
   return {
     timeSecs,
     pose: {
@@ -1591,6 +1884,8 @@ function pathPositionSample(timeSecs, positionPc, velocityPcPerSec, speedPcPerSe
     aim: null,
     velocityPcPerSec: cloneSpatialVector3(velocityPcPerSec),
     speedPcPerSec,
+    accelerationPcPerSec2: cloneSpatialVector3(acceleration),
+    accelerationMagnitudePcPerSec2: getSpatialVectorLength(acceleration),
     segmentIndex,
     segmentId,
     diagnostics: { warnings: [] },
@@ -1614,14 +1909,153 @@ function findTimedBracket(keys, timeSecs) {
   return { left: last, right: last, t: 1, segmentIndex: null };
 }
 
-function interpolateAim(bracket) {
-  if (!bracket.right || bracket.left === bracket.right || bracket.left.aim.kind !== 'orientation' || bracket.right.aim.kind !== 'orientation') {
-    return bracket.t >= 1 ? bracket.right.aim : bracket.left.aim;
+function selectAimInterpolation(bracket, defaultInterpolation) {
+  const leftAim = bracket.left.aim;
+  const rightAim = bracket.right?.aim ?? leftAim;
+  const explicit = bracket.left.interpolation ?? defaultInterpolation;
+  if (explicit) return { spec: normalizeSpatialAimInterpolationSpec(explicit), mixedDefault: false };
+  if (leftAim.kind === 'target' && rightAim.kind === 'target') {
+    return { spec: { kind: 'targetLinear' }, mixedDefault: false };
   }
+  if (leftAim.kind === 'direction' && rightAim.kind === 'direction') {
+    return { spec: { kind: 'directionSlerp' }, mixedDefault: false };
+  }
+  if (leftAim.kind === 'orientation' && rightAim.kind === 'orientation') {
+    return { spec: { kind: 'slerp' }, mixedDefault: false };
+  }
+  return { spec: { kind: 'slerp' }, mixedDefault: true };
+}
+
+function aimInterpolationRequiresObserver(bracket, interpolation) {
+  const selectedAim = interpolation.kind === 'hold' && bracket.t >= 1
+    ? bracket.right.aim
+    : bracket.left.aim;
+  if (interpolation.kind === 'hold') return selectedAim.kind === 'target';
+  if (interpolation.kind === 'targetLinear' || interpolation.kind === 'targetBezier') return true;
+  if (interpolation.kind === 'slerp') {
+    return bracket.left.aim.kind === 'target' || bracket.right.aim.kind === 'target';
+  }
+  return false;
+}
+
+function interpolateAim(bracket, choice, context) {
+  const interpolation = choice.spec;
+  const t = clamp(bracket.t, 0, 1);
+  const warnings = [];
+  const fallbackUpIcrs = context.fallbackUpIcrs === undefined
+    ? undefined
+    : normalizeSpatialVector3(context.fallbackUpIcrs);
+  if (!bracket.right || bracket.left === bracket.right || interpolation.kind === 'hold') {
+    const sourceKey = t >= 1 ? bracket.right : bracket.left;
+    return {
+      aim: aimWithFallbackUp(sourceKey.aim, fallbackUpIcrs),
+      sourceKey,
+      warnings,
+    };
+  }
+  if (choice.mixedDefault) {
+    warnings.push(warning(
+      'mixedAimInterpolation',
+      'Mixed aim kinds default to orientation slerp interpolation.',
+      endpointSourceMetadata(bracket.left, bracket.right),
+    ));
+  }
+  if (interpolation.kind === 'targetLinear' || interpolation.kind === 'targetBezier') {
+    assertAimKind(bracket.left.aim, 'target', interpolation.kind);
+    assertAimKind(bracket.right.aim, 'target', interpolation.kind);
+    const easing = interpolation.easing ?? (interpolation.kind === 'targetBezier' ? { kind: 'smoothstep' } : { kind: 'linear' });
+    const easedT = applyEasing(easing, t);
+    return {
+      aim: {
+        kind: 'target',
+        targetPc: lerpVector(bracket.left.aim.targetPc, bracket.right.aim.targetPc, easedT),
+        ...resolvedInterpolatedAimUp(bracket.left.aim, bracket.right.aim, fallbackUpIcrs),
+      },
+      sourceKey: null,
+      warnings,
+    };
+  }
+  if (interpolation.kind === 'directionSlerp') {
+    assertAimKind(bracket.left.aim, 'direction', interpolation.kind);
+    assertAimKind(bracket.right.aim, 'direction', interpolation.kind);
+    const easedT = applyEasing(interpolation.easing ?? { kind: 'linear' }, t);
+    return {
+      aim: {
+        kind: 'direction',
+        forwardIcrs: slerpSpatialDirections(bracket.left.aim.forwardIcrs, bracket.right.aim.forwardIcrs, easedT),
+        ...resolvedInterpolatedAimUp(bracket.left.aim, bracket.right.aim, fallbackUpIcrs),
+      },
+      sourceKey: null,
+      warnings,
+    };
+  }
+  const easedT = applyEasing(interpolation.easing ?? { kind: 'linear' }, t);
+  const leftSample = evaluateSpatialAim({
+    observerPc: context.observerPc,
+    aim: aimWithFallbackUp(bracket.left.aim, fallbackUpIcrs),
+    syntheticTargetDistancePc: context.syntheticTargetDistancePc,
+  });
+  const rightSample = evaluateSpatialAim({
+    observerPc: context.observerPc,
+    aim: aimWithFallbackUp(bracket.right.aim, fallbackUpIcrs),
+    syntheticTargetDistancePc: context.syntheticTargetDistancePc,
+  });
+  warnings.push(...(leftSample.diagnostics?.warnings ?? []), ...(rightSample.diagnostics?.warnings ?? []));
   return {
-    kind: 'orientation',
-    orientationIcrs: slerpQuaternions(bracket.left.aim.orientationIcrs, bracket.right.aim.orientationIcrs, smoothstep01(bracket.t)),
+    aim: {
+      kind: 'orientation',
+      orientationIcrs: slerpQuaternions(leftSample.orientationIcrs, rightSample.orientationIcrs, easedT),
+    },
+    sourceKey: null,
+    warnings,
   };
+}
+
+function assertAimKind(aim, expectedKind, interpolationKind) {
+  if (aim.kind !== expectedKind) {
+    throw new TypeError(`${interpolationKind} aim interpolation requires ${expectedKind} aim keys.`);
+  }
+}
+
+function aimWithFallbackUp(aim, fallbackUpIcrs) {
+  if (!fallbackUpIcrs || aim.kind === 'orientation' || aim.upIcrs !== undefined) return aim;
+  return { ...aim, upIcrs: fallbackUpIcrs };
+}
+
+function resolvedInterpolatedAimUp(leftAim, rightAim, fallbackUpIcrs) {
+  const up = leftAim.upIcrs ?? rightAim.upIcrs ?? fallbackUpIcrs;
+  return up ? { upIcrs: normalizeSpatialVector3(up) } : {};
+}
+
+function endpointSourceMetadata(leftKey, rightKey) {
+  const metadata = {};
+  if (leftKey.source !== undefined) metadata.leftSource = leftKey.source;
+  if (rightKey.source !== undefined) metadata.rightSource = rightKey.source;
+  return metadata.leftSource !== undefined || metadata.rightSource !== undefined
+    ? metadata
+    : undefined;
+}
+
+function slerpSpatialDirections(left, right, t) {
+  const a = normalizeDirectionOr(left, SPATIAL_LOCAL_FORWARD);
+  let b = normalizeDirectionOr(right, SPATIAL_LOCAL_FORWARD);
+  let cos = clamp(dot(a, b), -1, 1);
+  if (cos > 0.9995) {
+    return normalizeDirectionOr(lerpVector(a, b, t), SPATIAL_LOCAL_FORWARD);
+  }
+  if (cos < -0.9995) {
+    const perpendicular = perpendicularTo(a);
+    return normalizeDirectionOr(addSpatialVectors(
+      scaleSpatialVector(a, Math.cos(Math.PI * t)),
+      scaleSpatialVector(perpendicular, Math.sin(Math.PI * t)),
+    ), SPATIAL_LOCAL_FORWARD);
+  }
+  const theta = Math.acos(cos);
+  const sinTheta = Math.sin(theta);
+  const scaleA = Math.sin((1 - t) * theta) / sinTheta;
+  const scaleB = Math.sin(t * theta) / sinTheta;
+  b = scaleSpatialVector(b, scaleB);
+  return normalizeDirectionOr(addSpatialVectors(scaleSpatialVector(a, scaleA), b), SPATIAL_LOCAL_FORWARD);
 }
 
 function remapPathTime(path, elapsedSecs) {
@@ -1634,21 +2068,75 @@ function remapPathTime(path, elapsedSecs) {
 
 function normalizeEasing(input) {
   if (!input || typeof input !== 'object') throw new TypeError('Expected SpatialEasingSpec object.');
-  if (!['linear', 'smoothstep', 'easeIn', 'easeOut', 'easeInOut', 'cubicBezier'].includes(input.kind)) {
-    throw new TypeError(`Unsupported easing kind: ${String(input.kind)}`);
+  if (input.kind === 'linear' || input.kind === 'smoothstep') return { kind: input.kind };
+  if (input.kind === 'easeIn' || input.kind === 'easeOut' || input.kind === 'easeInOut') {
+    return {
+      kind: input.kind,
+      ...(input.power !== undefined ? { power: positiveFiniteNumber(input.power, `${input.kind} power`) } : {}),
+    };
   }
-  return { ...input };
+  if (input.kind === 'cubicBezier') {
+    return {
+      kind: 'cubicBezier',
+      x1: finiteNumberInRange(input.x1, 0, 1, 'cubicBezier x1'),
+      y1: finiteRequiredNumber(input.y1, 'cubicBezier y1'),
+      x2: finiteNumberInRange(input.x2, 0, 1, 'cubicBezier x2'),
+      y2: finiteRequiredNumber(input.y2, 'cubicBezier y2'),
+    };
+  }
+  throw new TypeError(`Unsupported easing kind: ${String(input.kind)}`);
 }
 
 function applyEasing(easing, t) {
-  if (easing.kind === 'linear') return t;
-  if (easing.kind === 'easeIn') return t ** positiveNumber(easing.power, 2);
-  if (easing.kind === 'easeOut') return 1 - (1 - t) ** positiveNumber(easing.power, 2);
+  const clamped = clamp(t, 0, 1);
+  if (easing.kind === 'linear') return clamped;
+  if (easing.kind === 'easeIn') return clamped ** positiveNumber(easing.power, 2);
+  if (easing.kind === 'easeOut') return 1 - (1 - clamped) ** positiveNumber(easing.power, 2);
   if (easing.kind === 'easeInOut') {
     const power = positiveNumber(easing.power, 2);
-    return t < 0.5 ? 0.5 * (2 * t) ** power : 1 - 0.5 * (2 * (1 - t)) ** power;
+    return clamped < 0.5 ? 0.5 * (2 * clamped) ** power : 1 - 0.5 * (2 * (1 - clamped)) ** power;
   }
-  return smoothstep01(t);
+  if (easing.kind === 'cubicBezier') return applyCubicBezierEasing(easing, clamped);
+  return smoothstep01(clamped);
+}
+
+function applyCubicBezierEasing(easing, t) {
+  if (t <= 0 || t >= 1) return t;
+  let u = t;
+  let lower = 0;
+  let upper = 1;
+  for (let iteration = 0; iteration < 8; iteration += 1) {
+    const x = cubicBezierCoordinate(u, easing.x1, easing.x2);
+    const error = x - t;
+    if (Math.abs(error) <= 1e-7) {
+      return cubicBezierCoordinate(u, easing.y1, easing.y2);
+    }
+    if (error > 0) upper = u;
+    else lower = u;
+    const derivative = cubicBezierDerivative(u, easing.x1, easing.x2);
+    if (Math.abs(derivative) <= 1e-7) break;
+    const next = u - error / derivative;
+    if (!(next > lower && next < upper) || !Number.isFinite(next)) break;
+    u = next;
+  }
+  for (let iteration = 0; iteration < 24; iteration += 1) {
+    u = (lower + upper) * 0.5;
+    const x = cubicBezierCoordinate(u, easing.x1, easing.x2);
+    if (Math.abs(x - t) <= 1e-7) break;
+    if (x > t) upper = u;
+    else lower = u;
+  }
+  return cubicBezierCoordinate(u, easing.y1, easing.y2);
+}
+
+function cubicBezierCoordinate(t, p1, p2) {
+  const oneMinus = 1 - t;
+  return 3 * oneMinus * oneMinus * t * p1 + 3 * oneMinus * t * t * p2 + t * t * t;
+}
+
+function cubicBezierDerivative(t, p1, p2) {
+  const oneMinus = 1 - t;
+  return 3 * oneMinus * oneMinus * p1 + 6 * oneMinus * t * (p2 - p1) + 3 * t * t * (1 - p2);
 }
 
 function normalizeTransitionLane(input = {}) {
@@ -1810,6 +2298,22 @@ function dot(a, b) {
   return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
+function combineSpatialVectors(terms) {
+  let x = 0;
+  let y = 0;
+  let z = 0;
+  for (const [vector, scalar] of terms) {
+    x += vector.x * scalar;
+    y += vector.y * scalar;
+    z += vector.z * scalar;
+  }
+  return { x, y, z };
+}
+
+function lerp(left, right, t) {
+  return left + (right - left) * t;
+}
+
 function lerpVector(a, b, t) {
   return {
     x: a.x + (b.x - a.x) * t,
@@ -1821,6 +2325,24 @@ function lerpVector(a, b, t) {
 function finiteNumber(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+function finiteRequiredNumber(value, label) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) throw new RangeError(`${label} must be a finite number.`);
+  return number;
+}
+
+function positiveFiniteNumber(value, label) {
+  const number = finiteRequiredNumber(value, label);
+  if (!(number > 0)) throw new RangeError(`${label} must be greater than zero.`);
+  return number;
+}
+
+function finiteNumberInRange(value, min, max, label) {
+  const number = finiteRequiredNumber(value, label);
+  if (number < min || number > max) throw new RangeError(`${label} must be between ${min} and ${max}.`);
+  return number;
 }
 
 function finiteTime(value) {
