@@ -1446,6 +1446,7 @@ function buildRouteToTarget(startPc, targetPc, payload) {
 /**
  * @param {unknown} payload
  * @param {Vector3Like[]} [points]
+ * @returns {import('@found-in-space/spatial').SpatialTimingSpec}
  */
 function resolveRouteTiming(payload, points) {
   const source = /** @type {Record<string, unknown>} */ (payload && typeof payload === 'object' ? payload : {});

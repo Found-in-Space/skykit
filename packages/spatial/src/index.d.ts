@@ -294,7 +294,34 @@ export function deriveSpatialOrbitHandoff(input: {
 export type SpatialTimingSpec =
   | { kind: 'duration'; durationSecs: number; minDurationSecs?: number; maxDurationSecs?: number; source?: SpatialSourceRef }
   | { kind: 'constantSpeed'; speedPcPerSec: number; durationSecs?: number; source?: SpatialSourceRef }
-  | Record<string, unknown>;
+  | {
+      kind: 'trapezoid';
+      departureSpeedPcPerSec?: number;
+      cruiseSpeedPcPerSec?: number;
+      arrivalSpeedPcPerSec?: number;
+      accelerationPcPerSec2?: number;
+      decelerationPcPerSec2?: number;
+      durationSecs?: number;
+      minDurationSecs?: number;
+      maxDurationSecs?: number;
+      source?: SpatialSourceRef;
+    }
+  | {
+      kind: 'triangular';
+      departureSpeedPcPerSec?: number;
+      peakSpeedPcPerSec?: number;
+      arrivalSpeedPcPerSec?: number;
+      accelerationPcPerSec2?: number;
+      decelerationPcPerSec2?: number;
+      durationSecs?: number;
+      source?: SpatialSourceRef;
+    }
+  | {
+      kind: 'custom';
+      durationSecs: number;
+      phases: SpatialTimingPhase[];
+      source?: SpatialSourceRef;
+    };
 
 export interface SpatialTimingPhase {
   kind: 'accelerate' | 'cruise' | 'decelerate' | 'blend' | 'hold';
@@ -319,7 +346,7 @@ export interface SpatialTimingDiagnostics {
 }
 
 export interface SpatialTimingProfile {
-  kind: string;
+  kind: 'duration' | 'constantSpeed' | 'trapezoid' | 'triangular' | 'custom';
   durationSecs: number;
   distancePc?: number;
   departureSpeedPcPerSec?: number;

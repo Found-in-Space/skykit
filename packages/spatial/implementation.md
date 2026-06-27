@@ -6,94 +6,15 @@ code. The public names and many canonical object shapes have landed, but the
 items below still need implementation work before the contract can be treated
 as complete.
 
-## 1. Orbital Insert Timing And Route Physics Are Placeholder-Level
-
-Status: public names landed, behavior not fully landed.
-
-The contract calls for a physical `SpatialTimingProfile` with acceleration,
-deceleration, min/max duration constraints, phases, and diagnostics. The plan
-specifically calls out orbital insert timing as needing deterministic handling
-when `durationSecs` conflicts with acceleration or deceleration.
-
-References:
-
-- Contract timing profile: [api-contract.md:632](./api-contract.md#L632)
-- Contract orbital insert timing helper:
-  [api-contract.md:671](./api-contract.md#L671)
-- Plan recommendation: [plan.md:546](./plan.md#L546)
-- Current `deriveSpatialOrbitalInsertTiming()` forwards only speed and duration:
-  [src/index.js:531](./src/index.js#L531)
-- Current generic timing profile always returns one cruise or hold phase:
-  [src/index.js:1452](./src/index.js#L1452)
-- Current orbit transfer route uses straight interpolated route points:
-  [src/index.js:635](./src/index.js#L635)
-- Current orbital insert route uses straight interpolated route points:
-  [src/index.js:679](./src/index.js#L679)
-- Current route point interpolation is simple linear interpolation:
-  [src/index.js:1402](./src/index.js#L1402)
-
-Current behavior:
-
-- `accelerationPcPerSec2`, `decelerationPcPerSec2`, `minDurationSecs`, and
-  `maxDurationSecs` are ignored by `deriveSpatialOrbitalInsertTiming()`.
-- The returned timing profile is `kind: 'constantSpeed'` even when inputs ask
-  for acceleration or deceleration behavior.
-- Diagnostics do not report whether acceleration or deceleration was applied,
-  ignored, fitted, or overridden by duration.
-- Orbit transfer and orbital insert routes are straight-line point samples, so
-  they do not yet represent the intended orbit-transfer or insert geometry.
-
-Implementation work:
-
-- Implement `normalizeSpatialTimingSpec()` for `duration`, `constantSpeed`,
-  `trapezoid`, `triangular`, and `custom` rather than copying complex specs
-  through.
-- Implement timing profile derivation for:
-  - fixed duration;
-  - constant speed;
-  - trapezoidal acceleration/cruise/deceleration;
-  - triangular no-cruise profiles;
-  - custom phase validation.
-- In `deriveSpatialOrbitalInsertTiming()`, use current speed, approach speed,
-  orbital speed, acceleration, deceleration, and duration constraints to build
-  phases.
-- Populate `SpatialTimingDiagnostics` with `requestedAccelerationApplied`,
-  `requestedDecelerationApplied`, `durationConstrainedProfile`,
-  `clampedToMinDuration`, `clampedToMaxDuration`, and warnings.
-- Make `evaluateSpatialRoute()` sample distance from timing phases instead of
-  linear elapsed/duration ratio.
-- Replace straight-line orbital insert geometry with a curve that respects
-  arrival tangent and orbit handoff. A minimal first pass can use Hermite or
-  quintic interpolation with arrival velocity aligned to the orbit tangent.
-- Replace straight-line orbit transfer with at least a basis-aware transfer
-  curve when source or destination orbit metadata is available.
-
-Tests required:
-
-- Acceleration/deceleration inputs produce non-cruise phases.
-- Fixed duration plus incompatible deceleration emits diagnostics.
-- Min and max duration constraints clamp and report diagnostics.
-- Route evaluation samples distance according to timing phases, not only
-  elapsed/duration.
-- Orbital insert arrival velocity is tangent to the destination orbit.
-- Orbit transfer/insert routes are not straight-line when orbit metadata is
-  present.
-
-Done when:
-
-- Timing profiles carry meaningful phases and diagnostics.
-- Orbital insert route timing reflects authored acceleration/deceleration
-  controls.
-- Route evaluation uses the timing profile as the source of distance over time.
-
-## 2. Route Diagnostics Are Too Shallow
+## 1. Route Diagnostics Are Too Shallow
 
 Status: partially landed.
 
 The contract and plan expect route diagnostics to help Studio and website code
 inspect generated route quality. The current implementation returns the core
-duration/length/speed fields, but omits selected orbit basis and candidate
-quality terms.
+duration/length/speed fields and selected orbit basis for generated orbital
+insert/transfer curves, but omits candidate quality terms and segment
+diagnostics.
 
 References:
 
@@ -111,8 +32,10 @@ Current behavior:
   `peakSpeedPcPerSec`, `departureSpeedPcPerSec`, and
   `arrivalSpeedPcPerSec` are populated.
 - `settleBehavior` is set for orbital insert.
-- `candidateCost`, `candidateRank`, selected orbit basis fields, and penalty
-  fields are not produced.
+- `selectedOrbitNormal`, `selectedRadial`, and `selectedTangent` are populated
+  when orbit-aware route geometry is generated.
+- Linear orbit-transfer fallback geometry emits a warning.
+- `candidateCost`, `candidateRank`, and penalty fields are not produced.
 - Segment diagnostics such as per-segment `durationSecs`,
   `averageSpeedPcPerSec`, and `curvatureRadPerPc` are declared but not filled.
 
@@ -131,9 +54,9 @@ Implementation work:
 Tests required:
 
 - Polyline diagnostics include core speed and length fields.
-- Orbit transfer diagnostics include selected orbit basis when orbit metadata is
+- Orbit transfer diagnostics include candidate quality when orbit metadata is
   present.
-- Orbital insert diagnostics include selected radial/tangent and candidate cost.
+- Orbital insert diagnostics include candidate cost.
 - Segment diagnostics are populated for multi-segment routes.
 - Fallback geometry emits a warning.
 
@@ -141,10 +64,9 @@ Done when:
 
 - `SpatialRouteDiagnostics` fields declared in the contract are populated when
   enough information exists.
-- Route diagnostics distinguish high-fidelity generated routes from fallback
-  routes.
+- Route diagnostics include candidate quality and segment diagnostics.
 
-## 3. Inertial And Thrust Motion Models Are Aliases Of Direct Motion
+## 2. Inertial And Thrust Motion Models Are Aliases Of Direct Motion
 
 Status: public constructors landed, distinct models not landed.
 

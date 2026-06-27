@@ -16,6 +16,7 @@ import {
   createDirectSpatialMotionModel,
   createSpatialNavigationAutomation,
   deriveSpatialOrbitHandoff,
+  deriveSpatialOrbitalInsertTiming,
   evaluateSpatialAim,
   evaluateSpatialAimTrack,
   evaluateSpatialOrbit,
@@ -28,6 +29,7 @@ import {
   materializeSpatialPreloadHints,
   normalizeSpatialPathSpec,
   normalizeSpatialPose,
+  normalizeSpatialTimingSpec,
   normalizeSpatialUpdateDelta,
   projectSpatialEquirectangular,
   raDecDistanceToIcrs,
@@ -125,6 +127,214 @@ test('orbit routes preserve destination and derive handoff angle continuity', ()
   const handoff = deriveSpatialOrbitHandoff({ positionPc: route.arrival.positionPc, orbit });
   const orbitSample = evaluateSpatialOrbit(handoff.orbit, 0);
   assertVectorApprox(orbitSample.positionPc, route.arrival.positionPc);
+});
+
+test('timing profiles derive physical phases and constraint diagnostics', () => {
+  const timing = deriveSpatialOrbitalInsertTiming({
+    distancePc: 10,
+    currentSpeedPcPerSec: 0,
+    approachSpeedPcPerSec: 4,
+    orbitalSpeedPcPerSec: 1,
+    accelerationPcPerSec2: 2,
+    decelerationPcPerSec2: 1,
+  });
+  assert.equal(timing.phases.some((phase) => phase.kind === 'accelerate'), true);
+  assert.equal(timing.phases.some((phase) => phase.kind === 'decelerate'), true);
+  assert.equal(timing.diagnostics.requestedAccelerationApplied, true);
+  assert.equal(timing.diagnostics.requestedDecelerationApplied, true);
+
+  const constrained = deriveSpatialOrbitalInsertTiming({
+    distancePc: 10,
+    currentSpeedPcPerSec: 5,
+    orbitalSpeedPcPerSec: 1,
+    durationSecs: 2,
+    decelerationPcPerSec2: 0.1,
+  });
+  assert.equal(constrained.durationSecs, 2);
+  assert.equal(constrained.diagnostics.durationConstrainedProfile, true);
+  assert.equal(constrained.diagnostics.requestedDecelerationApplied, false);
+  assert.equal(constrained.diagnostics.warnings.some((warning) => warning.code === 'requestedDecelerationFitted'), true);
+
+  const accelerationOnly = deriveSpatialOrbitalInsertTiming({
+    distancePc: 10,
+    currentSpeedPcPerSec: 1,
+    orbitalSpeedPcPerSec: 5,
+    accelerationPcPerSec2: 2,
+  });
+  assert.equal(accelerationOnly.departureSpeedPcPerSec, 1);
+  assert.equal(accelerationOnly.arrivalSpeedPcPerSec, 5);
+  assert.equal(accelerationOnly.phases.at(-1).endSpeedPcPerSec, 5);
+  assert.equal(accelerationOnly.diagnostics.requestedAccelerationApplied, true);
+
+  const decelerationOnly = deriveSpatialOrbitalInsertTiming({
+    distancePc: 10,
+    currentSpeedPcPerSec: 5,
+    orbitalSpeedPcPerSec: 1,
+    decelerationPcPerSec2: 2,
+  });
+  assert.equal(decelerationOnly.departureSpeedPcPerSec, 5);
+  assert.equal(decelerationOnly.arrivalSpeedPcPerSec, 1);
+  assert.equal(decelerationOnly.phases.at(-1).endSpeedPcPerSec, 1);
+  assert.equal(decelerationOnly.diagnostics.requestedDecelerationApplied, true);
+
+  const ignoredDeceleration = deriveSpatialOrbitalInsertTiming({
+    distancePc: 10,
+    currentSpeedPcPerSec: 1,
+    orbitalSpeedPcPerSec: 5,
+    decelerationPcPerSec2: 2,
+  });
+  assert.equal(ignoredDeceleration.departureSpeedPcPerSec, 1);
+  assert.equal(ignoredDeceleration.arrivalSpeedPcPerSec, 5);
+  assert.equal(ignoredDeceleration.phases.at(-1).endSpeedPcPerSec, 5);
+  assert.equal(ignoredDeceleration.diagnostics.requestedDecelerationApplied, false);
+  assert.equal(ignoredDeceleration.diagnostics.warnings.some((warning) => warning.code === 'requestedDecelerationIgnored'), true);
+
+  const equalSpeedWithRates = deriveSpatialOrbitalInsertTiming({
+    distancePc: 10,
+    currentSpeedPcPerSec: 1,
+    orbitalSpeedPcPerSec: 1,
+    accelerationPcPerSec2: 2,
+    decelerationPcPerSec2: 2,
+  });
+  assert.equal(equalSpeedWithRates.departureSpeedPcPerSec, 1);
+  assert.equal(equalSpeedWithRates.arrivalSpeedPcPerSec, 1);
+  assert.equal(equalSpeedWithRates.diagnostics.requestedAccelerationApplied, false);
+  assert.equal(equalSpeedWithRates.diagnostics.requestedDecelerationApplied, false);
+  assert.equal(equalSpeedWithRates.diagnostics.warnings.some((warning) => warning.code === 'requestedAccelerationIgnored'), true);
+  assert.equal(equalSpeedWithRates.diagnostics.warnings.some((warning) => warning.code === 'requestedDecelerationIgnored'), true);
+
+  const clamped = buildSpatialPolylineRoute({
+    pointsPc: [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }],
+    travel: { kind: 'polyline', timing: { kind: 'duration', durationSecs: 1, minDurationSecs: 4 } },
+  });
+  assert.equal(clamped.timing.durationSecs, 4);
+  assert.equal(clamped.timing.diagnostics.clampedToMinDuration, true);
+
+  const maxClamped = buildSpatialPolylineRoute({
+    pointsPc: [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }],
+    travel: { kind: 'polyline', timing: { kind: 'duration', durationSecs: 8, maxDurationSecs: 5 } },
+  });
+  assert.equal(maxClamped.timing.durationSecs, 5);
+  assert.equal(maxClamped.timing.diagnostics.clampedToMaxDuration, true);
+});
+
+test('route evaluation samples distance from timing phases', () => {
+  const route = buildSpatialPolylineRoute({
+    pointsPc: [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }],
+    travel: {
+      kind: 'polyline',
+      timing: {
+        kind: 'trapezoid',
+        departureSpeedPcPerSec: 0,
+        arrivalSpeedPcPerSec: 0,
+        accelerationPcPerSec2: 2,
+        decelerationPcPerSec2: 2,
+      },
+    },
+  });
+  const sample = evaluateSpatialRoute(route, 1);
+  const linearDistance = route.totalLengthPc * (sample.elapsedSecs / route.timing.durationSecs);
+  assert.equal(sample.distancePc < linearDistance, true);
+  assertVectorApprox(sample.positionPc, { x: 1, y: 0, z: 0 });
+});
+
+test('custom timing validates phase speed integrals', () => {
+  assert.throws(() => normalizeSpatialTimingSpec({
+    kind: 'custom',
+    durationSecs: 1,
+    phases: [],
+  }), /at least one phase/);
+
+  assert.throws(() => normalizeSpatialTimingSpec({
+    kind: 'custom',
+    durationSecs: 1,
+    phases: [{
+      kind: 'cruise',
+      startTimeSecs: 0,
+      endTimeSecs: 1,
+      startDistancePc: 0,
+      endDistancePc: 2,
+      startSpeedPcPerSec: 1,
+      endSpeedPcPerSec: 1,
+    }],
+  }), /speed integral/);
+
+  const zeroDurationHold = normalizeSpatialTimingSpec({
+    kind: 'custom',
+    durationSecs: 0,
+    phases: [{
+      kind: 'hold',
+      startTimeSecs: 0,
+      endTimeSecs: 0,
+      startDistancePc: 0,
+      endDistancePc: 0,
+      startSpeedPcPerSec: 0,
+      endSpeedPcPerSec: 0,
+    }],
+  });
+  assert.equal(zeroDurationHold.durationSecs, 0);
+
+  const customRoute = buildSpatialPolylineRoute({
+    pointsPc: [{ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }],
+    travel: {
+      kind: 'polyline',
+      timing: {
+        kind: 'custom',
+        durationSecs: 2,
+        phases: [{
+          kind: 'cruise',
+          startTimeSecs: 0,
+          endTimeSecs: 2,
+          startDistancePc: 0,
+          endDistancePc: 2,
+          startSpeedPcPerSec: 1,
+          endSpeedPcPerSec: 1,
+        }],
+      },
+    },
+  });
+  assert.equal(customRoute.timing.durationSecs, 2);
+});
+
+test('orbital insert and transfer routes use curved orbit-aware geometry', () => {
+  const orbit = {
+    centerPc: { x: 0, y: 0, z: 0 },
+    radiusPc: 5,
+    orbitNormal: { x: 0, y: 1, z: 0 },
+    angularSpeedRadPerSec: 0.2,
+  };
+  const insert = buildSpatialOrbitalInsertRoute({
+    from: { positionPc: { x: 15, y: 0, z: 0 } },
+    orbit,
+    travel: {
+      kind: 'orbitalInsert',
+      sampleStepSecs: 0.25,
+      timing: { kind: 'duration', durationSecs: 4 },
+    },
+  });
+  assert.ok(insert);
+  assert.notEqual(insert.pointsPc[Math.floor(insert.pointsPc.length / 2)].z, 0);
+  const insertFinalDirection = normalizeTestVector(subtractTestVectors(
+    insert.pointsPc[insert.pointsPc.length - 1],
+    insert.pointsPc[insert.pointsPc.length - 2],
+  ));
+  assert.equal(dotTestVectors(insertFinalDirection, insert.diagnostics.selectedTangent) > 0.9, true);
+
+  const transfer = buildSpatialOrbitTransferRoute({
+    from: {
+      positionPc: { x: 10, y: 0, z: 0 },
+      orbit: { ...orbit, radiusPc: 10, initialAngleRad: 0 },
+    },
+    to: { orbit: { ...orbit, initialAngleRad: Math.PI / 2 } },
+    travel: {
+      kind: 'orbitTransfer',
+      sampleStepSecs: 0.25,
+      timing: { kind: 'duration', durationSecs: 4 },
+    },
+  });
+  assert.ok(transfer);
+  assert.equal(transfer.diagnostics.warnings.length, 0);
+  assert.equal(transfer.pointsPc.some((point) => pointLineDistance(point, transfer.departure.positionPc, transfer.arrival.positionPc) > 0.1), true);
 });
 
 test('aim tracks require an observer source for target aims', () => {
@@ -541,4 +751,37 @@ function assertVectorApprox(actual, expected, epsilon = 1e-9) {
   assert.ok(Math.abs(actual.x - expected.x) <= epsilon, `x expected ${expected.x}, got ${actual.x}`);
   assert.ok(Math.abs(actual.y - expected.y) <= epsilon, `y expected ${expected.y}, got ${actual.y}`);
   assert.ok(Math.abs(actual.z - expected.z) <= epsilon, `z expected ${expected.z}, got ${actual.z}`);
+}
+
+function subtractTestVectors(a, b) {
+  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+}
+
+function dotTestVectors(a, b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function crossTestVectors(a, b) {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
+}
+
+function testVectorLength(vector) {
+  return Math.hypot(vector.x, vector.y, vector.z);
+}
+
+function normalizeTestVector(vector) {
+  const length = testVectorLength(vector);
+  return length > 0 ? { x: vector.x / length, y: vector.y / length, z: vector.z / length } : { x: 0, y: 0, z: 0 };
+}
+
+function pointLineDistance(point, start, end) {
+  const line = subtractTestVectors(end, start);
+  const offset = subtractTestVectors(point, start);
+  const lineLength = testVectorLength(line);
+  if (!(lineLength > 0)) return testVectorLength(offset);
+  return testVectorLength(crossTestVectors(offset, line)) / lineLength;
 }

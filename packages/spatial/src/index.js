@@ -11,6 +11,7 @@ const TRANSITION_LANE_INTERPOLATIONS = new Set([
   'easeInOut',
   'slerp',
 ]);
+const TIMING_PHASE_KINDS = new Set(['accelerate', 'cruise', 'decelerate', 'blend', 'hold']);
 
 export const SPATIAL_ZERO_VECTOR = Object.freeze({ x: 0, y: 0, z: 0 });
 export const SPATIAL_LOCAL_RIGHT = Object.freeze({ x: 1, y: 0, z: 0 });
@@ -515,37 +516,77 @@ export function normalizeSpatialTimingSpec(input) {
   if (!input || typeof input !== 'object') {
     throw new TypeError('Expected a SpatialTimingSpec object.');
   }
+  const value = /** @type {Record<string, unknown>} */ (input);
   if (input.kind === 'duration') {
-    return {
+    const output = {
       kind: 'duration',
-      durationSecs: positiveNumber(input.durationSecs, Number.NaN),
-      ...(input.minDurationSecs !== undefined ? { minDurationSecs: positiveNumber(input.minDurationSecs, 0) } : {}),
-      ...(input.maxDurationSecs !== undefined ? { maxDurationSecs: positiveNumber(input.maxDurationSecs, 0) } : {}),
+      durationSecs: nonNegativeFiniteNumber(value.durationSecs, 'durationSecs'),
       ...copySource(input),
     };
+    return withTimingDurationConstraints(output, value);
   }
   if (input.kind === 'constantSpeed') {
     return {
       kind: 'constantSpeed',
-      speedPcPerSec: positiveNumber(input.speedPcPerSec, Number.NaN),
-      ...(input.durationSecs !== undefined ? { durationSecs: positiveNumber(input.durationSecs, 0) } : {}),
+      speedPcPerSec: nonNegativeFiniteNumber(value.speedPcPerSec, 'speedPcPerSec'),
+      ...(value.durationSecs !== undefined ? { durationSecs: nonNegativeFiniteNumber(value.durationSecs, 'durationSecs') } : {}),
       ...copySource(input),
     };
   }
-  if (input.kind === 'trapezoid' || input.kind === 'triangular' || input.kind === 'custom') {
-    return { ...input };
+  if (input.kind === 'trapezoid') {
+    const output = {
+      kind: 'trapezoid',
+      ...(value.departureSpeedPcPerSec !== undefined ? { departureSpeedPcPerSec: nonNegativeFiniteNumber(value.departureSpeedPcPerSec, 'departureSpeedPcPerSec') } : {}),
+      ...(value.cruiseSpeedPcPerSec !== undefined ? { cruiseSpeedPcPerSec: nonNegativeFiniteNumber(value.cruiseSpeedPcPerSec, 'cruiseSpeedPcPerSec') } : {}),
+      ...(value.arrivalSpeedPcPerSec !== undefined ? { arrivalSpeedPcPerSec: nonNegativeFiniteNumber(value.arrivalSpeedPcPerSec, 'arrivalSpeedPcPerSec') } : {}),
+      ...(value.accelerationPcPerSec2 !== undefined ? { accelerationPcPerSec2: positiveFiniteNumber(value.accelerationPcPerSec2, 'accelerationPcPerSec2') } : {}),
+      ...(value.decelerationPcPerSec2 !== undefined ? { decelerationPcPerSec2: positiveFiniteNumber(value.decelerationPcPerSec2, 'decelerationPcPerSec2') } : {}),
+      ...(value.durationSecs !== undefined ? { durationSecs: nonNegativeFiniteNumber(value.durationSecs, 'durationSecs') } : {}),
+      ...copySource(input),
+    };
+    return withTimingDurationConstraints(output, value);
+  }
+  if (input.kind === 'triangular') {
+    return {
+      kind: 'triangular',
+      ...(value.departureSpeedPcPerSec !== undefined ? { departureSpeedPcPerSec: nonNegativeFiniteNumber(value.departureSpeedPcPerSec, 'departureSpeedPcPerSec') } : {}),
+      ...(value.peakSpeedPcPerSec !== undefined ? { peakSpeedPcPerSec: nonNegativeFiniteNumber(value.peakSpeedPcPerSec, 'peakSpeedPcPerSec') } : {}),
+      ...(value.arrivalSpeedPcPerSec !== undefined ? { arrivalSpeedPcPerSec: nonNegativeFiniteNumber(value.arrivalSpeedPcPerSec, 'arrivalSpeedPcPerSec') } : {}),
+      ...(value.accelerationPcPerSec2 !== undefined ? { accelerationPcPerSec2: positiveFiniteNumber(value.accelerationPcPerSec2, 'accelerationPcPerSec2') } : {}),
+      ...(value.decelerationPcPerSec2 !== undefined ? { decelerationPcPerSec2: positiveFiniteNumber(value.decelerationPcPerSec2, 'decelerationPcPerSec2') } : {}),
+      ...(value.durationSecs !== undefined ? { durationSecs: nonNegativeFiniteNumber(value.durationSecs, 'durationSecs') } : {}),
+      ...copySource(input),
+    };
+  }
+  if (input.kind === 'custom') {
+    const durationSecs = nonNegativeFiniteNumber(value.durationSecs, 'durationSecs');
+    return {
+      kind: 'custom',
+      durationSecs,
+      phases: normalizeTimingPhases(value.phases, durationSecs),
+      ...copySource(input),
+    };
   }
   throw new TypeError(`Unsupported timing kind: ${String(input.kind)}`);
 }
 
 export function deriveSpatialOrbitalInsertTiming(input) {
+  const approachSpeedPcPerSec = Math.max(0, finiteNumber(
+    input?.approachSpeedPcPerSec,
+    input?.currentSpeedPcPerSec ?? input?.orbitalSpeedPcPerSec ?? 0,
+  ));
+  const orbitalSpeedPcPerSec = Math.max(0, finiteNumber(input?.orbitalSpeedPcPerSec, 0));
   return deriveTimingProfile({
-    kind: 'constantSpeed',
+    kind: 'trapezoid',
     distancePc: Math.max(0, finiteNumber(input?.distancePc, 0)),
     durationSecs: input?.durationSecs,
-    speedPcPerSec: input?.approachSpeedPcPerSec ?? input?.orbitalSpeedPcPerSec,
-    departureSpeedPcPerSec: input?.currentSpeedPcPerSec,
-    arrivalSpeedPcPerSec: input?.orbitalSpeedPcPerSec,
+    minDurationSecs: input?.minDurationSecs,
+    maxDurationSecs: input?.maxDurationSecs,
+    departureSpeedPcPerSec: input?.currentSpeedPcPerSec ?? approachSpeedPcPerSec,
+    cruiseSpeedPcPerSec: approachSpeedPcPerSec,
+    arrivalSpeedPcPerSec: orbitalSpeedPcPerSec,
+    accelerationPcPerSec2: input?.accelerationPcPerSec2,
+    decelerationPcPerSec2: input?.decelerationPcPerSec2,
   });
 }
 
@@ -642,10 +683,14 @@ export function buildSpatialOrbitTransferRoute(input) {
   });
   if (!from || !to) return null;
   const travel = input.travel ? normalizeSpatialTravelSpec(input.travel) : { kind: 'orbitTransfer' };
-  const pointsPc = interpolateRoutePoints(from.positionPc, to.positionPc, travel);
-  const segments = buildRouteSegments(pointsPc);
-  const totalLengthPc = segments.reduce((sum, segment) => sum + segment.lengthPc, 0);
-  const timing = deriveSpatialRouteTiming({ totalLengthPc, travel, departureSpeedPcPerSec: from.speedPcPerSec, arrivalSpeedPcPerSec: to.speedPcPerSec });
+  let geometry = createOrbitTransferGeometry(from, to, travel, null);
+  let segments = buildRouteSegments(geometry.pointsPc);
+  let totalLengthPc = segments.reduce((sum, segment) => sum + segment.lengthPc, 0);
+  let timing = deriveSpatialRouteTiming({ totalLengthPc, travel, departureSpeedPcPerSec: from.speedPcPerSec, arrivalSpeedPcPerSec: to.speedPcPerSec });
+  geometry = createOrbitTransferGeometry(from, to, travel, timing);
+  segments = buildRouteSegments(geometry.pointsPc);
+  totalLengthPc = segments.reduce((sum, segment) => sum + segment.lengthPc, 0);
+  timing = deriveSpatialRouteTiming({ totalLengthPc, travel, departureSpeedPcPerSec: from.speedPcPerSec, arrivalSpeedPcPerSec: to.speedPcPerSec });
   const arrivalAction = to.orbit ? normalizeSpatialArrivalAction({
     kind: 'orbit',
     destination: to.destination,
@@ -654,14 +699,14 @@ export function buildSpatialOrbitTransferRoute(input) {
   }) : null;
   return createRoute({
     kind: 'orbitTransfer',
-    pointsPc,
+    pointsPc: geometry.pointsPc,
     segments,
     totalLengthPc,
     timing,
     departure: from,
     arrival: to,
     arrivalAction,
-    diagnostics: routeDiagnostics(totalLengthPc, timing),
+    diagnostics: routeDiagnostics(totalLengthPc, timing, geometry.diagnostics),
     ...copySource(input),
   });
 }
@@ -686,21 +731,28 @@ export function buildSpatialOrbitalInsertRoute(input) {
     aim: orbit.aim ?? input.destination?.aim ?? null,
   }, { role: 'arrival' });
   const travel = input.travel ? normalizeSpatialTravelSpec(input.travel) : { kind: 'orbitalInsert' };
-  const pointsPc = interpolateRoutePoints(from.positionPc, arrival.positionPc, travel);
-  const segments = buildRouteSegments(pointsPc);
-  const totalLengthPc = segments.reduce((sum, segment) => sum + segment.lengthPc, 0);
   const orbitalSpeedPcPerSec = Math.abs(finiteNumber(orbit.angularSpeedRadPerSec, 0)) * orbit.radiusPc;
-  const timing = travel.timing && isTimingProfile(travel.timing)
-    ? cloneTimingProfile(travel.timing)
-    : deriveSpatialOrbitalInsertTiming({
-        distancePc: totalLengthPc,
-        orbitalSpeedPcPerSec,
-        approachSpeedPcPerSec: travel.timing?.speedPcPerSec,
-        durationSecs: travel.timing?.durationSecs,
-      });
+  let geometry = createOrbitalInsertGeometry(from, arrival, arrivalOrbit, travel, null);
+  let segments = buildRouteSegments(geometry.pointsPc);
+  let totalLengthPc = segments.reduce((sum, segment) => sum + segment.lengthPc, 0);
+  let timing = deriveOrbitalInsertRouteTiming({
+    totalLengthPc,
+    travel,
+    from,
+    orbitalSpeedPcPerSec,
+  });
+  geometry = createOrbitalInsertGeometry(from, arrival, arrivalOrbit, travel, timing);
+  segments = buildRouteSegments(geometry.pointsPc);
+  totalLengthPc = segments.reduce((sum, segment) => sum + segment.lengthPc, 0);
+  timing = deriveOrbitalInsertRouteTiming({
+    totalLengthPc,
+    travel,
+    from,
+    orbitalSpeedPcPerSec,
+  });
   return createRoute({
     kind: 'orbitalInsert',
-    pointsPc,
+    pointsPc: geometry.pointsPc,
     segments,
     totalLengthPc,
     timing,
@@ -712,7 +764,7 @@ export function buildSpatialOrbitalInsertRoute(input) {
       orbit: arrivalOrbit,
       timing,
     }),
-    diagnostics: routeDiagnostics(totalLengthPc, timing, { settleBehavior: 'continueOrbit' }),
+    diagnostics: routeDiagnostics(totalLengthPc, timing, { settleBehavior: 'continueOrbit', ...geometry.diagnostics }),
     ...copySource(input),
   });
 }
@@ -770,9 +822,9 @@ export function getSpatialRouteDiagnostics(route) {
 export function evaluateSpatialRoute(route, elapsedSecs, options = {}) {
   const elapsed = Math.max(0, finiteNumber(elapsedSecs, 0));
   const duration = Math.max(0, route.timing?.durationSecs ?? route.diagnostics?.durationSecs ?? 0);
-  const t = duration > EPSILON ? clamp(elapsed / duration, 0, 1) : 1;
-  const distancePc = route.totalLengthPc * t;
-  const sample = sampleRouteAtDistance(route, distancePc);
+  const timingSample = evaluateTimingProfileAt(route.timing, elapsed);
+  const distancePc = clamp(timingSample.distancePc, 0, route.totalLengthPc);
+  const sample = sampleRouteAtDistance(route, distancePc, timingSample.speedPcPerSec);
   return {
     elapsedSecs: elapsed,
     ...(options.frameIndex !== undefined ? { frameIndex: options.frameIndex } : {}),
@@ -1207,8 +1259,10 @@ export function createSpatialNavigationAutomation(options = {}) {
       const dt = normalizeSpatialUpdateDelta(input);
       elapsedSecs += dt;
       let pose = normalizeSpatialPose(input.pose);
+      let routeSample = null;
       if (activeRoute) {
         const sample = evaluateSpatialRoute(activeRoute, elapsedSecs);
+        routeSample = sample;
         pose = { ...pose, observerPc: sample.positionPc };
         currentSpeedPcPerSec = sample.speedPcPerSec;
         if (sample.complete) {
@@ -1240,12 +1294,13 @@ export function createSpatialNavigationAutomation(options = {}) {
           basis: createSpatialOrbitBasis(activeOrbit),
           speedPcPerSec: Math.abs(finiteNumber(activeOrbit.angularSpeedRadPerSec, 0)) * activeOrbit.radiusPc,
         } : null,
-        pathFollow: activeRoute ? {
+        pathFollow: activeRoute && routeSample ? {
           routeId: activeRoute.id,
           routeKind: activeRoute.kind,
-          distancePc: Math.min(activeRoute.totalLengthPc, activeRoute.totalLengthPc * elapsedSecs / Math.max(activeRoute.timing.durationSecs, EPSILON)),
-          speedPcPerSec: currentSpeedPcPerSec,
-          segmentIndex: null,
+          distancePc: routeSample.distancePc,
+          velocityPcPerSec: routeSample.velocityPcPerSec,
+          speedPcPerSec: routeSample.speedPcPerSec,
+          segmentIndex: routeSample.segmentIndex,
         } : null,
       };
       return cloneSpatialPose(pose);
@@ -1435,11 +1490,9 @@ function buildRouteSegments(pointsPc) {
   return segments;
 }
 
-function interpolateRoutePoints(startPc, endPc, travel) {
+function interpolateRoutePoints(startPc, endPc, travel, timing = null, minimumPointCount = 2) {
   const distance = getSpatialVectorLength(subtractSpatialVectors(endPc, startPc));
-  const step = positiveNumber(travel.sampleStepSecs, 1);
-  const maxPoints = positiveInteger(travel.maxPoints, 32);
-  const pointCount = Math.max(2, Math.min(maxPoints, Math.ceil(distance / step) + 1));
+  const pointCount = routePointCountForTravel(distance, travel, timing, minimumPointCount);
   const points = [];
   for (let index = 0; index < pointCount; index += 1) {
     points.push(lerpVector(startPc, endPc, pointCount === 1 ? 1 : index / (pointCount - 1)));
@@ -1447,8 +1500,149 @@ function interpolateRoutePoints(startPc, endPc, travel) {
   return points;
 }
 
+function routePointCountForTravel(distancePc, travel, timing = null, minimumPointCount = 2) {
+  const step = positiveNumber(travel.sampleStepSecs, 1);
+  const maxPoints = positiveInteger(travel.maxPoints, 32);
+  const sampleBasis = timing?.durationSecs > EPSILON ? timing.durationSecs : Math.max(distancePc, step);
+  return Math.max(2, Math.min(maxPoints, Math.max(minimumPointCount, Math.ceil(sampleBasis / step) + 1)));
+}
+
+function createOrbitTransferGeometry(from, to, travel, timing) {
+  const startPc = from.positionPc;
+  const endPc = to.positionPc;
+  const chord = subtractSpatialVectors(endPc, startPc);
+  const distancePc = getSpatialVectorLength(chord);
+  const fromOrbitFrame = from.orbit ? orbitFrameAtPosition(from.orbit, from.positionPc) : null;
+  const toOrbitFrame = to.orbit ? orbitFrameAtPosition(to.orbit, to.positionPc) : null;
+  if (!fromOrbitFrame && !toOrbitFrame) {
+    return {
+      pointsPc: interpolateRoutePoints(startPc, endPc, travel, timing),
+      diagnostics: {
+        warnings: [warning('linearOrbitTransferFallback', 'Orbit transfer used linear geometry because no endpoint orbit metadata was available.')],
+      },
+    };
+  }
+  const chordDirection = normalizeDirectionOr(chord, SPATIAL_LOCAL_FORWARD);
+  const startTangent = normalizeDirectionOr(from.velocityPcPerSec, null)
+    ?? fromOrbitFrame?.tangent
+    ?? chordDirection;
+  const endTangent = normalizeDirectionOr(to.velocityPcPerSec, null)
+    ?? toOrbitFrame?.tangent
+    ?? chordDirection;
+  const pointsPc = sampleHermiteRoutePoints({
+    startPc,
+    endPc,
+    startTangent,
+    endTangent,
+    travel,
+    timing,
+    minimumPointCount: 4,
+  });
+  const selectedFrame = toOrbitFrame ?? fromOrbitFrame;
+  return {
+    pointsPc,
+    diagnostics: {
+      ...(selectedFrame ? {
+        selectedOrbitNormal: selectedFrame.basis.normal,
+        selectedRadial: selectedFrame.radial,
+        selectedTangent: selectedFrame.tangent,
+      } : {}),
+      warnings: [],
+    },
+  };
+}
+
+function createOrbitalInsertGeometry(from, arrival, arrivalOrbit, travel, timing) {
+  const startPc = from.positionPc;
+  const endPc = arrival.positionPc;
+  const chord = subtractSpatialVectors(endPc, startPc);
+  const chordDirection = normalizeDirectionOr(chord, SPATIAL_LOCAL_FORWARD);
+  const arrivalFrame = orbitFrameAtPosition(arrivalOrbit, endPc);
+  const startTangent = normalizeDirectionOr(from.velocityPcPerSec, null) ?? chordDirection;
+  const pointsPc = sampleHermiteRoutePoints({
+    startPc,
+    endPc,
+    startTangent,
+    endTangent: arrivalFrame.tangent,
+    travel,
+    timing,
+    minimumPointCount: 4,
+  });
+  return {
+    pointsPc,
+    diagnostics: {
+      selectedOrbitNormal: arrivalFrame.basis.normal,
+      selectedRadial: arrivalFrame.radial,
+      selectedTangent: arrivalFrame.tangent,
+      warnings: [],
+    },
+  };
+}
+
+function sampleHermiteRoutePoints(options) {
+  const distancePc = getSpatialVectorLength(subtractSpatialVectors(options.endPc, options.startPc));
+  if (!(distancePc > EPSILON)) return [cloneSpatialVector3(options.startPc), cloneSpatialVector3(options.endPc)];
+  const pointCount = routePointCountForTravel(distancePc, options.travel, options.timing, options.minimumPointCount);
+  const handleLength = distancePc * 0.55;
+  const m0 = scaleSpatialVector(normalizeDirectionOr(options.startTangent, normalizeDirectionOr(subtractSpatialVectors(options.endPc, options.startPc), SPATIAL_LOCAL_FORWARD)), handleLength);
+  const m1 = scaleSpatialVector(normalizeDirectionOr(options.endTangent, normalizeDirectionOr(subtractSpatialVectors(options.endPc, options.startPc), SPATIAL_LOCAL_FORWARD)), handleLength);
+  const points = [];
+  for (let index = 0; index < pointCount; index += 1) {
+    const u = pointCount === 1 ? 1 : index / (pointCount - 1);
+    points.push(evaluateCubicHermiteVector(options.startPc, options.endPc, m0, m1, u));
+  }
+  points[0] = cloneSpatialVector3(options.startPc);
+  points[points.length - 1] = cloneSpatialVector3(options.endPc);
+  return points;
+}
+
+function orbitFrameAtPosition(orbit, positionPc) {
+  const normalized = normalizeSpatialOrbitSpec(orbit);
+  const basis = createSpatialOrbitBasis(normalized);
+  const radial = normalizeDirectionOr(subtractSpatialVectors(positionPc, basis.centerPc), basis.radial);
+  const tangentSign = (normalized.handedness === -1 ? -1 : 1) * Math.sign(finiteNumber(normalized.angularSpeedRadPerSec, 0) || 1);
+  const tangent = normalizeDirectionOr(scaleSpatialVector(cross(basis.normal, radial), tangentSign), basis.tangent);
+  return { basis, radial, tangent };
+}
+
+function evaluateCubicHermiteVector(startPc, endPc, startTangent, endTangent, t) {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return combineSpatialVectors([
+    [startPc, 2 * t3 - 3 * t2 + 1],
+    [startTangent, t3 - 2 * t2 + t],
+    [endPc, -2 * t3 + 3 * t2],
+    [endTangent, t3 - t2],
+  ]);
+}
+
+function deriveOrbitalInsertRouteTiming(input) {
+  const timing = input.travel?.timing;
+  if (isTimingProfile(timing)) return cloneTimingProfile(timing);
+  if (timing?.kind === 'custom') {
+    return deriveTimingProfile({ ...timing, distancePc: input.totalLengthPc });
+  }
+  const currentSpeedPcPerSec = timing?.departureSpeedPcPerSec ?? input.from.speedPcPerSec;
+  const approachSpeedPcPerSec = timing?.speedPcPerSec
+    ?? timing?.cruiseSpeedPcPerSec
+    ?? timing?.peakSpeedPcPerSec;
+  return deriveSpatialOrbitalInsertTiming({
+    distancePc: input.totalLengthPc,
+    orbitalSpeedPcPerSec: input.orbitalSpeedPcPerSec,
+    currentSpeedPcPerSec,
+    approachSpeedPcPerSec,
+    durationSecs: timing?.durationSecs,
+    accelerationPcPerSec2: timing?.accelerationPcPerSec2,
+    decelerationPcPerSec2: timing?.decelerationPcPerSec2,
+    minDurationSecs: timing?.minDurationSecs,
+    maxDurationSecs: timing?.maxDurationSecs,
+  });
+}
+
 function routeDiagnostics(totalLengthPc, timing, overrides = {}) {
   const averageSpeedPcPerSec = timing.durationSecs > EPSILON ? totalLengthPc / timing.durationSecs : 0;
+  const overrideWarnings = Array.isArray(overrides.warnings) ? overrides.warnings : [];
+  const { warnings: _warnings, ...rest } = overrides;
   return {
     durationSecs: timing.durationSecs,
     totalLengthPc,
@@ -1456,12 +1650,12 @@ function routeDiagnostics(totalLengthPc, timing, overrides = {}) {
     peakSpeedPcPerSec: Math.max(averageSpeedPcPerSec, timing.peakSpeedPcPerSec ?? 0),
     departureSpeedPcPerSec: timing.departureSpeedPcPerSec ?? 0,
     arrivalSpeedPcPerSec: timing.arrivalSpeedPcPerSec ?? 0,
-    warnings: [],
-    ...overrides,
+    ...rest,
+    warnings: [...(timing.diagnostics?.warnings ?? []), ...overrideWarnings],
   };
 }
 
-function sampleRouteAtDistance(route, distancePc) {
+function sampleRouteAtDistance(route, distancePc, speedPcPerSec = null) {
   if (route.segments.length === 0) {
     return {
       positionPc: cloneSpatialVector3(route.pointsPc[0]),
@@ -1476,7 +1670,7 @@ function sampleRouteAtDistance(route, distancePc) {
   const localDistance = clamp(clampedDistance - segment.cumulativeStartPc, 0, segment.lengthPc);
   const t = segment.lengthPc > EPSILON ? localDistance / segment.lengthPc : 0;
   const direction = normalizeDirectionOr(subtractSpatialVectors(segment.endPc, segment.startPc), SPATIAL_ZERO_VECTOR);
-  const speed = route.timing.durationSecs > EPSILON ? route.totalLengthPc / route.timing.durationSecs : 0;
+  const speed = Math.max(0, finiteNumber(speedPcPerSec, route.timing.durationSecs > EPSILON ? route.totalLengthPc / route.timing.durationSecs : 0));
   return {
     positionPc: lerpVector(segment.startPc, segment.endPc, t),
     velocityPcPerSec: scaleSpatialVector(direction, speed),
@@ -1487,33 +1681,472 @@ function sampleRouteAtDistance(route, distancePc) {
 
 function deriveTimingProfile(input) {
   const distancePc = Math.max(0, finiteNumber(input.distancePc, 0));
-  const requestedDuration = input.durationSecs !== undefined ? positiveNumber(input.durationSecs, 0) : null;
-  const requestedSpeed = input.speedPcPerSec !== undefined ? positiveNumber(input.speedPcPerSec, 0) : null;
-  const durationSecs = requestedDuration ?? (requestedSpeed && requestedSpeed > EPSILON ? distancePc / requestedSpeed : distancePc);
+  const spec = normalizeSpatialTimingSpec(input);
+  if (spec.kind === 'custom') return deriveCustomTimingProfile(spec, distancePc);
+  if (spec.kind === 'constantSpeed') return deriveConstantSpeedTimingProfile(spec, distancePc);
+  if (spec.kind === 'trapezoid' || spec.kind === 'triangular') {
+    return deriveKinematicTimingProfile(spec, distancePc);
+  }
+  return deriveDurationTimingProfile(spec, distancePc);
+}
+
+function deriveDurationTimingProfile(spec, distancePc) {
+  const diagnostics = createTimingDiagnostics(spec);
+  const durationSecs = applyTimingDurationConstraints(spec.durationSecs, spec, diagnostics);
   const speedPcPerSec = durationSecs > EPSILON ? distancePc / durationSecs : 0;
-  return {
-    kind: input.kind ?? 'duration',
-    durationSecs,
+  if (distancePc > EPSILON && !(durationSecs > EPSILON)) {
+    diagnostics.warnings.push(warning('zeroDurationForNonZeroDistance', 'Timing duration is zero for non-zero route distance.'));
+  }
+  return createUniformTimingProfile('duration', distancePc, durationSecs, speedPcPerSec, diagnostics);
+}
+
+function deriveConstantSpeedTimingProfile(spec, distancePc) {
+  const diagnostics = createTimingDiagnostics(spec);
+  const requestedSpeed = Math.max(0, finiteNumber(spec.speedPcPerSec, 0));
+  let durationSecs = spec.durationSecs !== undefined
+    ? spec.durationSecs
+    : requestedSpeed > EPSILON
+      ? distancePc / requestedSpeed
+      : 0;
+  if (spec.durationSecs !== undefined) {
+    diagnostics.durationConstrainedProfile = true;
+  }
+  if (!(requestedSpeed > EPSILON) && distancePc > EPSILON && spec.durationSecs === undefined) {
+    diagnostics.warnings.push(warning('zeroConstantSpeedForNonZeroDistance', 'Constant-speed timing requires positive speed for non-zero route distance.'));
+  }
+  durationSecs = applyTimingDurationConstraints(durationSecs, spec, diagnostics);
+  const speedPcPerSec = durationSecs > EPSILON ? distancePc / durationSecs : 0;
+  if (spec.durationSecs !== undefined && requestedSpeed > EPSILON && !nearlyEqual(speedPcPerSec, requestedSpeed)) {
+    diagnostics.warnings.push(warning('durationOverridesConstantSpeed', 'Timing duration changed the effective constant speed.', {
+      requestedSpeedPcPerSec: requestedSpeed,
+      effectiveSpeedPcPerSec: speedPcPerSec,
+    }));
+  }
+  return createUniformTimingProfile('constantSpeed', distancePc, durationSecs, speedPcPerSec, diagnostics);
+}
+
+function deriveCustomTimingProfile(spec, distancePc) {
+  const diagnostics = createTimingDiagnostics(spec);
+  const phases = spec.phases.map((phase) => ({ ...phase }));
+  const finalPhase = phases[phases.length - 1] ?? null;
+  const finalDistance = finalPhase?.endDistancePc ?? 0;
+  if (Math.abs(finalDistance - distancePc) > Math.max(1e-7, Math.max(finalDistance, distancePc) * 1e-7)) {
+    throw new RangeError('Custom timing phase distance must match route distancePc.');
+  }
+  return finalizeTimingProfile('custom', distancePc, phases, diagnostics);
+}
+
+function deriveKinematicTimingProfile(spec, distancePc) {
+  const diagnostics = createTimingDiagnostics(spec);
+  if (distancePc <= EPSILON) {
+    const durationSecs = applyTimingDurationConstraints(spec.durationSecs ?? 0, spec, diagnostics);
+    return completeKinematicTimingProfile(spec.kind, distancePc, createHoldPhases(durationSecs, 0), diagnostics, spec);
+  }
+  if (spec.durationSecs !== undefined) {
+    return deriveDurationConstrainedKinematicProfile(spec, distancePc, spec.durationSecs, diagnostics);
+  }
+  const natural = deriveNaturalKinematicPhases(spec, distancePc, diagnostics);
+  const naturalDuration = natural.phases[natural.phases.length - 1]?.endTimeSecs ?? 0;
+  const constrainedDuration = applyTimingDurationConstraints(naturalDuration, spec, diagnostics);
+  if (!nearlyEqual(constrainedDuration, naturalDuration)) {
+    return deriveDurationConstrainedKinematicProfile(spec, distancePc, constrainedDuration, diagnostics);
+  }
+  return completeKinematicTimingProfile(natural.kind, distancePc, natural.phases, diagnostics, spec);
+}
+
+function deriveNaturalKinematicPhases(spec, distancePc, diagnostics) {
+  const v0 = Math.max(0, finiteNumber(spec.departureSpeedPcPerSec, 0));
+  const v1 = Math.max(0, finiteNumber(spec.arrivalSpeedPcPerSec, 0));
+  const acceleration = positiveNumber(spec.accelerationPcPerSec2, 0);
+  const deceleration = positiveNumber(spec.decelerationPcPerSec2, 0);
+  if (acceleration > EPSILON && deceleration > EPSILON) {
+    return deriveTwoRateKinematicPhases(spec, distancePc, v0, v1, acceleration, deceleration, diagnostics);
+  }
+  if (deceleration > EPSILON && v0 > v1 + EPSILON) {
+    return deriveDecelerationOnlyPhases(distancePc, v0, v1, deceleration);
+  }
+  if (acceleration > EPSILON && v1 > v0 + EPSILON) {
+    return deriveAccelerationOnlyPhases(distancePc, v0, v1, acceleration);
+  }
+  diagnostics.warnings.push(warning('kinematicTimingMissingRate', 'Kinematic timing fell back to constant-speed timing because acceleration or deceleration was not usable.'));
+  return { kind: spec.kind, phases: createEndpointBlendFallbackPhases(distancePc, v0, v1, spec) };
+}
+
+function deriveTwoRateKinematicPhases(spec, distancePc, v0, v1, acceleration, deceleration, diagnostics) {
+  const triangularPeak = solveTriangularPeakSpeed(distancePc, v0, v1, acceleration, deceleration);
+  let peakSpeedPcPerSec = triangularPeak;
+  let kind = 'triangular';
+  if (spec.kind === 'trapezoid' && spec.cruiseSpeedPcPerSec !== undefined) {
+    const cruiseSpeedPcPerSec = Math.max(spec.cruiseSpeedPcPerSec, v0, v1);
+    const cruiseDistance = rampDistance(v0, cruiseSpeedPcPerSec, acceleration)
+      + rampDistance(v1, cruiseSpeedPcPerSec, deceleration);
+    if (cruiseDistance <= distancePc + EPSILON) {
+      peakSpeedPcPerSec = cruiseSpeedPcPerSec;
+      kind = 'trapezoid';
+    } else {
+      diagnostics.warnings.push(warning('trapezoidCollapsedToTriangular', 'Requested cruise speed cannot be reached over this distance.'));
+    }
+  } else if (spec.kind === 'triangular' && spec.peakSpeedPcPerSec !== undefined) {
+    const requestedPeak = Math.max(spec.peakSpeedPcPerSec, v0, v1);
+    const requestedPeakDistance = rampDistance(v0, requestedPeak, acceleration)
+      + rampDistance(v1, requestedPeak, deceleration);
+    if (requestedPeakDistance < distancePc - EPSILON) {
+      peakSpeedPcPerSec = requestedPeak;
+      kind = 'trapezoid';
+      diagnostics.warnings.push(warning('triangularPeakRequiresCruise', 'Requested triangular peak is too low, so a cruise phase was inserted.'));
+    } else if (requestedPeakDistance > distancePc + EPSILON) {
+      diagnostics.warnings.push(warning('triangularPeakFittedToDistance', 'Requested triangular peak is too high for this distance.'));
+    } else {
+      peakSpeedPcPerSec = requestedPeak;
+    }
+  }
+  return buildKinematicPhasesForPeak(distancePc, v0, v1, peakSpeedPcPerSec, acceleration, deceleration, kind);
+}
+
+function deriveDecelerationOnlyPhases(distancePc, v0, v1, deceleration) {
+  const decelDistance = rampDistance(v1, v0, deceleration);
+  if (decelDistance <= distancePc + EPSILON) {
+    const phases = [];
+    const cruiseDistance = Math.max(0, distancePc - decelDistance);
+    if (cruiseDistance > EPSILON) appendTimingPhase(phases, 'cruise', cruiseDistance / Math.max(v0, EPSILON), v0, v0);
+    appendTimingPhase(phases, 'decelerate', (v0 - v1) / deceleration, v0, v1);
+    forceFinalTimingDistance(phases, distancePc);
+    return { kind: cruiseDistance > EPSILON ? 'trapezoid' : 'triangular', phases };
+  }
+  const fittedDeceleration = (v0 * v0 - v1 * v1) / (2 * distancePc);
+  const phases = [];
+  appendTimingPhase(phases, 'decelerate', (v0 - v1) / Math.max(fittedDeceleration, EPSILON), v0, v1);
+  forceFinalTimingDistance(phases, distancePc);
+  return { kind: 'triangular', phases };
+}
+
+function deriveAccelerationOnlyPhases(distancePc, v0, v1, acceleration) {
+  const accelDistance = rampDistance(v0, v1, acceleration);
+  if (accelDistance <= distancePc + EPSILON) {
+    const phases = [];
+    appendTimingPhase(phases, 'accelerate', (v1 - v0) / acceleration, v0, v1);
+    const cruiseDistance = Math.max(0, distancePc - accelDistance);
+    if (cruiseDistance > EPSILON) appendTimingPhase(phases, 'cruise', cruiseDistance / Math.max(v1, EPSILON), v1, v1);
+    forceFinalTimingDistance(phases, distancePc);
+    return { kind: cruiseDistance > EPSILON ? 'trapezoid' : 'triangular', phases };
+  }
+  const fittedAcceleration = (v1 * v1 - v0 * v0) / (2 * distancePc);
+  const phases = [];
+  appendTimingPhase(phases, 'accelerate', (v1 - v0) / Math.max(fittedAcceleration, EPSILON), v0, v1);
+  forceFinalTimingDistance(phases, distancePc);
+  return { kind: 'triangular', phases };
+}
+
+function buildKinematicPhasesForPeak(distancePc, v0, v1, peakSpeedPcPerSec, acceleration, deceleration, kind) {
+  const phases = [];
+  const peak = Math.max(peakSpeedPcPerSec, v0, v1);
+  if (peak > v0 + EPSILON) {
+    appendTimingPhase(phases, 'accelerate', (peak - v0) / acceleration, v0, peak);
+  }
+  const accelDistance = rampDistance(v0, peak, acceleration);
+  const decelDistance = rampDistance(v1, peak, deceleration);
+  const cruiseDistance = Math.max(0, distancePc - accelDistance - decelDistance);
+  if (cruiseDistance > EPSILON) {
+    appendTimingPhase(phases, 'cruise', cruiseDistance / Math.max(peak, EPSILON), peak, peak);
+    kind = 'trapezoid';
+  }
+  if (peak > v1 + EPSILON) {
+    appendTimingPhase(phases, 'decelerate', (peak - v1) / deceleration, peak, v1);
+  }
+  if (phases.length === 0) phases.push(...createCruisePhases(distancePc / Math.max(peak, EPSILON), distancePc, peak));
+  forceFinalTimingDistance(phases, distancePc);
+  return { kind, phases };
+}
+
+function deriveDurationConstrainedKinematicProfile(spec, distancePc, requestedDurationSecs, diagnostics) {
+  diagnostics.durationConstrainedProfile = true;
+  const durationSecs = applyTimingDurationConstraints(requestedDurationSecs, spec, diagnostics);
+  if (!(durationSecs > EPSILON)) {
+    diagnostics.warnings.push(warning('zeroDurationForKinematicTiming', 'Kinematic timing duration is zero for non-zero route distance.'));
+    return completeKinematicTimingProfile(spec.kind, distancePc, createHoldPhases(0, distancePc), diagnostics, spec);
+  }
+  const v0 = Math.max(0, finiteNumber(spec.departureSpeedPcPerSec, 0));
+  const v1 = Math.max(0, finiteNumber(spec.arrivalSpeedPcPerSec, 0));
+  let ta = 0;
+  let td = 0;
+  const requestedPeak = Math.max(
+    spec.cruiseSpeedPcPerSec ?? 0,
+    spec.peakSpeedPcPerSec ?? 0,
+    v0,
+    v1,
+    distancePc / durationSecs,
+  );
+  if (spec.accelerationPcPerSec2 !== undefined) {
+    ta = spec.accelerationPcPerSec2 > EPSILON && requestedPeak > v0
+      ? Math.min((requestedPeak - v0) / spec.accelerationPcPerSec2, durationSecs * 0.4)
+      : durationSecs * 0.25;
+  }
+  if (spec.decelerationPcPerSec2 !== undefined) {
+    td = spec.decelerationPcPerSec2 > EPSILON && requestedPeak > v1
+      ? Math.min((requestedPeak - v1) / spec.decelerationPcPerSec2, durationSecs * 0.4)
+      : durationSecs * 0.25;
+  }
+  if (ta + td > durationSecs * 0.85) {
+    const scale = (durationSecs * 0.85) / (ta + td);
+    ta *= scale;
+    td *= scale;
+  }
+  let peakSpeedPcPerSec = 0;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const tc = Math.max(0, durationSecs - ta - td);
+    const denominator = 0.5 * ta + tc + 0.5 * td;
+    peakSpeedPcPerSec = denominator > EPSILON
+      ? (distancePc - 0.5 * v0 * ta - 0.5 * v1 * td) / denominator
+      : 0;
+    if (peakSpeedPcPerSec < 0) peakSpeedPcPerSec = 0;
+    if (ta <= EPSILON && Math.abs(peakSpeedPcPerSec - v0) > EPSILON && durationSecs - td > EPSILON) {
+      ta = Math.min(durationSecs * 0.15, durationSecs - td);
+      continue;
+    }
+    if (td <= EPSILON && Math.abs(peakSpeedPcPerSec - v1) > EPSILON && durationSecs - ta > EPSILON) {
+      td = Math.min(durationSecs * 0.15, durationSecs - ta);
+      continue;
+    }
+    break;
+  }
+  const tc = Math.max(0, durationSecs - ta - td);
+  const phases = [];
+  if (ta > EPSILON) {
+    appendTimingPhase(phases, peakSpeedPcPerSec >= v0 ? 'accelerate' : 'blend', ta, v0, peakSpeedPcPerSec);
+  }
+  if (tc > EPSILON) appendTimingPhase(phases, 'cruise', tc, peakSpeedPcPerSec, peakSpeedPcPerSec);
+  if (td > EPSILON) {
+    appendTimingPhase(phases, peakSpeedPcPerSec >= v1 ? 'decelerate' : 'blend', td, peakSpeedPcPerSec, v1);
+  }
+  if (phases.length === 0) {
+    phases.push(...createCruisePhases(durationSecs, distancePc, distancePc / durationSecs));
+  }
+  forceFinalTimingDistance(phases, distancePc);
+  const kind = phases.some((phase) => phase.kind === 'cruise') && phases.some((phase) => phase.kind !== 'cruise')
+    ? 'trapezoid'
+    : spec.kind;
+  return completeKinematicTimingProfile(kind, distancePc, phases, diagnostics, spec);
+}
+
+function createUniformTimingProfile(kind, distancePc, durationSecs, speedPcPerSec, diagnostics) {
+  return finalizeTimingProfile(
+    kind,
     distancePc,
-    departureSpeedPcPerSec: Math.max(0, finiteNumber(input.departureSpeedPcPerSec, 0)),
-    cruiseSpeedPcPerSec: speedPcPerSec,
-    arrivalSpeedPcPerSec: Math.max(0, finiteNumber(input.arrivalSpeedPcPerSec, speedPcPerSec)),
-    peakSpeedPcPerSec: speedPcPerSec,
-    phases: [{
-      kind: distancePc > EPSILON ? 'cruise' : 'hold',
+    distancePc > EPSILON ? createCruisePhases(durationSecs, distancePc, speedPcPerSec) : createHoldPhases(durationSecs, 0),
+    diagnostics,
+  );
+}
+
+function createCruisePhases(durationSecs, distancePc, speedPcPerSec) {
+  return [{
+    kind: distancePc > EPSILON ? 'cruise' : 'hold',
+    startTimeSecs: 0,
+    endTimeSecs: durationSecs,
+    startDistancePc: 0,
+    endDistancePc: distancePc,
+    startSpeedPcPerSec: speedPcPerSec,
+    endSpeedPcPerSec: speedPcPerSec,
+  }];
+}
+
+function createHoldPhases(durationSecs, distancePc) {
+  return [{
+    kind: 'hold',
+    startTimeSecs: 0,
+    endTimeSecs: durationSecs,
+    startDistancePc: 0,
+    endDistancePc: distancePc,
+    startSpeedPcPerSec: 0,
+    endSpeedPcPerSec: 0,
+  }];
+}
+
+function createEndpointBlendFallbackPhases(distancePc, departureSpeedPcPerSec, arrivalSpeedPcPerSec, spec) {
+  const averageEndpointSpeed = (departureSpeedPcPerSec + arrivalSpeedPcPerSec) * 0.5;
+  if (averageEndpointSpeed > EPSILON) {
+    return [{
+      kind: nearlyEqual(departureSpeedPcPerSec, arrivalSpeedPcPerSec) ? 'cruise' : 'blend',
       startTimeSecs: 0,
-      endTimeSecs: durationSecs,
+      endTimeSecs: distancePc / averageEndpointSpeed,
       startDistancePc: 0,
       endDistancePc: distancePc,
-      startSpeedPcPerSec: speedPcPerSec,
-      endSpeedPcPerSec: speedPcPerSec,
-    }],
-    diagnostics: { requestedDurationSecs: requestedDuration ?? undefined, warnings: [] },
+      startSpeedPcPerSec: departureSpeedPcPerSec,
+      endSpeedPcPerSec: arrivalSpeedPcPerSec,
+    }];
+  }
+  const fallbackSpeed = Math.max(spec.cruiseSpeedPcPerSec ?? 0, spec.peakSpeedPcPerSec ?? 0, distancePc);
+  const durationSecs = fallbackSpeed > EPSILON ? distancePc / fallbackSpeed : 0;
+  return createCruisePhases(durationSecs, distancePc, durationSecs > EPSILON ? distancePc / durationSecs : 0);
+}
+
+function appendTimingPhase(phases, kind, durationSecs, startSpeedPcPerSec, endSpeedPcPerSec) {
+  if (!(durationSecs > EPSILON)) return;
+  const previous = phases[phases.length - 1];
+  const startTimeSecs = previous?.endTimeSecs ?? 0;
+  const startDistancePc = previous?.endDistancePc ?? 0;
+  const endDistancePc = startDistancePc + (startSpeedPcPerSec + endSpeedPcPerSec) * 0.5 * durationSecs;
+  phases.push({
+    kind,
+    startTimeSecs,
+    endTimeSecs: startTimeSecs + durationSecs,
+    startDistancePc,
+    endDistancePc,
+    startSpeedPcPerSec,
+    endSpeedPcPerSec,
+  });
+}
+
+function forceFinalTimingDistance(phases, distancePc) {
+  if (phases.length === 0) return;
+  phases[phases.length - 1].endDistancePc = distancePc;
+}
+
+function completeKinematicTimingProfile(kind, distancePc, phases, diagnostics, spec) {
+  const profile = finalizeTimingProfile(kind, distancePc, phases, diagnostics);
+  markRequestedRateApplication(profile, spec, diagnostics);
+  return profile;
+}
+
+function finalizeTimingProfile(kind, distancePc, phases, diagnostics) {
+  const normalizedPhases = phases.length > 0 ? phases : createHoldPhases(0, distancePc);
+  const durationSecs = normalizedPhases[normalizedPhases.length - 1]?.endTimeSecs ?? 0;
+  const departureSpeedPcPerSec = normalizedPhases[0]?.startSpeedPcPerSec ?? 0;
+  const arrivalSpeedPcPerSec = normalizedPhases[normalizedPhases.length - 1]?.endSpeedPcPerSec ?? 0;
+  const peakSpeedPcPerSec = normalizedPhases.reduce((peak, phase) => Math.max(peak, phase.startSpeedPcPerSec, phase.endSpeedPcPerSec), 0);
+  let accelerationPcPerSec2 = 0;
+  let decelerationPcPerSec2 = 0;
+  for (const phase of normalizedPhases) {
+    const duration = phase.endTimeSecs - phase.startTimeSecs;
+    if (!(duration > EPSILON)) continue;
+    const rate = (phase.endSpeedPcPerSec - phase.startSpeedPcPerSec) / duration;
+    if (rate > accelerationPcPerSec2) accelerationPcPerSec2 = rate;
+    if (-rate > decelerationPcPerSec2) decelerationPcPerSec2 = -rate;
+  }
+  return {
+    kind,
+    durationSecs,
+    distancePc,
+    departureSpeedPcPerSec,
+    cruiseSpeedPcPerSec: peakSpeedPcPerSec,
+    arrivalSpeedPcPerSec,
+    peakSpeedPcPerSec,
+    ...(accelerationPcPerSec2 > EPSILON ? { accelerationPcPerSec2 } : {}),
+    ...(decelerationPcPerSec2 > EPSILON ? { decelerationPcPerSec2 } : {}),
+    phases: normalizedPhases.map((phase) => ({ ...phase })),
+    diagnostics,
   };
 }
 
+function markRequestedRateApplication(profile, spec, diagnostics) {
+  if (spec.accelerationPcPerSec2 !== undefined) {
+    const hasAccelerationPhase = profile.phases.some((phase) => phase.endSpeedPcPerSec > phase.startSpeedPcPerSec + EPSILON);
+    const applied = hasAccelerationPhase && nearlyEqual(profile.accelerationPcPerSec2 ?? 0, spec.accelerationPcPerSec2);
+    diagnostics.requestedAccelerationApplied = applied;
+    if (!hasAccelerationPhase) {
+      diagnostics.warnings.push(warning('requestedAccelerationIgnored', 'Requested acceleration was not used by the derived timing profile.', {
+        requestedAccelerationPcPerSec2: spec.accelerationPcPerSec2,
+      }));
+    } else if (!applied) {
+      diagnostics.warnings.push(warning('requestedAccelerationFitted', 'Requested acceleration was fitted to satisfy route duration and distance.', {
+        requestedAccelerationPcPerSec2: spec.accelerationPcPerSec2,
+        effectiveAccelerationPcPerSec2: profile.accelerationPcPerSec2 ?? 0,
+      }));
+    }
+  }
+  if (spec.decelerationPcPerSec2 !== undefined) {
+    const hasDecelerationPhase = profile.phases.some((phase) => phase.endSpeedPcPerSec + EPSILON < phase.startSpeedPcPerSec);
+    const applied = hasDecelerationPhase && nearlyEqual(profile.decelerationPcPerSec2 ?? 0, spec.decelerationPcPerSec2);
+    diagnostics.requestedDecelerationApplied = applied;
+    if (!hasDecelerationPhase) {
+      diagnostics.warnings.push(warning('requestedDecelerationIgnored', 'Requested deceleration was not used by the derived timing profile.', {
+        requestedDecelerationPcPerSec2: spec.decelerationPcPerSec2,
+      }));
+    } else if (!applied) {
+      diagnostics.warnings.push(warning('requestedDecelerationFitted', 'Requested deceleration was fitted to satisfy route duration and distance.', {
+        requestedDecelerationPcPerSec2: spec.decelerationPcPerSec2,
+        effectiveDecelerationPcPerSec2: profile.decelerationPcPerSec2 ?? 0,
+      }));
+    }
+  }
+}
+
+function createTimingDiagnostics(spec) {
+  return {
+    ...(spec.durationSecs !== undefined ? { requestedDurationSecs: spec.durationSecs } : {}),
+    ...(spec.accelerationPcPerSec2 !== undefined ? { requestedAccelerationPcPerSec2: spec.accelerationPcPerSec2 } : {}),
+    ...(spec.decelerationPcPerSec2 !== undefined ? { requestedDecelerationPcPerSec2: spec.decelerationPcPerSec2 } : {}),
+    warnings: [],
+  };
+}
+
+function applyTimingDurationConstraints(durationSecs, spec, diagnostics) {
+  let next = Math.max(0, finiteNumber(durationSecs, 0));
+  if (spec.minDurationSecs !== undefined && next < spec.minDurationSecs) {
+    next = spec.minDurationSecs;
+    diagnostics.clampedToMinDuration = true;
+    diagnostics.durationConstrainedProfile = true;
+    diagnostics.warnings.push(warning('timingClampedToMinDuration', 'Timing duration was clamped to minDurationSecs.'));
+  }
+  if (spec.maxDurationSecs !== undefined && next > spec.maxDurationSecs) {
+    next = spec.maxDurationSecs;
+    diagnostics.clampedToMaxDuration = true;
+    diagnostics.durationConstrainedProfile = true;
+    diagnostics.warnings.push(warning('timingClampedToMaxDuration', 'Timing duration was clamped to maxDurationSecs.'));
+  }
+  return next;
+}
+
+function solveTriangularPeakSpeed(distancePc, v0, v1, acceleration, deceleration) {
+  const numerator = distancePc + (v0 * v0) / (2 * acceleration) + (v1 * v1) / (2 * deceleration);
+  const denominator = 1 / (2 * acceleration) + 1 / (2 * deceleration);
+  return Math.sqrt(Math.max(v0 * v0, v1 * v1, numerator / denominator));
+}
+
+function rampDistance(lowSpeedPcPerSec, highSpeedPcPerSec, ratePcPerSec2) {
+  const delta = highSpeedPcPerSec * highSpeedPcPerSec - lowSpeedPcPerSec * lowSpeedPcPerSec;
+  return delta > EPSILON && ratePcPerSec2 > EPSILON ? delta / (2 * ratePcPerSec2) : 0;
+}
+
+function evaluateTimingProfileAt(profile, elapsedSecs) {
+  const elapsed = Math.max(0, finiteNumber(elapsedSecs, 0));
+  const phases = Array.isArray(profile?.phases) ? profile.phases : [];
+  if (phases.length === 0) {
+    const durationSecs = Math.max(0, finiteNumber(profile?.durationSecs, 0));
+    const distancePc = Math.max(0, finiteNumber(profile?.distancePc, 0));
+    const t = durationSecs > EPSILON ? clamp(elapsed / durationSecs, 0, 1) : 1;
+    const speedPcPerSec = durationSecs > EPSILON ? distancePc / durationSecs : 0;
+    return { distancePc: distancePc * t, speedPcPerSec };
+  }
+  if (elapsed <= phases[0].startTimeSecs + EPSILON) {
+    return { distancePc: phases[0].startDistancePc, speedPcPerSec: phases[0].startSpeedPcPerSec };
+  }
+  for (const phase of phases) {
+    if (elapsed <= phase.endTimeSecs + EPSILON) {
+      const phaseDuration = phase.endTimeSecs - phase.startTimeSecs;
+      if (!(phaseDuration > EPSILON)) {
+        return { distancePc: phase.endDistancePc, speedPcPerSec: phase.endSpeedPcPerSec };
+      }
+      const localTime = clamp(elapsed - phase.startTimeSecs, 0, phaseDuration);
+      const acceleration = (phase.endSpeedPcPerSec - phase.startSpeedPcPerSec) / phaseDuration;
+      return {
+        distancePc: phase.startDistancePc + phase.startSpeedPcPerSec * localTime + 0.5 * acceleration * localTime * localTime,
+        speedPcPerSec: Math.max(0, phase.startSpeedPcPerSec + acceleration * localTime),
+      };
+    }
+  }
+  const last = phases[phases.length - 1];
+  return { distancePc: last.endDistancePc, speedPcPerSec: last.endSpeedPcPerSec };
+}
+
 function isTimingProfile(input) {
-  return Boolean(input && typeof input === 'object' && Array.isArray(input.phases) && Number.isFinite(input.durationSecs));
+  return Boolean(
+    input
+    && typeof input === 'object'
+    && Array.isArray(input.phases)
+    && Number.isFinite(input.durationSecs)
+    && input.diagnostics
+    && typeof input.diagnostics === 'object',
+  );
 }
 
 function cloneTimingProfile(profile) {
@@ -2616,6 +3249,77 @@ function positiveNumber(value, fallback) {
 function positiveInteger(value, fallback) {
   const number = Math.floor(Number(value));
   return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function withTimingDurationConstraints(output, input) {
+  const minDurationSecs = input.minDurationSecs !== undefined
+    ? nonNegativeFiniteNumber(input.minDurationSecs, 'minDurationSecs')
+    : undefined;
+  const maxDurationSecs = input.maxDurationSecs !== undefined
+    ? nonNegativeFiniteNumber(input.maxDurationSecs, 'maxDurationSecs')
+    : undefined;
+  if (minDurationSecs !== undefined && maxDurationSecs !== undefined && minDurationSecs > maxDurationSecs) {
+    throw new RangeError('minDurationSecs cannot be greater than maxDurationSecs.');
+  }
+  return {
+    ...output,
+    ...(minDurationSecs !== undefined ? { minDurationSecs } : {}),
+    ...(maxDurationSecs !== undefined ? { maxDurationSecs } : {}),
+  };
+}
+
+function normalizeTimingPhases(input, durationSecs) {
+  if (!Array.isArray(input)) throw new TypeError('Custom timing requires phases.');
+  if (input.length === 0) throw new RangeError('Custom timing requires at least one phase.');
+  const phases = input.map((phase, index) => {
+    if (!phase || typeof phase !== 'object') throw new TypeError('Custom timing phase must be an object.');
+    const value = /** @type {Record<string, unknown>} */ (phase);
+    const kind = String(value.kind ?? '');
+    if (!TIMING_PHASE_KINDS.has(kind)) throw new TypeError(`Unsupported timing phase kind: ${kind}`);
+    const normalized = {
+      kind,
+      startTimeSecs: nonNegativeFiniteNumber(value.startTimeSecs, `phases[${index}].startTimeSecs`),
+      endTimeSecs: nonNegativeFiniteNumber(value.endTimeSecs, `phases[${index}].endTimeSecs`),
+      startDistancePc: nonNegativeFiniteNumber(value.startDistancePc, `phases[${index}].startDistancePc`),
+      endDistancePc: nonNegativeFiniteNumber(value.endDistancePc, `phases[${index}].endDistancePc`),
+      startSpeedPcPerSec: nonNegativeFiniteNumber(value.startSpeedPcPerSec, `phases[${index}].startSpeedPcPerSec`),
+      endSpeedPcPerSec: nonNegativeFiniteNumber(value.endSpeedPcPerSec, `phases[${index}].endSpeedPcPerSec`),
+    };
+    if (normalized.endTimeSecs < normalized.startTimeSecs) throw new RangeError('Custom timing phase endTimeSecs cannot be before startTimeSecs.');
+    if (normalized.endDistancePc < normalized.startDistancePc) throw new RangeError('Custom timing phase endDistancePc cannot be before startDistancePc.');
+    const expectedDistance = (normalized.startSpeedPcPerSec + normalized.endSpeedPcPerSec) * 0.5
+      * (normalized.endTimeSecs - normalized.startTimeSecs);
+    const actualDistance = normalized.endDistancePc - normalized.startDistancePc;
+    if (Math.abs(expectedDistance - actualDistance) > Math.max(1e-7, Math.max(expectedDistance, actualDistance) * 1e-7)) {
+      throw new RangeError('Custom timing phase distance must match its speed integral.');
+    }
+    return normalized;
+  });
+  for (let index = 0; index < phases.length; index += 1) {
+    const phase = phases[index];
+    if (index === 0) {
+      if (phase.startTimeSecs !== 0 || phase.startDistancePc !== 0) {
+        throw new RangeError('Custom timing phases must start at zero time and distance.');
+      }
+      continue;
+    }
+    const previous = phases[index - 1];
+    if (Math.abs(phase.startTimeSecs - previous.endTimeSecs) > EPSILON) {
+      throw new RangeError('Custom timing phases must have contiguous times.');
+    }
+    if (Math.abs(phase.startDistancePc - previous.endDistancePc) > EPSILON) {
+      throw new RangeError('Custom timing phases must have contiguous distances.');
+    }
+  }
+  const last = phases[phases.length - 1] ?? null;
+  if (last && Math.abs(last.endTimeSecs - durationSecs) > EPSILON) {
+    throw new RangeError('Custom timing final phase must end at durationSecs.');
+  }
+  return phases;
+}
+
+function nearlyEqual(left, right, tolerance = 1e-6) {
+  return Math.abs(left - right) <= Math.max(tolerance, Math.max(Math.abs(left), Math.abs(right)) * tolerance);
 }
 
 function degreesToRadians(degrees) {
