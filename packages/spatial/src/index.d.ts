@@ -599,7 +599,7 @@ export interface SpatialAimKey {
 
 export type SpatialPositionInterpolation =
   | { kind: 'hold' }
-  | { kind: 'linear' }
+  | { kind: 'linear'; easing?: SpatialEasingSpec }
   | { kind: 'catmullRom'; tension?: number; centripetal?: boolean }
   | { kind: 'cubicBezier'; inTangentPc?: SpatialVector3; outTangentPc?: SpatialVector3 }
   | { kind: 'hermite'; inVelocityPcPerSec?: SpatialVector3; outVelocityPcPerSec?: SpatialVector3 };

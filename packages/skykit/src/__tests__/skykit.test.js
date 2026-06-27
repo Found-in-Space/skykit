@@ -1606,6 +1606,20 @@ test('navigation transition action restores pose with independent lane durations
     directionFromRaDec(84.053375, -1.2019166666666667),
   );
 
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+    observerPc: { x: 6, y: 0, z: 0 },
+    movement: { delaySecs: 1, durationSecs: 1 },
+  });
+  viewer.update(0.5);
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 0, y: 0, z: 0 });
+  viewer.update(1);
+  viewer.update(0);
+  assert.ok(viewer.getViewState().observerPc.x > 0 && viewer.getViewState().observerPc.x < 6);
+  viewer.update(0.5);
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 6, y: 0, z: 0 });
+
   await viewer.dispose();
 });
 

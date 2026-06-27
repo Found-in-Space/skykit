@@ -412,6 +412,7 @@ export function createSkykitNavigationPlugin(options = {}) {
       ?? source.orientationIcrs;
     const orientation = resolvedLook?.orientationIcrs
       ?? normalizeQuaternion(orientationInput, current.orientationIcrs ?? IDENTITY_QUATERNION);
+    const durationSecs = source.durationSecs ?? targetSource.durationSecs;
     return createSpatialPoseTransition({
       from: {
         observerPc: current.observerPc,
@@ -421,7 +422,7 @@ export function createSkykitNavigationPlugin(options = {}) {
         observerPc: position,
         orientationIcrs: orientation,
       },
-      durationSecs: finiteNumber(source.durationSecs ?? targetSource.durationSecs, 1),
+      ...(durationSecs !== undefined ? { durationSecs: finiteNumber(durationSecs, 1) } : {}),
       movement: normalizeTransitionLane(source.movement ?? targetSource.movement, source.movementDurationSecs),
       orientation: normalizeTransitionLane(
         isQuaternionLike(source.orientation) ? undefined : source.orientation ?? targetSource.orientationTransition,
@@ -1533,14 +1534,20 @@ function isSpatialTargetLike(value) {
 /**
  * @param {unknown} value
  * @param {unknown} durationSecs
- * @returns {{ durationSecs?: number } | undefined}
+ * @returns {import('@found-in-space/spatial').SpatialTransitionLaneSpec | undefined}
  */
 function normalizeTransitionLane(value, durationSecs) {
-  if (value && typeof value === 'object' && 'durationSecs' in value) {
-    return { durationSecs: positiveFinite(/** @type {{ durationSecs?: unknown }} */ (value).durationSecs, finiteNumber(durationSecs, 1)) };
+  if (value && typeof value === 'object') {
+    const source = /** @type {Record<string, unknown>} */ (value);
+    return {
+      ...(source.durationSecs !== undefined ? { durationSecs: finiteNumber(source.durationSecs, finiteNumber(durationSecs, 1)) } : {}),
+      ...(source.delaySecs !== undefined ? { delaySecs: finiteNumber(source.delaySecs, 0) } : {}),
+      ...(source.easing !== undefined ? { easing: /** @type {import('@found-in-space/spatial').SpatialEasingSpec} */ (source.easing) } : {}),
+      ...(source.interpolation !== undefined ? { interpolation: /** @type {import('@found-in-space/spatial').SpatialTransitionLaneSpec['interpolation']} */ (source.interpolation) } : {}),
+    };
   }
   if (durationSecs !== undefined) {
-    return { durationSecs: positiveFinite(durationSecs, 1) };
+    return { durationSecs: finiteNumber(durationSecs, 1) };
   }
   return undefined;
 }

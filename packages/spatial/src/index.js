@@ -1,6 +1,16 @@
 const EPSILON = 1e-9;
 const DEFAULT_SAMPLE_STEP_SECS = 1 / 60;
 const DEFAULT_SYNTHETIC_TARGET_DISTANCE_PC = 1;
+const POSE_TRANSITION_VIEW_PATHS = new WeakMap();
+const TRANSITION_LANE_INTERPOLATIONS = new Set([
+  'hold',
+  'linear',
+  'smoothstep',
+  'easeIn',
+  'easeOut',
+  'easeInOut',
+  'slerp',
+]);
 
 export const SPATIAL_ZERO_VECTOR = Object.freeze({ x: 0, y: 0, z: 0 });
 export const SPATIAL_LOCAL_RIGHT = Object.freeze({ x: 1, y: 0, z: 0 });
@@ -958,7 +968,7 @@ export function normalizeSpatialViewTransitionSpec(input) {
   return {
     from: normalizeSpatialFrameState(input.from),
     to: normalizeSpatialFrameState(input.to),
-    ...(input.durationSecs !== undefined ? { durationSecs: positiveNumber(input.durationSecs, 0) } : {}),
+    ...(input.durationSecs !== undefined ? { durationSecs: nonNegativeFiniteNumber(input.durationSecs, 'durationSecs') } : {}),
     ...(input.position !== undefined ? { position: normalizeTransitionLane(input.position) } : {}),
     ...(input.aim !== undefined ? { aim: normalizeTransitionLane(input.aim) } : {}),
     ...copySource(input),
@@ -968,32 +978,37 @@ export function normalizeSpatialViewTransitionSpec(input) {
 
 export function buildSpatialViewTransitionPath(spec, options = {}) {
   const normalized = normalizeSpatialViewTransitionSpec(spec);
-  const durationSecs = normalized.durationSecs
-    ?? Math.max(normalized.position?.durationSecs ?? 0, normalized.aim?.durationSecs ?? 0, 1);
+  const warnings = [];
+  const timing = resolveTransitionLaneTimings(normalized);
+  const durationSecs = timing.durationSecs;
   const path = normalizeSpatialPathSpec({
     durationSecs,
-    positionKeys: [
-      { id: 'from', timeSecs: 0, positionPc: normalized.from.pose.observerPc },
-      { id: 'to', timeSecs: durationSecs, positionPc: normalized.to.pose.observerPc },
-    ],
-    aimKeys: normalized.to.aim
-      ? [
-          { id: 'fromAim', timeSecs: 0, aim: normalized.from.aim?.kind ? sampleToAimSpec(normalized.from.aim) : { kind: 'orientation', orientationIcrs: normalized.from.pose.orientationIcrs } },
-          { id: 'toAim', timeSecs: durationSecs, aim: sampleToAimSpec(normalized.to.aim) },
-        ]
-      : [
-          { id: 'fromOrientation', timeSecs: 0, aim: { kind: 'orientation', orientationIcrs: normalized.from.pose.orientationIcrs } },
-          { id: 'toOrientation', timeSecs: durationSecs, aim: { kind: 'orientation', orientationIcrs: normalized.to.pose.orientationIcrs } },
-        ],
+    positionKeys: materializeTransitionPositionKeys({
+      from: normalized.from.pose.observerPc,
+      to: normalized.to.pose.observerPc,
+      lane: normalized.position,
+      timing: timing.position,
+      durationSecs,
+      warnings,
+    }),
+    aimKeys: materializeTransitionAimKeys({
+      from: frameStateAimSpec(normalized.from),
+      to: frameStateAimSpec(normalized.to),
+      lane: normalized.aim,
+      timing: timing.aim,
+      durationSecs,
+    }),
+    ...copySource(normalized),
+    ...(normalized.metadata ? { metadata: { ...normalized.metadata } } : {}),
   });
   const diagnostics = {
     durationSecs,
-    positionDurationSecs: normalized.position?.durationSecs ?? durationSecs,
-    aimDurationSecs: normalized.aim?.durationSecs ?? durationSecs,
-    positionDelaySecs: normalized.position?.delaySecs ?? 0,
-    aimDelaySecs: normalized.aim?.delaySecs ?? 0,
+    positionDurationSecs: timing.position.durationSecs,
+    aimDurationSecs: timing.aim.durationSecs,
+    positionDelaySecs: timing.position.delaySecs,
+    aimDelaySecs: timing.aim.delaySecs,
     pathDiagnostics: sampleSpatialPathDiagnostics(path, options),
-    warnings: [],
+    warnings,
   };
   return {
     kind: 'viewTransitionPath',
@@ -1008,16 +1023,16 @@ export function buildSpatialViewTransitionPath(spec, options = {}) {
 export function evaluateSpatialViewTransition(transition, elapsedSecs) {
   const elapsed = Math.max(0, finiteNumber(elapsedSecs, 0));
   const sample = evaluateSpatialPathPlayback(transition.path, elapsed);
+  const positionEndSecs = transition.diagnostics.positionDelaySecs + transition.diagnostics.positionDurationSecs;
+  const aimEndSecs = transition.diagnostics.aimDelaySecs + transition.diagnostics.aimDurationSecs;
+  const complete = elapsed >= transition.durationSecs - EPSILON;
+  const frameState = transitionFrameState(transition, sample, complete);
   return {
     elapsedSecs: elapsed,
-    complete: elapsed >= transition.durationSecs - EPSILON,
-    positionComplete: elapsed >= transition.diagnostics.positionDurationSecs - EPSILON,
-    aimComplete: elapsed >= transition.diagnostics.aimDurationSecs - EPSILON,
-    frameState: {
-      timeSecs: sample.timeSecs,
-      pose: cloneSpatialPose(sample.pose),
-      aim: sample.aim,
-    },
+    complete,
+    positionComplete: elapsed >= positionEndSecs - EPSILON,
+    aimComplete: elapsed >= aimEndSecs - EPSILON,
+    frameState,
     pose: cloneSpatialPose(sample.pose),
     diagnostics: { warnings: [] },
   };
@@ -1028,7 +1043,7 @@ export function normalizeSpatialPoseTransitionSpec(input) {
   return {
     from: normalizeSpatialPose(input.from),
     to: normalizeSpatialPose(input.to),
-    ...(input.durationSecs !== undefined ? { durationSecs: positiveNumber(input.durationSecs, 0) } : {}),
+    ...(input.durationSecs !== undefined ? { durationSecs: nonNegativeFiniteNumber(input.durationSecs, 'durationSecs') } : {}),
     ...(input.movement !== undefined ? { movement: normalizeTransitionLane(input.movement) } : {}),
     ...(input.orientation !== undefined ? { orientation: normalizeTransitionLane(input.orientation) } : {}),
   };
@@ -1036,33 +1051,36 @@ export function normalizeSpatialPoseTransitionSpec(input) {
 
 export function createSpatialPoseTransition(input) {
   const normalized = normalizeSpatialPoseTransitionSpec(input);
-  const movementDuration = normalized.movement?.durationSecs ?? normalized.durationSecs ?? 1;
-  const orientationDuration = normalized.orientation?.durationSecs ?? normalized.durationSecs ?? 1;
-  return {
-    durationSecs: Math.max(movementDuration, orientationDuration),
+  const viewTransition = buildPoseTransitionViewPath(normalized);
+  const transition = {
+    durationSecs: viewTransition.durationSecs,
     from: normalized.from,
     to: normalized.to,
-    movement: normalized.movement ?? { durationSecs: movementDuration },
-    orientation: normalized.orientation ?? { durationSecs: orientationDuration },
+    movement: publicTransitionLane(normalized.movement, {
+      durationSecs: viewTransition.diagnostics.positionDurationSecs,
+      delaySecs: viewTransition.diagnostics.positionDelaySecs,
+    }),
+    orientation: publicTransitionLane(normalized.orientation, {
+      durationSecs: viewTransition.diagnostics.aimDurationSecs,
+      delaySecs: viewTransition.diagnostics.aimDelaySecs,
+    }),
   };
+  POSE_TRANSITION_VIEW_PATHS.set(transition, viewTransition);
+  return transition;
 }
 
 export function evaluateSpatialPoseTransition(transition, elapsedSecs) {
-  const elapsed = Math.max(0, finiteNumber(elapsedSecs, 0));
-  const movementDuration = positiveNumber(transition.movement?.durationSecs, transition.durationSecs);
-  const orientationDuration = positiveNumber(transition.orientation?.durationSecs, transition.durationSecs);
-  const moveT = movementDuration <= EPSILON ? 1 : smoothstep01(clamp(elapsed / movementDuration, 0, 1));
-  const orientationT = orientationDuration <= EPSILON ? 1 : smoothstep01(clamp(elapsed / orientationDuration, 0, 1));
+  const viewTransition = transition && typeof transition === 'object'
+    ? POSE_TRANSITION_VIEW_PATHS.get(transition) ?? buildPoseTransitionViewPath(transition)
+    : buildPoseTransitionViewPath(transition);
+  const sample = evaluateSpatialViewTransition(viewTransition, elapsedSecs);
   return {
-    elapsedSecs: elapsed,
-    complete: elapsed >= transition.durationSecs - EPSILON,
-    movementComplete: elapsed >= movementDuration - EPSILON,
-    orientationComplete: elapsed >= orientationDuration - EPSILON,
-    pose: {
-      observerPc: lerpVector(transition.from.observerPc, transition.to.observerPc, moveT),
-      orientationIcrs: slerpQuaternions(transition.from.orientationIcrs, transition.to.orientationIcrs, orientationT),
-    },
-    diagnostics: { warnings: [] },
+    elapsedSecs: sample.elapsedSecs,
+    complete: sample.complete,
+    movementComplete: sample.positionComplete,
+    orientationComplete: sample.aimComplete,
+    pose: cloneSpatialPose(sample.pose),
+    diagnostics: sample.diagnostics,
   };
 }
 
@@ -1589,8 +1607,14 @@ function normalizeSpatialPositionInterpolation(input) {
   if (!input || typeof input !== 'object') {
     throw new TypeError('Expected SpatialPositionInterpolation object.');
   }
-  if (input.kind === 'hold' || input.kind === 'linear') {
-    return { kind: input.kind };
+  if (input.kind === 'hold') {
+    return { kind: 'hold' };
+  }
+  if (input.kind === 'linear') {
+    return {
+      kind: 'linear',
+      ...(input.easing !== undefined ? { easing: normalizeEasing(input.easing) } : {}),
+    };
   }
   if (input.kind === 'catmullRom') {
     return {
@@ -1655,6 +1679,19 @@ function evaluatePositionInterpolation(keys, segmentIndex, t, durationSecs) {
 }
 
 function evaluateLinearPosition(left, right, t, durationSecs) {
+  if (left.interpolation?.kind === 'linear' && left.interpolation.easing) {
+    const pointAt = (u) => lerpVector(
+      left.positionPc,
+      right.positionPc,
+      applyEasing(left.interpolation.easing, u),
+    );
+    const derivative = finiteDifferenceVector(pointAt, t);
+    return {
+      positionPc: pointAt(t),
+      velocityPcPerSec: scaleSpatialVector(derivative.first, 1 / durationSecs),
+      accelerationPcPerSec2: scaleSpatialVector(derivative.second, 1 / (durationSecs * durationSecs)),
+    };
+  }
   const velocityPcPerSec = scaleSpatialVector(subtractSpatialVectors(right.positionPc, left.positionPc), 1 / durationSecs);
   return {
     positionPc: lerpVector(left.positionPc, right.positionPc, t),
@@ -2139,21 +2176,235 @@ function cubicBezierDerivative(t, p1, p2) {
   return 3 * oneMinus * oneMinus * p1 + 6 * oneMinus * t * (p2 - p1) + 3 * t * t * (1 - p2);
 }
 
+function resolveTransitionLaneTimings(spec) {
+  if (spec.durationSecs !== undefined) {
+    const durationSecs = spec.durationSecs;
+    return {
+      durationSecs,
+      position: resolveTransitionLaneTimingWithTotal('position', spec.position, durationSecs),
+      aim: resolveTransitionLaneTimingWithTotal('aim', spec.aim, durationSecs),
+    };
+  }
+  const position = resolveTransitionLaneTimingWithoutTotal(spec.position);
+  const aim = resolveTransitionLaneTimingWithoutTotal(spec.aim);
+  return {
+    durationSecs: Math.max(
+      position.delaySecs + position.durationSecs,
+      aim.delaySecs + aim.durationSecs,
+      1,
+    ),
+    position,
+    aim,
+  };
+}
+
+function resolveTransitionLaneTimingWithTotal(name, lane, durationSecs) {
+  const delaySecs = lane?.delaySecs ?? 0;
+  if (delaySecs > durationSecs + EPSILON) {
+    throw new RangeError(`${name} transition lane delaySecs cannot exceed durationSecs.`);
+  }
+  const laneDurationSecs = lane?.durationSecs ?? Math.max(0, durationSecs - delaySecs);
+  if (delaySecs + laneDurationSecs > durationSecs + EPSILON) {
+    throw new RangeError(`${name} transition lane delaySecs plus durationSecs cannot exceed durationSecs.`);
+  }
+  return { delaySecs, durationSecs: laneDurationSecs };
+}
+
+function resolveTransitionLaneTimingWithoutTotal(lane) {
+  return {
+    delaySecs: lane?.delaySecs ?? 0,
+    durationSecs: lane?.durationSecs ?? 1,
+  };
+}
+
+function materializeTransitionPositionKeys(input) {
+  const interpolation = transitionPositionInterpolation(input.lane, input.warnings);
+  return materializeTransitionKeys({
+    from: input.from,
+    to: input.to,
+    timing: input.timing,
+    durationSecs: input.durationSecs,
+    activeInterpolation: interpolation,
+    keyPrefix: 'position',
+    valueKey: 'positionPc',
+  });
+}
+
+function materializeTransitionAimKeys(input) {
+  const interpolation = transitionAimInterpolation(input.lane, input.from, input.to);
+  return materializeTransitionKeys({
+    from: input.from,
+    to: input.to,
+    timing: input.timing,
+    durationSecs: input.durationSecs,
+    activeInterpolation: interpolation,
+    keyPrefix: 'aim',
+    valueKey: 'aim',
+  });
+}
+
+function materializeTransitionKeys(input) {
+  const keys = [];
+  const delaySecs = input.timing.delaySecs;
+  const activeDurationSecs = input.timing.durationSecs;
+  const activeEndSecs = delaySecs + activeDurationSecs;
+  const holdInterpolation = { kind: 'hold' };
+  const makeKey = (id, timeSecs, value, interpolation) => ({
+    id: `${input.keyPrefix}-${id}`,
+    timeSecs,
+    [input.valueKey]: value,
+    interpolation,
+  });
+
+  if (input.durationSecs <= EPSILON) {
+    return [makeKey('to', 0, input.to, holdInterpolation)];
+  }
+
+  if (activeDurationSecs <= EPSILON) {
+    if (delaySecs <= EPSILON) {
+      keys.push(makeKey('to', 0, input.to, holdInterpolation));
+    } else {
+      keys.push(makeKey('from', 0, input.from, holdInterpolation));
+      keys.push(makeKey('to', delaySecs, input.to, holdInterpolation));
+    }
+  } else {
+    if (delaySecs > EPSILON) {
+      keys.push(makeKey('from', 0, input.from, holdInterpolation));
+      keys.push(makeKey('active-start', delaySecs, input.from, input.activeInterpolation));
+    } else {
+      keys.push(makeKey('active-start', 0, input.from, input.activeInterpolation));
+    }
+    keys.push(makeKey('active-end', activeEndSecs, input.to, holdInterpolation));
+  }
+
+  const lastKey = keys[keys.length - 1];
+  if (lastKey.timeSecs < input.durationSecs - EPSILON) {
+    keys.push(makeKey('hold-end', input.durationSecs, input.to, holdInterpolation));
+  }
+  return keys;
+}
+
+function transitionPositionInterpolation(lane, warnings) {
+  const interpolation = lane?.interpolation ?? 'linear';
+  if (interpolation === 'hold') return { kind: 'hold' };
+  if (interpolation === 'slerp') {
+    warnings.push(warning(
+      'positionSlerpInterpolationUnsupported',
+      'Position transition lanes do not support slerp; using linear interpolation.',
+    ));
+  }
+  const easing = transitionLaneEasing(lane, interpolation);
+  return {
+    kind: 'linear',
+    ...(easing.kind !== 'linear' || lane?.easing !== undefined ? { easing } : {}),
+  };
+}
+
+function transitionAimInterpolation(lane, from, to) {
+  const interpolation = lane?.interpolation ?? 'linear';
+  if (interpolation === 'hold') return { kind: 'hold' };
+  const easing = transitionLaneEasing(lane, interpolation);
+  const withEasing = (kind) => ({
+    kind,
+    ...(easing.kind !== 'linear' || lane?.easing !== undefined ? { easing } : {}),
+  });
+  if (interpolation === 'slerp' || from.kind !== to.kind || from.kind === 'orientation') {
+    return withEasing('slerp');
+  }
+  if (from.kind === 'target') return withEasing('targetLinear');
+  if (from.kind === 'direction') return withEasing('directionSlerp');
+  return withEasing('slerp');
+}
+
+function transitionLaneEasing(lane, interpolation) {
+  if (lane?.easing !== undefined) return lane.easing;
+  if (interpolation === 'smoothstep') return { kind: 'smoothstep' };
+  if (interpolation === 'easeIn') return { kind: 'easeIn' };
+  if (interpolation === 'easeOut') return { kind: 'easeOut' };
+  if (interpolation === 'easeInOut') return { kind: 'easeInOut' };
+  return { kind: 'linear' };
+}
+
 function normalizeTransitionLane(input = {}) {
   if (!input || typeof input !== 'object') throw new TypeError('Expected SpatialTransitionLaneSpec object.');
+  const interpolation = input.interpolation === undefined ? undefined : String(input.interpolation);
+  if (interpolation !== undefined && !TRANSITION_LANE_INTERPOLATIONS.has(interpolation)) {
+    throw new TypeError(`Unsupported transition lane interpolation: ${interpolation}`);
+  }
   return {
-    ...(input.durationSecs !== undefined ? { durationSecs: positiveNumber(input.durationSecs, 0) } : {}),
-    ...(input.delaySecs !== undefined ? { delaySecs: Math.max(0, finiteNumber(input.delaySecs, 0)) } : {}),
+    ...(input.durationSecs !== undefined ? { durationSecs: nonNegativeFiniteNumber(input.durationSecs, 'transition lane durationSecs') } : {}),
+    ...(input.delaySecs !== undefined ? { delaySecs: nonNegativeFiniteNumber(input.delaySecs, 'transition lane delaySecs') } : {}),
     ...(input.easing !== undefined ? { easing: normalizeEasing(input.easing) } : {}),
-    ...(input.interpolation !== undefined ? { interpolation: String(input.interpolation) } : {}),
+    ...(interpolation !== undefined ? { interpolation } : {}),
   };
 }
 
 function sampleToAimSpec(sample) {
   if (sample.kind === 'target') {
-    return { kind: 'target', targetPc: sample.targetPc, upIcrs: sample.upIcrs };
+    return {
+      kind: 'target',
+      targetPc: cloneSpatialVector3(sample.targetPc),
+      ...(sample.upIcrs !== undefined ? { upIcrs: cloneSpatialVector3(sample.upIcrs) } : {}),
+      ...(sample.positionAngleDeg !== undefined ? { positionAngleDeg: finiteNumber(sample.positionAngleDeg, 0) } : {}),
+      ...(sample.lock !== undefined ? { lock: sample.lock === true } : {}),
+      ...copySource(sample),
+    };
   }
-  return { kind: 'orientation', orientationIcrs: sample.orientationIcrs };
+  if (sample.kind === 'direction') {
+    return {
+      kind: 'direction',
+      forwardIcrs: cloneSpatialVector3(sample.forwardIcrs),
+      ...(sample.upIcrs !== undefined ? { upIcrs: cloneSpatialVector3(sample.upIcrs) } : {}),
+      ...(sample.positionAngleDeg !== undefined ? { positionAngleDeg: finiteNumber(sample.positionAngleDeg, 0) } : {}),
+      ...copySource(sample),
+    };
+  }
+  return {
+    kind: 'orientation',
+    orientationIcrs: cloneSpatialQuaternion(sample.orientationIcrs),
+    ...copySource(sample),
+  };
+}
+
+function frameStateAimSpec(frameState) {
+  return frameState.aim?.kind
+    ? sampleToAimSpec(frameState.aim)
+    : { kind: 'orientation', orientationIcrs: frameState.pose.orientationIcrs };
+}
+
+function transitionFrameState(transition, sample, complete) {
+  const endpointFrameState = complete ? transition.to : transition.from;
+  const { frameIndex: _frameIndex, ...metadata } = cloneFrameState(endpointFrameState);
+  const frameState = {
+    ...metadata,
+    timeSecs: sample.timeSecs,
+    pose: cloneSpatialPose(sample.pose),
+    aim: sample.aim ? cloneAimSample(sample.aim) : null,
+  };
+  if (sample.frameIndex !== undefined) frameState.frameIndex = sample.frameIndex;
+  return frameState;
+}
+
+function buildPoseTransitionViewPath(input) {
+  const normalized = normalizeSpatialPoseTransitionSpec(input);
+  return buildSpatialViewTransitionPath({
+    from: { pose: normalized.from, aim: null },
+    to: { pose: normalized.to, aim: null },
+    ...(normalized.durationSecs !== undefined ? { durationSecs: normalized.durationSecs } : {}),
+    ...(normalized.movement !== undefined ? { position: normalized.movement } : {}),
+    ...(normalized.orientation !== undefined ? { aim: normalized.orientation } : {}),
+  });
+}
+
+function publicTransitionLane(lane, timing) {
+  const output = {
+    ...(lane ?? {}),
+    durationSecs: timing.durationSecs,
+  };
+  if (lane?.delaySecs !== undefined || timing.delaySecs > EPSILON) {
+    output.delaySecs = timing.delaySecs;
+  }
+  return output;
 }
 
 function cloneFrameState(frameState) {
@@ -2336,6 +2587,12 @@ function finiteRequiredNumber(value, label) {
 function positiveFiniteNumber(value, label) {
   const number = finiteRequiredNumber(value, label);
   if (!(number > 0)) throw new RangeError(`${label} must be greater than zero.`);
+  return number;
+}
+
+function nonNegativeFiniteNumber(value, label) {
+  const number = finiteRequiredNumber(value, label);
+  if (number < 0) throw new RangeError(`${label} must be non-negative.`);
   return number;
 }
 

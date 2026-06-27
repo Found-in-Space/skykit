@@ -6,73 +6,7 @@ code. The public names and many canonical object shapes have landed, but the
 items below still need implementation work before the contract can be treated
 as complete.
 
-## 1. View And Pose Transition Lane Semantics Are Stubbed
-
-Status: partially landed.
-
-The contract says view transitions are not route-follow actions. They should
-interpolate observer position and aim/orientation lanes, may use independent
-lane timing, and evaluate to `SpatialFrameState` samples. It also says
-`createSpatialPoseTransition()` remains public, but must compile into the same
-canonical view-transition evaluator.
-
-References:
-
-- Contract: [api-contract.md:1172](./api-contract.md#L1172)
-- Contract lane shape: [api-contract.md:1195](./api-contract.md#L1195)
-- Pose bridge rule: [api-contract.md:1257](./api-contract.md#L1257)
-- Current view transition builder creates simple two-key path data:
-  [src/index.js:951](./src/index.js#L951)
-- Current evaluator ignores lane delay and lane easing during sampling:
-  [src/index.js:990](./src/index.js#L990)
-- Current pose transition evaluator is separate smoothstep/slerp code:
-  [src/index.js:1032](./src/index.js#L1032)
-
-Current behavior:
-
-- `position.delaySecs` is recorded in diagnostics but does not delay movement.
-- `aim.delaySecs` is recorded in diagnostics but does not delay aim changes.
-- Lane `easing` and `interpolation` are normalized as shallow strings/objects
-  but are not applied consistently.
-- `createSpatialPoseTransition()` does not compile into a view-transition path;
-  it has its own evaluator.
-
-Implementation work:
-
-- Make `SpatialTransitionLaneSpec` normalization strict:
-  - non-negative `durationSecs`;
-  - non-negative `delaySecs`;
-  - supported easing kinds only;
-  - supported lane interpolation strings only.
-- Materialize transition lanes into path-domain keys that represent delay,
-  active interpolation, and hold-after-completion behavior.
-- Preserve `from` and `to` frame state metadata where possible.
-- Implement `evaluateSpatialViewTransition()` by sampling the canonical path and
-  deriving `positionComplete` and `aimComplete` from lane delay plus duration.
-- Rebuild `createSpatialPoseTransition()` as a thin bridge over
-  `buildSpatialViewTransitionPath()` and `evaluateSpatialViewTransition()`.
-- Decide whether pose transitions should expose the internal
-  `SpatialViewTransitionPath` or hold it privately; either approach should keep
-  behavior shared.
-
-Tests required:
-
-- Position delay holds the source observer position until delay expires.
-- Aim delay holds the source aim/orientation until delay expires.
-- Different position and aim durations finish independently.
-- Lane easing changes sampled values at midpoints.
-- Pose transition and view transition produce identical samples for equivalent
-  pose-only inputs.
-- `positionComplete` and `aimComplete` are true only after delay plus lane
-  duration.
-
-Done when:
-
-- View transitions and pose transitions use one implementation path.
-- Lane delay, duration, easing, and interpolation affect evaluated samples.
-- Diagnostics reflect actual lane behavior, not only authored values.
-
-## 2. Orbital Insert Timing And Route Physics Are Placeholder-Level
+## 1. Orbital Insert Timing And Route Physics Are Placeholder-Level
 
 Status: public names landed, behavior not fully landed.
 
@@ -152,7 +86,7 @@ Done when:
   controls.
 - Route evaluation uses the timing profile as the source of distance over time.
 
-## 3. Route Diagnostics Are Too Shallow
+## 2. Route Diagnostics Are Too Shallow
 
 Status: partially landed.
 
@@ -210,7 +144,7 @@ Done when:
 - Route diagnostics distinguish high-fidelity generated routes from fallback
   routes.
 
-## 4. Inertial And Thrust Motion Models Are Aliases Of Direct Motion
+## 3. Inertial And Thrust Motion Models Are Aliases Of Direct Motion
 
 Status: public constructors landed, distinct models not landed.
 

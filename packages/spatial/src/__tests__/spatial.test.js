@@ -12,6 +12,7 @@ import {
   buildSpatialRouteEndpoint,
   buildSpatialViewTransitionPath,
   createSpatialQuaternionFromAxisAngle,
+  createSpatialPoseTransition,
   createDirectSpatialMotionModel,
   createSpatialNavigationAutomation,
   deriveSpatialOrbitHandoff,
@@ -362,21 +363,121 @@ test('aim interpolation validates specs and applies fallback up vectors', () => 
   assertVectorApprox(fallback.upIcrs, { x: 0, y: 0, z: 1 });
 });
 
-test('view transitions are data-only and pose transitions evaluate with canonical poses', () => {
+test('view transition lanes delay, ease, and complete independently', () => {
   const transition = buildSpatialViewTransitionPath({
-    from: frame({ x: 0, y: 0, z: 0 }),
-    to: frame({ x: 10, y: 0, z: 0 }),
-    durationSecs: 2,
+    from: {
+      pose: { observerPc: { x: 0, y: 0, z: 0 }, orientationIcrs: SPATIAL_IDENTITY_QUATERNION },
+      aim: evaluateSpatialAim({
+        observerPc: { x: 0, y: 0, z: 0 },
+        aim: { kind: 'target', targetPc: { x: 0, y: 0, z: -10 } },
+      }),
+    },
+    to: {
+      pose: { observerPc: { x: 10, y: 0, z: 0 }, orientationIcrs: SPATIAL_IDENTITY_QUATERNION },
+      aim: evaluateSpatialAim({
+        observerPc: { x: 10, y: 0, z: 0 },
+        aim: { kind: 'target', targetPc: { x: 10, y: 0, z: -10 } },
+      }),
+    },
+    durationSecs: 4,
+    position: { delaySecs: 1, durationSecs: 2, interpolation: 'easeIn' },
+    aim: { delaySecs: 2, durationSecs: 1, interpolation: 'linear' },
   });
   assert.equal(typeof transition.evaluate, 'undefined');
-  assert.equal(evaluateSpatialViewTransition(transition, 1).pose.observerPc.x > 0, true);
+  assert.equal(transition.diagnostics.positionDelaySecs, 1);
+  assert.equal(transition.diagnostics.aimDelaySecs, 2);
 
-  const poseTransition = {
-    from: { observerPc: { x: 0, y: 0, z: 0 }, orientationIcrs: SPATIAL_IDENTITY_QUATERNION },
-    to: { observerPc: { x: 10, y: 0, z: 0 }, orientationIcrs: SPATIAL_IDENTITY_QUATERNION },
-    durationSecs: 2,
+  const beforePosition = evaluateSpatialViewTransition(transition, 0.5);
+  assertVectorApprox(beforePosition.pose.observerPc, { x: 0, y: 0, z: 0 });
+  assert.equal(beforePosition.frameState.aim.kind, 'target');
+  assertVectorApprox(beforePosition.frameState.aim.targetPc, { x: 0, y: 0, z: -10 });
+  assert.equal(beforePosition.positionComplete, false);
+  assert.equal(beforePosition.aimComplete, false);
+
+  const easedMidpoint = evaluateSpatialViewTransition(transition, 2);
+  assertVectorApprox(easedMidpoint.pose.observerPc, { x: 2.5, y: 0, z: 0 });
+  assertVectorApprox(easedMidpoint.frameState.aim.targetPc, { x: 0, y: 0, z: -10 });
+  assert.equal(easedMidpoint.positionComplete, false);
+  assert.equal(easedMidpoint.aimComplete, false);
+
+  const aimMidpoint = evaluateSpatialViewTransition(transition, 2.5);
+  assert.equal(aimMidpoint.frameState.aim.kind, 'target');
+  assertVectorApprox(aimMidpoint.frameState.aim.targetPc, { x: 5, y: 0, z: -10 });
+
+  const lanesComplete = evaluateSpatialViewTransition(transition, 3);
+  assertVectorApprox(lanesComplete.pose.observerPc, { x: 10, y: 0, z: 0 });
+  assertVectorApprox(lanesComplete.frameState.aim.targetPc, { x: 10, y: 0, z: -10 });
+  assert.equal(lanesComplete.positionComplete, true);
+  assert.equal(lanesComplete.aimComplete, true);
+  assert.equal(lanesComplete.complete, false);
+  assert.equal(evaluateSpatialViewTransition(transition, 4).complete, true);
+});
+
+test('pose transitions delegate to equivalent view transitions', () => {
+  const from = {
+    observerPc: { x: 0, y: 0, z: 0 },
+    orientationIcrs: SPATIAL_IDENTITY_QUATERNION,
   };
-  assert.equal(evaluateSpatialPoseTransition(poseTransition, 1).pose.observerPc.x > 0, true);
+  const to = {
+    observerPc: { x: 10, y: 0, z: 0 },
+    orientationIcrs: createSpatialQuaternionFromAxisAngle({ x: 0, y: 1, z: 0 }, Math.PI / 2),
+  };
+  const lanes = {
+    durationSecs: 3,
+    movement: { delaySecs: 1, durationSecs: 1, interpolation: 'smoothstep' },
+    orientation: { delaySecs: 0.5, durationSecs: 2, interpolation: 'slerp' },
+  };
+  const poseTransition = createSpatialPoseTransition({ from, to, ...lanes });
+  const viewTransition = buildSpatialViewTransitionPath({
+    from: { pose: from, aim: null },
+    to: { pose: to, aim: null },
+    durationSecs: lanes.durationSecs,
+    position: lanes.movement,
+    aim: lanes.orientation,
+  });
+
+  const held = evaluateSpatialPoseTransition(poseTransition, 0.25);
+  assertVectorApprox(held.pose.observerPc, { x: 0, y: 0, z: 0 });
+  assertVectorApprox(applySpatialQuaternion(SPATIAL_LOCAL_FORWARD, held.pose.orientationIcrs), SPATIAL_LOCAL_FORWARD);
+  assert.equal(held.movementComplete, false);
+  assert.equal(held.orientationComplete, false);
+
+  const poseSample = evaluateSpatialPoseTransition(poseTransition, 1.5);
+  const viewSample = evaluateSpatialViewTransition(viewTransition, 1.5);
+  assertVectorApprox(poseSample.pose.observerPc, viewSample.pose.observerPc);
+  assertVectorApprox(
+    applySpatialQuaternion(SPATIAL_LOCAL_FORWARD, poseSample.pose.orientationIcrs),
+    applySpatialQuaternion(SPATIAL_LOCAL_FORWARD, viewSample.pose.orientationIcrs),
+  );
+
+  const rawPoseTransition = { from, to, durationSecs: 2 };
+  assert.equal(evaluateSpatialPoseTransition(rawPoseTransition, 1).pose.observerPc.x > 0, true);
+});
+
+test('transition lane normalization rejects invalid timing and interpolation', () => {
+  const spec = {
+    from: frame({ x: 0, y: 0, z: 0 }),
+    to: frame({ x: 1, y: 0, z: 0 }),
+    durationSecs: 1,
+  };
+  assert.throws(() => buildSpatialViewTransitionPath({
+    ...spec,
+    position: { delaySecs: 0.75, durationSecs: 0.5 },
+  }), RangeError);
+  assert.throws(() => buildSpatialViewTransitionPath({
+    ...spec,
+    position: { delaySecs: -1 },
+  }), RangeError);
+  assert.throws(() => buildSpatialViewTransitionPath({
+    ...spec,
+    position: { interpolation: 'warp' },
+  }), TypeError);
+  assert.throws(() => createSpatialPoseTransition({
+    from: spec.from.pose,
+    to: spec.to.pose,
+    durationSecs: 1,
+    orientation: { delaySecs: 0.75, durationSecs: 0.5 },
+  }), RangeError);
 });
 
 test('preload hints and navigation wrapper use canonical fields', () => {
