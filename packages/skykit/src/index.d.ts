@@ -6,7 +6,6 @@ import type {
 import type {
   SpatialPreloadHint,
   SpatialNavigationAutomation,
-  SpatialScaleProfile,
   SpatialTargetSpec,
   SpatialVector3,
 } from '@found-in-space/spatial';
@@ -56,6 +55,7 @@ export interface QuaternionLike {
 }
 
 export type SkykitLookAtInput = string | SkykitLookAtSpecInput;
+export type SkykitTargetInput = SpatialTargetSpec | SkykitLookAtSpecInput | Vector3Like | [number, number, number];
 
 export interface SkykitLookAtSpecInput {
   targetPc?: Vector3Like | [number, number, number];
@@ -69,17 +69,35 @@ export interface SkykitLookAtSpecInput {
   [key: string]: unknown;
 }
 
+export type SkykitRightAscensionUnit = 'auto' | 'deg' | 'degree' | 'degrees' | 'hour' | 'hours';
+
+export interface SkykitRaDecLookAtHelperOptions {
+  raUnit?: SkykitRightAscensionUnit;
+  distancePc?: number;
+  positionAngleDeg?: number;
+}
+
+export interface SkykitRaDecLookAtHelperInput extends SkykitRaDecLookAtHelperOptions {
+  ra?: unknown;
+  rightAscension?: unknown;
+  raDeg?: number;
+  raHours?: number;
+  dec?: unknown;
+  declination?: unknown;
+  decDeg?: number;
+}
+
 export declare function createRaDecLookAt(
-  ra: unknown,
+  ra: unknown | SkykitRaDecLookAtHelperInput,
   dec?: unknown,
-  options?: { raUnit?: 'auto' | 'deg' | 'hours'; distancePc?: number; positionAngleDeg?: number }
-): SkykitLookAtInput | null;
+  options?: SkykitRaDecLookAtHelperOptions
+): SkykitLookAtSpecInput | null;
 export declare function parseDeclination(value: unknown): number | null;
 export declare function parseRightAscension(
   value: unknown,
-  options?: { unit?: 'auto' | 'deg' | 'hours' }
+  options?: { unit?: SkykitRightAscensionUnit }
 ): { raDeg: number } | { raHours: number } | null;
-export declare function parseSpatialLookAtText(text: string): SkykitLookAtInput | null;
+export declare function parseSpatialLookAtText(text: string): SkykitLookAtSpecInput | null;
 
 export interface SkykitObserverMotion {
   velocityPcPerSec: Vector3Like;
@@ -1008,7 +1026,6 @@ export interface SkykitNavigationPluginOptions {
   id?: string;
   priority?: number;
   navigation?: SpatialNavigationAutomation;
-  scaleProfile?: SpatialScaleProfile;
   speedPcPerSec?: number;
   speed?: number;
   sampleStepSecs?: number;
@@ -1020,7 +1037,7 @@ export interface SkykitNavigationPluginOptions {
     bookmarkId: string,
     input: SpatialTargetSpec,
     context: SkykitThreePluginContext
-  ) => SpatialTargetSpec | Promise<SpatialTargetSpec | null> | null;
+  ) => SkykitTargetInput | Promise<SkykitTargetInput | null> | null;
 }
 
 export interface SkykitSpatialPreloadStrategyOptions {

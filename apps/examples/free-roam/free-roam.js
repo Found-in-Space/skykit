@@ -224,9 +224,8 @@ async function main() {
       }),
       art.managerPlugin,
       createSkykitNavigationPlugin({
-        speed: 18,
-        acceleration: 22,
-        deceleration: 18,
+        speedPcPerSec: 18,
+        sampleStepSecs: 1 / 60,
       }),
       createKeyboardNavigationPlugin({ speedPcPerSec: 2 }),
       createSkyGrabPlugin({

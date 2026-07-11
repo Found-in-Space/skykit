@@ -276,6 +276,7 @@ export function deriveSpatialOrbitAngle(input: {
   positionPc: SpatialVector3;
   orbitNormal?: SpatialVector3;
   referenceAxis?: SpatialVector3;
+  handedness?: 1 | -1;
 }): number;
 export function sampleSpatialOrbitPosition(
   orbit: SpatialOrbitSpec | SpatialOrbitBasis,
@@ -470,6 +471,18 @@ export interface SpatialRouteDiagnostics {
   arrivalSpeedPcPerSec: number;
   settleSecs?: number;
   settleBehavior?: 'none' | 'snap' | 'blendToOrbit' | 'continueOrbit';
+  selectedOrbitNormal?: SpatialVector3;
+  selectedRadial?: SpatialVector3;
+  selectedTangent?: SpatialVector3;
+  insertionSelection?: 'explicitAngle' | 'tangent' | 'nearestAngleFallback';
+  insertionAngleRad?: number;
+  insertionPositionPc?: SpatialVector3;
+  /** Cosine alignment between the insertion approach and signed orbital velocity. */
+  insertionApproachAlignment?: number;
+  /** Cosine alignment between an authored departure velocity and the insertion approach. */
+  insertionDepartureVelocityAlignment?: number;
+  /** Signed distance from the departure position to the orbit plane. */
+  insertionPlaneOffsetPc?: number;
   warnings: SpatialDiagnosticWarning[];
   [key: string]: unknown;
 }
@@ -502,12 +515,14 @@ export function buildSpatialRouteEndpoint(
 export function buildSpatialPolylineRoute(input: {
   pointsPc: Iterable<SpatialVector3>;
   travel?: Extract<SpatialTravelSpec, { kind: 'polyline' }>;
+  arrivalAction?: SpatialArrivalAction | null;
   source?: SpatialSourceRef;
 }): SpatialRoute;
 export function buildSpatialOrbitTransferRoute(input: {
   from: SpatialRouteEndpointSpec | SpatialRouteEndpoint;
   to: SpatialRouteEndpointSpec | SpatialRouteEndpoint;
   travel?: Extract<SpatialTravelSpec, { kind: 'orbitTransfer' }>;
+  arrivalAction?: SpatialArrivalAction | null;
   referencePose?: SpatialPose;
   source?: SpatialSourceRef;
 }): SpatialRoute | null;
@@ -846,7 +861,6 @@ export interface SpatialMotionUpdateInput {
   controls?: SpatialControlReader;
   deltaSecs: number;
   scale?: SpatialScaleProfile;
-  manualLookActive?: boolean;
 }
 
 export function normalizeSpatialUpdateDelta(input: { deltaSecs: number }): number;
@@ -900,6 +914,8 @@ export interface SpatialNavigationAutomation {
   lookAt(aim: SpatialAimSpec): void;
   lockAt(aim: Extract<SpatialAimSpec, { kind: 'target' }>): void;
   unlockAt(): void;
+  cancelMovement(): void;
+  cancelOrientation(): void;
   cancel(): void;
   update(input: {
     pose: SpatialPose;
@@ -947,6 +963,4 @@ export interface SpatialSettleDiagnostics {
   targetOrbit?: SpatialOrbitSpec;
 }
 
-export function createSpatialNavigationAutomation(options?: {
-  defaultTiming?: SpatialTimingProfile;
-}): SpatialNavigationAutomation;
+export function createSpatialNavigationAutomation(): SpatialNavigationAutomation;

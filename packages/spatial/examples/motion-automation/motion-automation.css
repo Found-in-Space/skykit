@@ -1,0 +1,42 @@
+.section-heading {
+  margin-top: 28px;
+}
+
+.motion-readouts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0 18px;
+}
+
+.model-readout {
+  padding: 10px 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: rgba(2, 8, 16, 0.58);
+}
+
+.model-readout strong,
+.model-readout span {
+  display: block;
+}
+
+.model-readout span {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font: 0.76rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.automation-card {
+  margin-top: 4px;
+}
+
+.nav-actions button {
+  flex: 1 1 130px;
+}
+
+@media (max-width: 720px) {
+  .motion-readouts {
+    grid-template-columns: 1fr;
+  }
+}

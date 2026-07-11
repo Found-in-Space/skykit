@@ -237,6 +237,23 @@ test('skykit/xr depth helpers compute and apply render state', () => {
   assert.deepEqual(state, { depthNear: range.depthNear, depthFar: range.depthFar });
 });
 
+test('skykit/xr accepts partial rig offsets and both observer pose wrappers', () => {
+  const rig = createSkykitXrRig({ deckOffset: { y: -2 } });
+  assert.deepEqual(rig.getSnapshot().deckOffset, { x: 0, y: -2, z: 0.5 });
+
+  const legacy = computeSkykitXrDepthRange({
+    observer: { position: { x: 1, y: 2, z: 3 } },
+    visibleBounds: { minX: 0, minY: 0 },
+  });
+  const canonical = computeSkykitXrDepthRange({
+    observer: { observerPc: { x: 1, y: 2, z: 3 } },
+  });
+  assert.deepEqual(legacy.telemetry.observer, { x: 1, y: 2, z: 3 });
+  assert.deepEqual(canonical.telemetry.observer, legacy.telemetry.observer);
+  assert.equal(legacy.telemetry.visibleBoundsCount, 0);
+  rig.dispose();
+});
+
 test('skykit/xr depth helpers include distant visible star bounds', () => {
   const range = computeSkykitXrDepthRange({
     observer: { x: 0, y: 0, z: 0 },

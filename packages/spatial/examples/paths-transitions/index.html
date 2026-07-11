@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Inspect @found-in-space/spatial path interpolation, playback remapping, transition lanes, and preload hints."
+    />
+    <title>Paths &amp; Transitions · Spatial Package Labs</title>
+    <link rel="stylesheet" href="../shared.css" />
+  </head>
+  <body>
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">@found-in-space/spatial · Lab 03</p>
+        <h1>Paths &amp; transitions</h1>
+        <p class="lede">
+          Scrub one canonical path, compare its position interpolation, and inspect how eased
+          playback, aim tracking, independent view-transition lanes, and preload hints fit together.
+        </p>
+      </div>
+      <nav class="page-nav" aria-label="Example navigation">
+        <a href="%BASE_URL%index.html">All examples</a>
+        <a href="%BASE_URL%packages/spatial/examples/index.html">Spatial labs</a>
+        <a href="%BASE_URL%packages/spatial/examples/paths-transitions/index.html" aria-current="page">Paths</a>
+      </nav>
+    </header>
+
+    <main class="demo-layout">
+      <aside class="control-panel">
+        <h2>Path playback</h2>
+        <div class="control-grid">
+          <label class="wide">
+            Position interpolation
+            <select data-interpolation>
+              <option value="hold">hold</option>
+              <option value="linear">linear</option>
+              <option value="catmullRom" selected>catmullRom</option>
+              <option value="cubicBezier">cubicBezier</option>
+              <option value="hermite">hermite</option>
+            </select>
+          </label>
+          <label class="checkbox wide">
+            <input type="checkbox" data-eased-playback checked />
+            Eased playback remap
+          </label>
+          <label class="wide">
+            Shared playback clock
+            <input type="range" min="0" max="8" step="0.01" value="0" data-scrub />
+          </label>
+        </div>
+
+        <div class="toolbar">
+          <button class="primary" type="button" data-play aria-pressed="false">Play</button>
+          <button type="button" data-reset>Reset</button>
+          <span class="status-pill" data-play-state>paused</span>
+        </div>
+
+        <p class="hint">
+          The path lasts 6 authored seconds but plays over 8 seconds. With easing enabled,
+          playback time is remapped before position, velocity, and aim are evaluated.
+        </p>
+
+        <h2>Independent transition lanes</h2>
+        <div class="control-grid">
+          <label>
+            Position delay
+            <input type="number" min="0" max="8" step="0.1" value="0.4" data-position-delay />
+          </label>
+          <label>
+            Position duration
+            <input type="number" min="0" max="8" step="0.1" value="3.2" data-position-duration />
+          </label>
+          <label>
+            Aim delay
+            <input type="number" min="0" max="8" step="0.1" value="1.4" data-aim-delay />
+          </label>
+          <label>
+            Aim duration
+            <input type="number" min="0" max="8" step="0.1" value="5.2" data-aim-duration />
+          </label>
+        </div>
+
+        <dl class="readout-grid">
+          <div class="readout">
+            <dt>Playback</dt>
+            <dd data-readout="playback">0.00 / 8.00 s</dd>
+          </div>
+          <div class="readout">
+            <dt>Path time</dt>
+            <dd data-readout="path-time">0.00 / 6.00 s</dd>
+          </div>
+          <div class="readout">
+            <dt>Speed</dt>
+            <dd data-readout="speed">0.00 pc/s</dd>
+          </div>
+          <div class="readout">
+            <dt>Aim</dt>
+            <dd data-readout="aim">target</dd>
+          </div>
+          <div class="readout">
+            <dt>Position lane</dt>
+            <dd data-readout="position-lane">waiting</dd>
+          </div>
+          <div class="readout">
+            <dt>Aim lane</dt>
+            <dd data-readout="aim-lane">waiting</dd>
+          </div>
+          <div class="readout wide">
+            <dt>Preload hints</dt>
+            <dd data-readout="preload">0</dd>
+          </div>
+        </dl>
+      </aside>
+
+      <section class="visual-panel" aria-label="Path and transition visualizations">
+        <div class="canvas-grid">
+          <article class="canvas-card">
+            <header>
+              <h2>Sampled path, velocity &amp; aim</h2>
+              <span class="status-pill" data-interpolation-state>catmullRom</span>
+            </header>
+            <canvas
+              width="900"
+              height="540"
+              data-path-canvas
+              aria-label="Top-down plot of the sampled path, current velocity and aim, and preload hints"
+            ></canvas>
+          </article>
+
+          <article class="canvas-card">
+            <header>
+              <h2>View-transition lane clocks</h2>
+              <span class="status-pill">position ≠ aim</span>
+            </header>
+            <canvas
+              width="900"
+              height="540"
+              data-transition-canvas
+              aria-label="Timeline showing independent position and aim transition lanes"
+            ></canvas>
+          </article>
+        </div>
+
+        <div class="json-grid">
+          <article class="info-card">
+            <h2>Canonical specs</h2>
+            <pre data-spec-json>{}</pre>
+          </article>
+          <article class="info-card">
+            <h2>Diagnostics, current sample &amp; hints</h2>
+            <pre data-diagnostics-json>{}</pre>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./paths-transitions.js"></script>
+  </body>
+</html>

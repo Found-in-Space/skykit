@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spatial Lab: Routes and Orbits</title>
+    <link rel="stylesheet" href="../shared.css" />
+    <link rel="stylesheet" href="./routes-orbits.css" />
+  </head>
+  <body>
+    <div class="demo-layout routes-orbits-layout">
+      <aside class="control-panel">
+        <nav class="page-nav" aria-label="Breadcrumb">
+          <a href="%BASE_URL%packages/spatial/examples/index.html">Spatial labs</a>
+          <span aria-hidden="true">/</span>
+          <span>Routes and orbits</span>
+        </nav>
+
+        <header>
+          <p class="eyebrow">@found-in-space/spatial</p>
+          <h1>Routes and orbits</h1>
+          <p>
+            Build canonical routes, inspect their physical timing, and watch navigation hand
+            movement from route following to a tangent orbital insertion, arrival settling,
+            and orbit continuation.
+          </p>
+        </header>
+
+        <section aria-labelledby="route-controls-heading">
+          <h2 id="route-controls-heading">Authored route</h2>
+          <div class="control-grid">
+            <label>
+              Route kind
+              <select data-route-kind>
+                <option value="orbitalInsert">Orbital insert</option>
+                <option value="orbitTransfer">Orbit transfer</option>
+                <option value="polyline">Polyline</option>
+              </select>
+            </label>
+            <label>
+              Timing kind
+              <select data-timing-kind>
+                <option value="trapezoid">Trapezoid</option>
+                <option value="triangular">Triangular</option>
+                <option value="duration">Fixed duration</option>
+                <option value="constantSpeed">Constant speed</option>
+              </select>
+            </label>
+            <label>
+              Handedness
+              <select data-handedness>
+                <option value="1">+1</option>
+                <option value="-1">-1</option>
+              </select>
+            </label>
+            <label>
+              Duration (seconds)
+              <input data-duration type="number" min="0.1" step="0.25" value="6" />
+            </label>
+            <label>
+              Cruise / peak speed (pc/s)
+              <input data-speed type="number" min="0.1" step="0.25" value="5" />
+            </label>
+            <label>
+              Acceleration (pc/s²)
+              <input data-acceleration type="number" min="0.1" step="0.25" value="2" />
+            </label>
+            <label>
+              Deceleration (pc/s²)
+              <input data-deceleration type="number" min="0.1" step="0.25" value="2" />
+            </label>
+            <label>
+              Arrival settle (seconds)
+              <input data-settle type="number" min="0" step="0.25" value="1.5" />
+            </label>
+          </div>
+          <p class="control-note" data-control-note></p>
+        </section>
+
+        <section aria-labelledby="playback-heading">
+          <h2 id="playback-heading">Playback</h2>
+          <div class="toolbar">
+            <button type="button" data-play>Play</button>
+            <button type="button" data-reset>Reset</button>
+            <span class="status-pill" data-phase>Route</span>
+          </div>
+          <label class="scrubber">
+            <span>Timeline <output data-time-readout>0.00 s</output></span>
+            <input data-scrub type="range" min="0" max="10" step="0.001" value="0" />
+          </label>
+        </section>
+
+        <section class="readout-grid" aria-label="Route readouts">
+          <dl class="readout">
+            <dt>Length</dt>
+            <dd data-length>—</dd>
+          </dl>
+          <dl class="readout">
+            <dt>Route duration</dt>
+            <dd data-route-duration>—</dd>
+          </dl>
+          <dl class="readout">
+            <dt>Current speed</dt>
+            <dd data-current-speed>—</dd>
+          </dl>
+          <dl class="readout">
+            <dt>Samples</dt>
+            <dd data-sample-count>—</dd>
+          </dl>
+        </section>
+
+        <p class="error-message" data-error hidden role="alert"></p>
+      </aside>
+
+      <main class="visual-panel">
+        <section class="canvas-card route-card" aria-labelledby="route-view-heading">
+          <div class="card-heading">
+            <div>
+              <p class="eyebrow">ICRS XZ plane</p>
+              <h2 id="route-view-heading">Route geometry and handoff</h2>
+            </div>
+            <div class="legend" aria-label="Route legend">
+              <span><i class="legend-route"></i>route</span>
+              <span><i class="legend-orbit"></i>orbit</span>
+              <span><i class="legend-radius"></i>arrival radius</span>
+              <span><i class="legend-tangent"></i>orbit tangent</span>
+              <span><i class="legend-observer"></i>observer</span>
+              <span><i class="legend-velocity"></i>velocity</span>
+            </div>
+          </div>
+          <canvas class="route-canvas" data-route-canvas aria-label="XZ plot of route and orbit"></canvas>
+        </section>
+
+        <section class="canvas-card timing-card" aria-labelledby="timing-view-heading">
+          <div class="card-heading">
+            <div>
+              <p class="eyebrow">Derived profile</p>
+              <h2 id="timing-view-heading">Speed and timing phases</h2>
+            </div>
+          </div>
+          <canvas class="timing-canvas" data-timing-canvas aria-label="Speed over time chart"></canvas>
+        </section>
+
+        <section class="json-grid" aria-label="Canonical data inspection">
+          <article>
+            <h2>Authored spec</h2>
+            <pre data-spec-json>{}</pre>
+          </article>
+          <article>
+            <h2>Diagnostics and frame state</h2>
+            <pre data-diagnostics-json>{}</pre>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="./routes-orbits.js"></script>
+  </body>
+</html>

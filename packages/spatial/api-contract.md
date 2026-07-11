@@ -1,12 +1,11 @@
 # Spatial API Contract
 
-Status: target contract for the breaking spatial API rewrite.
+Status: current canonical contract for the spatial alpha API.
 
-This document is the implementation target for the next `@found-in-space/spatial`
-shape. It is intentionally smaller and stricter than `plan.md`. The rewrite is a
-breaking change: downstream SkyKit, website, examples, and Studio code must be
-updated to the new contract. Do not add legacy shims, compatibility aliases, or
-dual-path adapters inside `@found-in-space/spatial`.
+This document defines the current `@found-in-space/spatial` shape. The alpha
+rewrite is a breaking change: downstream SkyKit, website, examples, and Studio
+code must use the canonical contract. Do not add legacy shims, compatibility
+aliases, or dual-path adapters inside `@found-in-space/spatial`.
 
 ## Purpose
 
@@ -562,6 +561,7 @@ export function deriveSpatialOrbitAngle(input: {
   positionPc: SpatialVector3;
   orbitNormal?: SpatialVector3;
   referenceAxis?: SpatialVector3;
+  handedness?: 1 | -1;
 }): number;
 export function sampleSpatialOrbitPosition(
   orbit: SpatialOrbitSpec | SpatialOrbitBasis,
@@ -803,15 +803,15 @@ export interface SpatialRouteDiagnostics {
   arrivalSpeedPcPerSec: number;
   settleSecs?: number;
   settleBehavior?: 'none' | 'snap' | 'blendToOrbit' | 'continueOrbit';
-  candidateCost?: number;
-  candidateRank?: number;
   selectedOrbitNormal?: SpatialVector3;
   selectedRadial?: SpatialVector3;
   selectedTangent?: SpatialVector3;
-  centerPenalty?: number;
-  smoothnessPenalty?: number;
-  curvaturePenalty?: number;
-  arrivalPenalty?: number;
+  insertionSelection?: 'explicitAngle' | 'tangent' | 'nearestAngleFallback';
+  insertionAngleRad?: number;
+  insertionPositionPc?: SpatialVector3;
+  insertionApproachAlignment?: number;
+  insertionDepartureVelocityAlignment?: number;
+  insertionPlaneOffsetPc?: number;
   warnings: SpatialDiagnosticWarning[];
 }
 
@@ -847,6 +847,7 @@ export function buildSpatialRouteEndpoint(
 export function buildSpatialPolylineRoute(input: {
   pointsPc: Iterable<SpatialVector3>;
   travel?: Extract<SpatialTravelSpec, { kind: 'polyline' }>;
+  arrivalAction?: SpatialArrivalAction | null;
   source?: SpatialSourceRef;
 }): SpatialRoute;
 
@@ -854,6 +855,7 @@ export function buildSpatialOrbitTransferRoute(input: {
   from: SpatialRouteEndpointSpec | SpatialRouteEndpoint;
   to: SpatialRouteEndpointSpec | SpatialRouteEndpoint;
   travel?: Extract<SpatialTravelSpec, { kind: 'orbitTransfer' }>;
+  arrivalAction?: SpatialArrivalAction | null;
   referencePose?: SpatialPose;
   source?: SpatialSourceRef;
 }): SpatialRoute | null;
@@ -906,6 +908,34 @@ position. Navigation derives the orbit start angle from that position if
 `arrivalAction.orbit.initialAngleRad` is omitted. Builders should set the
 derived angle when they can.
 
+Orbital insertion has a distinct default contact-point rule:
+
+1. An authored `orbit.initialAngleRad` is authoritative and diagnostics report
+   `insertionSelection: 'explicitAngle'`.
+2. When the angle is omitted, project the departure onto the orbit plane and
+   select a geometric tangent point where the projected approach vector is
+   perpendicular to the arrival radius. Of the two tangent candidates, select
+   the one aligned with the signed orbit direction from `handedness` and
+   `angularSpeedRadPerSec`. Departure velocity is a secondary smoothness hint;
+   it never selects an orbit-reversing contact. Diagnostics report
+   `insertionSelection: 'tangent'`.
+3. If no tangent exists because the departure is inside the orbit radius or on
+   the orbit axis, use the nearest-angle fallback, report
+   `insertionSelection: 'nearestAngleFallback'`, and add an
+   `orbitalInsertTangentFallback` warning whose reason is
+   `insideOrbitRadius` or `onOrbitAxis`.
+4. An off-plane departure still selects the tangent in the orbit plane and adds
+   an `orbitalInsertPlaneChange` warning so applications can explain the needed
+   plane change.
+
+The derived angle and exact insertion position are materialized on the route
+arrival and arrival action. Route diagnostics expose the selected angle,
+position, approach alignment, optional departure-velocity alignment, and
+plane-normal offset. The arrival endpoint carries the exact signed orbital
+velocity and speed. The route endpoint tangent and the first orbit tangent must
+agree, avoiding an angular snap at handoff; timing converges on the orbital
+speed `radiusPc * abs(angularSpeedRadPerSec)`.
+
 ## Arrival Actions
 
 Arrival actions are canonical objects, not ad hoc option bags.
@@ -949,6 +979,13 @@ export function normalizeSpatialArrivalAction(input: unknown): SpatialArrivalAct
 
 The normalizer validates canonical arrival actions. It must not accept old
 `{ type, center, radius, normal }` actions.
+
+For orbit arrivals, `settleSecs` holds the observer at the route endpoint before
+orbit handoff; elapsed overshoot is consumed first and then carried into the
+orbit. `preserveAim: true` keeps the independent authored aim lane, while false
+or omission selects the arrival/orbit aim. For `lookAt` and `lockAt` arrivals,
+`dwellSecs` keeps the semantic aim active for that duration after arrival and
+then releases it without changing the already-applied camera quaternion.
 
 ## Paths
 
@@ -1361,7 +1398,6 @@ export interface SpatialMotionUpdateInput {
   controls?: SpatialControlReader;
   deltaSecs: number;
   scale?: SpatialScaleProfile;
-  manualLookActive?: boolean;
 }
 
 export function normalizeSpatialUpdateDelta(input: {
@@ -1427,6 +1463,8 @@ export interface SpatialNavigationAutomation {
   lookAt(aim: SpatialAimSpec): void;
   lockAt(aim: Extract<SpatialAimSpec, { kind: 'target' }>): void;
   unlockAt(): void;
+  cancelMovement(): void;
+  cancelOrientation(): void;
   cancel(): void;
   update(input: {
     pose: SpatialPose;
@@ -1474,9 +1512,7 @@ export interface SpatialSettleDiagnostics {
   targetOrbit?: SpatialOrbitSpec;
 }
 
-export function createSpatialNavigationAutomation(options?: {
-  defaultTiming?: SpatialTimingProfile;
-}): SpatialNavigationAutomation;
+export function createSpatialNavigationAutomation(): SpatialNavigationAutomation;
 ```
 
 The old command-style methods such as `flyTo(center, options)`,

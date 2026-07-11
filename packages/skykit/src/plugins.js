@@ -22,6 +22,7 @@ import {
   evaluateSpatialPoseTransition,
   createSpatialNavigationAutomation,
   createSpatialQuaternionFromAxisAngle as spatialQuaternionFromAxisAngle,
+  deriveSpatialOrbitAngle,
   normalizeSpatialDirection,
   subtractSpatialVectors,
   getSpatialVectorLength as spatialVectorLength,
@@ -162,13 +163,19 @@ export function createStreamingStarsPlugin(options) {
 export function createSkykitNavigationPlugin(options = {}) {
   const id = options.id ?? 'navigation';
   const navigation = options.navigation ?? createSpatialNavigationAutomation();
-  const scaleProfile = options.scaleProfile ?? { navigationUnits: 'pc', metersPerNavigationUnit: 3.085677581e16 };
   let disposed = false;
   /** @type {import('@found-in-space/spatial').SpatialPoseTransition | null} */
   let activeTransition = null;
   /** @type {(() => void) | null} */
   let activeTransitionOnArrive = null;
   let transitionElapsedSeconds = 0;
+  let transitionMovementCancelled = false;
+  let transitionOrientationCancelled = false;
+  let nextNavigationCommandEpoch = 0;
+  let movementCommandEpoch = 0;
+  let orientationCommandEpoch = 0;
+  const defaultSpeedPcPerSec = positiveFinite(options.speedPcPerSec ?? options.speed, 4);
+  const defaultSampleStepSecs = positiveFinite(options.sampleStepSecs, 1 / 60);
 
   /** @type {SkykitThreePart} */
   const part = {
@@ -180,17 +187,24 @@ export function createSkykitNavigationPlugin(options = {}) {
         transitionElapsedSeconds += Math.max(0, finiteNumber(frame.deltaSeconds, 0));
         const sample = evaluateSpatialPoseTransition(activeTransition, transitionElapsedSeconds);
         const current = frame.view;
-        if (!sameVector(current.observerPc, sample.pose.observerPc) || !sameQuaternion(current.orientationIcrs, sample.pose.orientationIcrs)) {
-          frame.viewer.requestViewState({
-            observerPc: sample.pose.observerPc,
-            orientationIcrs: sample.pose.orientationIcrs,
-          }, id);
+        const patch = {
+          ...(!transitionMovementCancelled && !sameVector(current.observerPc, sample.pose.observerPc)
+            ? { observerPc: sample.pose.observerPc }
+            : {}),
+          ...(!transitionOrientationCancelled && !sameQuaternion(current.orientationIcrs, sample.pose.orientationIcrs)
+            ? { orientationIcrs: sample.pose.orientationIcrs }
+            : {}),
+        };
+        if (Object.keys(patch).length > 0) {
+          frame.viewer.requestViewState(patch, id);
         }
         if (sample.complete) {
           const onArrive = activeTransitionOnArrive;
           activeTransition = null;
           activeTransitionOnArrive = null;
           transitionElapsedSeconds = 0;
+          transitionMovementCancelled = false;
+          transitionOrientationCancelled = false;
           onArrive?.();
         }
         return;
@@ -212,6 +226,8 @@ export function createSkykitNavigationPlugin(options = {}) {
       }
     },
     dispose() {
+      invalidateNavigationCommands(['movement', 'orientation']);
+      clearActiveTransition();
       disposed = true;
       navigation.dispose?.();
     },
@@ -225,6 +241,8 @@ export function createSkykitNavigationPlugin(options = {}) {
               active: true,
               elapsedSeconds: transitionElapsedSeconds,
               durationSecs: activeTransition.durationSecs,
+              movementCancelled: transitionMovementCancelled,
+              orientationCancelled: transitionOrientationCancelled,
             }
           : { active: false },
       };
@@ -251,45 +269,67 @@ export function createSkykitNavigationPlugin(options = {}) {
   function registerNavigationActions(context) {
     const unregisters = [
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.flyTo, async ({ payload }) => {
+        const command = beginNavigationCommand(['movement']);
         const target = await resolveTarget(payload, context);
-        if (target) {
-          const route = buildRouteToTarget(context.getViewState().observerPc, target, payload);
+        if (target && isNavigationCommandCurrent(command)) {
+          const route = buildRouteToTarget(context.getViewState().observerPc, target, payload, {
+            speedPcPerSec: defaultSpeedPcPerSec,
+            sampleStepSecs: defaultSampleStepSecs,
+          });
           if (route) navigation.flyRoute(route);
         }
         return target;
       }, { label: 'Fly to target' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.flyPolyline, async ({ payload }) => {
+        const command = beginNavigationCommand(['movement']);
         const points = await resolvePointList(payload, context);
-        if (points.length >= 2) {
+        if (points.length >= 2 && isNavigationCommandCurrent(command)) {
           navigation.flyRoute(buildSpatialPolylineRoute({
             pointsPc: points,
-            travel: { kind: 'polyline', timing: resolveRouteTiming(payload, points) },
+            travel: {
+              kind: 'polyline',
+              timing: resolveRouteTiming(payload, points, defaultSpeedPcPerSec),
+            },
           }));
         }
         return points;
       }, { label: 'Fly polyline' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.transitionTo, async ({ payload }) => {
-        activeTransition = await createTransition(payload, context);
+        const command = beginNavigationCommand(['movement', 'orientation']);
+        navigation.cancel();
+        const transition = await createTransition(payload, context);
+        if (!isNavigationCommandCurrent(command)) return transition;
+        activeTransition = transition;
         activeTransitionOnArrive = resolveOnArrive(payload);
         transitionElapsedSeconds = 0;
-        navigation.cancel();
+        transitionMovementCancelled = false;
+        transitionOrientationCancelled = false;
         return activeTransition;
       }, { label: 'Transition to view' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.orbit, async ({ payload }) => {
+        const command = beginNavigationCommand(['movement']);
         const target = await resolveCenter(payload, context);
-        if (target) navigation.orbit(resolveOrbitSpec(target, payload));
+        if (target && isNavigationCommandCurrent(command)) {
+          navigation.orbit(resolveOrbitSpec(target, payload, context.getViewState().observerPc));
+        }
         return target;
       }, { label: 'Orbit target' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.orbitalInsert, async ({ payload }) => {
+        const command = beginNavigationCommand(['movement']);
         const target = await resolveCenter(payload, context);
-        if (target) {
+        if (target && isNavigationCommandCurrent(command)) {
           const route = buildSpatialOrbitalInsertRoute({
             from: { positionPc: context.getViewState().observerPc },
-            orbit: resolveOrbitSpec(target, payload),
+            orbit: resolveOrbitSpec(
+              target,
+              payload,
+              context.getViewState().observerPc,
+              { deriveInitialAngle: false },
+            ),
             travel: {
               kind: 'orbitalInsert',
-              timing: resolveRouteTiming(payload),
-              sampleStepSecs: resolveSampleStepSecs(payload),
+              timing: resolveRouteTiming(payload, undefined, defaultSpeedPcPerSec),
+              sampleStepSecs: resolveSampleStepSecs(payload, defaultSampleStepSecs),
             },
           });
           if (route) navigation.flyRoute(route);
@@ -297,34 +337,42 @@ export function createSkykitNavigationPlugin(options = {}) {
         return target;
       }, { label: 'Insert into orbit' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.lookAt, async ({ payload }) => {
-        const target = await resolveTarget(payload, context);
-        if (target) navigation.lookAt(/** @type {import('@found-in-space/spatial').SpatialAimSpec} */ (skykitTargetToAimSpec(target, payloadOptions(payload))));
-        return target;
+        const command = beginNavigationCommand(['orientation']);
+        const resolved = await resolveLookAtAim(payload, context);
+        if (resolved.aim && isNavigationCommandCurrent(command)) {
+          navigation.lookAt(/** @type {import('@found-in-space/spatial').SpatialAimSpec} */ (resolved.aim));
+        }
+        return resolved.targetPc;
       }, { label: 'Look at target' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.lockAt, async ({ payload }) => {
+        const command = beginNavigationCommand(['orientation']);
         const target = await resolveTarget(payload, context);
-        if (target) navigation.lockAt(/** @type {Extract<import('@found-in-space/spatial').SpatialAimSpec, { kind: 'target' }>} */ (skykitTargetToAimSpec(target, payloadOptions(payload))));
+        if (target && isNavigationCommandCurrent(command)) {
+          navigation.lockAt(/** @type {Extract<import('@found-in-space/spatial').SpatialAimSpec, { kind: 'target' }>} */ (skykitTargetToAimSpec(target, payloadOptions(payload))));
+        }
         return target;
       }, { label: 'Lock at target' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.unlockAt, () => {
+        invalidateNavigationCommands(['orientation']);
         navigation.unlockAt();
       }, { label: 'Unlock look target' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancelMovement, () => {
-        activeTransition = null;
+        invalidateNavigationCommands(['movement']);
         activeTransitionOnArrive = null;
-        transitionElapsedSeconds = 0;
-        navigation.cancel();
+        transitionMovementCancelled = Boolean(activeTransition);
+        if (transitionOrientationCancelled) clearActiveTransition();
+        cancelNavigationLane('movement');
       }, { label: 'Cancel movement' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancelOrientation, () => {
-        activeTransition = null;
+        invalidateNavigationCommands(['orientation']);
         activeTransitionOnArrive = null;
-        transitionElapsedSeconds = 0;
-        navigation.cancel();
+        transitionOrientationCancelled = Boolean(activeTransition);
+        if (transitionMovementCancelled) clearActiveTransition();
+        cancelNavigationLane('orientation');
       }, { label: 'Cancel orientation' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancel, () => {
-        activeTransition = null;
-        activeTransitionOnArrive = null;
-        transitionElapsedSeconds = 0;
+        invalidateNavigationCommands(['movement', 'orientation']);
+        clearActiveTransition();
         navigation.cancel();
       }, { label: 'Cancel navigation' }),
     ];
@@ -351,6 +399,110 @@ export function createSkykitNavigationPlugin(options = {}) {
         }
         : undefined,
     });
+  }
+
+  /**
+   * @param {unknown} input
+   * @param {import('./index.d.ts').SkykitThreePluginContext} context
+   */
+  async function resolveLookAtAim(input, context) {
+    const custom = options.resolveTarget?.(input, context);
+    if (custom !== undefined) {
+      const targetPc = await custom;
+      return {
+        targetPc: targetPc ?? null,
+        aim: targetPc ? skykitTargetToAimSpec(targetPc, payloadOptions(input)) : null,
+      };
+    }
+    const resolved = await resolveSkykitLookAt(input, createLookResolverOptions(context));
+    if (resolved.targetPc) {
+      const resolvedAimOptions = {
+        ...payloadOptions(input),
+        ...payloadOptions(resolved.lookAt),
+      };
+      return {
+        targetPc: resolved.targetPc,
+        aim: skykitTargetToAimSpec(resolved.targetPc, resolvedAimOptions),
+      };
+    }
+    const lookAt = resolved.lookAt && typeof resolved.lookAt === 'object'
+      ? resolved.lookAt
+      : null;
+    if (lookAt?.kind === 'direction' && lookAt.forwardIcrs) {
+      return {
+        targetPc: null,
+        aim: {
+          kind: 'direction',
+          forwardIcrs: lookAt.forwardIcrs,
+          ...(lookAt.upIcrs !== undefined ? { upIcrs: lookAt.upIcrs } : {}),
+          ...(lookAt.positionAngleDeg !== undefined
+            ? { positionAngleDeg: -finiteNumber(lookAt.positionAngleDeg, 0) }
+            : {}),
+        },
+      };
+    }
+    return {
+      targetPc: null,
+      aim: resolved.orientationIcrs
+        ? { kind: 'orientation', orientationIcrs: resolved.orientationIcrs }
+        : null,
+    };
+  }
+
+  /** @param {import('./index.d.ts').SkykitThreePluginContext} context */
+  function createLookResolverOptions(context) {
+    return {
+      observerPc: context.getViewState().observerPc,
+      resolveBookmark: typeof options.resolveBookmark === 'function'
+        ? (/** @type {string} */ bookmarkId, /** @type {import('@found-in-space/spatial').SpatialTargetSpec} */ original) => options.resolveBookmark?.(bookmarkId, original, context) ?? null
+        : undefined,
+    };
+  }
+
+  /** @param {'movement' | 'orientation'} lane */
+  function cancelNavigationLane(lane) {
+    if (lane === 'movement') navigation.cancelMovement();
+    else navigation.cancelOrientation();
+  }
+
+  function clearActiveTransition() {
+    activeTransition = null;
+    activeTransitionOnArrive = null;
+    transitionElapsedSeconds = 0;
+    transitionMovementCancelled = false;
+    transitionOrientationCancelled = false;
+  }
+
+  /**
+   * @param {Array<'movement' | 'orientation'>} lanes
+   * @returns {{ epoch: number; movement: boolean; orientation: boolean }}
+   */
+  function beginNavigationCommand(lanes) {
+    const command = invalidateNavigationCommands(lanes);
+    clearActiveTransition();
+    return command;
+  }
+
+  /**
+   * @param {Array<'movement' | 'orientation'>} lanes
+   * @returns {{ epoch: number; movement: boolean; orientation: boolean }}
+   */
+  function invalidateNavigationCommands(lanes) {
+    const epoch = ++nextNavigationCommandEpoch;
+    const movement = lanes.includes('movement');
+    const orientation = lanes.includes('orientation');
+    if (movement) movementCommandEpoch = epoch;
+    if (orientation) orientationCommandEpoch = epoch;
+    return { epoch, movement, orientation };
+  }
+
+  /**
+   * @param {{ epoch: number; movement: boolean; orientation: boolean }} command
+   */
+  function isNavigationCommandCurrent(command) {
+    return !disposed
+      && (!command.movement || movementCommandEpoch === command.epoch)
+      && (!command.orientation || orientationCommandEpoch === command.epoch);
   }
 
   /**
@@ -393,24 +545,26 @@ export function createSkykitNavigationPlugin(options = {}) {
           ? source.to
           : source
     );
-    const current = context.getViewState();
     const positionInput = resolveTransitionPositionInput(targetSource);
-    const position = positionInput === undefined
-      ? current.observerPc
-      : await resolveTarget(positionInput, context) ?? current.observerPc;
+    const resolvedPosition = positionInput === undefined
+      ? null
+      : await resolveTarget(positionInput, context);
+    const lookObserverPc = resolvedPosition ?? context.getViewState().observerPc;
     const lookAtInput = targetSource.lookAt;
     const resolvedLook = lookAtInput !== undefined
       ? await resolveSkykitLookAt(lookAtInput, {
-        observerPc: position,
+        observerPc: lookObserverPc,
         resolveBookmark: typeof options.resolveBookmark === 'function'
           ? (/** @type {string} */ bookmarkId, /** @type {import('@found-in-space/spatial').SpatialTargetSpec} */ original) => options.resolveBookmark?.(bookmarkId, original, context) ?? null
           : undefined,
       })
       : null;
+    const current = context.getViewState();
+    const position = resolvedPosition ?? current.observerPc;
     const orientationInput = targetSource.orientationIcrs
       ?? (targetSource.orientation && isQuaternionLike(targetSource.orientation) ? targetSource.orientation : undefined)
       ?? source.orientationIcrs;
-    const orientation = resolvedLook?.orientationIcrs
+    const orientation = resolveTransitionLookOrientation(resolvedLook, position)
       ?? normalizeQuaternion(orientationInput, current.orientationIcrs ?? IDENTITY_QUATERNION);
     const durationSecs = source.durationSecs ?? targetSource.durationSecs;
     return createSpatialPoseTransition({
@@ -429,6 +583,40 @@ export function createSkykitNavigationPlugin(options = {}) {
         source.orientationDurationSecs,
       ),
     });
+  }
+
+  /**
+   * Re-evaluate resolved look intent at the post-resolution destination without
+   * invoking an application resolver a second time.
+   *
+   * @param {{ lookAt: Record<string, any> | null; targetPc: Vector3Like | null; orientationIcrs: import('./index.d.ts').QuaternionLike | null } | null} resolvedLook
+   * @param {Vector3Like} observerPc
+   */
+  function resolveTransitionLookOrientation(resolvedLook, observerPc) {
+    if (!resolvedLook) return null;
+    const lookAt = resolvedLook.lookAt && typeof resolvedLook.lookAt === 'object'
+      ? resolvedLook.lookAt
+      : null;
+    if (resolvedLook.targetPc) {
+      return resolveSkykitLookAtSync({
+        targetPc: resolvedLook.targetPc,
+        ...(lookAt?.upIcrs !== undefined ? { upIcrs: lookAt.upIcrs } : {}),
+        ...(lookAt?.positionAngleDeg !== undefined
+          ? { positionAngleDeg: lookAt.positionAngleDeg }
+          : {}),
+      }, { observerPc }).orientationIcrs;
+    }
+    if (lookAt?.kind === 'direction' && lookAt.forwardIcrs) {
+      return resolveSkykitLookAtSync({
+        kind: 'direction',
+        forwardIcrs: lookAt.forwardIcrs,
+        ...(lookAt.upIcrs !== undefined ? { upIcrs: lookAt.upIcrs } : {}),
+        ...(lookAt.positionAngleDeg !== undefined
+          ? { positionAngleDeg: lookAt.positionAngleDeg }
+          : {}),
+      }, { observerPc }).orientationIcrs;
+    }
+    return resolvedLook.orientationIcrs;
   }
 }
 
@@ -1430,15 +1618,16 @@ function payloadOptions(payload) {
  * @param {Vector3Like} startPc
  * @param {Vector3Like} targetPc
  * @param {unknown} payload
+ * @param {{ speedPcPerSec: number; sampleStepSecs: number }} defaults
  */
-function buildRouteToTarget(startPc, targetPc, payload) {
+function buildRouteToTarget(startPc, targetPc, payload, defaults) {
   return buildSpatialOrbitTransferRoute({
     from: { positionPc: startPc },
     to: { positionPc: targetPc },
     travel: {
       kind: 'orbitTransfer',
-      timing: resolveRouteTiming(payload),
-      sampleStepSecs: resolveSampleStepSecs(payload),
+      timing: resolveRouteTiming(payload, undefined, defaults.speedPcPerSec),
+      sampleStepSecs: resolveSampleStepSecs(payload, defaults.sampleStepSecs),
     },
   });
 }
@@ -1446,9 +1635,10 @@ function buildRouteToTarget(startPc, targetPc, payload) {
 /**
  * @param {unknown} payload
  * @param {Vector3Like[]} [points]
+ * @param {number} [fallbackSpeedPcPerSec]
  * @returns {import('@found-in-space/spatial').SpatialTimingSpec}
  */
-function resolveRouteTiming(payload, points) {
+function resolveRouteTiming(payload, points, fallbackSpeedPcPerSec) {
   const source = /** @type {Record<string, unknown>} */ (payload && typeof payload === 'object' ? payload : {});
   if (source.timing && typeof source.timing === 'object') {
     return /** @type {import('@found-in-space/spatial').SpatialTimingSpec} */ (source.timing);
@@ -1460,31 +1650,59 @@ function resolveRouteTiming(payload, points) {
   if (Number.isFinite(speed)) {
     return { kind: 'constantSpeed', speedPcPerSec: speed };
   }
+  if (Number.isFinite(fallbackSpeedPcPerSec)) {
+    return { kind: 'constantSpeed', speedPcPerSec: Number(fallbackSpeedPcPerSec) };
+  }
   if (points && points.length >= 2) {
     return { kind: 'duration', durationSecs: Math.max(1, routePointLength(points)) };
   }
   return { kind: 'duration', durationSecs: 1 };
 }
 
-/** @param {unknown} payload */
-function resolveSampleStepSecs(payload) {
+/** @param {unknown} payload @param {number} [fallback] */
+function resolveSampleStepSecs(payload, fallback = 1 / 60) {
   const source = /** @type {Record<string, unknown>} */ (payload && typeof payload === 'object' ? payload : {});
-  return positiveFinite(source.sampleStepSecs, 1 / 60);
+  return positiveFinite(source.sampleStepSecs, fallback);
 }
 
 /**
  * @param {Vector3Like} centerPc
  * @param {unknown} payload
+ * @param {Vector3Like} observerPc
+ * @param {{ deriveInitialAngle?: boolean }} [options]
  * @returns {import('@found-in-space/spatial').SpatialOrbitSpec}
  */
-function resolveOrbitSpec(centerPc, payload) {
+function resolveOrbitSpec(centerPc, payload, observerPc, options = {}) {
   const source = /** @type {Record<string, unknown>} */ (payload && typeof payload === 'object' ? payload : {});
+  const orbitNormal = source.orbitNormal !== undefined || source.normal !== undefined
+    ? normalizeVector3(source.orbitNormal ?? source.normal, { x: 0, y: 1, z: 0 })
+    : undefined;
+  const referenceAxis = source.referenceAxis !== undefined
+    ? normalizeVector3(source.referenceAxis, { x: 1, y: 0, z: 0 })
+    : undefined;
+  const handedness = Number(source.handedness) === -1 ? -1 : Number(source.handedness) === 1 ? 1 : undefined;
+  const currentRadiusPc = Math.hypot(
+    observerPc.x - centerPc.x,
+    observerPc.y - centerPc.y,
+    observerPc.z - centerPc.z,
+  );
+  const hasAuthoredInitialAngle = source.initialAngleRad !== undefined || source.initialAngle !== undefined;
+  const initialAngleRad = hasAuthoredInitialAngle
+    ? finiteNumber(source.initialAngleRad ?? source.initialAngle, 0)
+    : options.deriveInitialAngle === false ? undefined : deriveSpatialOrbitAngle({
+        centerPc,
+        positionPc: observerPc,
+        ...(orbitNormal ? { orbitNormal } : {}),
+        ...(referenceAxis ? { referenceAxis } : {}),
+        ...(handedness ? { handedness } : {}),
+      });
   return {
     centerPc,
-    radiusPc: positiveFinite(source.radiusPc ?? source.radius, 1),
-    ...(source.orbitNormal !== undefined || source.normal !== undefined ? { orbitNormal: normalizeVector3(source.orbitNormal ?? source.normal, { x: 0, y: 1, z: 0 }) } : {}),
-    ...(source.referenceAxis !== undefined ? { referenceAxis: normalizeVector3(source.referenceAxis, { x: 1, y: 0, z: 0 }) } : {}),
-    ...(source.initialAngleRad !== undefined || source.initialAngle !== undefined ? { initialAngleRad: finiteNumber(source.initialAngleRad ?? source.initialAngle, 0) } : {}),
+    radiusPc: positiveFinite(source.radiusPc ?? source.radius, currentRadiusPc || 1),
+    ...(orbitNormal ? { orbitNormal } : {}),
+    ...(referenceAxis ? { referenceAxis } : {}),
+    ...(handedness ? { handedness } : {}),
+    ...(initialAngleRad !== undefined ? { initialAngleRad } : {}),
     angularSpeedRadPerSec: finiteNumber(source.angularSpeedRadPerSec ?? source.angularSpeed, 0.1),
   };
 }

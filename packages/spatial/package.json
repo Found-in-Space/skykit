@@ -21,7 +21,8 @@
     }
   },
   "files": [
-    "src",
+    "src/index.js",
+    "src/index.d.ts",
     "README.md"
   ],
   "sideEffects": false,

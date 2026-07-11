@@ -4,7 +4,6 @@ import {
   cloneSpatialVector3,
   normalizeSpatialPose,
   normalizeSpatialScaleProfile,
-  normalizeSpatialVector3,
 } from '@found-in-space/spatial';
 
 const DEFAULT_DECK_OFFSET = Object.freeze({ x: 0, y: -1.6, z: 0.5 });
@@ -16,7 +15,7 @@ const DEFAULT_DECK_OFFSET = Object.freeze({ x: 0, y: -1.6, z: 0.5 });
 export function createSkykitXrRig(options = {}) {
   const id = options.id ?? 'found-in-space-xr-rig';
   const scaleProfile = normalizeSpatialScaleProfile(options.scaleProfile);
-  const deckOffset = normalizeSpatialVector3(options.deckOffset, DEFAULT_DECK_OFFSET);
+  const deckOffset = normalizePartialVector3(options.deckOffset, DEFAULT_DECK_OFFSET);
   const originContentRoot = namedGroup(`${id}:origin-content-root`);
   const observerContentRoot = namedGroup(`${id}:observer-content-root`);
   const navigationRoot = namedGroup(`${id}:navigation-root`);
@@ -217,4 +216,24 @@ function namedGroup(name) {
   const group = new THREE.Group();
   group.name = name;
   return group;
+}
+
+/**
+ * @param {Partial<import('../xr.d.ts').SkykitXrVector3> | null | undefined} value
+ * @param {import('../xr.d.ts').SkykitXrVector3} fallback
+ */
+function normalizePartialVector3(value, fallback) {
+  if (value == null) return { ...fallback };
+  if (!value || typeof value !== 'object') {
+    throw new TypeError('Expected a vector object.');
+  }
+  const vector = {
+    x: value.x === undefined ? fallback.x : Number(value.x),
+    y: value.y === undefined ? fallback.y : Number(value.y),
+    z: value.z === undefined ? fallback.z : Number(value.z),
+  };
+  if (![vector.x, vector.y, vector.z].every(Number.isFinite)) {
+    throw new RangeError('Vector components must be finite numbers.');
+  }
+  return vector;
 }

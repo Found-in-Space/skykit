@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Review canonical SkyKit spatial coordinates, target and direction aims, and orientation recovery."
+    />
+    <title>Spatial Examples · Coordinates &amp; Aim</title>
+    <link rel="stylesheet" href="../shared.css" />
+  </head>
+  <body>
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">@found-in-space/spatial</p>
+        <h1>Coordinates &amp; Aim</h1>
+        <p class="lede">
+          Author one ICRS coordinate and compare a finite target with a direction
+          at infinity. Move the observer to expose the frame-of-reference difference.
+        </p>
+      </div>
+      <nav class="page-nav" aria-label="Example navigation">
+        <a href="%BASE_URL%packages/spatial/examples/">Spatial examples</a>
+        <a href="%BASE_URL%">SkyKit examples</a>
+      </nav>
+    </header>
+
+    <main class="demo-layout">
+      <aside class="control-panel">
+        <h2>Authored frame</h2>
+        <p>
+          Every value below is passed to the strict, renderer-neutral package API.
+        </p>
+
+        <form data-controls>
+          <label for="aim-semantics">Aim semantics</label>
+          <select id="aim-semantics" data-field="semantics">
+            <option value="target">Target · finite position</option>
+            <option value="direction">Direction · observer-independent</option>
+          </select>
+
+          <h2>Authored RA / Dec</h2>
+          <div class="control-grid">
+            <label for="ra-deg">
+              <span>RA</span>
+              <input id="ra-deg" data-field="raDeg" type="number" step="any" value="56.75" />
+              <small>degrees</small>
+            </label>
+            <label for="dec-deg">
+              <span>Dec</span>
+              <input id="dec-deg" data-field="decDeg" type="number" min="-90" max="90" step="any" value="24.12" />
+              <small>degrees</small>
+            </label>
+            <label for="distance-pc">
+              <span>Distance</span>
+              <input id="distance-pc" data-field="distancePc" type="number" min="0.000001" step="any" value="136" />
+              <small>parsecs</small>
+            </label>
+          </div>
+
+          <h2>Observer position</h2>
+          <div class="control-grid">
+            <label for="observer-x">
+              <span>X</span>
+              <input id="observer-x" data-field="observerX" type="number" step="any" value="20" />
+              <small>pc</small>
+            </label>
+            <label for="observer-y">
+              <span>Y</span>
+              <input id="observer-y" data-field="observerY" type="number" step="any" value="-12" />
+              <small>pc</small>
+            </label>
+            <label for="observer-z">
+              <span>Z</span>
+              <input id="observer-z" data-field="observerZ" type="number" step="any" value="8" />
+              <small>pc</small>
+            </label>
+          </div>
+
+          <label for="position-angle">
+            Position angle
+            <output data-position-angle-output for="position-angle">0°</output>
+          </label>
+          <input
+            id="position-angle"
+            data-field="positionAngleDeg"
+            type="range"
+            min="-180"
+            max="180"
+            step="1"
+            value="0"
+          />
+
+          <label class="checkbox wide" for="degenerate-up">
+            <input id="degenerate-up" data-field="degenerateUp" type="checkbox" />
+            <span>
+              Make <code>upIcrs</code> parallel to forward
+              <small>Deliberately triggers the package's deterministic fallback.</small>
+            </span>
+          </label>
+        </form>
+
+        <div class="status-pill" data-status data-state="ready" role="status" aria-live="polite">
+          Canonical input accepted
+        </div>
+        <p data-semantics-copy></p>
+      </aside>
+
+      <section class="visual-panel" aria-label="Coordinate and orientation results">
+        <article class="canvas-card">
+          <header class="toolbar">
+            <div>
+              <p class="eyebrow">Live result</p>
+              <h2>Sky direction and orientation basis</h2>
+            </div>
+            <span data-warning-summary>No diagnostics</span>
+          </header>
+          <canvas
+            data-visualization
+            width="960"
+            height="680"
+            aria-label="An equirectangular ICRS sky and an orientation basis diagram"
+          ></canvas>
+        </article>
+
+        <dl class="readout-grid" aria-label="Coordinate readouts">
+          <div class="readout">
+            <dt>Resolved position</dt>
+            <dd data-resolved-position>—</dd>
+          </div>
+          <div class="readout">
+            <dt>Evaluated forward</dt>
+            <dd data-evaluated-forward>—</dd>
+          </div>
+          <div class="readout">
+            <dt>Round trip at origin</dt>
+            <dd data-roundtrip-origin>—</dd>
+          </div>
+          <div class="readout">
+            <dt>Round trip at observer</dt>
+            <dd data-roundtrip-observer>—</dd>
+          </div>
+        </dl>
+
+        <section class="json-grid" aria-label="Exact API data">
+          <article>
+            <h2>Exact authored / API input</h2>
+            <pre data-authored-json></pre>
+          </article>
+          <article>
+            <h2>Exact result</h2>
+            <pre data-result-json></pre>
+          </article>
+          <article>
+            <h2>Diagnostics</h2>
+            <pre data-diagnostics-json></pre>
+          </article>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="./coordinates-aim.js"></script>
+  </body>
+</html>

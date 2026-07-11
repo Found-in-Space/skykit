@@ -12,6 +12,7 @@ const TRANSITION_LANE_INTERPOLATIONS = new Set([
   'slerp',
 ]);
 const TIMING_PHASE_KINDS = new Set(['accelerate', 'cruise', 'decelerate', 'blend', 'hold']);
+const TIMING_PROFILE_KINDS = new Set(['duration', 'constantSpeed', 'trapezoid', 'triangular', 'custom']);
 
 export const SPATIAL_ZERO_VECTOR = Object.freeze({ x: 0, y: 0, z: 0 });
 export const SPATIAL_LOCAL_RIGHT = Object.freeze({ x: 1, y: 0, z: 0 });
@@ -26,14 +27,15 @@ export const DEFAULT_SPATIAL_SCALE_PROFILE = Object.freeze({
 });
 
 export function normalizeSpatialVector3(input, fallback = SPATIAL_ZERO_VECTOR) {
-  if (input == null) return cloneSpatialVector3(fallback);
+  if (input == null) input = fallback;
   if (!input || typeof input !== 'object') {
     throw new TypeError('Expected a spatial vector object.');
   }
   const value = input;
-  const x = Number(value.x);
-  const y = Number(value.y);
-  const z = Number(value.z);
+  if (![value.x, value.y, value.z].every((component) => typeof component === 'number')) {
+    throw new TypeError('Spatial vector components must be numbers.');
+  }
+  const { x, y, z } = value;
   if (![x, y, z].every(Number.isFinite)) {
     throw new RangeError('Spatial vector components must be finite numbers.');
   }
@@ -41,15 +43,15 @@ export function normalizeSpatialVector3(input, fallback = SPATIAL_ZERO_VECTOR) {
 }
 
 export function normalizeSpatialQuaternion(input, fallback = SPATIAL_IDENTITY_QUATERNION) {
-  if (input == null) return cloneSpatialQuaternion(fallback);
+  if (input == null) input = fallback;
   if (!input || typeof input !== 'object') {
     throw new TypeError('Expected a spatial quaternion object.');
   }
   const value = input;
-  const x = Number(value.x);
-  const y = Number(value.y);
-  const z = Number(value.z);
-  const w = Number(value.w);
+  if (![value.x, value.y, value.z, value.w].every((component) => typeof component === 'number')) {
+    throw new TypeError('Spatial quaternion components must be numbers.');
+  }
+  const { x, y, z, w } = value;
   if (![x, y, z, w].every(Number.isFinite)) {
     throw new RangeError('Spatial quaternion components must be finite numbers.');
   }
@@ -79,17 +81,18 @@ export function normalizeSpatialScaleProfile(input = DEFAULT_SPATIAL_SCALE_PROFI
   if (!input || typeof input !== 'object') {
     throw new TypeError('Expected a spatial scale profile object.');
   }
-  const metersPerNavigationUnit = positiveNumber(
-    input.metersPerNavigationUnit,
-    DEFAULT_SPATIAL_SCALE_PROFILE.metersPerNavigationUnit,
-  );
+  if (input.navigationUnits !== undefined && typeof input.navigationUnits !== 'string') {
+    throw new TypeError('navigationUnits must be a string.');
+  }
+  const metersPerNavigationUnit = input.metersPerNavigationUnit === undefined
+    ? DEFAULT_SPATIAL_SCALE_PROFILE.metersPerNavigationUnit
+    : positiveFiniteNumber(input.metersPerNavigationUnit, 'metersPerNavigationUnit');
   return {
-    navigationUnits: typeof input.navigationUnits === 'string' ? input.navigationUnits : 'pc',
+    navigationUnits: input.navigationUnits ?? DEFAULT_SPATIAL_SCALE_PROFILE.navigationUnits,
     metersPerNavigationUnit,
-    worldUnitsPerNavigationUnit: positiveNumber(
-      input.worldUnitsPerNavigationUnit,
-      metersPerNavigationUnit,
-    ),
+    worldUnitsPerNavigationUnit: input.worldUnitsPerNavigationUnit === undefined
+      ? metersPerNavigationUnit
+      : positiveFiniteNumber(input.worldUnitsPerNavigationUnit, 'worldUnitsPerNavigationUnit'),
   };
 }
 
@@ -125,12 +128,13 @@ export function getSpatialVectorLength(vector) {
 }
 
 export function normalizeSpatialDirection(vector) {
-  const length = getSpatialVectorLength(vector);
-  return length > EPSILON ? scaleSpatialVector(vector, 1 / length) : cloneSpatialVector3(SPATIAL_LOCAL_FORWARD);
+  const normalized = normalizeSpatialVector3(vector);
+  const length = getSpatialVectorLength(normalized);
+  return length > 0 ? scaleSpatialVector(normalized, 1 / length) : cloneSpatialVector3(SPATIAL_LOCAL_FORWARD);
 }
 
 export function isNonZeroSpatialVector(vector) {
-  return getSpatialVectorLength(vector) > EPSILON;
+  return getSpatialVectorLength(normalizeSpatialVector3(vector)) > 0;
 }
 
 export function multiplySpatialQuaternions(a, b) {
@@ -214,7 +218,7 @@ export function icrsToRaDec(positionPc, observerPc = SPATIAL_ZERO_VECTOR) {
   const observer = normalizeSpatialVector3(observerPc);
   const direction = subtractSpatialVectors(position, observer);
   const length = getSpatialVectorLength(direction);
-  if (!(length > EPSILON)) return null;
+  if (!(length > 0)) return null;
   const unit = scaleSpatialVector(direction, 1 / length);
   const raRawDeg = radiansToDegrees(Math.atan2(unit.y, unit.x));
   const raDeg = (raRawDeg + 360) % 360;
@@ -252,14 +256,16 @@ export function normalizeSpatialTarget(input) {
     };
   }
   if (input.kind === 'radec') {
-    const decDeg = finiteNumber(input.decDeg, Number.NaN);
     const hasRaDeg = input.raDeg !== undefined;
     const hasRaHours = input.raHours !== undefined;
-    const ra = hasRaDeg ? finiteNumber(input.raDeg, Number.NaN) : finiteNumber(input.raHours, Number.NaN);
-    const distancePc = positiveNumber(input.distancePc, Number.NaN);
-    if (!Number.isFinite(decDeg) || !Number.isFinite(ra) || !Number.isFinite(distancePc)) {
-      throw new RangeError('Invalid radec target values.');
+    if (hasRaDeg === hasRaHours) {
+      throw new TypeError('RA/Dec targets require exactly one of raDeg or raHours.');
     }
+    const decDeg = finiteNumberInRange(input.decDeg, -90, 90, 'decDeg');
+    const ra = hasRaDeg
+      ? finiteRequiredNumber(input.raDeg, 'raDeg')
+      : finiteRequiredNumber(input.raHours, 'raHours');
+    const distancePc = positiveFiniteNumber(input.distancePc, 'distancePc');
     return {
       kind: 'radec',
       ...(hasRaDeg ? { raDeg: ra } : { raHours: ra }),
@@ -295,21 +301,28 @@ export function normalizeSpatialAimSpec(input) {
     throw new TypeError('Expected a SpatialAimSpec object.');
   }
   if (input.kind === 'target') {
+    if (input.lock !== undefined && typeof input.lock !== 'boolean') {
+      throw new TypeError('Target aim lock must be a boolean.');
+    }
     return {
       kind: 'target',
       targetPc: normalizeSpatialVector3(input.targetPc),
       ...(input.upIcrs !== undefined ? { upIcrs: normalizeSpatialVector3(input.upIcrs) } : {}),
-      ...(input.positionAngleDeg !== undefined ? { positionAngleDeg: finiteNumber(input.positionAngleDeg, 0) } : {}),
-      ...(input.lock !== undefined ? { lock: input.lock === true } : {}),
+      ...(input.positionAngleDeg !== undefined ? { positionAngleDeg: finiteRequiredNumber(input.positionAngleDeg, 'positionAngleDeg') } : {}),
+      ...(input.lock !== undefined ? { lock: input.lock } : {}),
       ...copySource(input),
     };
   }
   if (input.kind === 'direction') {
+    const forwardIcrs = normalizeSpatialVector3(input.forwardIcrs);
+    if (!isNonZeroSpatialVector(forwardIcrs)) {
+      throw new RangeError('Direction aim forwardIcrs must be non-zero.');
+    }
     return {
       kind: 'direction',
-      forwardIcrs: normalizeDirectionOr(normalizeSpatialVector3(input.forwardIcrs), SPATIAL_LOCAL_FORWARD),
+      forwardIcrs: normalizeSpatialDirection(forwardIcrs),
       ...(input.upIcrs !== undefined ? { upIcrs: normalizeSpatialVector3(input.upIcrs) } : {}),
-      ...(input.positionAngleDeg !== undefined ? { positionAngleDeg: finiteNumber(input.positionAngleDeg, 0) } : {}),
+      ...(input.positionAngleDeg !== undefined ? { positionAngleDeg: finiteRequiredNumber(input.positionAngleDeg, 'positionAngleDeg') } : {}),
       ...copySource(input),
     };
   }
@@ -334,10 +347,10 @@ export function evaluateSpatialAim(input) {
     const offset = subtractSpatialVectors(aim.targetPc, observerPc);
     const distancePc = getSpatialVectorLength(offset);
     const warnings = [];
-    const forwardIcrs = distancePc > EPSILON
+    const forwardIcrs = distancePc > 0
       ? scaleSpatialVector(offset, 1 / distancePc)
       : cloneSpatialVector3(SPATIAL_LOCAL_FORWARD);
-    if (!(distancePc > EPSILON)) {
+    if (!(distancePc > 0)) {
       warnings.push(warning('degenerateTargetAim', 'Target aim is at the observer position.'));
     }
     const upIcrs = resolveAimUp(forwardIcrs, aim.upIcrs, aim.positionAngleDeg, warnings);
@@ -386,15 +399,21 @@ export function normalizeSpatialDestination(input) {
   if (!input || typeof input !== 'object') {
     throw new TypeError('Expected a SpatialDestinationSpec object.');
   }
+  if (input.id !== undefined && typeof input.id !== 'string') {
+    throw new TypeError('Destination id must be a string.');
+  }
+  if (input.label !== undefined && typeof input.label !== 'string') {
+    throw new TypeError('Destination label must be a string.');
+  }
   return {
-    ...(input.id !== undefined ? { id: String(input.id) } : {}),
-    ...(input.label !== undefined ? { label: String(input.label) } : {}),
+    ...(input.id !== undefined ? { id: input.id } : {}),
+    ...(input.label !== undefined ? { label: input.label } : {}),
     centerPc: normalizeSpatialVector3(input.centerPc),
-    ...(input.radiusPc !== undefined ? { radiusPc: positiveNumber(input.radiusPc, 0) } : {}),
-    ...(input.boundsRadiusPc !== undefined ? { boundsRadiusPc: positiveNumber(input.boundsRadiusPc, 0) } : {}),
+    ...(input.radiusPc !== undefined ? { radiusPc: nonNegativeFiniteNumber(input.radiusPc, 'radiusPc') } : {}),
+    ...(input.boundsRadiusPc !== undefined ? { boundsRadiusPc: nonNegativeFiniteNumber(input.boundsRadiusPc, 'boundsRadiusPc') } : {}),
     ...(input.aim !== undefined ? { aim: normalizeSpatialAimSpec(input.aim) } : {}),
     ...(input.orbit !== undefined ? { orbit: normalizeSpatialOrbitSpec(input.orbit) } : {}),
-    ...(input.dwellSecs !== undefined ? { dwellSecs: positiveNumber(input.dwellSecs, 0) } : {}),
+    ...(input.dwellSecs !== undefined ? { dwellSecs: nonNegativeFiniteNumber(input.dwellSecs, 'dwellSecs') } : {}),
     ...copySource(input),
     ...(input.metadata && typeof input.metadata === 'object' ? { metadata: { ...input.metadata } } : {}),
   };
@@ -404,16 +423,18 @@ export function normalizeSpatialOrbitSpec(input) {
   if (!input || typeof input !== 'object') {
     throw new TypeError('Expected a SpatialOrbitSpec object.');
   }
-  const radiusPc = positiveNumber(input.radiusPc, Number.NaN);
-  if (!Number.isFinite(radiusPc)) throw new RangeError('Orbit radiusPc must be positive.');
+  const radiusPc = positiveFiniteNumber(input.radiusPc, 'Orbit radiusPc');
+  if (input.handedness !== undefined && input.handedness !== -1 && input.handedness !== 1) {
+    throw new RangeError('Orbit handedness must be 1 or -1.');
+  }
   return {
     centerPc: normalizeSpatialVector3(input.centerPc),
     radiusPc,
     ...(input.orbitNormal !== undefined ? { orbitNormal: normalizeSpatialVector3(input.orbitNormal) } : {}),
     ...(input.referenceAxis !== undefined ? { referenceAxis: normalizeSpatialVector3(input.referenceAxis) } : {}),
-    ...(input.handedness !== undefined ? { handedness: input.handedness === -1 ? -1 : 1 } : {}),
-    ...(input.initialAngleRad !== undefined ? { initialAngleRad: finiteNumber(input.initialAngleRad, 0) } : {}),
-    ...(input.angularSpeedRadPerSec !== undefined ? { angularSpeedRadPerSec: finiteNumber(input.angularSpeedRadPerSec, 0) } : {}),
+    ...(input.handedness !== undefined ? { handedness: input.handedness } : {}),
+    ...(input.initialAngleRad !== undefined ? { initialAngleRad: finiteRequiredNumber(input.initialAngleRad, 'initialAngleRad') } : {}),
+    ...(input.angularSpeedRadPerSec !== undefined ? { angularSpeedRadPerSec: finiteRequiredNumber(input.angularSpeedRadPerSec, 'angularSpeedRadPerSec') } : {}),
     ...(input.aim !== undefined ? { aim: normalizeSpatialAimSpec(input.aim) } : {}),
     ...copySource(input),
   };
@@ -452,6 +473,7 @@ export function deriveSpatialOrbitAngle(input) {
     radiusPc: Math.max(getSpatialVectorLength(subtractSpatialVectors(positionPc, centerPc)), 1),
     ...(input?.orbitNormal !== undefined ? { orbitNormal: input.orbitNormal } : {}),
     ...(input?.referenceAxis !== undefined ? { referenceAxis: input.referenceAxis } : {}),
+    ...(input?.handedness !== undefined ? { handedness: input.handedness } : {}),
   });
   const offset = subtractSpatialVectors(positionPc, centerPc);
   return Math.atan2(dot(offset, basis.tangent), dot(offset, basis.radial));
@@ -571,22 +593,28 @@ export function normalizeSpatialTimingSpec(input) {
 }
 
 export function deriveSpatialOrbitalInsertTiming(input) {
-  const approachSpeedPcPerSec = Math.max(0, finiteNumber(
-    input?.approachSpeedPcPerSec,
-    input?.currentSpeedPcPerSec ?? input?.orbitalSpeedPcPerSec ?? 0,
-  ));
-  const orbitalSpeedPcPerSec = Math.max(0, finiteNumber(input?.orbitalSpeedPcPerSec, 0));
+  if (!input || typeof input !== 'object') {
+    throw new TypeError('deriveSpatialOrbitalInsertTiming() requires an input object.');
+  }
+  const distancePc = nonNegativeFiniteNumber(input.distancePc, 'distancePc');
+  const orbitalSpeedPcPerSec = nonNegativeFiniteNumber(input.orbitalSpeedPcPerSec, 'orbitalSpeedPcPerSec');
+  const currentSpeedPcPerSec = input.currentSpeedPcPerSec !== undefined
+    ? nonNegativeFiniteNumber(input.currentSpeedPcPerSec, 'currentSpeedPcPerSec')
+    : undefined;
+  const approachSpeedPcPerSec = input.approachSpeedPcPerSec !== undefined
+    ? nonNegativeFiniteNumber(input.approachSpeedPcPerSec, 'approachSpeedPcPerSec')
+    : currentSpeedPcPerSec ?? orbitalSpeedPcPerSec;
   return deriveTimingProfile({
     kind: 'trapezoid',
-    distancePc: Math.max(0, finiteNumber(input?.distancePc, 0)),
-    durationSecs: input?.durationSecs,
-    minDurationSecs: input?.minDurationSecs,
-    maxDurationSecs: input?.maxDurationSecs,
-    departureSpeedPcPerSec: input?.currentSpeedPcPerSec ?? approachSpeedPcPerSec,
+    distancePc,
+    durationSecs: input.durationSecs,
+    minDurationSecs: input.minDurationSecs,
+    maxDurationSecs: input.maxDurationSecs,
+    departureSpeedPcPerSec: currentSpeedPcPerSec ?? approachSpeedPcPerSec,
     cruiseSpeedPcPerSec: approachSpeedPcPerSec,
     arrivalSpeedPcPerSec: orbitalSpeedPcPerSec,
-    accelerationPcPerSec2: input?.accelerationPcPerSec2,
-    decelerationPcPerSec2: input?.decelerationPcPerSec2,
+    accelerationPcPerSec2: input.accelerationPcPerSec2,
+    decelerationPcPerSec2: input.decelerationPcPerSec2,
   });
 }
 
@@ -599,23 +627,31 @@ export function normalizeSpatialTravelSpec(input) {
   }
   return {
     kind: input.kind,
-    ...(input.timing !== undefined ? { timing: isTimingProfile(input.timing) ? cloneTimingProfile(input.timing) : normalizeSpatialTimingSpec(input.timing) } : {}),
-    ...(input.sampleStepSecs !== undefined ? { sampleStepSecs: positiveNumber(input.sampleStepSecs, 0) } : {}),
-    ...(input.maxPoints !== undefined ? { maxPoints: positiveInteger(input.maxPoints, 2) } : {}),
+    ...(input.timing !== undefined ? { timing: isTimingProfile(input.timing) ? normalizeTimingProfile(input.timing) : normalizeSpatialTimingSpec(input.timing) } : {}),
+    ...(input.sampleStepSecs !== undefined ? { sampleStepSecs: positiveFiniteNumber(input.sampleStepSecs, 'sampleStepSecs') } : {}),
+    ...(input.maxPoints !== undefined ? { maxPoints: positiveIntegerRequired(input.maxPoints, 'maxPoints') } : {}),
     ...copySource(input),
   };
 }
 
 export function deriveSpatialRouteTiming(input) {
-  const totalLengthPc = Math.max(0, finiteNumber(input?.totalLengthPc, 0));
+  if (!input || typeof input !== 'object') {
+    throw new TypeError('deriveSpatialRouteTiming() requires an input object.');
+  }
+  const totalLengthPc = nonNegativeFiniteNumber(input.totalLengthPc, 'totalLengthPc');
   const timing = input?.travel?.timing;
-  if (isTimingProfile(timing)) return cloneTimingProfile(timing);
+  if (isTimingProfile(timing)) return cloneTimingProfileForDistance(timing, totalLengthPc);
   if (timing) {
+    const spec = normalizeSpatialTimingSpec(timing);
     return deriveTimingProfile({
-      ...normalizeSpatialTimingSpec(timing),
+      ...spec,
       distancePc: totalLengthPc,
-      departureSpeedPcPerSec: input?.departureSpeedPcPerSec,
-      arrivalSpeedPcPerSec: input?.arrivalSpeedPcPerSec,
+      ...(input.departureSpeedPcPerSec !== undefined
+        ? { departureSpeedPcPerSec: input.departureSpeedPcPerSec }
+        : {}),
+      ...(input.arrivalSpeedPcPerSec !== undefined
+        ? { arrivalSpeedPcPerSec: input.arrivalSpeedPcPerSec }
+        : {}),
     });
   }
   return deriveTimingProfile({ kind: 'duration', durationSecs: totalLengthPc > 0 ? totalLengthPc : 0, distancePc: totalLengthPc });
@@ -631,7 +667,7 @@ export function normalizeSpatialRouteEndpointSpec(input) {
     ...(input.orbit !== undefined ? { orbit: input.orbit == null ? null : normalizeSpatialOrbitSpec(input.orbit) } : {}),
     ...(input.aim !== undefined ? { aim: input.aim == null ? null : normalizeSpatialAimSpec(input.aim) } : {}),
     ...(input.velocityPcPerSec !== undefined ? { velocityPcPerSec: normalizeSpatialVector3(input.velocityPcPerSec) } : {}),
-    ...(input.speedPcPerSec !== undefined ? { speedPcPerSec: Math.max(0, finiteNumber(input.speedPcPerSec, 0)) } : {}),
+    ...(input.speedPcPerSec !== undefined ? { speedPcPerSec: nonNegativeFiniteNumber(input.speedPcPerSec, 'speedPcPerSec') } : {}),
     ...copySource(input),
     ...(input.metadata && typeof input.metadata === 'object' ? { metadata: { ...input.metadata } } : {}),
   };
@@ -661,6 +697,9 @@ export function buildSpatialPolylineRoute(input) {
   const timing = deriveSpatialRouteTiming({ totalLengthPc, travel });
   const departure = buildSpatialRouteEndpoint({ positionPc: pointsPc[0] }, { role: 'departure' });
   const arrival = buildSpatialRouteEndpoint({ positionPc: pointsPc[pointsPc.length - 1] }, { role: 'arrival' });
+  const arrivalAction = input.arrivalAction === undefined
+    ? undefined
+    : input.arrivalAction === null ? null : normalizeSpatialArrivalAction(input.arrivalAction);
   return createRoute({
     kind: 'polyline',
     pointsPc,
@@ -669,6 +708,7 @@ export function buildSpatialPolylineRoute(input) {
     timing,
     departure,
     arrival,
+    ...(arrivalAction !== undefined ? { arrivalAction } : {}),
     diagnostics: routeDiagnostics(totalLengthPc, timing),
     ...copySource(input),
   });
@@ -683,7 +723,8 @@ export function buildSpatialOrbitTransferRoute(input) {
   });
   if (!from || !to) return null;
   const travel = input.travel ? normalizeSpatialTravelSpec(input.travel) : { kind: 'orbitTransfer' };
-  let geometry = createOrbitTransferGeometry(from, to, travel, null);
+  const authoredTimingProfile = isTimingProfile(travel.timing) ? travel.timing : null;
+  let geometry = createOrbitTransferGeometry(from, to, travel, authoredTimingProfile);
   let segments = buildRouteSegments(geometry.pointsPc);
   let totalLengthPc = segments.reduce((sum, segment) => sum + segment.lengthPc, 0);
   let timing = deriveSpatialRouteTiming({ totalLengthPc, travel, departureSpeedPcPerSec: from.speedPcPerSec, arrivalSpeedPcPerSec: to.speedPcPerSec });
@@ -691,12 +732,14 @@ export function buildSpatialOrbitTransferRoute(input) {
   segments = buildRouteSegments(geometry.pointsPc);
   totalLengthPc = segments.reduce((sum, segment) => sum + segment.lengthPc, 0);
   timing = deriveSpatialRouteTiming({ totalLengthPc, travel, departureSpeedPcPerSec: from.speedPcPerSec, arrivalSpeedPcPerSec: to.speedPcPerSec });
-  const arrivalAction = to.orbit ? normalizeSpatialArrivalAction({
-    kind: 'orbit',
-    destination: to.destination,
-    orbit: deriveSpatialOrbitHandoff({ positionPc: to.positionPc, orbit: to.orbit }).orbit,
-    aim: to.aim ?? to.destination?.aim ?? to.orbit.aim ?? null,
-  }) : null;
+  const arrivalAction = input.arrivalAction !== undefined
+    ? input.arrivalAction == null ? null : normalizeSpatialArrivalAction(input.arrivalAction)
+    : to.orbit ? normalizeSpatialArrivalAction({
+        kind: 'orbit',
+        destination: to.destination,
+        orbit: deriveSpatialOrbitHandoff({ positionPc: to.positionPc, orbit: to.orbit }).orbit,
+        aim: to.aim ?? to.destination?.aim ?? to.orbit.aim ?? null,
+      }) : null;
   return createRoute({
     kind: 'orbitTransfer',
     pointsPc: geometry.pointsPc,
@@ -716,23 +759,22 @@ export function buildSpatialOrbitalInsertRoute(input) {
   const orbit = normalizeSpatialOrbitSpec(input.orbit);
   const from = buildSpatialRouteEndpoint(input.from, { role: 'departure', referencePose: input.referencePose });
   if (!from) return null;
-  const nearestAngle = deriveSpatialOrbitAngle({
-    centerPc: orbit.centerPc,
-    positionPc: from.positionPc,
-    orbitNormal: orbit.orbitNormal,
-    referenceAxis: orbit.referenceAxis,
-  });
-  const arrivalOrbit = { ...orbit, initialAngleRad: orbit.initialAngleRad ?? nearestAngle };
-  const arrivalPosition = sampleSpatialOrbitPosition(arrivalOrbit, arrivalOrbit.initialAngleRad);
+  const insertion = deriveOrbitalInsertionSelection(from, orbit);
+  const arrivalOrbit = { ...orbit, initialAngleRad: insertion.angleRad };
+  const arrivalPosition = insertion.positionPc;
+  const arrivalOrbitSample = evaluateSpatialOrbit(arrivalOrbit, 0);
   const arrival = buildSpatialRouteEndpoint({
     positionPc: arrivalPosition,
     destination: input.destination,
     orbit: arrivalOrbit,
     aim: orbit.aim ?? input.destination?.aim ?? null,
+    velocityPcPerSec: arrivalOrbitSample.velocityPcPerSec,
+    speedPcPerSec: arrivalOrbitSample.speedPcPerSec,
   }, { role: 'arrival' });
   const travel = input.travel ? normalizeSpatialTravelSpec(input.travel) : { kind: 'orbitalInsert' };
-  const orbitalSpeedPcPerSec = Math.abs(finiteNumber(orbit.angularSpeedRadPerSec, 0)) * orbit.radiusPc;
-  let geometry = createOrbitalInsertGeometry(from, arrival, arrivalOrbit, travel, null);
+  const orbitalSpeedPcPerSec = arrivalOrbitSample.speedPcPerSec;
+  const authoredTimingProfile = isTimingProfile(travel.timing) ? travel.timing : null;
+  let geometry = createOrbitalInsertGeometry(from, arrival, arrivalOrbit, travel, authoredTimingProfile);
   let segments = buildRouteSegments(geometry.pointsPc);
   let totalLengthPc = segments.reduce((sum, segment) => sum + segment.lengthPc, 0);
   let timing = deriveOrbitalInsertRouteTiming({
@@ -764,7 +806,21 @@ export function buildSpatialOrbitalInsertRoute(input) {
       orbit: arrivalOrbit,
       timing,
     }),
-    diagnostics: routeDiagnostics(totalLengthPc, timing, { settleBehavior: 'continueOrbit', ...geometry.diagnostics }),
+    diagnostics: routeDiagnostics(totalLengthPc, timing, {
+      settleBehavior: 'continueOrbit',
+      ...geometry.diagnostics,
+      insertionSelection: insertion.selection,
+      insertionAngleRad: insertion.angleRad,
+      insertionPositionPc: cloneSpatialVector3(insertion.positionPc),
+      insertionPlaneOffsetPc: insertion.planeOffsetPc,
+      ...(insertion.approachAlignment !== null
+        ? { insertionApproachAlignment: insertion.approachAlignment }
+        : {}),
+      ...(insertion.departureVelocityAlignment !== null
+        ? { insertionDepartureVelocityAlignment: insertion.departureVelocityAlignment }
+        : {}),
+      warnings: [...insertion.warnings, ...(geometry.diagnostics.warnings ?? [])],
+    }),
     ...copySource(input),
   });
 }
@@ -773,13 +829,16 @@ export function normalizeSpatialArrivalAction(input) {
   if (!input || typeof input !== 'object') throw new TypeError('Expected SpatialArrivalAction object.');
   if (input.kind === 'none') return { kind: 'none' };
   if (input.kind === 'orbit') {
+    if (input.preserveAim !== undefined && typeof input.preserveAim !== 'boolean') {
+      throw new TypeError('preserveAim must be a boolean.');
+    }
     return {
       kind: 'orbit',
       ...(input.destination !== undefined ? { destination: normalizeSpatialDestination(input.destination) } : {}),
       orbit: normalizeSpatialOrbitSpec(input.orbit),
       ...(input.aim !== undefined ? { aim: input.aim == null ? null : normalizeSpatialAimSpec(input.aim) } : {}),
-      ...(input.settleSecs !== undefined ? { settleSecs: positiveNumber(input.settleSecs, 0) } : {}),
-      ...(input.preserveAim !== undefined ? { preserveAim: input.preserveAim === true } : {}),
+      ...(input.settleSecs !== undefined ? { settleSecs: nonNegativeFiniteNumber(input.settleSecs, 'settleSecs') } : {}),
+      ...(input.preserveAim !== undefined ? { preserveAim: input.preserveAim } : {}),
       ...copySource(input),
     };
   }
@@ -788,7 +847,7 @@ export function normalizeSpatialArrivalAction(input) {
       kind: 'orbitalInsert',
       ...(input.destination !== undefined ? { destination: normalizeSpatialDestination(input.destination) } : {}),
       orbit: normalizeSpatialOrbitSpec(input.orbit),
-      ...(input.timing !== undefined ? { timing: isTimingProfile(input.timing) ? cloneTimingProfile(input.timing) : input.timing } : {}),
+      ...(input.timing !== undefined ? { timing: normalizeTimingProfile(input.timing) } : {}),
       ...copySource(input),
     };
   }
@@ -797,7 +856,7 @@ export function normalizeSpatialArrivalAction(input) {
       kind: 'lookAt',
       ...(input.destination !== undefined ? { destination: normalizeSpatialDestination(input.destination) } : {}),
       aim: normalizeSpatialAimSpec(input.aim),
-      ...(input.dwellSecs !== undefined ? { dwellSecs: positiveNumber(input.dwellSecs, 0) } : {}),
+      ...(input.dwellSecs !== undefined ? { dwellSecs: nonNegativeFiniteNumber(input.dwellSecs, 'dwellSecs') } : {}),
       ...copySource(input),
     };
   }
@@ -808,7 +867,7 @@ export function normalizeSpatialArrivalAction(input) {
       kind: 'lockAt',
       ...(input.destination !== undefined ? { destination: normalizeSpatialDestination(input.destination) } : {}),
       aim,
-      ...(input.dwellSecs !== undefined ? { dwellSecs: positiveNumber(input.dwellSecs, 0) } : {}),
+      ...(input.dwellSecs !== undefined ? { dwellSecs: nonNegativeFiniteNumber(input.dwellSecs, 'dwellSecs') } : {}),
       ...copySource(input),
     };
   }
@@ -825,17 +884,21 @@ export function evaluateSpatialRoute(route, elapsedSecs, options = {}) {
   const timingSample = evaluateTimingProfileAt(route.timing, elapsed);
   const distancePc = clamp(timingSample.distancePc, 0, route.totalLengthPc);
   const sample = sampleRouteAtDistance(route, distancePc, timingSample.speedPcPerSec);
+  const complete = elapsed >= duration || timingTimeNearlyEqual(elapsed, duration);
+  const endpointVelocity = complete
+    ? sampleRouteEndpointVelocity(route.arrival)
+    : elapsed === 0 ? sampleRouteEndpointVelocity(route.departure) : null;
   return {
     elapsedSecs: elapsed,
     ...(options.frameIndex !== undefined ? { frameIndex: options.frameIndex } : {}),
     ...(route.id !== undefined ? { routeId: route.id } : {}),
     routeKind: route.kind,
     positionPc: sample.positionPc,
-    velocityPcPerSec: sample.velocityPcPerSec,
-    speedPcPerSec: sample.speedPcPerSec,
+    velocityPcPerSec: endpointVelocity?.velocityPcPerSec ?? sample.velocityPcPerSec,
+    speedPcPerSec: endpointVelocity?.speedPcPerSec ?? sample.speedPcPerSec,
     distancePc,
     segmentIndex: sample.segmentIndex,
-    complete: elapsed >= duration - EPSILON,
+    complete,
     diagnostics: { warnings: [] },
   };
 }
@@ -843,24 +906,27 @@ export function evaluateSpatialRoute(route, elapsedSecs, options = {}) {
 export function sampleSpatialRoute(route, options = {}) {
   const sampling = normalizeSpatialSamplingOptions(options);
   const duration = Math.max(0, route.timing?.durationSecs ?? route.diagnostics?.durationSecs ?? 0);
-  const samples = [];
-  let frameIndex = 0;
-  for (let timeSecs = 0; timeSecs <= duration + sampling.sampleStepSecs * 0.5; timeSecs += sampling.sampleStepSecs) {
-    if (samples.length >= sampling.maxSamples) break;
-    samples.push(evaluateSpatialRoute(route, Math.min(timeSecs, duration), { frameIndex }));
-    frameIndex += 1;
-    if (timeSecs >= duration - EPSILON) break;
-  }
-  if (samples.length === 0 || samples[samples.length - 1].elapsedSecs < duration) {
-    samples.push(evaluateSpatialRoute(route, duration, { frameIndex }));
+  const timeline = createSpatialSamplingTimeline(duration, sampling);
+  const samples = timeline.times.map((timeSecs, frameIndex) => (
+    evaluateSpatialRoute(route, timeSecs, { frameIndex })
+  ));
+  if (timeline.truncated) {
+    addSamplingWarning(
+      samples,
+      warning('maxSamplesTruncatesRoute', 'maxSamples truncates route sampling before the end time.', {
+        maxSamples: sampling.maxSamples,
+        durationSecs: duration,
+      }),
+    );
   }
   return samples;
 }
 
 export function buildSpatialAimTrack(keys = [], options = {}) {
-  const normalizedKeys = normalizeAimKeys(keys, options.duplicateTimePolicy ?? 'error');
+  const duplicateTimePolicy = normalizeDuplicateTimePolicy(options.duplicateTimePolicy);
+  const normalizedKeys = normalizeAimKeys(keys, duplicateTimePolicy);
   const durationSecs = options.durationSecs !== undefined
-    ? positiveNumber(options.durationSecs, 0)
+    ? nonNegativeFiniteNumber(options.durationSecs, 'durationSecs')
     : normalizedKeys.length > 0
       ? normalizedKeys[normalizedKeys.length - 1].timeSecs
       : 0;
@@ -872,8 +938,8 @@ export function buildSpatialAimTrack(keys = [], options = {}) {
     keys: normalizedKeys,
     durationSecs,
     ...(defaultInterpolation !== undefined ? { defaultInterpolation } : {}),
-    duplicateTimePolicy: options.duplicateTimePolicy ?? 'error',
-    diagnostics: { durationSecs, duplicateTimePolicy: options.duplicateTimePolicy ?? 'error', warnings: [] },
+    duplicateTimePolicy,
+    diagnostics: { durationSecs, duplicateTimePolicy, warnings: [] },
   };
 }
 
@@ -916,12 +982,12 @@ export function evaluateSpatialAimTrack(track, timeSecs, context = {}) {
 
 export function normalizeSpatialPathSpec(input) {
   if (!input || typeof input !== 'object') throw new TypeError('Expected SpatialPathSpec object.');
-  const duplicateTimePolicy = input.duplicateTimePolicy ?? 'error';
+  const duplicateTimePolicy = normalizeDuplicateTimePolicy(input.duplicateTimePolicy);
   const positionKeys = normalizePositionKeys(input.positionKeys, duplicateTimePolicy);
   if (positionKeys.length === 0) throw new TypeError('SpatialPathSpec.positionKeys must contain at least one key.');
   const aimKeys = input.aimKeys === undefined ? [] : normalizeAimKeys(input.aimKeys, duplicateTimePolicy);
   const durationSecs = input.durationSecs !== undefined
-    ? positiveNumber(input.durationSecs, 0)
+    ? nonNegativeFiniteNumber(input.durationSecs, 'durationSecs')
     : Math.max(positionKeys[positionKeys.length - 1].timeSecs, aimKeys[aimKeys.length - 1]?.timeSecs ?? 0);
   assertKeysWithinDuration(positionKeys, durationSecs);
   assertKeysWithinDuration(aimKeys, durationSecs);
@@ -984,16 +1050,20 @@ export function sampleSpatialPath(path, options = {}) {
   const normalized = normalizeSpatialPathSpec(path);
   const sampling = normalizeSpatialSamplingOptions(options);
   const duration = normalized.timeRemap?.playbackDurationSecs ?? normalized.durationSecs;
-  const samples = [];
-  let frameIndex = 0;
-  for (let elapsedSecs = 0; elapsedSecs <= duration + sampling.sampleStepSecs * 0.5; elapsedSecs += sampling.sampleStepSecs) {
-    if (samples.length >= sampling.maxSamples) break;
-    const sample = normalized.timeRemap
-      ? evaluateSpatialPathPlayback(normalized, Math.min(elapsedSecs, duration), { ...options, frameIndex })
-      : evaluateSpatialPath(normalized, Math.min(elapsedSecs, normalized.durationSecs), { ...options, frameIndex });
-    samples.push(sample);
-    frameIndex += 1;
-    if (elapsedSecs >= duration - EPSILON) break;
+  const timeline = createSpatialSamplingTimeline(duration, sampling);
+  const samples = timeline.times.map((elapsedSecs, frameIndex) => (
+    normalized.timeRemap
+      ? evaluateSpatialPathPlayback(normalized, elapsedSecs, { ...options, frameIndex })
+      : evaluateSpatialPath(normalized, elapsedSecs, { ...options, frameIndex })
+  ));
+  if (timeline.truncated) {
+    addSamplingWarning(
+      samples,
+      warning('maxSamplesTruncatesPath', 'maxSamples truncates path sampling before the end time.', {
+        maxSamples: sampling.maxSamples,
+        durationSecs: duration,
+      }),
+    );
   }
   return samples;
 }
@@ -1003,8 +1073,11 @@ export function sampleSpatialPathDiagnostics(path, options = {}) {
   const warnings = [];
   const sampling = normalizeSpatialSamplingOptions(options);
   const duration = normalized.timeRemap?.playbackDurationSecs ?? normalized.durationSecs;
-  if (Math.ceil(duration / sampling.sampleStepSecs) + 1 > sampling.maxSamples) {
-    warnings.push(warning('maxSamplesTruncatesPath', 'maxSamples truncates path sampling before the end time.'));
+  if (spatialSamplingWouldTruncate(duration, sampling)) {
+    warnings.push(warning('maxSamplesTruncatesPath', 'maxSamples truncates path sampling before the end time.', {
+      maxSamples: sampling.maxSamples,
+      durationSecs: duration,
+    }));
   }
   return {
     durationSecs: normalized.durationSecs,
@@ -1186,7 +1259,7 @@ export function normalizeSpatialUpdateDelta(input) {
   if (!('deltaSecs' in input)) {
     throw new TypeError('deltaSecs is required.');
   }
-  return Math.max(0, finiteNumber(input.deltaSecs, 0));
+  return nonNegativeFiniteNumber(input.deltaSecs, 'deltaSecs');
 }
 
 export function createDirectSpatialMotionModel(options = {}) {
@@ -1201,7 +1274,7 @@ export function createThrustSpatialMotionModel(options = {}) {
   return createManualMotionModel(options, 'thrust');
 }
 
-export function createSpatialNavigationAutomation(options = {}) {
+export function createSpatialNavigationAutomation() {
   let activeRoute = null;
   let activeOrbit = null;
   let activeAim = null;
@@ -1212,6 +1285,12 @@ export function createSpatialNavigationAutomation(options = {}) {
     aim: null,
   });
   let currentSpeedPcPerSec = 0;
+  let lastManualLookActive = false;
+  let orientationSuppressed = false;
+  /** @type {{ action: Extract<import('./index.d.ts').SpatialArrivalAction, { kind: 'orbit' }>; positionPc: import('./index.d.ts').SpatialVector3; elapsedSecs: number; durationSecs: number } | null} */
+  let pendingSettle = null;
+  /** @type {{ elapsedSecs: number; durationSecs: number } | null} */
+  let activeDwell = null;
   let disposed = false;
 
   return {
@@ -1219,18 +1298,23 @@ export function createSpatialNavigationAutomation(options = {}) {
       assertNavigationActive();
       activeRoute = route;
       activeOrbit = null;
+      pendingSettle = null;
       elapsedSecs = 0;
     },
     orbit(orbit) {
       assertNavigationActive();
       activeOrbit = normalizeSpatialOrbitSpec(orbit);
       activeRoute = null;
+      pendingSettle = null;
       elapsedSecs = 0;
+      orientationSuppressed = false;
     },
     lookAt(aim) {
       assertNavigationActive();
       activeAim = normalizeSpatialAimSpec(aim);
       targetLock = null;
+      activeDwell = null;
+      orientationSuppressed = false;
     },
     lockAt(aim) {
       assertNavigationActive();
@@ -1238,47 +1322,86 @@ export function createSpatialNavigationAutomation(options = {}) {
       if (normalized.kind !== 'target') throw new TypeError('lockAt() requires target aim.');
       activeAim = normalized;
       targetLock = { targetPc: cloneSpatialVector3(normalized.targetPc), aim: null };
+      activeDwell = null;
+      orientationSuppressed = false;
     },
     unlockAt() {
       assertNavigationActive();
       if (targetLock) {
         targetLock = null;
         activeAim = null;
+        activeDwell = null;
       }
+    },
+    cancelMovement() {
+      assertNavigationActive();
+      cancelMovementState();
+    },
+    cancelOrientation() {
+      assertNavigationActive();
+      cancelOrientationState();
     },
     cancel() {
       assertNavigationActive();
-      activeRoute = null;
-      activeOrbit = null;
-      activeAim = null;
-      targetLock = null;
-      elapsedSecs = 0;
+      cancelMovementState();
+      cancelOrientationState();
     },
     update(input) {
       assertNavigationActive();
       const dt = normalizeSpatialUpdateDelta(input);
+      if (input.manualLookActive !== undefined && typeof input.manualLookActive !== 'boolean') {
+        throw new TypeError('manualLookActive must be a boolean.');
+      }
+      const dwellAtStart = activeDwell;
+      lastManualLookActive = input.manualLookActive === true;
       elapsedSecs += dt;
       let pose = normalizeSpatialPose(input.pose);
       let routeSample = null;
+      let orbitSample = null;
+      if (pendingSettle) {
+        pendingSettle.elapsedSecs += dt;
+        pose = { ...pose, observerPc: cloneSpatialVector3(pendingSettle.positionPc) };
+        currentSpeedPcPerSec = 0;
+        if (pendingSettle.elapsedSecs >= pendingSettle.durationSecs - EPSILON) {
+          const action = pendingSettle.action;
+          const arrivalPositionPc = pendingSettle.positionPc;
+          const settleOverflowSecs = Math.max(0, pendingSettle.elapsedSecs - pendingSettle.durationSecs);
+          activateArrivalAction(action, settleOverflowSecs, arrivalPositionPc);
+        }
+      }
       if (activeRoute) {
         const sample = evaluateSpatialRoute(activeRoute, elapsedSecs);
         routeSample = sample;
         pose = { ...pose, observerPc: sample.positionPc };
         currentSpeedPcPerSec = sample.speedPcPerSec;
         if (sample.complete) {
-          applyArrivalAction(activeRoute.arrivalAction);
+          const routeDurationSecs = Math.max(0, finiteNumber(
+            activeRoute.timing?.durationSecs,
+            activeRoute.diagnostics?.durationSecs ?? 0,
+          ));
+          const overshootSecs = Math.max(0, elapsedSecs - routeDurationSecs);
+          applyArrivalAction(activeRoute.arrivalAction, overshootSecs);
           if (!activeOrbit) activeRoute = null;
         }
       }
       if (activeOrbit) {
-        const sample = evaluateSpatialOrbit(activeOrbit, elapsedSecs);
-        pose = { observerPc: sample.positionPc, orientationIcrs: sample.aim.orientationIcrs };
-        currentSpeedPcPerSec = sample.speedPcPerSec;
+        orbitSample = evaluateSpatialOrbit(activeOrbit, elapsedSecs);
+        pose = { ...pose, observerPc: orbitSample.positionPc };
+        currentSpeedPcPerSec = orbitSample.speedPcPerSec;
       }
-      let aim = null;
-      const aimSpec = activeAim ?? activeOrbit?.aim ?? null;
-      if (aimSpec) {
-        aim = evaluateSpatialAim({ observerPc: pose.observerPc, aim: aimSpec });
+      if (dwellAtStart && activeDwell === dwellAtStart) {
+        activeDwell.elapsedSecs += dt;
+        if (activeDwell.elapsedSecs >= activeDwell.durationSecs - EPSILON) {
+          activeDwell = null;
+          activeAim = null;
+          targetLock = null;
+        }
+      }
+      let aim = orbitSample && !orientationSuppressed ? orbitSample.aim : null;
+      if (activeAim) {
+        aim = evaluateSpatialAim({ observerPc: pose.observerPc, aim: activeAim });
+      }
+      if (aim && !lastManualLookActive) {
         pose = { ...pose, orientationIcrs: aim.orientationIcrs };
       }
       if (targetLock && aim?.kind === 'target') {
@@ -1288,11 +1411,11 @@ export function createSpatialNavigationAutomation(options = {}) {
         pose: cloneSpatialPose(pose),
         aim,
         targetLock,
-        orbit: activeOrbit ? {
+        orbit: activeOrbit && orbitSample ? {
           orbit: activeOrbit,
-          angleRad: finiteNumber(activeOrbit.initialAngleRad, 0) + finiteNumber(activeOrbit.angularSpeedRadPerSec, 0) * elapsedSecs,
-          basis: createSpatialOrbitBasis(activeOrbit),
-          speedPcPerSec: Math.abs(finiteNumber(activeOrbit.angularSpeedRadPerSec, 0)) * activeOrbit.radiusPc,
+          angleRad: orbitSample.angleRad,
+          basis: orbitSample.basis,
+          speedPcPerSec: orbitSample.speedPcPerSec,
         } : null,
         pathFollow: activeRoute && routeSample ? {
           routeId: activeRoute.id,
@@ -1315,15 +1438,20 @@ export function createSpatialNavigationAutomation(options = {}) {
           : activeOrbit
             ? { kind: 'orbit', orbit: frameState.orbit, speedPcPerSec: currentSpeedPcPerSec }
             : { kind: 'idle', speedPcPerSec: 0 },
-        activeAim: { aim: frameState.aim, targetLock, manualLookActive: false },
+        activeAim: { aim: frameState.aim, targetLock, manualLookActive: lastManualLookActive },
         elapsedSecs,
         durationSecs: activeRoute?.timing?.durationSecs,
         frameState: cloneFrameState(frameState),
         activeRoute,
         activeTiming: activeRoute?.timing ?? null,
         currentSpeedPcPerSec,
-        arrivalAction: activeRoute?.arrivalAction ?? null,
-        pendingSettle: null,
+        arrivalAction: activeRoute?.arrivalAction ?? pendingSettle?.action ?? null,
+        pendingSettle: pendingSettle ? {
+          behavior: 'continueOrbit',
+          elapsedSecs: pendingSettle.elapsedSecs,
+          durationSecs: pendingSettle.durationSecs,
+          targetOrbit: pendingSettle.action.orbit,
+        } : null,
         warnings: [],
       };
     },
@@ -1333,6 +1461,10 @@ export function createSpatialNavigationAutomation(options = {}) {
       activeOrbit = null;
       activeAim = null;
       targetLock = null;
+      pendingSettle = null;
+      activeDwell = null;
+      currentSpeedPcPerSec = 0;
+      lastManualLookActive = false;
     },
   };
 
@@ -1340,47 +1472,144 @@ export function createSpatialNavigationAutomation(options = {}) {
     if (disposed) throw new Error('Spatial navigation automation is disposed.');
   }
 
-  function applyArrivalAction(action) {
+  function cancelMovementState() {
+    activeRoute = null;
+    activeOrbit = null;
+    pendingSettle = null;
+    elapsedSecs = 0;
+    currentSpeedPcPerSec = 0;
+    frameState = { ...frameState, orbit: null, pathFollow: null };
+  }
+
+  function cancelOrientationState() {
+    activeAim = null;
+    targetLock = null;
+    activeDwell = null;
+    orientationSuppressed = true;
+    frameState = { ...frameState, aim: null, targetLock: null };
+  }
+
+  function applyArrivalAction(action, overshootSecs = 0) {
     if (!action || action.kind === 'none') return;
+    const arrivalPositionPc = cloneSpatialVector3(activeRoute.arrival.positionPc);
+    if (action.kind === 'orbit' && (action.settleSecs ?? 0) > overshootSecs + EPSILON) {
+      pendingSettle = {
+        action,
+        positionPc: arrivalPositionPc,
+        elapsedSecs: overshootSecs,
+        durationSecs: action.settleSecs ?? 0,
+      };
+      activeRoute = null;
+      activeOrbit = null;
+      currentSpeedPcPerSec = 0;
+      return;
+    }
+    const settleOverflowSecs = action.kind === 'orbit'
+      ? Math.max(0, overshootSecs - (action.settleSecs ?? 0))
+      : overshootSecs;
+    activateArrivalAction(action, settleOverflowSecs, arrivalPositionPc);
+  }
+
+  /**
+   * @param {Exclude<import('./index.d.ts').SpatialArrivalAction, { kind: 'none' }>} action
+   * @param {number} overshootSecs
+   * @param {import('./index.d.ts').SpatialVector3} arrivalPositionPc
+   */
+  function activateArrivalAction(action, overshootSecs, arrivalPositionPc) {
+    pendingSettle = null;
     if (action.kind === 'orbit' || action.kind === 'orbitalInsert') {
       const handoff = deriveSpatialOrbitHandoff({
-        positionPc: activeRoute.arrival.positionPc,
+        positionPc: arrivalPositionPc,
         orbit: action.orbit,
       });
       activeOrbit = handoff.orbit;
-      activeAim = action.aim ?? action.orbit.aim ?? activeAim;
+      if (action.kind === 'orbit' && action.preserveAim === true) {
+        // Preserve the independently authored orientation lane.
+      } else {
+        activeAim = (action.kind === 'orbit' ? action.aim : undefined) ?? action.orbit.aim ?? null;
+        targetLock = null;
+        activeDwell = null;
+      }
       activeRoute = null;
-      elapsedSecs = 0;
+      elapsedSecs = overshootSecs;
+      orientationSuppressed = false;
       return;
     }
     if (action.kind === 'lookAt' || action.kind === 'lockAt') {
       activeAim = action.aim;
+      targetLock = null;
+      orientationSuppressed = false;
       if (action.kind === 'lockAt') {
         targetLock = { targetPc: cloneSpatialVector3(action.aim.targetPc), aim: null };
+      }
+      activeRoute = null;
+      const dwellSecs = action.dwellSecs;
+      if (dwellSecs !== undefined) {
+        if (overshootSecs >= dwellSecs - EPSILON) {
+          activeAim = null;
+          targetLock = null;
+          activeDwell = null;
+        } else {
+          activeDwell = { elapsedSecs: overshootSecs, durationSecs: dwellSecs };
+        }
+      } else {
+        activeDwell = null;
       }
     }
   }
 }
 
 function createManualMotionModel(options, kind) {
-  const moveSpeedPcPerSec = positiveNumber(options.moveSpeedPcPerSec, 1);
-  const boostMultiplier = positiveNumber(options.boostMultiplier, 1);
-  const pitchRateRadPerSec = positiveNumber(options.pitchRateRadPerSec, Math.PI / 3);
-  const yawRateRadPerSec = positiveNumber(options.yawRateRadPerSec, Math.PI / 3);
-  const rollRateRadPerSec = positiveNumber(options.rollRateRadPerSec, Math.PI / 3);
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    throw new TypeError('Spatial motion options must be an object.');
+  }
+  const moveSpeedPcPerSec = optionalPositiveMotionNumber(options, 'moveSpeedPcPerSec', 1);
+  const boostMultiplier = optionalPositiveMotionNumber(options, 'boostMultiplier', 1);
+  const moveAxisName = optionalMotionString(options, 'moveAxis', 'move');
+  const attitudeAxisName = optionalMotionString(options, 'attitudeAxis', 'attitude');
+  const rollModifierButton = optionalMotionString(options, 'rollModifierButton', 'rollModifier');
+  const boostButton = optionalMotionString(options, 'boostButton', 'boost');
+  const pitchRateRadPerSec = optionalPositiveMotionNumber(options, 'pitchRateRadPerSec', Math.PI / 3);
+  const yawRateRadPerSec = optionalPositiveMotionNumber(options, 'yawRateRadPerSec', Math.PI / 3);
+  const rollRateRadPerSec = optionalPositiveMotionNumber(options, 'rollRateRadPerSec', Math.PI / 3);
+  const accelerationPcPerSec2 = kind === 'inertial'
+    ? optionalPositiveMotionNumber(options, 'accelerationPcPerSec2', moveSpeedPcPerSec)
+    : moveSpeedPcPerSec;
+  const damping = kind === 'inertial'
+    ? optionalNonNegativeMotionNumber(options, 'damping', 1)
+    : 0;
+  const thrustPcPerSec2 = kind === 'thrust'
+    ? optionalPositiveMotionNumber(options, 'thrustPcPerSec2', moveSpeedPcPerSec)
+    : moveSpeedPcPerSec;
+  const mass = kind === 'thrust'
+    ? optionalPositiveMotionNumber(options, 'mass', 1)
+    : 1;
+  const drag = kind === 'thrust'
+    ? optionalNonNegativeMotionNumber(options, 'drag', 0)
+    : 0;
+  const maxSpeedPcPerSec = kind === 'direct'
+    ? moveSpeedPcPerSec
+    : optionalPositiveMotionNumber(options, 'maxSpeedPcPerSec', moveSpeedPcPerSec);
   let velocityPcPerSec = cloneSpatialVector3(SPATIAL_ZERO_VECTOR);
+  let scale = normalizeSpatialScaleProfile();
   return {
     update(input) {
       const dt = normalizeSpatialUpdateDelta(input);
+      scale = normalizeSpatialScaleProfile(input.scale);
       const controls = input.controls ?? {};
       const pose = normalizeSpatialPose(input.pose);
-      const moveAxis = controls.getAxis?.(options.moveAxis ?? 'move') ?? { x: 0, y: 0, magnitude: 0, active: false };
-      const attitudeAxis = controls.getAxis?.(options.attitudeAxis ?? 'attitude') ?? { x: 0, y: 0, magnitude: 0, active: false };
-      const boosted = controls.isPressed?.(options.boostButton ?? 'boost') === true;
+      const moveAxis = controls.getAxis?.(moveAxisName) ?? { x: 0, y: 0, magnitude: 0, active: false };
+      const attitudeAxis = controls.getAxis?.(attitudeAxisName) ?? { x: 0, y: 0, magnitude: 0, active: false };
+      const boosted = isSpatialControlPressed(controls, boostButton);
+      const rollModifierActive = isSpatialControlPressed(controls, rollModifierButton);
       let orientationIcrs = pose.orientationIcrs;
       if (attitudeAxis.active) {
         orientationIcrs = rotateSpatialLocalAxis(orientationIcrs, SPATIAL_LOCAL_RIGHT, attitudeAxis.y * pitchRateRadPerSec * dt);
-        orientationIcrs = rotateSpatialLocalAxis(orientationIcrs, SPATIAL_LOCAL_UP, -attitudeAxis.x * yawRateRadPerSec * dt);
+        orientationIcrs = rotateSpatialLocalAxis(
+          orientationIcrs,
+          rollModifierActive ? SPATIAL_LOCAL_FORWARD : SPATIAL_LOCAL_UP,
+          attitudeAxis.x * (rollModifierActive ? rollRateRadPerSec : -yawRateRadPerSec) * dt,
+        );
       }
       const roll = controls.getAxis?.('roll') ?? { x: 0, y: 0, magnitude: 0, active: false };
       if (roll.active) {
@@ -1393,10 +1622,34 @@ function createManualMotionModel(options, kind) {
         ),
         SPATIAL_ZERO_VECTOR,
       );
-      const speed = moveSpeedPcPerSec * (boosted ? boostMultiplier : 1);
-      velocityPcPerSec = getSpatialVectorLength(move) > EPSILON
-        ? scaleSpatialVector(normalizeSpatialDirection(move), speed)
-        : cloneSpatialVector3(SPATIAL_ZERO_VECTOR);
+      const inputMagnitude = Math.min(1, getSpatialVectorLength(move));
+      const boost = boosted ? boostMultiplier : 1;
+      if (kind === 'direct') {
+        velocityPcPerSec = inputMagnitude > EPSILON
+          ? scaleSpatialVector(normalizeSpatialDirection(move), moveSpeedPcPerSec * boost * inputMagnitude)
+          : cloneSpatialVector3(SPATIAL_ZERO_VECTOR);
+      } else {
+        if (inputMagnitude > EPSILON && dt > 0) {
+          const acceleration = kind === 'thrust'
+            ? thrustPcPerSec2 / mass
+            : accelerationPcPerSec2;
+          velocityPcPerSec = addSpatialVectors(
+            velocityPcPerSec,
+            scaleSpatialVector(
+              normalizeSpatialDirection(move),
+              acceleration * boost * inputMagnitude * dt,
+            ),
+          );
+        }
+        const resistance = kind === 'thrust' ? drag : inputMagnitude <= EPSILON ? damping : 0;
+        if (resistance > 0 && dt > 0) {
+          velocityPcPerSec = scaleSpatialVector(velocityPcPerSec, Math.exp(-resistance * dt));
+        }
+        velocityPcPerSec = clampSpatialVectorLength(
+          velocityPcPerSec,
+          maxSpeedPcPerSec,
+        );
+      }
       return {
         observerPc: addSpatialVectors(pose.observerPc, scaleSpatialVector(velocityPcPerSec, dt)),
         orientationIcrs,
@@ -1407,7 +1660,7 @@ function createManualMotionModel(options, kind) {
         kind,
         velocityPcPerSec: cloneSpatialVector3(velocityPcPerSec),
         speedPcPerSec: getSpatialVectorLength(velocityPcPerSec),
-        scale: normalizeSpatialScaleProfile(),
+        scale: { ...scale },
         activeAutomation: null,
       };
     },
@@ -1415,24 +1668,57 @@ function createManualMotionModel(options, kind) {
   };
 }
 
+function optionalPositiveMotionNumber(options, field, fallback) {
+  return options[field] === undefined
+    ? fallback
+    : positiveFiniteNumber(options[field], `Spatial motion ${field}`);
+}
+
+function optionalNonNegativeMotionNumber(options, field, fallback) {
+  return options[field] === undefined
+    ? fallback
+    : nonNegativeFiniteNumber(options[field], `Spatial motion ${field}`);
+}
+
+function optionalMotionString(options, field, fallback) {
+  if (options[field] === undefined) return fallback;
+  if (typeof options[field] !== 'string' || options[field].length === 0) {
+    throw new TypeError(`Spatial motion ${field} must be a non-empty string.`);
+  }
+  return options[field];
+}
+
+function isSpatialControlPressed(controls, name) {
+  return controls.isPressed?.(name) === true || controls.getButton?.(name)?.pressed === true;
+}
+
+function clampSpatialVectorLength(vector, maxLength) {
+  const length = getSpatialVectorLength(vector);
+  return length > maxLength && length > 0
+    ? scaleSpatialVector(vector, maxLength / length)
+    : cloneSpatialVector3(vector);
+}
+
 function normalizeSpatialFrameState(input) {
   if (!input || typeof input !== 'object') throw new TypeError('Expected SpatialFrameState object.');
   return {
-    ...(input.timeSecs !== undefined ? { timeSecs: finiteNumber(input.timeSecs, 0) } : {}),
-    ...(input.frameIndex !== undefined ? { frameIndex: Math.max(0, Math.floor(finiteNumber(input.frameIndex, 0))) } : {}),
+    ...(input.timeSecs !== undefined ? { timeSecs: nonNegativeFiniteNumber(input.timeSecs, 'timeSecs') } : {}),
+    ...(input.frameIndex !== undefined ? { frameIndex: nonNegativeIntegerRequired(input.frameIndex, 'frameIndex') } : {}),
     pose: normalizeSpatialPose(input.pose),
     aim: input.aim == null ? null : input.aim,
     ...(input.targetLock !== undefined ? { targetLock: input.targetLock } : {}),
     ...(input.orbit !== undefined ? { orbit: input.orbit } : {}),
     ...(input.pathFollow !== undefined ? { pathFollow: input.pathFollow } : {}),
-    ...(input.fovDeg !== undefined ? { fovDeg: positiveNumber(input.fovDeg, 0) } : {}),
+    ...(input.fovDeg !== undefined ? { fovDeg: positiveFiniteNumber(input.fovDeg, 'fovDeg') } : {}),
   };
 }
 
 function endpointFromSpec(spec, options) {
   let positionPc = spec.positionPc ? cloneSpatialVector3(spec.positionPc) : null;
   let destination = spec.destination ?? null;
-  const orbit = spec.orbit ?? destination?.orbit ?? options.fallbackOrbit ?? null;
+  const orbit = Object.prototype.hasOwnProperty.call(spec, 'orbit')
+    ? spec.orbit
+    : destination?.orbit ?? options.fallbackOrbit ?? null;
   if (!positionPc && orbit) {
     const basis = createSpatialOrbitBasis(orbit);
     positionPc = sampleSpatialOrbitPosition(basis, orbit.initialAngleRad ?? 0);
@@ -1476,7 +1762,7 @@ function buildRouteSegments(pointsPc) {
     const startPc = pointsPc[index - 1];
     const endPc = pointsPc[index];
     const lengthPc = getSpatialVectorLength(subtractSpatialVectors(endPc, startPc));
-    if (!(lengthPc > EPSILON)) continue;
+    if (lengthPc === 0) continue;
     segments.push({
       index: segments.length,
       startPc: cloneSpatialVector3(startPc),
@@ -1503,7 +1789,7 @@ function interpolateRoutePoints(startPc, endPc, travel, timing = null, minimumPo
 function routePointCountForTravel(distancePc, travel, timing = null, minimumPointCount = 2) {
   const step = positiveNumber(travel.sampleStepSecs, 1);
   const maxPoints = positiveInteger(travel.maxPoints, 32);
-  const sampleBasis = timing?.durationSecs > EPSILON ? timing.durationSecs : Math.max(distancePc, step);
+  const sampleBasis = timing?.durationSecs > 0 ? timing.durationSecs : Math.max(distancePc, step);
   return Math.max(2, Math.min(maxPoints, Math.max(minimumPointCount, Math.ceil(sampleBasis / step) + 1)));
 }
 
@@ -1552,6 +1838,160 @@ function createOrbitTransferGeometry(from, to, travel, timing) {
   };
 }
 
+function deriveOrbitalInsertionSelection(from, orbit) {
+  const basis = createSpatialOrbitBasis(orbit);
+  const departureOffset = subtractSpatialVectors(from.positionPc, basis.centerPc);
+  const planeOffsetPc = dot(departureOffset, basis.normal);
+  const projectedOffset = subtractSpatialVectors(
+    departureOffset,
+    scaleSpatialVector(basis.normal, planeOffsetPc),
+  );
+  const projectedDistancePc = getSpatialVectorLength(projectedOffset);
+  const axisScalePc = Math.max(orbit.radiusPc, getSpatialVectorLength(departureOffset));
+  const axisTolerancePc = Number.EPSILON * 32 * axisScalePc;
+  const onOrbitAxis = projectedDistancePc <= axisTolerancePc;
+  const planeWarnings = orbitalInsertionPlaneWarnings(departureOffset, planeOffsetPc, orbit.radiusPc);
+
+  if (orbit.initialAngleRad !== undefined) {
+    return orbitalInsertionSelectionAtAngle({
+      selection: 'explicitAngle',
+      angleRad: orbit.initialAngleRad,
+      from,
+      orbit,
+      planeOffsetPc,
+      warnings: planeWarnings,
+    });
+  }
+
+  if (!onOrbitAxis && projectedDistancePc >= orbit.radiusPc) {
+    const projectedRadial = scaleSpatialVector(projectedOffset, 1 / projectedDistancePc);
+    const projectedTangent = normalizeDirectionOr(
+      cross(basis.normal, projectedRadial),
+      basis.tangent,
+    );
+    const radialAlongDeparture = clamp(orbit.radiusPc / projectedDistancePc, 0, 1);
+    const radialAlongTangent = Math.sqrt(Math.max(0, 1 - radialAlongDeparture ** 2));
+
+    // Tangency is solved in the orbit plane. For an off-plane departure, the
+    // actual Hermite route also sheds its plane-normal offset before handoff;
+    // the selected contact still satisfies (T - projectedDeparture) dot
+    // (T - center) = 0 and provides an exact signed orbital end tangent.
+    const candidates = [1, -1].map((side) => {
+      const contactRadial = normalizeDirectionOr(addSpatialVectors(
+        scaleSpatialVector(projectedRadial, radialAlongDeparture),
+        scaleSpatialVector(projectedTangent, side * radialAlongTangent),
+      ), projectedRadial);
+      const positionPc = addSpatialVectors(
+        basis.centerPc,
+        scaleSpatialVector(contactRadial, orbit.radiusPc),
+      );
+      const angleRad = Math.atan2(
+        dot(contactRadial, basis.tangent),
+        dot(contactRadial, basis.radial),
+      );
+      return orbitalInsertionCandidate({
+        angleRad,
+        positionPc,
+        from,
+        orbit,
+      });
+    });
+    const firstApproachAlignment = candidates[0].approachAlignment ?? Number.NEGATIVE_INFINITY;
+    const secondApproachAlignment = candidates[1].approachAlignment ?? Number.NEGATIVE_INFINITY;
+    const firstDepartureAlignment = candidates[0].departureVelocityAlignment ?? Number.NEGATIVE_INFINITY;
+    const secondDepartureAlignment = candidates[1].departureVelocityAlignment ?? Number.NEGATIVE_INFINITY;
+    const selected = secondApproachAlignment > firstApproachAlignment
+      || (secondApproachAlignment === firstApproachAlignment
+        && secondDepartureAlignment > firstDepartureAlignment)
+      ? candidates[1]
+      : candidates[0];
+    return {
+      selection: 'tangent',
+      angleRad: selected.angleRad,
+      positionPc: selected.positionPc,
+      approachAlignment: selected.approachAlignment,
+      departureVelocityAlignment: selected.departureVelocityAlignment,
+      planeOffsetPc,
+      warnings: planeWarnings,
+    };
+  }
+
+  const fallbackReason = onOrbitAxis ? 'onOrbitAxis' : 'insideOrbitRadius';
+  const fallbackAngleRad = !onOrbitAxis
+    ? Math.atan2(dot(projectedOffset, basis.tangent), dot(projectedOffset, basis.radial))
+    : 0;
+  return orbitalInsertionSelectionAtAngle({
+    selection: 'nearestAngleFallback',
+    angleRad: fallbackAngleRad,
+    from,
+    orbit,
+    planeOffsetPc,
+    warnings: [
+      warning(
+        'orbitalInsertTangentFallback',
+        'A tangent orbital insertion contact is unavailable; the nearest orbit angle was selected.',
+        {
+          reason: fallbackReason,
+          projectedDistancePc,
+          radiusPc: orbit.radiusPc,
+        },
+      ),
+      ...planeWarnings,
+    ],
+  });
+}
+
+function orbitalInsertionPlaneWarnings(departureOffset, planeOffsetPc, radiusPc) {
+  const planeScalePc = Math.max(radiusPc, getSpatialVectorLength(departureOffset));
+  const planeTolerancePc = Number.EPSILON * 32 * planeScalePc;
+  return Math.abs(planeOffsetPc) > planeTolerancePc
+    ? [warning(
+        'orbitalInsertPlaneChange',
+        'The orbital insertion route must shed the departure offset from the orbit plane before handoff.',
+        {
+          planeOffsetPc,
+          absolutePlaneOffsetPc: Math.abs(planeOffsetPc),
+        },
+      )]
+    : [];
+}
+
+function orbitalInsertionSelectionAtAngle(options) {
+  const positionPc = sampleSpatialOrbitPosition(options.orbit, options.angleRad);
+  const candidate = orbitalInsertionCandidate({
+    angleRad: options.angleRad,
+    positionPc,
+    from: options.from,
+    orbit: options.orbit,
+  });
+  return {
+    selection: options.selection,
+    angleRad: options.angleRad,
+    positionPc,
+    approachAlignment: candidate.approachAlignment,
+    departureVelocityAlignment: candidate.departureVelocityAlignment,
+    planeOffsetPc: options.planeOffsetPc,
+    warnings: options.warnings,
+  };
+}
+
+function orbitalInsertionCandidate(options) {
+  const approachDirection = normalizeDirectionOr(
+    subtractSpatialVectors(options.positionPc, options.from.positionPc),
+    null,
+  );
+  const signedOrbitTangent = orbitFrameAtPosition(options.orbit, options.positionPc).tangent;
+  const departureVelocityDirection = normalizeDirectionOr(options.from.velocityPcPerSec, null);
+  return {
+    angleRad: options.angleRad,
+    positionPc: options.positionPc,
+    approachAlignment: approachDirection ? dot(approachDirection, signedOrbitTangent) : null,
+    departureVelocityAlignment: approachDirection && departureVelocityDirection
+      ? dot(approachDirection, departureVelocityDirection)
+      : null,
+  };
+}
+
 function createOrbitalInsertGeometry(from, arrival, arrivalOrbit, travel, timing) {
   const startPc = from.positionPc;
   const endPc = arrival.positionPc;
@@ -1581,7 +2021,7 @@ function createOrbitalInsertGeometry(from, arrival, arrivalOrbit, travel, timing
 
 function sampleHermiteRoutePoints(options) {
   const distancePc = getSpatialVectorLength(subtractSpatialVectors(options.endPc, options.startPc));
-  if (!(distancePc > EPSILON)) return [cloneSpatialVector3(options.startPc), cloneSpatialVector3(options.endPc)];
+  if (!(distancePc > 0)) return [cloneSpatialVector3(options.startPc), cloneSpatialVector3(options.endPc)];
   const pointCount = routePointCountForTravel(distancePc, options.travel, options.timing, options.minimumPointCount);
   const handleLength = distancePc * 0.55;
   const m0 = scaleSpatialVector(normalizeDirectionOr(options.startTangent, normalizeDirectionOr(subtractSpatialVectors(options.endPc, options.startPc), SPATIAL_LOCAL_FORWARD)), handleLength);
@@ -1618,7 +2058,7 @@ function evaluateCubicHermiteVector(startPc, endPc, startTangent, endTangent, t)
 
 function deriveOrbitalInsertRouteTiming(input) {
   const timing = input.travel?.timing;
-  if (isTimingProfile(timing)) return cloneTimingProfile(timing);
+  if (isTimingProfile(timing)) return cloneTimingProfileForDistance(timing, input.totalLengthPc);
   if (timing?.kind === 'custom') {
     return deriveTimingProfile({ ...timing, distancePc: input.totalLengthPc });
   }
@@ -1640,7 +2080,7 @@ function deriveOrbitalInsertRouteTiming(input) {
 }
 
 function routeDiagnostics(totalLengthPc, timing, overrides = {}) {
-  const averageSpeedPcPerSec = timing.durationSecs > EPSILON ? totalLengthPc / timing.durationSecs : 0;
+  const averageSpeedPcPerSec = timing.durationSecs > 0 ? totalLengthPc / timing.durationSecs : 0;
   const overrideWarnings = Array.isArray(overrides.warnings) ? overrides.warnings : [];
   const { warnings: _warnings, ...rest } = overrides;
   return {
@@ -1655,6 +2095,23 @@ function routeDiagnostics(totalLengthPc, timing, overrides = {}) {
   };
 }
 
+function sampleRouteEndpointVelocity(endpoint) {
+  if (!endpoint?.velocityPcPerSec) return null;
+  const authoredVelocity = cloneSpatialVector3(endpoint.velocityPcPerSec);
+  const authoredMagnitude = getSpatialVectorLength(authoredVelocity);
+  if (!(authoredMagnitude > 0)) {
+    return {
+      velocityPcPerSec: cloneSpatialVector3(SPATIAL_ZERO_VECTOR),
+      speedPcPerSec: 0,
+    };
+  }
+  const speedPcPerSec = endpoint.speedPcPerSec ?? authoredMagnitude;
+  return {
+    velocityPcPerSec: scaleSpatialVector(authoredVelocity, speedPcPerSec / authoredMagnitude),
+    speedPcPerSec,
+  };
+}
+
 function sampleRouteAtDistance(route, distancePc, speedPcPerSec = null) {
   if (route.segments.length === 0) {
     return {
@@ -1665,12 +2122,12 @@ function sampleRouteAtDistance(route, distancePc, speedPcPerSec = null) {
     };
   }
   const clampedDistance = clamp(distancePc, 0, route.totalLengthPc);
-  const segment = route.segments.find((candidate) => clampedDistance <= candidate.cumulativeEndPc + EPSILON)
+  const segment = route.segments.find((candidate) => clampedDistance <= candidate.cumulativeEndPc)
     ?? route.segments[route.segments.length - 1];
   const localDistance = clamp(clampedDistance - segment.cumulativeStartPc, 0, segment.lengthPc);
-  const t = segment.lengthPc > EPSILON ? localDistance / segment.lengthPc : 0;
+  const t = segment.lengthPc > 0 ? localDistance / segment.lengthPc : 0;
   const direction = normalizeDirectionOr(subtractSpatialVectors(segment.endPc, segment.startPc), SPATIAL_ZERO_VECTOR);
-  const speed = Math.max(0, finiteNumber(speedPcPerSec, route.timing.durationSecs > EPSILON ? route.totalLengthPc / route.timing.durationSecs : 0));
+  const speed = Math.max(0, finiteNumber(speedPcPerSec, route.timing.durationSecs > 0 ? route.totalLengthPc / route.timing.durationSecs : 0));
   return {
     positionPc: lerpVector(segment.startPc, segment.endPc, t),
     velocityPcPerSec: scaleSpatialVector(direction, speed),
@@ -1680,7 +2137,7 @@ function sampleRouteAtDistance(route, distancePc, speedPcPerSec = null) {
 }
 
 function deriveTimingProfile(input) {
-  const distancePc = Math.max(0, finiteNumber(input.distancePc, 0));
+  const distancePc = nonNegativeFiniteNumber(input?.distancePc, 'distancePc');
   const spec = normalizeSpatialTimingSpec(input);
   if (spec.kind === 'custom') return deriveCustomTimingProfile(spec, distancePc);
   if (spec.kind === 'constantSpeed') return deriveConstantSpeedTimingProfile(spec, distancePc);
@@ -1693,10 +2150,10 @@ function deriveTimingProfile(input) {
 function deriveDurationTimingProfile(spec, distancePc) {
   const diagnostics = createTimingDiagnostics(spec);
   const durationSecs = applyTimingDurationConstraints(spec.durationSecs, spec, diagnostics);
-  const speedPcPerSec = durationSecs > EPSILON ? distancePc / durationSecs : 0;
-  if (distancePc > EPSILON && !(durationSecs > EPSILON)) {
-    diagnostics.warnings.push(warning('zeroDurationForNonZeroDistance', 'Timing duration is zero for non-zero route distance.'));
+  if (distancePc > 0 && !(durationSecs > 0)) {
+    throw new RangeError('Timing duration must be greater than zero for a non-zero route distance.');
   }
+  const speedPcPerSec = durationSecs > 0 ? distancePc / durationSecs : 0;
   return createUniformTimingProfile('duration', distancePc, durationSecs, speedPcPerSec, diagnostics);
 }
 
@@ -1705,18 +2162,21 @@ function deriveConstantSpeedTimingProfile(spec, distancePc) {
   const requestedSpeed = Math.max(0, finiteNumber(spec.speedPcPerSec, 0));
   let durationSecs = spec.durationSecs !== undefined
     ? spec.durationSecs
-    : requestedSpeed > EPSILON
+    : requestedSpeed > 0
       ? distancePc / requestedSpeed
       : 0;
   if (spec.durationSecs !== undefined) {
     diagnostics.durationConstrainedProfile = true;
   }
-  if (!(requestedSpeed > EPSILON) && distancePc > EPSILON && spec.durationSecs === undefined) {
-    diagnostics.warnings.push(warning('zeroConstantSpeedForNonZeroDistance', 'Constant-speed timing requires positive speed for non-zero route distance.'));
+  if (!(requestedSpeed > 0) && distancePc > 0 && spec.durationSecs === undefined) {
+    throw new RangeError('Constant-speed timing requires positive speed for a non-zero route distance.');
   }
   durationSecs = applyTimingDurationConstraints(durationSecs, spec, diagnostics);
-  const speedPcPerSec = durationSecs > EPSILON ? distancePc / durationSecs : 0;
-  if (spec.durationSecs !== undefined && requestedSpeed > EPSILON && !nearlyEqual(speedPcPerSec, requestedSpeed)) {
+  if (distancePc > 0 && !(durationSecs > 0)) {
+    throw new RangeError('Constant-speed timing duration must be greater than zero for a non-zero route distance.');
+  }
+  const speedPcPerSec = durationSecs > 0 ? distancePc / durationSecs : 0;
+  if (spec.durationSecs !== undefined && requestedSpeed > 0 && !nearlyEqual(speedPcPerSec, requestedSpeed)) {
     diagnostics.warnings.push(warning('durationOverridesConstantSpeed', 'Timing duration changed the effective constant speed.', {
       requestedSpeedPcPerSec: requestedSpeed,
       effectiveSpeedPcPerSec: speedPcPerSec,
@@ -1730,7 +2190,7 @@ function deriveCustomTimingProfile(spec, distancePc) {
   const phases = spec.phases.map((phase) => ({ ...phase }));
   const finalPhase = phases[phases.length - 1] ?? null;
   const finalDistance = finalPhase?.endDistancePc ?? 0;
-  if (Math.abs(finalDistance - distancePc) > Math.max(1e-7, Math.max(finalDistance, distancePc) * 1e-7)) {
+  if (!timingDistanceNearlyEqual(finalDistance, distancePc)) {
     throw new RangeError('Custom timing phase distance must match route distancePc.');
   }
   return finalizeTimingProfile('custom', distancePc, phases, diagnostics);
@@ -1738,7 +2198,7 @@ function deriveCustomTimingProfile(spec, distancePc) {
 
 function deriveKinematicTimingProfile(spec, distancePc) {
   const diagnostics = createTimingDiagnostics(spec);
-  if (distancePc <= EPSILON) {
+  if (distancePc === 0) {
     const durationSecs = applyTimingDurationConstraints(spec.durationSecs ?? 0, spec, diagnostics);
     return completeKinematicTimingProfile(spec.kind, distancePc, createHoldPhases(durationSecs, 0), diagnostics, spec);
   }
@@ -1759,13 +2219,13 @@ function deriveNaturalKinematicPhases(spec, distancePc, diagnostics) {
   const v1 = Math.max(0, finiteNumber(spec.arrivalSpeedPcPerSec, 0));
   const acceleration = positiveNumber(spec.accelerationPcPerSec2, 0);
   const deceleration = positiveNumber(spec.decelerationPcPerSec2, 0);
-  if (acceleration > EPSILON && deceleration > EPSILON) {
+  if (acceleration > 0 && deceleration > 0) {
     return deriveTwoRateKinematicPhases(spec, distancePc, v0, v1, acceleration, deceleration, diagnostics);
   }
-  if (deceleration > EPSILON && v0 > v1 + EPSILON) {
+  if (deceleration > 0 && v0 > v1) {
     return deriveDecelerationOnlyPhases(distancePc, v0, v1, deceleration);
   }
-  if (acceleration > EPSILON && v1 > v0 + EPSILON) {
+  if (acceleration > 0 && v1 > v0) {
     return deriveAccelerationOnlyPhases(distancePc, v0, v1, acceleration);
   }
   diagnostics.warnings.push(warning('kinematicTimingMissingRate', 'Kinematic timing fell back to constant-speed timing because acceleration or deceleration was not usable.'));
@@ -1773,14 +2233,33 @@ function deriveNaturalKinematicPhases(spec, distancePc, diagnostics) {
 }
 
 function deriveTwoRateKinematicPhases(spec, distancePc, v0, v1, acceleration, deceleration, diagnostics) {
+  const endpointTransitionDistance = v0 > v1
+    ? rampDistance(v1, v0, deceleration)
+    : rampDistance(v0, v1, acceleration);
+  if (endpointTransitionDistance > distancePc && !timingDistanceNearlyEqual(endpointTransitionDistance, distancePc)) {
+    diagnostics.warnings.push(warning(
+      'endpointRateFittedToDistance',
+      'Requested endpoint speed change cannot fit within the route distance, so its rate was fitted.',
+      { requestedTransitionDistancePc: endpointTransitionDistance, availableDistancePc: distancePc },
+    ));
+    return {
+      kind: 'triangular',
+      phases: createEndpointBlendFallbackPhases(distancePc, v0, v1, spec),
+    };
+  }
   const triangularPeak = solveTriangularPeakSpeed(distancePc, v0, v1, acceleration, deceleration);
+  if (v0 === v1 && v0 > 0 && timingScalarNearlyEqual(triangularPeak, v0)) {
+    return { kind: 'trapezoid', phases: createCruisePhases(distancePc / v0, distancePc, v0) };
+  }
   let peakSpeedPcPerSec = triangularPeak;
   let kind = 'triangular';
   if (spec.kind === 'trapezoid' && spec.cruiseSpeedPcPerSec !== undefined) {
     const cruiseSpeedPcPerSec = Math.max(spec.cruiseSpeedPcPerSec, v0, v1);
     const cruiseDistance = rampDistance(v0, cruiseSpeedPcPerSec, acceleration)
       + rampDistance(v1, cruiseSpeedPcPerSec, deceleration);
-    if (cruiseDistance <= distancePc + EPSILON) {
+    if (cruiseSpeedPcPerSec <= 0 && distancePc > 0) {
+      diagnostics.warnings.push(warning('trapezoidCollapsedToTriangular', 'Requested cruise speed cannot cover a non-zero distance.'));
+    } else if (cruiseDistance < distancePc || timingDistanceNearlyEqual(cruiseDistance, distancePc)) {
       peakSpeedPcPerSec = cruiseSpeedPcPerSec;
       kind = 'trapezoid';
     } else {
@@ -1790,11 +2269,11 @@ function deriveTwoRateKinematicPhases(spec, distancePc, v0, v1, acceleration, de
     const requestedPeak = Math.max(spec.peakSpeedPcPerSec, v0, v1);
     const requestedPeakDistance = rampDistance(v0, requestedPeak, acceleration)
       + rampDistance(v1, requestedPeak, deceleration);
-    if (requestedPeakDistance < distancePc - EPSILON) {
+    if (requestedPeakDistance < distancePc && !timingDistanceNearlyEqual(requestedPeakDistance, distancePc)) {
       peakSpeedPcPerSec = requestedPeak;
       kind = 'trapezoid';
       diagnostics.warnings.push(warning('triangularPeakRequiresCruise', 'Requested triangular peak is too low, so a cruise phase was inserted.'));
-    } else if (requestedPeakDistance > distancePc + EPSILON) {
+    } else if (requestedPeakDistance > distancePc && !timingDistanceNearlyEqual(requestedPeakDistance, distancePc)) {
       diagnostics.warnings.push(warning('triangularPeakFittedToDistance', 'Requested triangular peak is too high for this distance.'));
     } else {
       peakSpeedPcPerSec = requestedPeak;
@@ -1805,70 +2284,69 @@ function deriveTwoRateKinematicPhases(spec, distancePc, v0, v1, acceleration, de
 
 function deriveDecelerationOnlyPhases(distancePc, v0, v1, deceleration) {
   const decelDistance = rampDistance(v1, v0, deceleration);
-  if (decelDistance <= distancePc + EPSILON) {
+  if (decelDistance < distancePc || timingDistanceNearlyEqual(decelDistance, distancePc)) {
     const phases = [];
-    const cruiseDistance = Math.max(0, distancePc - decelDistance);
-    if (cruiseDistance > EPSILON) appendTimingPhase(phases, 'cruise', cruiseDistance / Math.max(v0, EPSILON), v0, v0);
+    const cruiseDistance = timingDistanceNearlyEqual(decelDistance, distancePc)
+      ? 0
+      : Math.max(0, distancePc - decelDistance);
+    if (cruiseDistance > 0) appendTimingPhase(phases, 'cruise', cruiseDistance / v0, v0, v0);
     appendTimingPhase(phases, 'decelerate', (v0 - v1) / deceleration, v0, v1);
-    forceFinalTimingDistance(phases, distancePc);
-    return { kind: cruiseDistance > EPSILON ? 'trapezoid' : 'triangular', phases };
+    return { kind: cruiseDistance > 0 ? 'trapezoid' : 'triangular', phases };
   }
   const fittedDeceleration = (v0 * v0 - v1 * v1) / (2 * distancePc);
   const phases = [];
-  appendTimingPhase(phases, 'decelerate', (v0 - v1) / Math.max(fittedDeceleration, EPSILON), v0, v1);
-  forceFinalTimingDistance(phases, distancePc);
+  appendTimingPhase(phases, 'decelerate', (v0 - v1) / fittedDeceleration, v0, v1);
   return { kind: 'triangular', phases };
 }
 
 function deriveAccelerationOnlyPhases(distancePc, v0, v1, acceleration) {
   const accelDistance = rampDistance(v0, v1, acceleration);
-  if (accelDistance <= distancePc + EPSILON) {
+  if (accelDistance < distancePc || timingDistanceNearlyEqual(accelDistance, distancePc)) {
     const phases = [];
     appendTimingPhase(phases, 'accelerate', (v1 - v0) / acceleration, v0, v1);
-    const cruiseDistance = Math.max(0, distancePc - accelDistance);
-    if (cruiseDistance > EPSILON) appendTimingPhase(phases, 'cruise', cruiseDistance / Math.max(v1, EPSILON), v1, v1);
-    forceFinalTimingDistance(phases, distancePc);
-    return { kind: cruiseDistance > EPSILON ? 'trapezoid' : 'triangular', phases };
+    const cruiseDistance = timingDistanceNearlyEqual(accelDistance, distancePc)
+      ? 0
+      : Math.max(0, distancePc - accelDistance);
+    if (cruiseDistance > 0) appendTimingPhase(phases, 'cruise', cruiseDistance / v1, v1, v1);
+    return { kind: cruiseDistance > 0 ? 'trapezoid' : 'triangular', phases };
   }
   const fittedAcceleration = (v1 * v1 - v0 * v0) / (2 * distancePc);
   const phases = [];
-  appendTimingPhase(phases, 'accelerate', (v1 - v0) / Math.max(fittedAcceleration, EPSILON), v0, v1);
-  forceFinalTimingDistance(phases, distancePc);
+  appendTimingPhase(phases, 'accelerate', (v1 - v0) / fittedAcceleration, v0, v1);
   return { kind: 'triangular', phases };
 }
 
 function buildKinematicPhasesForPeak(distancePc, v0, v1, peakSpeedPcPerSec, acceleration, deceleration, kind) {
   const phases = [];
   const peak = Math.max(peakSpeedPcPerSec, v0, v1);
-  if (peak > v0 + EPSILON) {
+  if (peak > v0) {
     appendTimingPhase(phases, 'accelerate', (peak - v0) / acceleration, v0, peak);
   }
   const accelDistance = rampDistance(v0, peak, acceleration);
   const decelDistance = rampDistance(v1, peak, deceleration);
-  const cruiseDistance = Math.max(0, distancePc - accelDistance - decelDistance);
-  if (cruiseDistance > EPSILON) {
-    appendTimingPhase(phases, 'cruise', cruiseDistance / Math.max(peak, EPSILON), peak, peak);
+  const rampTotalDistance = accelDistance + decelDistance;
+  const cruiseDistance = timingDistanceNearlyEqual(rampTotalDistance, distancePc)
+    ? 0
+    : Math.max(0, distancePc - rampTotalDistance);
+  if (cruiseDistance > 0) {
+    appendTimingPhase(phases, 'cruise', cruiseDistance / peak, peak, peak);
     kind = 'trapezoid';
   }
-  if (peak > v1 + EPSILON) {
+  if (peak > v1) {
     appendTimingPhase(phases, 'decelerate', (peak - v1) / deceleration, peak, v1);
   }
-  if (phases.length === 0) phases.push(...createCruisePhases(distancePc / Math.max(peak, EPSILON), distancePc, peak));
-  forceFinalTimingDistance(phases, distancePc);
+  if (phases.length === 0) phases.push(...createCruisePhases(distancePc / peak, distancePc, peak));
   return { kind, phases };
 }
 
 function deriveDurationConstrainedKinematicProfile(spec, distancePc, requestedDurationSecs, diagnostics) {
   diagnostics.durationConstrainedProfile = true;
   const durationSecs = applyTimingDurationConstraints(requestedDurationSecs, spec, diagnostics);
-  if (!(durationSecs > EPSILON)) {
-    diagnostics.warnings.push(warning('zeroDurationForKinematicTiming', 'Kinematic timing duration is zero for non-zero route distance.'));
-    return completeKinematicTimingProfile(spec.kind, distancePc, createHoldPhases(0, distancePc), diagnostics, spec);
+  if (!(durationSecs > 0)) {
+    throw new RangeError('Kinematic timing duration must be greater than zero for a non-zero route distance.');
   }
   const v0 = Math.max(0, finiteNumber(spec.departureSpeedPcPerSec, 0));
   const v1 = Math.max(0, finiteNumber(spec.arrivalSpeedPcPerSec, 0));
-  let ta = 0;
-  let td = 0;
   const requestedPeak = Math.max(
     spec.cruiseSpeedPcPerSec ?? 0,
     spec.peakSpeedPcPerSec ?? 0,
@@ -1876,52 +2354,31 @@ function deriveDurationConstrainedKinematicProfile(spec, distancePc, requestedDu
     v1,
     distancePc / durationSecs,
   );
-  if (spec.accelerationPcPerSec2 !== undefined) {
-    ta = spec.accelerationPcPerSec2 > EPSILON && requestedPeak > v0
-      ? Math.min((requestedPeak - v0) / spec.accelerationPcPerSec2, durationSecs * 0.4)
-      : durationSecs * 0.25;
-  }
-  if (spec.decelerationPcPerSec2 !== undefined) {
-    td = spec.decelerationPcPerSec2 > EPSILON && requestedPeak > v1
-      ? Math.min((requestedPeak - v1) / spec.decelerationPcPerSec2, durationSecs * 0.4)
-      : durationSecs * 0.25;
-  }
-  if (ta + td > durationSecs * 0.85) {
-    const scale = (durationSecs * 0.85) / (ta + td);
+  let ta = spec.accelerationPcPerSec2 !== undefined && requestedPeak > v0
+    ? Math.min((requestedPeak - v0) / spec.accelerationPcPerSec2, durationSecs * 0.4)
+    : durationSecs * 0.2;
+  let td = spec.decelerationPcPerSec2 !== undefined && requestedPeak > v1
+    ? Math.min((requestedPeak - v1) / spec.decelerationPcPerSec2, durationSecs * 0.4)
+    : durationSecs * 0.2;
+  const endpointDistancePc = 0.5 * (v0 * ta + v1 * td);
+  if (endpointDistancePc >= distancePc && endpointDistancePc > 0) {
+    const scale = (distancePc * 0.5) / endpointDistancePc;
     ta *= scale;
     td *= scale;
   }
-  let peakSpeedPcPerSec = 0;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const tc = Math.max(0, durationSecs - ta - td);
-    const denominator = 0.5 * ta + tc + 0.5 * td;
-    peakSpeedPcPerSec = denominator > EPSILON
-      ? (distancePc - 0.5 * v0 * ta - 0.5 * v1 * td) / denominator
-      : 0;
-    if (peakSpeedPcPerSec < 0) peakSpeedPcPerSec = 0;
-    if (ta <= EPSILON && Math.abs(peakSpeedPcPerSec - v0) > EPSILON && durationSecs - td > EPSILON) {
-      ta = Math.min(durationSecs * 0.15, durationSecs - td);
-      continue;
-    }
-    if (td <= EPSILON && Math.abs(peakSpeedPcPerSec - v1) > EPSILON && durationSecs - ta > EPSILON) {
-      td = Math.min(durationSecs * 0.15, durationSecs - ta);
-      continue;
-    }
-    break;
+  const cruiseEndSecs = durationSecs - td;
+  const tc = Math.max(0, cruiseEndSecs - ta);
+  const materializedTd = durationSecs - (ta + tc);
+  const denominator = 0.5 * ta + tc + 0.5 * materializedTd;
+  const endpointContributionPc = 0.5 * (v0 * ta + v1 * materializedTd);
+  const peakSpeedPcPerSec = (distancePc - endpointContributionPc) / denominator;
+  if (!Number.isFinite(peakSpeedPcPerSec) || peakSpeedPcPerSec < 0) {
+    throw new RangeError('Unable to derive a non-negative timing speed for the requested duration and endpoint speeds.');
   }
-  const tc = Math.max(0, durationSecs - ta - td);
   const phases = [];
-  if (ta > EPSILON) {
-    appendTimingPhase(phases, peakSpeedPcPerSec >= v0 ? 'accelerate' : 'blend', ta, v0, peakSpeedPcPerSec);
-  }
-  if (tc > EPSILON) appendTimingPhase(phases, 'cruise', tc, peakSpeedPcPerSec, peakSpeedPcPerSec);
-  if (td > EPSILON) {
-    appendTimingPhase(phases, peakSpeedPcPerSec >= v1 ? 'decelerate' : 'blend', td, peakSpeedPcPerSec, v1);
-  }
-  if (phases.length === 0) {
-    phases.push(...createCruisePhases(durationSecs, distancePc, distancePc / durationSecs));
-  }
-  forceFinalTimingDistance(phases, distancePc);
+  appendTimingPhase(phases, timingPhaseKind(v0, peakSpeedPcPerSec), ta, v0, peakSpeedPcPerSec);
+  appendTimingPhase(phases, 'cruise', tc, peakSpeedPcPerSec, peakSpeedPcPerSec);
+  appendTimingPhase(phases, timingPhaseKind(peakSpeedPcPerSec, v1), materializedTd, peakSpeedPcPerSec, v1);
   const kind = phases.some((phase) => phase.kind === 'cruise') && phases.some((phase) => phase.kind !== 'cruise')
     ? 'trapezoid'
     : spec.kind;
@@ -1932,14 +2389,14 @@ function createUniformTimingProfile(kind, distancePc, durationSecs, speedPcPerSe
   return finalizeTimingProfile(
     kind,
     distancePc,
-    distancePc > EPSILON ? createCruisePhases(durationSecs, distancePc, speedPcPerSec) : createHoldPhases(durationSecs, 0),
+    distancePc > 0 ? createCruisePhases(durationSecs, distancePc, speedPcPerSec) : createHoldPhases(durationSecs, 0),
     diagnostics,
   );
 }
 
 function createCruisePhases(durationSecs, distancePc, speedPcPerSec) {
   return [{
-    kind: distancePc > EPSILON ? 'cruise' : 'hold',
+    kind: distancePc > 0 ? 'cruise' : 'hold',
     startTimeSecs: 0,
     endTimeSecs: durationSecs,
     startDistancePc: 0,
@@ -1963,7 +2420,7 @@ function createHoldPhases(durationSecs, distancePc) {
 
 function createEndpointBlendFallbackPhases(distancePc, departureSpeedPcPerSec, arrivalSpeedPcPerSec, spec) {
   const averageEndpointSpeed = (departureSpeedPcPerSec + arrivalSpeedPcPerSec) * 0.5;
-  if (averageEndpointSpeed > EPSILON) {
+  if (averageEndpointSpeed > 0) {
     return [{
       kind: nearlyEqual(departureSpeedPcPerSec, arrivalSpeedPcPerSec) ? 'cruise' : 'blend',
       startTimeSecs: 0,
@@ -1975,20 +2432,23 @@ function createEndpointBlendFallbackPhases(distancePc, departureSpeedPcPerSec, a
     }];
   }
   const fallbackSpeed = Math.max(spec.cruiseSpeedPcPerSec ?? 0, spec.peakSpeedPcPerSec ?? 0, distancePc);
-  const durationSecs = fallbackSpeed > EPSILON ? distancePc / fallbackSpeed : 0;
-  return createCruisePhases(durationSecs, distancePc, durationSecs > EPSILON ? distancePc / durationSecs : 0);
+  const durationSecs = fallbackSpeed > 0 ? distancePc / fallbackSpeed : 0;
+  return createCruisePhases(durationSecs, distancePc, durationSecs > 0 ? distancePc / durationSecs : 0);
 }
 
 function appendTimingPhase(phases, kind, durationSecs, startSpeedPcPerSec, endSpeedPcPerSec) {
-  if (!(durationSecs > EPSILON)) return;
+  if (!(durationSecs > 0)) return;
   const previous = phases[phases.length - 1];
   const startTimeSecs = previous?.endTimeSecs ?? 0;
   const startDistancePc = previous?.endDistancePc ?? 0;
-  const endDistancePc = startDistancePc + (startSpeedPcPerSec + endSpeedPcPerSec) * 0.5 * durationSecs;
+  const endTimeSecs = startTimeSecs + durationSecs;
+  const materializedDurationSecs = endTimeSecs - startTimeSecs;
+  const endDistancePc = startDistancePc
+    + (startSpeedPcPerSec + endSpeedPcPerSec) * 0.5 * materializedDurationSecs;
   phases.push({
     kind,
     startTimeSecs,
-    endTimeSecs: startTimeSecs + durationSecs,
+    endTimeSecs,
     startDistancePc,
     endDistancePc,
     startSpeedPcPerSec,
@@ -1996,9 +2456,10 @@ function appendTimingPhase(phases, kind, durationSecs, startSpeedPcPerSec, endSp
   });
 }
 
-function forceFinalTimingDistance(phases, distancePc) {
-  if (phases.length === 0) return;
-  phases[phases.length - 1].endDistancePc = distancePc;
+function timingPhaseKind(startSpeedPcPerSec, endSpeedPcPerSec) {
+  if (endSpeedPcPerSec > startSpeedPcPerSec) return 'accelerate';
+  if (endSpeedPcPerSec < startSpeedPcPerSec) return 'decelerate';
+  return 'cruise';
 }
 
 function completeKinematicTimingProfile(kind, distancePc, phases, diagnostics, spec) {
@@ -2010,14 +2471,19 @@ function completeKinematicTimingProfile(kind, distancePc, phases, diagnostics, s
 function finalizeTimingProfile(kind, distancePc, phases, diagnostics) {
   const normalizedPhases = phases.length > 0 ? phases : createHoldPhases(0, distancePc);
   const durationSecs = normalizedPhases[normalizedPhases.length - 1]?.endTimeSecs ?? 0;
-  const departureSpeedPcPerSec = normalizedPhases[0]?.startSpeedPcPerSec ?? 0;
-  const arrivalSpeedPcPerSec = normalizedPhases[normalizedPhases.length - 1]?.endSpeedPcPerSec ?? 0;
-  const peakSpeedPcPerSec = normalizedPhases.reduce((peak, phase) => Math.max(peak, phase.startSpeedPcPerSec, phase.endSpeedPcPerSec), 0);
+  const validatedPhases = normalizeTimingPhases(normalizedPhases, durationSecs);
+  const finalDistancePc = validatedPhases[validatedPhases.length - 1]?.endDistancePc ?? 0;
+  if (!timingDistanceNearlyEqual(finalDistancePc, distancePc)) {
+    throw new RangeError('Derived timing phase distance must match distancePc.');
+  }
+  const departureSpeedPcPerSec = validatedPhases[0]?.startSpeedPcPerSec ?? 0;
+  const arrivalSpeedPcPerSec = validatedPhases[validatedPhases.length - 1]?.endSpeedPcPerSec ?? 0;
+  const peakSpeedPcPerSec = validatedPhases.reduce((peak, phase) => Math.max(peak, phase.startSpeedPcPerSec, phase.endSpeedPcPerSec), 0);
   let accelerationPcPerSec2 = 0;
   let decelerationPcPerSec2 = 0;
-  for (const phase of normalizedPhases) {
+  for (const phase of validatedPhases) {
     const duration = phase.endTimeSecs - phase.startTimeSecs;
-    if (!(duration > EPSILON)) continue;
+    if (!(duration > 0)) continue;
     const rate = (phase.endSpeedPcPerSec - phase.startSpeedPcPerSec) / duration;
     if (rate > accelerationPcPerSec2) accelerationPcPerSec2 = rate;
     if (-rate > decelerationPcPerSec2) decelerationPcPerSec2 = -rate;
@@ -2030,16 +2496,16 @@ function finalizeTimingProfile(kind, distancePc, phases, diagnostics) {
     cruiseSpeedPcPerSec: peakSpeedPcPerSec,
     arrivalSpeedPcPerSec,
     peakSpeedPcPerSec,
-    ...(accelerationPcPerSec2 > EPSILON ? { accelerationPcPerSec2 } : {}),
-    ...(decelerationPcPerSec2 > EPSILON ? { decelerationPcPerSec2 } : {}),
-    phases: normalizedPhases.map((phase) => ({ ...phase })),
+    ...(accelerationPcPerSec2 > 0 ? { accelerationPcPerSec2 } : {}),
+    ...(decelerationPcPerSec2 > 0 ? { decelerationPcPerSec2 } : {}),
+    phases: validatedPhases,
     diagnostics,
   };
 }
 
 function markRequestedRateApplication(profile, spec, diagnostics) {
   if (spec.accelerationPcPerSec2 !== undefined) {
-    const hasAccelerationPhase = profile.phases.some((phase) => phase.endSpeedPcPerSec > phase.startSpeedPcPerSec + EPSILON);
+    const hasAccelerationPhase = profile.phases.some((phase) => phase.endSpeedPcPerSec > phase.startSpeedPcPerSec);
     const applied = hasAccelerationPhase && nearlyEqual(profile.accelerationPcPerSec2 ?? 0, spec.accelerationPcPerSec2);
     diagnostics.requestedAccelerationApplied = applied;
     if (!hasAccelerationPhase) {
@@ -2054,7 +2520,7 @@ function markRequestedRateApplication(profile, spec, diagnostics) {
     }
   }
   if (spec.decelerationPcPerSec2 !== undefined) {
-    const hasDecelerationPhase = profile.phases.some((phase) => phase.endSpeedPcPerSec + EPSILON < phase.startSpeedPcPerSec);
+    const hasDecelerationPhase = profile.phases.some((phase) => phase.endSpeedPcPerSec < phase.startSpeedPcPerSec);
     const applied = hasDecelerationPhase && nearlyEqual(profile.decelerationPcPerSec2 ?? 0, spec.decelerationPcPerSec2);
     diagnostics.requestedDecelerationApplied = applied;
     if (!hasDecelerationPhase) {
@@ -2104,7 +2570,7 @@ function solveTriangularPeakSpeed(distancePc, v0, v1, acceleration, deceleration
 
 function rampDistance(lowSpeedPcPerSec, highSpeedPcPerSec, ratePcPerSec2) {
   const delta = highSpeedPcPerSec * highSpeedPcPerSec - lowSpeedPcPerSec * lowSpeedPcPerSec;
-  return delta > EPSILON && ratePcPerSec2 > EPSILON ? delta / (2 * ratePcPerSec2) : 0;
+  return delta > 0 && ratePcPerSec2 > 0 ? delta / (2 * ratePcPerSec2) : 0;
 }
 
 function evaluateTimingProfileAt(profile, elapsedSecs) {
@@ -2113,17 +2579,17 @@ function evaluateTimingProfileAt(profile, elapsedSecs) {
   if (phases.length === 0) {
     const durationSecs = Math.max(0, finiteNumber(profile?.durationSecs, 0));
     const distancePc = Math.max(0, finiteNumber(profile?.distancePc, 0));
-    const t = durationSecs > EPSILON ? clamp(elapsed / durationSecs, 0, 1) : 1;
-    const speedPcPerSec = durationSecs > EPSILON ? distancePc / durationSecs : 0;
+    const t = durationSecs > 0 ? clamp(elapsed / durationSecs, 0, 1) : 1;
+    const speedPcPerSec = durationSecs > 0 ? distancePc / durationSecs : 0;
     return { distancePc: distancePc * t, speedPcPerSec };
   }
-  if (elapsed <= phases[0].startTimeSecs + EPSILON) {
+  if (elapsed <= phases[0].startTimeSecs || timingTimeNearlyEqual(elapsed, phases[0].startTimeSecs)) {
     return { distancePc: phases[0].startDistancePc, speedPcPerSec: phases[0].startSpeedPcPerSec };
   }
   for (const phase of phases) {
-    if (elapsed <= phase.endTimeSecs + EPSILON) {
+    if (elapsed <= phase.endTimeSecs || timingTimeNearlyEqual(elapsed, phase.endTimeSecs)) {
       const phaseDuration = phase.endTimeSecs - phase.startTimeSecs;
-      if (!(phaseDuration > EPSILON)) {
+      if (!(phaseDuration > 0)) {
         return { distancePc: phase.endDistancePc, speedPcPerSec: phase.endSpeedPcPerSec };
       }
       const localTime = clamp(elapsed - phase.startTimeSecs, 0, phaseDuration);
@@ -2149,11 +2615,82 @@ function isTimingProfile(input) {
   );
 }
 
-function cloneTimingProfile(profile) {
+function cloneTimingProfileForDistance(profile, distancePc) {
+  return normalizeTimingProfile(profile, distancePc);
+}
+
+function normalizeTimingProfile(profile, expectedDistancePc = undefined) {
+  if (!profile || typeof profile !== 'object') {
+    throw new TypeError('Expected a SpatialTimingProfile object.');
+  }
+  if (!TIMING_PROFILE_KINDS.has(profile.kind)) {
+    throw new TypeError(`Unsupported timing profile kind: ${String(profile.kind)}`);
+  }
+  const durationSecs = nonNegativeFiniteNumber(profile.durationSecs, 'SpatialTimingProfile.durationSecs');
+  const phases = normalizeTimingPhases(profile.phases, durationSecs);
+  const finalDistancePc = phases[phases.length - 1]?.endDistancePc ?? 0;
+  if (expectedDistancePc !== undefined && !timingDistanceNearlyEqual(finalDistancePc, expectedDistancePc)) {
+    throw new RangeError('SpatialTimingProfile final phase distance must match route totalLengthPc.');
+  }
+  if (profile.distancePc !== undefined) {
+    const declaredDistancePc = nonNegativeFiniteNumber(profile.distancePc, 'SpatialTimingProfile.distancePc');
+    if (!timingDistanceNearlyEqual(declaredDistancePc, finalDistancePc)) {
+      throw new RangeError('SpatialTimingProfile distancePc must match its final phase distance.');
+    }
+  }
+  const departureSpeedPcPerSec = phases[0]?.startSpeedPcPerSec ?? 0;
+  const arrivalSpeedPcPerSec = phases[phases.length - 1]?.endSpeedPcPerSec ?? 0;
+  const peakSpeedPcPerSec = phases.reduce(
+    (peak, phase) => Math.max(peak, phase.startSpeedPcPerSec, phase.endSpeedPcPerSec),
+    0,
+  );
+  let accelerationPcPerSec2 = 0;
+  let decelerationPcPerSec2 = 0;
+  for (const phase of phases) {
+    const phaseDurationSecs = phase.endTimeSecs - phase.startTimeSecs;
+    if (!(phaseDurationSecs > 0)) continue;
+    const ratePcPerSec2 = (phase.endSpeedPcPerSec - phase.startSpeedPcPerSec) / phaseDurationSecs;
+    accelerationPcPerSec2 = Math.max(accelerationPcPerSec2, ratePcPerSec2);
+    decelerationPcPerSec2 = Math.max(decelerationPcPerSec2, -ratePcPerSec2);
+  }
+  const summary = {
+    departureSpeedPcPerSec,
+    cruiseSpeedPcPerSec: peakSpeedPcPerSec,
+    arrivalSpeedPcPerSec,
+    peakSpeedPcPerSec,
+    accelerationPcPerSec2,
+    decelerationPcPerSec2,
+  };
+  for (const [field, expected] of Object.entries(summary)) {
+    if (profile[field] === undefined) continue;
+    const declared = nonNegativeFiniteNumber(profile[field], `SpatialTimingProfile.${field}`);
+    if (!nearlyEqual(declared, expected, 1e-9)) {
+      throw new RangeError(`SpatialTimingProfile ${field} must match its phases.`);
+    }
+  }
+  if (!profile.diagnostics || typeof profile.diagnostics !== 'object') {
+    throw new TypeError('SpatialTimingProfile diagnostics must be an object.');
+  }
+  if (!Array.isArray(profile.diagnostics.warnings)) {
+    throw new TypeError('SpatialTimingProfile diagnostics.warnings must be an array.');
+  }
   return {
-    ...profile,
-    phases: profile.phases.map((phase) => ({ ...phase })),
-    diagnostics: { ...(profile.diagnostics ?? {}), warnings: [...(profile.diagnostics?.warnings ?? [])] },
+    kind: profile.kind,
+    durationSecs,
+    distancePc: finalDistancePc,
+    departureSpeedPcPerSec,
+    cruiseSpeedPcPerSec: peakSpeedPcPerSec,
+    arrivalSpeedPcPerSec,
+    peakSpeedPcPerSec,
+    ...(accelerationPcPerSec2 > 0 ? { accelerationPcPerSec2 } : {}),
+    ...(decelerationPcPerSec2 > 0 ? { decelerationPcPerSec2 } : {}),
+    phases,
+    diagnostics: {
+      ...profile.diagnostics,
+      warnings: profile.diagnostics.warnings.map((entry) => (
+        entry && typeof entry === 'object' ? { ...entry } : entry
+      )),
+    },
   };
 }
 
@@ -2164,23 +2701,88 @@ function normalizeSpatialTimeRemap(input, pathDurationSecs) {
   }
   return {
     kind: input.kind,
-    ...(input.playbackDurationSecs !== undefined ? { playbackDurationSecs: positiveNumber(input.playbackDurationSecs, 0) } : { playbackDurationSecs: pathDurationSecs }),
+    ...(input.playbackDurationSecs !== undefined
+      ? { playbackDurationSecs: nonNegativeFiniteNumber(input.playbackDurationSecs, 'playbackDurationSecs') }
+      : { playbackDurationSecs: pathDurationSecs }),
     ...(input.easing !== undefined ? { easing: normalizeEasing(input.easing) } : {}),
   };
 }
 
 function normalizeSpatialSamplingOptions(input = {}) {
+  if (!input || typeof input !== 'object') {
+    throw new TypeError('Spatial sampling options must be an object.');
+  }
   if ('stepSecs' in input) throw new TypeError('Use sampleStepSecs instead of stepSecs.');
-  const frameRateStep = input.frameRate !== undefined ? 1 / positiveNumber(input.frameRate, 1) : null;
+  const frameRateStep = input.frameRate !== undefined
+    ? 1 / positiveFiniteNumber(input.frameRate, 'frameRate')
+    : null;
   const sampleStepSecs = input.sampleStepSecs !== undefined
-    ? positiveNumber(input.sampleStepSecs, 0)
+    ? positiveFiniteNumber(input.sampleStepSecs, 'sampleStepSecs')
     : frameRateStep ?? DEFAULT_SAMPLE_STEP_SECS;
   if (frameRateStep != null && Math.abs(frameRateStep - sampleStepSecs) > 1e-9) {
     throw new RangeError('sampleStepSecs and frameRate imply different sampling intervals.');
   }
+  let maxSamples = Number.POSITIVE_INFINITY;
+  if (input.maxSamples !== undefined) {
+    maxSamples = finiteRequiredNumber(input.maxSamples, 'maxSamples');
+    if (!Number.isInteger(maxSamples) || maxSamples <= 0) {
+      throw new RangeError('maxSamples must be a positive integer.');
+    }
+  }
   return {
     sampleStepSecs,
-    maxSamples: input.maxSamples !== undefined ? positiveInteger(input.maxSamples, 1) : Number.POSITIVE_INFINITY,
+    maxSamples,
+  };
+}
+
+function createSpatialSamplingTimeline(durationSecs, sampling) {
+  const duration = nonNegativeFiniteNumber(durationSecs, 'sampling durationSecs');
+  const plan = createSpatialSamplingPlan(duration, sampling.sampleStepSecs);
+  const times = [];
+  const sampleCount = Math.min(plan.requiredSamples, sampling.maxSamples);
+  for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
+    times.push(sampleIndex === plan.endpointSampleIndex
+      ? duration
+      : sampleIndex * sampling.sampleStepSecs);
+  }
+  return {
+    times,
+    truncated: sampleCount < plan.requiredSamples,
+  };
+}
+
+function spatialSamplingWouldTruncate(durationSecs, sampling) {
+  const duration = nonNegativeFiniteNumber(durationSecs, 'sampling durationSecs');
+  return createSpatialSamplingPlan(duration, sampling.sampleStepSecs).requiredSamples > sampling.maxSamples;
+}
+
+function createSpatialSamplingPlan(durationSecs, sampleStepSecs) {
+  if (durationSecs === 0) {
+    return { endpointSampleIndex: 0, requiredSamples: 1 };
+  }
+  const quotient = durationSecs / sampleStepSecs;
+  const gridIndex = Math.floor(quotient);
+  const gridTimeSecs = gridIndex * sampleStepSecs;
+  const endpointOnGrid = gridIndex > 0
+    && Number.isFinite(gridTimeSecs)
+    && nearlyEqual(gridTimeSecs, durationSecs, 1e-12);
+  const endpointSampleIndex = endpointOnGrid ? gridIndex : gridIndex + 1;
+  return {
+    endpointSampleIndex,
+    requiredSamples: endpointSampleIndex + 1,
+  };
+}
+
+function addSamplingWarning(samples, diagnosticWarning) {
+  if (samples.length === 0) return;
+  const index = samples.length - 1;
+  const sample = samples[index];
+  samples[index] = {
+    ...sample,
+    diagnostics: {
+      ...(sample.diagnostics ?? {}),
+      warnings: [...(sample.diagnostics?.warnings ?? []), diagnosticWarning],
+    },
   };
 }
 
@@ -2209,8 +2811,9 @@ function normalizeAimKeys(keys, duplicateTimePolicy) {
 }
 
 function applyDuplicateTimePolicy(keys, policy) {
+  const normalizedPolicy = normalizeDuplicateTimePolicy(policy);
   if (keys.length < 2) return keys;
-  if (policy === 'error' || policy == null) {
+  if (normalizedPolicy === 'error') {
     for (let index = 1; index < keys.length; index += 1) {
       if (Math.abs(keys[index].timeSecs - keys[index - 1].timeSecs) <= EPSILON) {
         throw new RangeError('Duplicate time keys require an explicit non-error duplicateTimePolicy.');
@@ -2218,13 +2821,20 @@ function applyDuplicateTimePolicy(keys, policy) {
     }
     return keys;
   }
-  if (policy === 'coalesceFirst') {
+  if (normalizedPolicy === 'coalesceFirst') {
     return keys.filter((key, index) => index === 0 || Math.abs(key.timeSecs - keys[index - 1].timeSecs) > EPSILON);
   }
-  if (policy === 'coalesceLast') {
+  if (normalizedPolicy === 'coalesceLast') {
     return keys.filter((key, index) => index === keys.length - 1 || Math.abs(key.timeSecs - keys[index + 1].timeSecs) > EPSILON);
   }
-  if (policy === 'hold' || policy === 'cut' || policy === 'preserve') return keys;
+  return keys;
+}
+
+function normalizeDuplicateTimePolicy(policy) {
+  const normalized = policy ?? 'error';
+  if (['error', 'coalesceFirst', 'coalesceLast', 'hold', 'cut', 'preserve'].includes(normalized)) {
+    return normalized;
+  }
   throw new TypeError(`Unsupported duplicateTimePolicy: ${String(policy)}`);
 }
 
@@ -2250,10 +2860,13 @@ function normalizeSpatialPositionInterpolation(input) {
     };
   }
   if (input.kind === 'catmullRom') {
+    if (input.centripetal !== undefined && typeof input.centripetal !== 'boolean') {
+      throw new TypeError('catmullRom centripetal must be a boolean.');
+    }
     return {
       kind: 'catmullRom',
       ...(input.tension !== undefined ? { tension: finiteNumberInRange(input.tension, 0, 1, 'catmullRom tension') } : {}),
-      ...(input.centripetal !== undefined ? { centripetal: input.centripetal !== false } : {}),
+      ...(input.centripetal !== undefined ? { centripetal: input.centripetal } : {}),
     };
   }
   if (input.kind === 'cubicBezier') {
@@ -2730,7 +3343,7 @@ function slerpSpatialDirections(left, right, t) {
 
 function remapPathTime(path, elapsedSecs) {
   if (!path.timeRemap) return clamp(elapsedSecs, 0, path.durationSecs);
-  const playbackDuration = positiveNumber(path.timeRemap.playbackDurationSecs, path.durationSecs);
+  const playbackDuration = path.timeRemap.playbackDurationSecs ?? path.durationSecs;
   let t = playbackDuration > EPSILON ? clamp(elapsedSecs / playbackDuration, 0, 1) : 1;
   if (path.timeRemap.kind === 'eased') t = applyEasing(path.timeRemap.easing ?? { kind: 'smoothstep' }, t);
   return t * path.durationSecs;
@@ -3111,17 +3724,27 @@ function quaternionFromForwardUp(forward, up) {
 }
 
 function resolveAimUp(forward, authoredUp, positionAngleDeg, warnings) {
-  let up = authoredUp ? normalizeDirectionOr(authoredUp, null) : cloneSpatialVector3(SPATIAL_LOCAL_UP);
-  up = subtractSpatialVectors(up, scaleSpatialVector(forward, dot(up, forward)));
-  if (getSpatialVectorLength(up) <= EPSILON) {
-    warnings.push(warning('degenerateAimUp', 'Aim up vector was parallel to forward.'));
+  let up = authoredUp !== undefined
+    ? normalizeDirectionOr(authoredUp, null)
+    : cloneSpatialVector3(SPATIAL_LOCAL_UP);
+  let usedFallback = false;
+  if (up) {
+    up = subtractSpatialVectors(up, scaleSpatialVector(forward, dot(up, forward)));
+  }
+  if (!up || getSpatialVectorLength(up) <= EPSILON) {
+    warnings.push(warning('degenerateAimUp', 'Aim up vector had zero length or was parallel to forward.'));
     up = perpendicularTo(forward);
+    usedFallback = true;
   }
   up = normalizeDirectionOr(up, SPATIAL_LOCAL_UP);
   if (positionAngleDeg !== undefined) {
     up = applySpatialQuaternion(up, createSpatialQuaternionFromAxisAngle(forward, degreesToRadians(positionAngleDeg)));
   }
-  return normalizeDirectionOr(up, SPATIAL_LOCAL_UP);
+  const resolved = normalizeDirectionOr(up, SPATIAL_LOCAL_UP);
+  if (usedFallback && Math.abs(dot(resolved, forward)) > 1e-7) {
+    return perpendicularTo(forward);
+  }
+  return resolved;
 }
 
 function slerpQuaternions(a, b, t) {
@@ -3162,7 +3785,7 @@ function slerpQuaternions(a, b, t) {
 function normalizeDirectionOr(vector, fallback) {
   if (!vector) return fallback ? cloneSpatialVector3(fallback) : null;
   const length = getSpatialVectorLength(vector);
-  return length > EPSILON ? scaleSpatialVector(vector, 1 / length) : fallback ? cloneSpatialVector3(fallback) : null;
+  return length > 0 ? scaleSpatialVector(vector, 1 / length) : fallback ? cloneSpatialVector3(fallback) : null;
 }
 
 function perpendicularTo(vector) {
@@ -3212,9 +3835,9 @@ function finiteNumber(value, fallback) {
 }
 
 function finiteRequiredNumber(value, label) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) throw new RangeError(`${label} must be a finite number.`);
-  return number;
+  if (typeof value !== 'number') throw new TypeError(`${label} must be a number.`);
+  if (!Number.isFinite(value)) throw new RangeError(`${label} must be a finite number.`);
+  return value;
 }
 
 function positiveFiniteNumber(value, label) {
@@ -3236,8 +3859,18 @@ function finiteNumberInRange(value, min, max, label) {
 }
 
 function finiteTime(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number) || number < 0) throw new RangeError('timeSecs must be a non-negative finite number.');
+  return nonNegativeFiniteNumber(value, 'timeSecs');
+}
+
+function positiveIntegerRequired(value, label) {
+  const number = positiveFiniteNumber(value, label);
+  if (!Number.isInteger(number)) throw new RangeError(`${label} must be an integer.`);
+  return number;
+}
+
+function nonNegativeIntegerRequired(value, label) {
+  const number = nonNegativeFiniteNumber(value, label);
+  if (!Number.isInteger(number)) throw new RangeError(`${label} must be an integer.`);
   return number;
 }
 
@@ -3290,7 +3923,8 @@ function normalizeTimingPhases(input, durationSecs) {
     const expectedDistance = (normalized.startSpeedPcPerSec + normalized.endSpeedPcPerSec) * 0.5
       * (normalized.endTimeSecs - normalized.startTimeSecs);
     const actualDistance = normalized.endDistancePc - normalized.startDistancePc;
-    if (Math.abs(expectedDistance - actualDistance) > Math.max(1e-7, Math.max(expectedDistance, actualDistance) * 1e-7)) {
+    const cumulativeDistanceScale = Math.max(normalized.startDistancePc, normalized.endDistancePc);
+    if (!timingDistanceNearlyEqual(expectedDistance, actualDistance, cumulativeDistanceScale)) {
       throw new RangeError('Custom timing phase distance must match its speed integral.');
     }
     return normalized;
@@ -3304,15 +3938,18 @@ function normalizeTimingPhases(input, durationSecs) {
       continue;
     }
     const previous = phases[index - 1];
-    if (Math.abs(phase.startTimeSecs - previous.endTimeSecs) > EPSILON) {
+    if (!timingTimeNearlyEqual(phase.startTimeSecs, previous.endTimeSecs)) {
       throw new RangeError('Custom timing phases must have contiguous times.');
     }
-    if (Math.abs(phase.startDistancePc - previous.endDistancePc) > EPSILON) {
+    if (!timingDistanceNearlyEqual(phase.startDistancePc, previous.endDistancePc)) {
       throw new RangeError('Custom timing phases must have contiguous distances.');
+    }
+    if (!nearlyEqual(phase.startSpeedPcPerSec, previous.endSpeedPcPerSec, 1e-7)) {
+      throw new RangeError('Custom timing phases must have contiguous speeds.');
     }
   }
   const last = phases[phases.length - 1] ?? null;
-  if (last && Math.abs(last.endTimeSecs - durationSecs) > EPSILON) {
+  if (last && !timingTimeNearlyEqual(last.endTimeSecs, durationSecs)) {
     throw new RangeError('Custom timing final phase must end at durationSecs.');
   }
   return phases;
@@ -3320,6 +3957,25 @@ function normalizeTimingPhases(input, durationSecs) {
 
 function nearlyEqual(left, right, tolerance = 1e-6) {
   return Math.abs(left - right) <= Math.max(tolerance, Math.max(Math.abs(left), Math.abs(right)) * tolerance);
+}
+
+function timingDistanceNearlyEqual(left, right, referenceScale = 0) {
+  if (left === right) return true;
+  const scale = Math.max(Math.abs(left), Math.abs(right));
+  const floatingPointTolerance = Number.EPSILON * 32 * Math.abs(referenceScale);
+  return Math.abs(left - right) <= Math.max(scale * 1e-9, floatingPointTolerance);
+}
+
+function timingTimeNearlyEqual(left, right) {
+  if (left === right) return true;
+  const scale = Math.max(Math.abs(left), Math.abs(right));
+  return scale > 0 && Math.abs(left - right) <= scale * 1e-12;
+}
+
+function timingScalarNearlyEqual(left, right) {
+  if (left === right) return true;
+  const scale = Math.max(Math.abs(left), Math.abs(right));
+  return scale > 0 && Math.abs(left - right) <= scale * 1e-7;
 }
 
 function degreesToRadians(degrees) {
