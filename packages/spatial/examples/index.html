@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Interactive, renderer-neutral examples for the @found-in-space/spatial package." />
+    <title>Spatial Package Labs · SkyKit</title>
+    <link rel="stylesheet" href="./shared.css" />
+  </head>
+  <body>
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">@found-in-space/spatial</p>
+        <h1>Spatial Package Labs</h1>
+        <p class="lede">
+          Four small, direct-package examples for reviewing coordinates, aims, routes, timing,
+          paths, transitions, motion, and navigation without a renderer or SkyKit wrapper.
+        </p>
+      </div>
+      <nav class="page-nav" aria-label="Example navigation">
+        <a href="%BASE_URL%index.html">All examples</a>
+        <a href="%BASE_URL%packages/spatial/examples/index.html" aria-current="page">Spatial labs</a>
+      </nav>
+    </header>
+
+    <main class="lab-grid">
+      <a class="lab-card" href="%BASE_URL%packages/spatial/examples/coordinates-aim/index.html">
+        <span class="number">LAB 01</span>
+        <h2>Coordinates &amp; aim</h2>
+        <p>Move between RA/Dec and ICRS, then inspect target and direction aim frames.</p>
+        <code>evaluateSpatialAim()</code>
+      </a>
+
+      <a class="lab-card" href="%BASE_URL%packages/spatial/examples/routes-orbits/index.html">
+        <span class="number">LAB 02</span>
+        <h2>Routes, timing &amp; orbits</h2>
+        <p>Compare route geometry, physical timing phases, handedness, and orbit handoff.</p>
+        <code>sampleSpatialRoute()</code>
+      </a>
+
+      <a class="lab-card" href="%BASE_URL%packages/spatial/examples/paths-transitions/index.html">
+        <span class="number">LAB 03</span>
+        <h2>Paths &amp; transitions</h2>
+        <p>Scrub position and aim interpolation, lane timing, playback remap, and preload hints.</p>
+        <code>evaluateSpatialPath()</code>
+      </a>
+
+      <a class="lab-card" href="%BASE_URL%packages/spatial/examples/motion-automation/index.html">
+        <span class="number">LAB 04</span>
+        <h2>Motion &amp; automation</h2>
+        <p>Drive direct, inertial, and thrust models together, then inspect semantic navigation.</p>
+        <code>createSpatialNavigationAutomation()</code>
+      </a>
+    </main>
+  </body>
+</html>

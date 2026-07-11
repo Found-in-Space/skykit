@@ -272,7 +272,7 @@ export interface SkykitXrPickRouter {
 
 export interface SkykitXrDepthRangeOptions {
   visibleBounds?: SkykitXrBounds | SkykitXrBounds[];
-  observer?: SkykitXrVector3 | { position: SkykitXrVector3 };
+  observer?: SkykitXrVector3 | { observerPc: SkykitXrVector3 } | { position: SkykitXrVector3 };
   observerCentricSpheres?: Iterable<{ radius?: number; radiusNavigationUnits?: number }>;
   scale?: SkykitXrScaleProfile;
   policy?: {

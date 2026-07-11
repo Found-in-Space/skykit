@@ -11,7 +11,7 @@ import {
   createAnchoredImageMeshObject,
   disposeAnchoredImageObject,
 } from '@found-in-space/anchored-image/three';
-import { computeSpatialLookAtOrientation } from '@found-in-space/spatial';
+import { computeSkykitLookAtOrientation } from './spatial-adapter.js';
 
 import { createObject3dLayer } from './layers.js';
 
@@ -100,10 +100,10 @@ export async function createAnchoredImageCatalog(options = {}) {
         entry,
         targetPc,
         upIcrs,
-        orientationIcrs: computeSpatialLookAtOrientation({
-          position: observerPc,
-          target: targetPc,
-          up: upIcrs,
+        orientationIcrs: computeSkykitLookAtOrientation({
+          observerPc,
+          targetPc,
+          upIcrs,
         }),
       };
     },

@@ -6,9 +6,7 @@ import type {
 import type {
   SpatialPreloadHint,
   SpatialNavigationAutomation,
-  SpatialNavigationAutomationOptions,
-  SpatialScaleProfile,
-  SpatialTargetInput,
+  SpatialTargetSpec,
   SpatialVector3,
 } from '@found-in-space/spatial';
 import type {
@@ -57,6 +55,7 @@ export interface QuaternionLike {
 }
 
 export type SkykitLookAtInput = string | SkykitLookAtSpecInput;
+export type SkykitTargetInput = SpatialTargetSpec | SkykitLookAtSpecInput | Vector3Like | [number, number, number];
 
 export interface SkykitLookAtSpecInput {
   targetPc?: Vector3Like | [number, number, number];
@@ -70,12 +69,35 @@ export interface SkykitLookAtSpecInput {
   [key: string]: unknown;
 }
 
-export {
-  createRaDecLookAt,
-  parseDeclination,
-  parseRightAscension,
-  parseSpatialLookAtText,
-} from '@found-in-space/spatial';
+export type SkykitRightAscensionUnit = 'auto' | 'deg' | 'degree' | 'degrees' | 'hour' | 'hours';
+
+export interface SkykitRaDecLookAtHelperOptions {
+  raUnit?: SkykitRightAscensionUnit;
+  distancePc?: number;
+  positionAngleDeg?: number;
+}
+
+export interface SkykitRaDecLookAtHelperInput extends SkykitRaDecLookAtHelperOptions {
+  ra?: unknown;
+  rightAscension?: unknown;
+  raDeg?: number;
+  raHours?: number;
+  dec?: unknown;
+  declination?: unknown;
+  decDeg?: number;
+}
+
+export declare function createRaDecLookAt(
+  ra: unknown | SkykitRaDecLookAtHelperInput,
+  dec?: unknown,
+  options?: SkykitRaDecLookAtHelperOptions
+): SkykitLookAtSpecInput | null;
+export declare function parseDeclination(value: unknown): number | null;
+export declare function parseRightAscension(
+  value: unknown,
+  options?: { unit?: SkykitRightAscensionUnit }
+): { raDeg: number } | { raHours: number } | null;
+export declare function parseSpatialLookAtText(text: string): SkykitLookAtSpecInput | null;
 
 export interface SkykitObserverMotion {
   velocityPcPerSec: Vector3Like;
@@ -956,7 +978,7 @@ export interface SkykitOrbitDragOptions {
   priority?: number;
   target?: EventTarget | null;
   enabled?: boolean;
-  center?: SpatialTargetInput | SkykitLookAtInput | null;
+  center?: SpatialTargetSpec | SkykitLookAtInput | Vector3Like | null;
   centerPc?: Vector3Like | null;
   fallbackCenter?: 'targetPc' | 'lookAt' | 'origin' | 'none';
   sensitivityRadiansPerPixel?: number;
@@ -984,7 +1006,7 @@ export interface SkykitOrbitDragSnapshot {
 export interface SkykitOrbitDragPlugin extends SkykitPlugin {
   getSnapshot(): SkykitOrbitDragSnapshot;
   setEnabled(nextEnabled: boolean): void;
-  setCenter(nextCenter: SpatialTargetInput | SkykitLookAtInput | Vector3Like | null): void;
+  setCenter(nextCenter: SpatialTargetSpec | SkykitLookAtInput | Vector3Like | null): void;
 }
 
 export interface SkykitStatusPayload {
@@ -1000,20 +1022,22 @@ export interface SkykitStatusPluginOptions {
   render?: (payload: SkykitStatusPayload) => void;
 }
 
-export interface SkykitNavigationPluginOptions extends SpatialNavigationAutomationOptions {
+export interface SkykitNavigationPluginOptions {
   id?: string;
   priority?: number;
   navigation?: SpatialNavigationAutomation;
-  scaleProfile?: SpatialScaleProfile;
+  speedPcPerSec?: number;
+  speed?: number;
+  sampleStepSecs?: number;
   resolveTarget?: (
     input: unknown,
     context: SkykitThreePluginContext
   ) => SpatialVector3 | Promise<SpatialVector3 | null> | null | undefined;
   resolveBookmark?: (
     bookmarkId: string,
-    input: SpatialTargetInput,
+    input: SpatialTargetSpec,
     context: SkykitThreePluginContext
-  ) => SpatialTargetInput | Promise<SpatialTargetInput | null> | null;
+  ) => SkykitTargetInput | Promise<SkykitTargetInput | null> | null;
 }
 
 export interface SkykitSpatialPreloadStrategyOptions {

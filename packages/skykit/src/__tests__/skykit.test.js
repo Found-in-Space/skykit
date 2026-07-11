@@ -9,11 +9,13 @@ import {
 } from '@found-in-space/star-trees';
 
 import {
-  LOCAL_UP,
-  applyQuaternion,
-  computeSpatialLookAtOrientation,
-  resolveSpatialTarget,
+  SPATIAL_LOCAL_UP as LOCAL_UP,
+  applySpatialQuaternion as applyQuaternion,
 } from '@found-in-space/spatial';
+import {
+  computeSkykitLookAtOrientation,
+  resolveSkykitTargetSync,
+} from '../spatial-adapter.js';
 import {
   SKYKIT_ACTION_NAMESPACE,
   SKYKIT_ACTIONS,
@@ -43,6 +45,7 @@ import {
   createStreamingStarLayer,
   createStreamingStarsPlugin,
   installSkykitDebugGlobal,
+  parseRightAscension,
   parseSpatialLookAtText,
 } from '../index.js';
 
@@ -83,6 +86,18 @@ function createRenderer() {
       this.disposed = true;
     },
   };
+}
+
+function createDeferred() {
+  /** @type {(value?: any) => void} */
+  let resolve = () => {};
+  /** @type {(error?: any) => void} */
+  let reject = () => {};
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 function createTextureRenderer() {
@@ -297,6 +312,32 @@ test('viewer exposes action registry, emits action events, and resets to initial
   await viewer.dispose();
 });
 
+test('SkyKit look-at helpers preserve coordinate and RA compatibility', async () => {
+  assert.deepEqual(parseSpatialLookAtText('1, 2, 3'), {
+    targetPc: { x: 1, y: 2, z: 3 },
+  });
+  assert.deepEqual(parseSpatialLookAtText('ra=12h dec=34deg'), {
+    raHours: 12,
+    decDeg: 34,
+  });
+  assert.deepEqual(parseSpatialLookAtText('ra=12h, dec=34deg, pa=30'), {
+    raHours: 12,
+    decDeg: 34,
+    positionAngleDeg: 30,
+  });
+  assert.deepEqual(parseRightAscension(12), { raDeg: 12 });
+  assert.deepEqual(parseRightAscension('12', { unit: 'degrees' }), { raDeg: 12 });
+  assert.deepEqual(createRaDecLookAt({ raDeg: 12, decDeg: 3 }), { raDeg: 12, decDeg: 3 });
+  assert.deepEqual(resolveSkykitTargetSync({ targetPc: [1, 2, 3] }), { x: 1, y: 2, z: 3 });
+
+  const tupleViewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: { lookAt: { targetPc: [1, 2, 3] } },
+  });
+  assert.deepEqual(tupleViewer.getViewState().targetPc, { x: 1, y: 2, z: 3 });
+  await tupleViewer.dispose();
+});
+
 test('viewer derives camera orientation from lookAt targets, sky coordinates, and stars', async () => {
   const targetViewer = await createSkykitViewer({
     renderer: createRenderer(),
@@ -338,8 +379,8 @@ test('viewer derives camera orientation from lookAt targets, sky coordinates, an
 
   const siriusSpec = parseSpatialLookAtText('06h 45m 08.9s, -16d 42m 58s, 2.64pc');
   const orionSpec = parseSpatialLookAtText('05h 35m 17.3s, -05d 23m 28s, 414pc');
-  const siriusPc = resolveSpatialTarget(siriusSpec);
-  const orionPc = resolveSpatialTarget(orionSpec);
+  const siriusPc = resolveSkykitTargetSync(siriusSpec);
+  const orionPc = resolveSkykitTargetSync(orionSpec);
   assert.ok(siriusPc && orionPc && orionSpec);
   const solarTargetViewer = await createSkykitViewer({
     renderer: createRenderer(),
@@ -384,6 +425,65 @@ test('viewer derives camera orientation from lookAt targets, sky coordinates, an
   starViewer.update(0);
   assert.deepEqual(starViewer.getViewState().targetPc, null);
   await starViewer.dispose();
+
+  const directionalStarViewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: {
+      observerPc: { x: 10, y: 0, z: 0 },
+      lookAt: { star: 'direction-only', positionAngleDeg: 45 },
+    },
+    resolveLookAtStar: () => ({ raDeg: 90, decDeg: 0 }),
+  });
+  const directDirectionalViewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: {
+      observerPc: { x: 10, y: 0, z: 0 },
+      lookAt: { raDeg: 90, decDeg: 0, positionAngleDeg: 45 },
+    },
+  });
+  view = directionalStarViewer.getViewState();
+  assert.equal(view.targetPc, null);
+  assertVectorApprox(
+    localVectorFromView(view, { x: 0, y: 0, z: -1 }),
+    directionFromRaDec(90, 0),
+  );
+  assertVectorApprox(
+    localVectorFromView(view, { x: 0, y: 1, z: 0 }),
+    localVectorFromView(directDirectionalViewer.getViewState(), { x: 0, y: 1, z: 0 }),
+  );
+  await directionalStarViewer.dispose();
+  await directDirectionalViewer.dispose();
+
+  for (const resolvedStar of [{ x: 4, y: 5, z: 6 }, [4, 5, 6]]) {
+    const inheritedAimViewer = await createSkykitViewer({
+      renderer: createRenderer(),
+      view: {
+        lookAt: {
+          star: 'bare-vector',
+          upIcrs: { x: 0, y: 0, z: 1 },
+          positionAngleDeg: 30,
+        },
+      },
+      resolveLookAtStar: () => resolvedStar,
+    });
+    const directAimViewer = await createSkykitViewer({
+      renderer: createRenderer(),
+      view: {
+        lookAt: {
+          targetPc: { x: 4, y: 5, z: 6 },
+          upIcrs: { x: 0, y: 0, z: 1 },
+          positionAngleDeg: 30,
+        },
+      },
+    });
+    assert.deepEqual(inheritedAimViewer.getViewState().targetPc, { x: 4, y: 5, z: 6 });
+    assertVectorApprox(
+      localVectorFromView(inheritedAimViewer.getViewState(), { x: 0, y: 1, z: 0 }),
+      localVectorFromView(directAimViewer.getViewState(), { x: 0, y: 1, z: 0 }),
+    );
+    await inheritedAimViewer.dispose();
+    await directAimViewer.dispose();
+  }
 });
 
 test('requestViewState batches patches and observer-centric root follows translation without rotation', async () => {
@@ -1509,24 +1609,24 @@ test('keyboard navigation custom bindings can rotate pitch yaw and roll', async 
 });
 
 test('navigation plugin registers semantic actions and resolves RA/Dec and bookmarks', async () => {
+  const navigationPlugin = createSkykitNavigationPlugin({
+    speedPcPerSec: 12,
+    sampleStepSecs: 1 / 30,
+    resolveBookmark(bookmarkId) {
+      return bookmarkId === 'polaris'
+        ? { raDeg: 0, decDeg: 90, distancePc: 10 }
+        : null;
+    },
+  });
   const viewer = await createSkykitViewer({
     renderer: createRenderer(),
-    plugins: [
-      createSkykitNavigationPlugin({
-        speed: 12,
-        acceleration: 12,
-        deceleration: 12,
-        resolveBookmark(bookmarkId) {
-          return bookmarkId === 'polaris'
-            ? { raDeg: 0, decDeg: 90, distancePc: 10 }
-            : null;
-        },
-      }),
-    ],
+    plugins: [navigationPlugin],
   });
 
   assert.equal(viewer.actions.listActions().some((entry) => entry.id === SKYKIT_ACTIONS.navigation.flyTo), true);
   await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.flyTo, { raDeg: 0, decDeg: 0, distancePc: 10 });
+  assert.equal(navigationPlugin.getSnapshot().navigation.activeTiming.kind, 'constantSpeed');
+  assert.equal(navigationPlugin.getSnapshot().navigation.activeTiming.cruiseSpeedPcPerSec, 12);
   viewer.update(0.5);
   viewer.update(0);
   assert.ok(viewer.getViewState().observerPc.x > 0);
@@ -1539,6 +1639,164 @@ test('navigation plugin registers semantic actions and resolves RA/Dec and bookm
   await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.cancel);
   assert.equal(viewer.getSnapshot().parts.some((part) => part.id === 'navigation'), true);
 
+  await viewer.dispose();
+});
+
+test('navigation preserves orbit continuity and direction-only look-at intent', async () => {
+  const navigationPlugin = createSkykitNavigationPlugin();
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    view: { observerPc: { x: 10, y: 0, z: 0 } },
+    plugins: [navigationPlugin],
+  });
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.orbit, {
+    center: { x: 0, y: 0, z: 0 },
+    angularSpeedRadPerSec: 0,
+    handedness: -1,
+  });
+  viewer.update(0);
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 10, y: 0, z: 0 });
+  assert.equal(navigationPlugin.getSnapshot().navigation.frameState.orbit.orbit.handedness, -1);
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.cancelMovement);
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.lookAt, { raDeg: 90, decDeg: 0 });
+  viewer.update(0);
+  viewer.update(0);
+  assert.equal(navigationPlugin.getSnapshot().navigation.frameState.aim.kind, 'direction');
+  assertVectorApprox(
+    localVectorFromView(viewer.getViewState(), { x: 0, y: 0, z: -1 }),
+    directionFromRaDec(90, 0),
+  );
+
+  await viewer.dispose();
+});
+
+test('navigation preserves resolved bookmark aim metadata', async () => {
+  let capturedAim = null;
+  const navigation = {
+    flyRoute() {},
+    orbit() {},
+    lookAt(aim) { capturedAim = aim; },
+    lockAt() {},
+    unlockAt() {},
+    cancelMovement() {},
+    cancelOrientation() {},
+    cancel() {},
+    update({ pose }) { return pose; },
+    getFrameState() { return null; },
+    getDiagnostics() { return null; },
+    dispose() {},
+  };
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [createSkykitNavigationPlugin({
+      navigation,
+      resolveBookmark(bookmarkId) {
+        return bookmarkId === 'rolled-target'
+          ? {
+              targetPc: { x: 4, y: 5, z: 6 },
+              upIcrs: { x: 0, y: 0, z: 1 },
+              positionAngleDeg: 45,
+            }
+          : null;
+      },
+    })],
+  });
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.lookAt, { bookmarkId: 'rolled-target' });
+  assert.deepEqual(capturedAim, {
+    kind: 'target',
+    targetPc: { x: 4, y: 5, z: 6 },
+    upIcrs: { x: 0, y: 0, z: 1 },
+    positionAngleDeg: -45,
+  });
+  await viewer.dispose();
+});
+
+test('semantic orbital insertion uses tangent selection unless an angle is authored', async () => {
+  async function buildActionRoute(overrides = {}) {
+    const plugin = createSkykitNavigationPlugin({ speedPcPerSec: 2, sampleStepSecs: 0.1 });
+    const viewer = await createSkykitViewer({
+      renderer: createRenderer(),
+      view: { observerPc: { x: 10, y: 0, z: 0 } },
+      plugins: [plugin],
+    });
+    await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.orbitalInsert, {
+      center: { x: 0, y: 0, z: 0 },
+      radiusPc: 2,
+      angularSpeedRadPerSec: 0.1,
+      ...overrides,
+    });
+    const route = plugin.getSnapshot().navigation.activeRoute;
+    await viewer.dispose();
+    return route;
+  }
+
+  const tangentRoute = await buildActionRoute();
+  assert.equal(tangentRoute.diagnostics.insertionSelection, 'tangent');
+  assert.equal(tangentRoute.arrival.orbit.initialAngleRad, tangentRoute.diagnostics.insertionAngleRad);
+
+  const authoredAngle = Math.PI / 2;
+  for (const authored of [
+    { initialAngleRad: authoredAngle },
+    { initialAngle: authoredAngle },
+  ]) {
+    const explicitRoute = await buildActionRoute(authored);
+    assert.equal(explicitRoute.diagnostics.insertionSelection, 'explicitAngle');
+    assert.equal(explicitRoute.arrival.orbit.initialAngleRad, authoredAngle);
+  }
+});
+
+test('navigation plugin sampling defaults control generated orbital routes', async () => {
+  async function routePointCount(sampleStepSecs) {
+    const plugin = createSkykitNavigationPlugin({ speedPcPerSec: 2, sampleStepSecs });
+    const viewer = await createSkykitViewer({
+      renderer: createRenderer(),
+      view: { observerPc: { x: 10, y: 0, z: 0 } },
+      plugins: [plugin],
+    });
+    await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.orbitalInsert, {
+      center: { x: 0, y: 0, z: 0 },
+      radiusPc: 2,
+      angularSpeedRadPerSec: 0.1,
+    });
+    const pointCount = plugin.getSnapshot().navigation.activeRoute.pointsPc.length;
+    await viewer.dispose();
+    return pointCount;
+  }
+
+  const finePointCount = await routePointCount(0.1);
+  const coarsePointCount = await routePointCount(0.5);
+  assert.ok(finePointCount > coarsePointCount);
+});
+
+test('navigation cancellation actions call their independent spatial lanes', async () => {
+  const calls = [];
+  const navigation = {
+    flyRoute() {},
+    orbit() {},
+    lookAt() {},
+    lockAt() {},
+    unlockAt() {},
+    cancelMovement() { calls.push('movement'); },
+    cancelOrientation() { calls.push('orientation'); },
+    cancel() { calls.push('all'); },
+    update({ pose }) { return pose; },
+    getFrameState() { return null; },
+    getDiagnostics() { return null; },
+    dispose() {},
+  };
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [createSkykitNavigationPlugin({ navigation })],
+  });
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.cancelMovement);
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.cancelOrientation);
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.cancel);
+  assert.deepEqual(calls, ['movement', 'orientation', 'all']);
   await viewer.dispose();
 });
 
@@ -1604,6 +1862,259 @@ test('navigation transition action restores pose with independent lane durations
     directionFromRaDec(84.053375, -1.2019166666666667),
   );
 
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+    observerPc: { x: 6, y: 0, z: 0 },
+    movement: { delaySecs: 1, durationSecs: 1 },
+  });
+  viewer.update(0.5);
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 0, y: 0, z: 0 });
+  viewer.update(1);
+  viewer.update(0);
+  assert.ok(viewer.getViewState().observerPc.x > 0 && viewer.getViewState().observerPc.x < 6);
+  viewer.update(0.5);
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 6, y: 0, z: 0 });
+
+  await viewer.dispose();
+});
+
+test('navigation transition cancellation freezes only the requested lane', async () => {
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [createSkykitNavigationPlugin()],
+  });
+  const targetOrientation = {
+    x: 0,
+    y: Math.sin(Math.PI / 4),
+    z: 0,
+    w: Math.cos(Math.PI / 4),
+  };
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+    observerPc: { x: 10, y: 0, z: 0 },
+    orientationIcrs: targetOrientation,
+    movement: { durationSecs: 2 },
+    orientation: { durationSecs: 2 },
+  });
+  viewer.update(0.5);
+  viewer.update(0);
+  const beforeMovementCancel = viewer.getViewState();
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.cancelMovement);
+  viewer.update(1.5);
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, beforeMovementCancel.observerPc);
+  assertVectorApprox(
+    localVectorFromView(viewer.getViewState(), { x: 0, y: 0, z: -1 }),
+    applyQuaternion({ x: 0, y: 0, z: -1 }, targetOrientation),
+  );
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+    observerPc: { x: 20, y: 0, z: 0 },
+    orientationIcrs: { x: 0, y: 0, z: 0, w: 1 },
+    movement: { durationSecs: 2 },
+    orientation: { durationSecs: 2 },
+  });
+  viewer.update(0.5);
+  viewer.update(0);
+  const beforeOrientationCancel = viewer.getViewState();
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.cancelOrientation);
+  viewer.update(1.5);
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 20, y: 0, z: 0 });
+  assertVectorApprox(
+    localVectorFromView(viewer.getViewState(), { x: 0, y: 0, z: -1 }),
+    localVectorFromView(beforeOrientationCancel, { x: 0, y: 0, z: -1 }),
+  );
+  await viewer.dispose();
+});
+
+test('navigation actions preempt active pose transitions', async () => {
+  const plugin = createSkykitNavigationPlugin();
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [plugin],
+  });
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+    observerPc: { x: 100, y: 0, z: 0 },
+    movement: { durationSecs: 10 },
+  });
+  viewer.update(1);
+  viewer.update(0);
+  const transitionPosition = viewer.getViewState().observerPc.x;
+  assert.ok(transitionPosition > 0);
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.flyTo, {
+    x: -20,
+    y: 0,
+    z: 0,
+    speedPcPerSec: 10,
+  });
+  assert.equal(plugin.getSnapshot().transition.active, false);
+  viewer.update(1);
+  viewer.update(0);
+  assert.ok(viewer.getViewState().observerPc.x < transitionPosition);
+
+  await viewer.dispose();
+});
+
+test('pending transitions preempt immediately and start from the post-resolution pose', async () => {
+  const targetGate = createDeferred();
+  const plugin = createSkykitNavigationPlugin({
+    resolveBookmark(bookmarkId) {
+      return bookmarkId === 'delayed-target' ? targetGate.promise : null;
+    },
+  });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [plugin],
+  });
+
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+    observerPc: { x: 100, y: 0, z: 0 },
+    movement: { durationSecs: 10 },
+  });
+  viewer.update(1);
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 10, y: 0, z: 0 });
+
+  const pendingTransition = viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+    target: { bookmarkId: 'delayed-target' },
+    movement: { durationSecs: 5 },
+  });
+  assert.equal(plugin.getSnapshot().transition.active, false);
+
+  viewer.requestViewState({ observerPc: { x: 25, y: 0, z: 0 } }, 'test:resolved-pose');
+  viewer.update(0);
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 25, y: 0, z: 0 });
+
+  targetGate.resolve({ x: 50, y: 0, z: 0 });
+  await pendingTransition;
+  viewer.update(0);
+  viewer.update(0);
+  assert.deepEqual(viewer.getViewState().observerPc, { x: 25, y: 0, z: 0 });
+
+  await viewer.dispose();
+});
+
+test('pending look transitions rebase resolved aim onto the post-resolution pose', async () => {
+  const lookGate = createDeferred();
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [createSkykitNavigationPlugin({
+      resolveBookmark(bookmarkId) {
+        return bookmarkId === 'delayed-look' ? lookGate.promise : null;
+      },
+    })],
+  });
+
+  const pendingTransition = viewer.actions.invoke(SKYKIT_ACTIONS.navigation.transitionTo, {
+    lookAt: { bookmarkId: 'delayed-look' },
+    orientation: { durationSecs: 1 },
+  });
+  viewer.requestViewState({ observerPc: { x: 5, y: 0, z: 0 } }, 'test:resolved-look-pose');
+  viewer.update(0);
+  viewer.update(0);
+
+  lookGate.resolve({ targetPc: { x: 10, y: 10, z: 0 } });
+  await pendingTransition;
+  viewer.update(1);
+  viewer.update(0);
+  assertVectorApprox(
+    localVectorFromView(viewer.getViewState(), { x: 0, y: 0, z: -1 }),
+    { x: 1 / Math.sqrt(5), y: 2 / Math.sqrt(5), z: 0 },
+  );
+
+  await viewer.dispose();
+});
+
+test('async navigation resolution applies only the newest command on each lane', async () => {
+  const slowTarget = createDeferred();
+  const fastTarget = createDeferred();
+  const movementAfterLook = createDeferred();
+  const routes = [];
+  const aims = [];
+  const navigation = {
+    flyRoute(route) { routes.push(route); },
+    orbit() {},
+    lookAt(aim) { aims.push(aim); },
+    lockAt() {},
+    unlockAt() {},
+    cancelMovement() {},
+    cancelOrientation() {},
+    cancel() {},
+    update({ pose }) { return pose; },
+    getFrameState() { return null; },
+    getDiagnostics() { return null; },
+    dispose() {},
+  };
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [createSkykitNavigationPlugin({
+      navigation,
+      resolveTarget(input) {
+        if (input?.id === 'slow') return slowTarget.promise;
+        if (input?.id === 'fast') return fastTarget.promise;
+        if (input?.id === 'movement-after-look') return movementAfterLook.promise;
+        return undefined;
+      },
+    })],
+  });
+
+  const slowAction = viewer.actions.invoke(SKYKIT_ACTIONS.navigation.flyTo, { id: 'slow' });
+  const fastAction = viewer.actions.invoke(SKYKIT_ACTIONS.navigation.flyTo, { id: 'fast' });
+  fastTarget.resolve({ x: 20, y: 0, z: 0 });
+  await fastAction;
+  slowTarget.resolve({ x: -20, y: 0, z: 0 });
+  await slowAction;
+  assert.equal(routes.length, 1);
+  assert.deepEqual(routes[0].pointsPc.at(-1), { x: 20, y: 0, z: 0 });
+
+  const movementAction = viewer.actions.invoke(SKYKIT_ACTIONS.navigation.flyTo, { id: 'movement-after-look' });
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.lookAt, { raDeg: 90, decDeg: 0 });
+  movementAfterLook.resolve({ x: 30, y: 0, z: 0 });
+  await movementAction;
+  assert.equal(routes.length, 2);
+  assert.equal(aims.length, 1);
+
+  await viewer.dispose();
+});
+
+test('navigation cancellation invalidates commands with pending resolvers', async () => {
+  const targetGate = createDeferred();
+  const routes = [];
+  let cancelCount = 0;
+  const navigation = {
+    flyRoute(route) { routes.push(route); },
+    orbit() {},
+    lookAt() {},
+    lockAt() {},
+    unlockAt() {},
+    cancelMovement() {},
+    cancelOrientation() {},
+    cancel() { cancelCount += 1; },
+    update({ pose }) { return pose; },
+    getFrameState() { return null; },
+    getDiagnostics() { return null; },
+    dispose() {},
+  };
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [createSkykitNavigationPlugin({
+      navigation,
+      resolveTarget: () => targetGate.promise,
+    })],
+  });
+
+  const pendingAction = viewer.actions.invoke(SKYKIT_ACTIONS.navigation.flyTo, { id: 'pending' });
+  await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.cancel);
+  targetGate.resolve({ x: 10, y: 0, z: 0 });
+  await pendingAction;
+  assert.equal(cancelCount, 1);
+  assert.deepEqual(routes, []);
+
   await viewer.dispose();
 });
 
@@ -1611,22 +2122,22 @@ test('navigation transition action restores pose with independent lane durations
 test('spatial preload hints map to star-octree requests without exposing provider internals', () => {
   const hints = [
     {
-      kind: 'path-volume',
+      kind: 'pathVolume',
       pointsPc: [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }],
       radiusPc: 2,
     },
     {
-      kind: 'sphere-volume',
+      kind: 'sphereVolume',
       centerPc: { x: 1, y: 2, z: 3 },
       radiusPc: 4,
     },
     {
-      kind: 'view-lookahead',
+      kind: 'viewLookahead',
       pose: {
-        position: { x: 0, y: 0, z: 0 },
-        orientation: { x: 0, y: 0, z: 0, w: 1 },
+        observerPc: { x: 0, y: 0, z: 0 },
+        orientationIcrs: { x: 0, y: 0, z: 0, w: 1 },
       },
-      velocity: { x: 1, y: 0, z: 0 },
+      velocityPcPerSec: { x: 1, y: 0, z: 0 },
       lookaheadSecs: 5,
     },
   ];
@@ -1760,10 +2271,10 @@ test('sky orbit plugin orbits around the target and cleans pointer listeners', a
     sensitivityRadiansPerPixel: 0.01,
   });
   const observerPc = { x: 0, y: 0, z: -10 };
-  const orientationIcrs = computeSpatialLookAtOrientation({
-    position: observerPc,
-    target: center,
-    up: { x: 0, y: 1, z: 0 },
+  const orientationIcrs = computeSkykitLookAtOrientation({
+    observerPc,
+    targetPc: center,
+    upIcrs: { x: 0, y: 1, z: 0 },
   });
   const viewer = await createSkykitViewer({
     renderer: createRenderer(),
@@ -1812,9 +2323,9 @@ test('sky orbit plugin orbits around the target and cleans pointer listeners', a
 
 test('sky orbit plugin ignores pointer down without a concrete center', async () => {
   const center = { x: 0, y: 0, z: 0 };
-  const orientationIcrs = computeSpatialLookAtOrientation({
-    position: { x: 0, y: 0, z: -10 },
-    target: center,
+  const orientationIcrs = computeSkykitLookAtOrientation({
+    observerPc: { x: 0, y: 0, z: -10 },
+    targetPc: center,
   });
   const target = createEventTarget();
   const plugin = createSkyOrbitPlugin({ target });
@@ -1838,9 +2349,9 @@ test('sky orbit plugin ignores pointer down without a concrete center', async ()
 test('sky orbit plugin resolves centerPc shorthand and lets center win over centerPc', async () => {
   const center = { x: 0, y: 0, z: 0 };
   const ignoredCenter = { x: 2, y: 0, z: 0 };
-  const orientationIcrs = computeSpatialLookAtOrientation({
-    position: { x: 0, y: 0, z: -10 },
-    target: center,
+  const orientationIcrs = computeSkykitLookAtOrientation({
+    observerPc: { x: 0, y: 0, z: -10 },
+    targetPc: center,
   });
   const shorthandTarget = createEventTarget();
   const shorthandPlugin = createSkyOrbitPlugin({
@@ -1927,10 +2438,10 @@ test('sky orbit plugin carries a rolled camera up vector through drag look-at or
   const center = { x: 0, y: 0, z: 0 };
   const observerPc = { x: 0, y: 0, z: -10 };
   const rolledUp = normalizeVector({ x: 1, y: 1, z: 0 });
-  const orientationIcrs = computeSpatialLookAtOrientation({
-    position: observerPc,
-    target: center,
-    up: rolledUp,
+  const orientationIcrs = computeSkykitLookAtOrientation({
+    observerPc,
+    targetPc: center,
+    upIcrs: rolledUp,
   });
   const initialUp = applyQuaternion(LOCAL_UP, orientationIcrs);
   const target = createEventTarget();

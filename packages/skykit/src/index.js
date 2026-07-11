@@ -26,7 +26,7 @@ export {
   parseDeclination,
   parseRightAscension,
   parseSpatialLookAtText,
-} from '@found-in-space/spatial';
+} from './spatial-adapter.js';
 export { createSkykitHrDiagramPlugin } from './hr-diagram.js';
 export { createObject3dLayer } from './layers.js';
 export { createDesktopSkykitObserverRig } from './observer-rig.js';

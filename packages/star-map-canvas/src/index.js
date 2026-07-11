@@ -1,6 +1,6 @@
 import {
   icrsToRaDec as starPositionToRaDec,
-  projectEquirectangular,
+  projectSpatialEquirectangular,
 } from '@found-in-space/spatial';
 import {
   apparentMagnitude,
@@ -516,7 +516,7 @@ export function projectRaDecEquirectangular(raDec, context) {
   if (!raDec) {
     return null;
   }
-  const projected = projectEquirectangular({
+  const projected = projectSpatialEquirectangular({
     raDeg: raDec.raDeg,
     decDeg: raDec.decDeg,
     width: context.width,

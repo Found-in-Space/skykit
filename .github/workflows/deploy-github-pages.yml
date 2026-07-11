@@ -37,6 +37,11 @@ jobs:
           test -f dist/index.html
           test -f dist/apps/examples/free-roam/index.html
           test -f dist/apps/examples/xr-free-roam/index.html
+          test -f dist/packages/spatial/examples/index.html
+          test -f dist/packages/spatial/examples/coordinates-aim/index.html
+          test -f dist/packages/spatial/examples/routes-orbits/index.html
+          test -f dist/packages/spatial/examples/paths-transitions/index.html
+          test -f dist/packages/spatial/examples/motion-automation/index.html
           test -f dist/demos/dust-roam.html
           test -f dist/demos/h-alpha-volume.html
           npm run verify:pages-urls -- dist

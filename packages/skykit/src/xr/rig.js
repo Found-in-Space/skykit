@@ -1,10 +1,9 @@
 import * as THREE from 'three';
 import {
-  clonePose,
-  cloneVector3,
-  normalizePose,
-  normalizeScaleProfile,
-  normalizeVector3,
+  cloneSpatialPose,
+  cloneSpatialVector3,
+  normalizeSpatialPose,
+  normalizeSpatialScaleProfile,
 } from '@found-in-space/spatial';
 
 const DEFAULT_DECK_OFFSET = Object.freeze({ x: 0, y: -1.6, z: 0.5 });
@@ -15,8 +14,8 @@ const DEFAULT_DECK_OFFSET = Object.freeze({ x: 0, y: -1.6, z: 0.5 });
  */
 export function createSkykitXrRig(options = {}) {
   const id = options.id ?? 'found-in-space-xr-rig';
-  const scaleProfile = normalizeScaleProfile(options.scaleProfile);
-  const deckOffset = normalizeVector3(options.deckOffset, DEFAULT_DECK_OFFSET);
+  const scaleProfile = normalizeSpatialScaleProfile(options.scaleProfile);
+  const deckOffset = normalizePartialVector3(options.deckOffset, DEFAULT_DECK_OFFSET);
   const originContentRoot = namedGroup(`${id}:origin-content-root`);
   const observerContentRoot = namedGroup(`${id}:observer-content-root`);
   const navigationRoot = namedGroup(`${id}:navigation-root`);
@@ -30,7 +29,7 @@ export function createSkykitXrRig(options = {}) {
   /** @type {Record<string, THREE.Group>} */
   const scaleBandedContentRoots = {};
   /** @type {import('../xr.d.ts').SkykitXrPose} */
-  let navigationPose = normalizePose(options.navigationPose ?? {});
+  let navigationPose = normalizeSpatialPose(options.navigationPose ?? {});
   let disposed = false;
 
   navigationRoot.add(shipMountRoot);
@@ -99,27 +98,27 @@ export function createSkykitXrRig(options = {}) {
    */
   function setNavigationPose(pose) {
     assertActive();
-    navigationPose = normalizePose({
-      position: pose.position ?? navigationPose.position,
-      orientation: pose.orientation ?? navigationPose.orientation,
+    navigationPose = normalizeSpatialPose({
+      observerPc: pose.observerPc ?? navigationPose.observerPc,
+      orientationIcrs: pose.orientationIcrs ?? navigationPose.orientationIcrs,
     });
     const worldScale = scaleProfile.worldUnitsPerNavigationUnit;
     navigationRoot.position.set(
-      navigationPose.position.x * worldScale,
-      navigationPose.position.y * worldScale,
-      navigationPose.position.z * worldScale,
+      navigationPose.observerPc.x * worldScale,
+      navigationPose.observerPc.y * worldScale,
+      navigationPose.observerPc.z * worldScale,
     );
     navigationRoot.quaternion.set(
-      navigationPose.orientation.x,
-      navigationPose.orientation.y,
-      navigationPose.orientation.z,
-      navigationPose.orientation.w,
+      navigationPose.orientationIcrs.x,
+      navigationPose.orientationIcrs.y,
+      navigationPose.orientationIcrs.z,
+      navigationPose.orientationIcrs.w,
     );
     syncObserverContentRoot();
   }
 
   function getNavigationPose() {
-    return clonePose(navigationPose);
+    return cloneSpatialPose(navigationPose);
   }
 
   /**
@@ -127,7 +126,7 @@ export function createSkykitXrRig(options = {}) {
    */
   function setScaleProfile(nextProfile) {
     assertActive();
-    const normalized = normalizeScaleProfile(nextProfile);
+    const normalized = normalizeSpatialScaleProfile(nextProfile);
     scaleProfile.navigationUnits = normalized.navigationUnits;
     scaleProfile.metersPerNavigationUnit = normalized.metersPerNavigationUnit;
     scaleProfile.worldUnitsPerNavigationUnit = normalized.worldUnitsPerNavigationUnit;
@@ -141,9 +140,9 @@ export function createSkykitXrRig(options = {}) {
   function syncObserverContentRoot() {
     const worldScale = scaleProfile.worldUnitsPerNavigationUnit;
     observerContentRoot.position.set(
-      navigationPose.position.x * worldScale,
-      navigationPose.position.y * worldScale,
-      navigationPose.position.z * worldScale,
+      navigationPose.observerPc.x * worldScale,
+      navigationPose.observerPc.y * worldScale,
+      navigationPose.observerPc.z * worldScale,
     );
     observerContentRoot.quaternion.identity();
     observerContentRoot.scale.setScalar(1);
@@ -161,9 +160,9 @@ export function createSkykitXrRig(options = {}) {
     return {
       id,
       disposed,
-      navigationPose: clonePose(navigationPose),
+      navigationPose: cloneSpatialPose(navigationPose),
       scaleProfile: { ...scaleProfile },
-      deckOffset: cloneVector3(deckOffset),
+      deckOffset: cloneSpatialVector3(deckOffset),
       rootNames: {
         originContentRoot: originContentRoot.name,
         observerContentRoot: observerContentRoot.name,
@@ -217,4 +216,24 @@ function namedGroup(name) {
   const group = new THREE.Group();
   group.name = name;
   return group;
+}
+
+/**
+ * @param {Partial<import('../xr.d.ts').SkykitXrVector3> | null | undefined} value
+ * @param {import('../xr.d.ts').SkykitXrVector3} fallback
+ */
+function normalizePartialVector3(value, fallback) {
+  if (value == null) return { ...fallback };
+  if (!value || typeof value !== 'object') {
+    throw new TypeError('Expected a vector object.');
+  }
+  const vector = {
+    x: value.x === undefined ? fallback.x : Number(value.x),
+    y: value.y === undefined ? fallback.y : Number(value.y),
+    z: value.z === undefined ? fallback.z : Number(value.z),
+  };
+  if (![vector.x, vector.y, vector.z].every(Number.isFinite)) {
+    throw new RangeError('Vector components must be finite numbers.');
+  }
+  return vector;
 }

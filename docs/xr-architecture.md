@@ -50,10 +50,10 @@ spatial package owns this dependency-free layer.
 - target resolution for vectors, RA/Dec forms, and application-resolved
   bookmarks.
 - polyline routes and distance sampling.
-- smooth fly-to and route-follow motion.
+- canonical route planning and route-follow automation with explicit timing.
 - orbit and orbital-insertion helpers.
 - look-at and lock-at orientation automation.
-- direct, inertial, thrust, and fly-to motion models.
+- distinct direct, inertial, and thrust manual motion models.
 - `createSpatialNavigationAutomation()` for movement and orientation lanes.
 
 Spatial does not own:
@@ -181,7 +181,7 @@ Spatial navigation:
 ```js
 import {
   createSpatialNavigationAutomation,
-  computeSpatialLookAtOrientation,
+  evaluateSpatialAim,
   raDecDistanceToIcrs,
 } from '@found-in-space/spatial';
 ```
@@ -217,9 +217,9 @@ Implemented in `@found-in-space/spatial`:
 - RA/Dec/ICRS coordinate helpers and equirectangular projection.
 - vector, RA/Dec, and bookmark target resolution.
 - polyline routes and route sampling.
-- smooth fly-to, route-follow, orbit, orbital insertion, look-at, and lock-at
-  automation.
-- direct, inertial, thrust, and fly-to motion models.
+- route-follow, orbit, orbital-insertion, look-at, and lock-at automation over
+  canonical spatial objects.
+- distinct direct, inertial, and thrust manual motion models.
 - timed tracks, smooth paths, and materialized preload hints.
 
 Implemented in `@found-in-space/skykit`:

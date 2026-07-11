@@ -1,0 +1,154 @@
+.routes-orbits-layout .control-panel {
+  overflow-y: auto;
+}
+
+.routes-orbits-layout header p:last-child,
+.control-note {
+  max-width: 52ch;
+}
+
+.control-note {
+  min-height: 2.8em;
+  margin: 12px 0 0;
+  color: var(--text-muted, #9fb3c8);
+  font-size: 0.86rem;
+}
+
+.scrubber {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.scrubber > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.scrubber output {
+  color: var(--accent-strong, #9fe9ff);
+  font-variant-numeric: tabular-nums;
+}
+
+.scrubber input {
+  width: 100%;
+}
+
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 12px;
+}
+
+.route-card,
+.timing-card {
+  padding: 14px;
+}
+
+.route-card {
+  margin-bottom: 14px;
+}
+
+.json-grid h2 {
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+}
+
+.card-heading h2,
+.card-heading p {
+  margin: 0;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 14px;
+  color: var(--text-muted, #9fb3c8);
+  font-size: 0.78rem;
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend i {
+  width: 18px;
+  height: 3px;
+  border-radius: 999px;
+  background: #fff;
+}
+
+.legend .legend-route {
+  background: #73d5ff;
+}
+
+.legend .legend-orbit {
+  background: #7b86a3;
+}
+
+.legend .legend-radius {
+  background: #c5a7ff;
+}
+
+.legend .legend-tangent {
+  background: #73f0c1;
+}
+
+.legend .legend-observer {
+  height: 9px;
+  width: 9px;
+  background: #ffd479;
+}
+
+.legend .legend-velocity {
+  background: #ff8e71;
+}
+
+.route-canvas,
+.timing-canvas {
+  display: block;
+  width: 100%;
+  border-radius: 14px;
+  background: rgba(2, 7, 14, 0.88);
+}
+
+.route-canvas {
+  height: clamp(360px, 55vh, 620px);
+}
+
+.timing-canvas {
+  height: 250px;
+}
+
+.error-message {
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 111, 111, 0.45);
+  border-radius: 12px;
+  background: rgba(110, 20, 30, 0.28);
+  color: #ffc1c1;
+}
+
+@media (max-width: 720px) {
+  .card-heading {
+    display: grid;
+  }
+
+  .legend {
+    justify-content: flex-start;
+  }
+
+  .route-canvas {
+    height: 380px;
+  }
+}

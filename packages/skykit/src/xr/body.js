@@ -1,11 +1,11 @@
 import {
-  applyQuaternion,
-  clonePose,
-  cloneQuaternion,
-  cloneVector3,
-  IDENTITY_QUATERNION,
-  LOCAL_FORWARD,
-  normalizePose,
+  applySpatialQuaternion,
+  cloneSpatialPose,
+  cloneSpatialQuaternion,
+  cloneSpatialVector3,
+  SPATIAL_IDENTITY_QUATERNION,
+  SPATIAL_LOCAL_FORWARD,
+  normalizeSpatialPose,
 } from '@found-in-space/spatial';
 
 /**
@@ -19,7 +19,7 @@ export function createSkykitXrBodyTracker(options = {}) {
     head: null,
     leftHand: null,
     rightHand: null,
-    ship: normalizePose(options.shipPose ?? {}),
+    ship: normalizeSpatialPose(options.shipPose ?? {}),
     torso: null,
   };
   let disposed = false;
@@ -50,8 +50,8 @@ export function createSkykitXrBodyTracker(options = {}) {
       leftHand: null,
       rightHand: null,
       ship: context.shipPose
-        ? normalizePose(context.shipPose)
-        : context.rig?.getNavigationPose?.() ?? clonePose(body.ship),
+        ? normalizeSpatialPose(context.shipPose)
+        : context.rig?.getNavigationPose?.() ?? cloneSpatialPose(body.ship),
       torso: null,
     };
 
@@ -106,7 +106,7 @@ export function createSkykitXrBodyTracker(options = {}) {
       head: null,
       leftHand: null,
       rightHand: null,
-      ship: normalizePose({}),
+      ship: normalizeSpatialPose({}),
       torso: null,
     };
   }
@@ -150,9 +150,9 @@ export function poseFromTransform(transform) {
   if (!t.position && !t.orientation) {
     return null;
   }
-  return normalizePose({
-    position: t.position,
-    orientation: t.orientation ?? IDENTITY_QUATERNION,
+  return normalizeSpatialPose({
+    observerPc: t.position,
+    orientationIcrs: t.orientation ?? SPATIAL_IDENTITY_QUATERNION,
   });
 }
 
@@ -163,12 +163,12 @@ export function poseFromTransform(transform) {
 function writeObjectPose(object, pose) {
   if (!object || !pose) return;
   const target = /** @type {{ position?: { set: (x: number, y: number, z: number) => void }; quaternion?: { set: (x: number, y: number, z: number, w: number) => void } }} */ (object);
-  target.position?.set(pose.position.x, pose.position.y, pose.position.z);
+  target.position?.set(pose.observerPc.x, pose.observerPc.y, pose.observerPc.z);
   target.quaternion?.set(
-    pose.orientation.x,
-    pose.orientation.y,
-    pose.orientation.z,
-    pose.orientation.w,
+    pose.orientationIcrs.x,
+    pose.orientationIcrs.y,
+    pose.orientationIcrs.z,
+    pose.orientationIcrs.w,
   );
 }
 
@@ -176,7 +176,7 @@ function writeObjectPose(object, pose) {
  * @param {import('../xr.d.ts').SkykitXrPose} pose
  */
 export function forwardFromPose(pose) {
-  return applyQuaternion(LOCAL_FORWARD, pose.orientation);
+  return applySpatialQuaternion(SPATIAL_LOCAL_FORWARD, pose.orientationIcrs);
 }
 
 /**
@@ -184,11 +184,11 @@ export function forwardFromPose(pose) {
  */
 function cloneBody(body) {
   return {
-    head: body.head ? clonePose(body.head) : null,
+    head: body.head ? cloneSpatialPose(body.head) : null,
     leftHand: body.leftHand ? cloneHand(body.leftHand) : null,
     rightHand: body.rightHand ? cloneHand(body.rightHand) : null,
-    ship: clonePose(body.ship),
-    torso: body.torso ? clonePose(body.torso) : null,
+    ship: cloneSpatialPose(body.ship),
+    torso: body.torso ? cloneSpatialPose(body.torso) : null,
   };
 }
 
@@ -198,11 +198,15 @@ function cloneBody(body) {
 function cloneHand(hand) {
   return {
     handedness: hand.handedness,
-    grip: hand.grip ? clonePose(hand.grip) : null,
-    targetRay: hand.targetRay ? clonePose(hand.targetRay) : null,
+    grip: hand.grip ? cloneSpatialPose(hand.grip) : null,
+    targetRay: hand.targetRay ? cloneSpatialPose(hand.targetRay) : null,
     buttons: hand.buttons,
     axes: hand.axes,
   };
 }
 
-export { clonePose, cloneQuaternion, cloneVector3 };
+export {
+  cloneSpatialPose as clonePose,
+  cloneSpatialQuaternion as cloneQuaternion,
+  cloneSpatialVector3 as cloneVector3,
+};

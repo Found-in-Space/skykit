@@ -1,7 +1,7 @@
 import {
   parseSpatialLookAtText,
-  resolveSpatialTarget,
-} from '@found-in-space/spatial';
+  resolveSkykitTargetSync,
+} from './spatial-adapter.js';
 
 import {
   installSkykitBrowserGlobal,
@@ -85,10 +85,7 @@ function readOptions(host) {
 /** @param {string} text */
 function parseSpatialTargetText(text) {
   const targetSpec = parseSpatialLookAtText(text);
-  const target = resolveSpatialTarget(targetSpec);
-  return target && typeof /** @type {Promise<unknown>} */ (target).then !== 'function'
-    ? target
-    : null;
+  return targetSpec ? resolveSkykitTargetSync(targetSpec) : null;
 }
 
 /**

@@ -79,8 +79,8 @@ test('xr free-roam demo uses restored alpha XR regressions defaults', () => {
   assert.match(source, /XR_CONSTELLATION_ART_RADIUS_WORLD_UNITS\s*=\s*8000/);
   assert.match(source, /createHeadGazeAnchoredImageController/);
   assert.match(source, /setViewDirectionIcrs\?\.\(resolveHeadGazeDirectionIcrs\(body, xrRig, camera\)\)/);
-  assert.match(source, /body\?\.head\?\.orientation/);
-  assert.match(source, /getNavigationPose\?\.\(\)\.orientation/);
+  assert.match(source, /body\?\.head\?\.orientationIcrs/);
+  assert.match(source, /getNavigationPose\?\.\(\)\.orientationIcrs/);
   assert.match(source, /strategy:\s*'nearest'/);
   assert.match(source, /maxAngleDeg:\s*XR_CONSTELLATION_ART_MAX_ANGLE_DEG/);
   assert.match(source, /anchorMode:\s*'observer-centric'/);
@@ -111,8 +111,8 @@ test('skykit/xr rig builds multi-root hierarchy', () => {
   const rig = createSkykitXrRig({
     camera,
     navigationPose: {
-      position: { x: 1, y: 2, z: 3 },
-      orientation: { x: 0, y: 0, z: 0, w: 1 },
+      observerPc: { x: 1, y: 2, z: 3 },
+      orientationIcrs: { x: 0, y: 0, z: 0, w: 1 },
     },
     scaleBandIds: ['galaxy'],
   });
@@ -152,8 +152,8 @@ test('skykit/xr body, rays, and pick router compose generic route results', () =
   const body = createSkykitXrBodyTracker().update({
     rig,
     shipPose: {
-      position: { x: 0, y: 0, z: 0 },
-      orientation: { x: 0, y: 0, z: 0, w: 1 },
+      observerPc: { x: 0, y: 0, z: 0 },
+      orientationIcrs: { x: 0, y: 0, z: 0, w: 1 },
     },
   });
   const raySource = createSkykitXrRaySource({ kind: 'ship-forward', length: 12 });
@@ -235,6 +235,23 @@ test('skykit/xr depth helpers compute and apply render state', () => {
   }, range);
   assert.equal(result.applied, true);
   assert.deepEqual(state, { depthNear: range.depthNear, depthFar: range.depthFar });
+});
+
+test('skykit/xr accepts partial rig offsets and both observer pose wrappers', () => {
+  const rig = createSkykitXrRig({ deckOffset: { y: -2 } });
+  assert.deepEqual(rig.getSnapshot().deckOffset, { x: 0, y: -2, z: 0.5 });
+
+  const legacy = computeSkykitXrDepthRange({
+    observer: { position: { x: 1, y: 2, z: 3 } },
+    visibleBounds: { minX: 0, minY: 0 },
+  });
+  const canonical = computeSkykitXrDepthRange({
+    observer: { observerPc: { x: 1, y: 2, z: 3 } },
+  });
+  assert.deepEqual(legacy.telemetry.observer, { x: 1, y: 2, z: 3 });
+  assert.deepEqual(canonical.telemetry.observer, legacy.telemetry.observer);
+  assert.equal(legacy.telemetry.visibleBoundsCount, 0);
+  rig.dispose();
 });
 
 test('skykit/xr depth helpers include distant visible star bounds', () => {

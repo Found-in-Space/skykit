@@ -11,7 +11,7 @@ import {
   parseDeclination,
   parseRightAscension,
   parseSpatialLookAtText,
-} from '@found-in-space/spatial';
+} from './spatial-adapter.js';
 
 import { createSkykitAnimationLoop } from './animation-loop.js';
 import { SKYKIT_ACTIONS, SKYKIT_CONTROLS } from './actions.js';

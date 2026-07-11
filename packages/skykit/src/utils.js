@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import {
-  resolveSpatialLookAt,
-} from '@found-in-space/spatial';
+  resolveSkykitLookAt,
+  resolveSkykitLookAtSync,
+} from './spatial-adapter.js';
 
 export const DEFAULT_MAG_LIMIT = 6.5;
 export const IDENTITY_QUATERNION = Object.freeze({ x: 0, y: 0, z: 0, w: 1 });
@@ -150,16 +151,11 @@ export async function resolveViewLookAtInput(input = {}, options = {}) {
   const lookInput = input.lookAt
     ?? (input.orientationIcrs ? { orientationIcrs: input.orientationIcrs } : null);
   if (!lookInput) return input;
-  const resolved = await resolveSpatialLookAt(lookInput, {
+  const resolvedLook = await resolveSkykitLookAt(lookInput, {
     observerPc,
-    resolveStar: typeof options.resolveStar === 'function'
-      ? /** @type {import('@found-in-space/spatial').ResolveSpatialLookAtOptions['resolveStar']} */ (options.resolveStar)
-      : undefined,
-    resolveBookmark: typeof options.resolveBookmark === 'function'
-      ? /** @type {import('@found-in-space/spatial').ResolveSpatialLookAtOptions['resolveBookmark']} */ (options.resolveBookmark)
-      : undefined,
+    resolveStar: options.resolveStar,
+    resolveBookmark: options.resolveBookmark,
   });
-  const resolvedLook = /** @type {import('@found-in-space/spatial').SpatialResolvedLookAt} */ (resolved);
   return {
     ...input,
     lookAt: /** @type {import('./index.d.ts').SkykitLookAtInput | null} */ (resolvedLook.lookAt),
@@ -185,19 +181,18 @@ function resolveViewLook(input, observerPc, options = {}) {
       orientationIcrs: null,
     };
   }
-  const resolved = resolveSpatialLookAt(lookInput, {
+  const syncLookInput = lookInput
+    && typeof lookInput === 'object'
+    && 'star' in lookInput
+    && !('targetPc' in lookInput)
+    && input.targetPc != null
+    ? { ...lookInput, targetPc: input.targetPc }
+    : lookInput;
+  const resolvedLook = resolveSkykitLookAtSync(syncLookInput, {
     observerPc,
-    resolveStar: typeof options.resolveStar === 'function'
-      ? /** @type {import('@found-in-space/spatial').ResolveSpatialLookAtOptions['resolveStar']} */ (options.resolveStar)
-      : undefined,
-    resolveBookmark: typeof options.resolveBookmark === 'function'
-      ? /** @type {import('@found-in-space/spatial').ResolveSpatialLookAtOptions['resolveBookmark']} */ (options.resolveBookmark)
-      : undefined,
+    resolveStar: options.resolveStar,
+    resolveBookmark: options.resolveBookmark,
   });
-  if (resolved && typeof /** @type {Promise<unknown>} */ (resolved).then === 'function') {
-    throw new TypeError('normalizeViewState() received an async lookAt resolver result.');
-  }
-  const resolvedLook = /** @type {import('@found-in-space/spatial').SpatialResolvedLookAt} */ (resolved);
   return {
     lookAt: /** @type {import('./index.d.ts').SkykitLookAtInput | null} */ (cloneLookAt(resolvedLook.lookAt)),
     targetPc: resolvedLook.targetPc

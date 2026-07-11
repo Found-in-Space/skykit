@@ -139,9 +139,9 @@ packages/skykit/examples/
 ```txt
 @found-in-space/spatial
   implemented: dependency-free coordinate conversion, target resolution, poses,
-  routes, smooth paths, timed pose tracks, materialized warm/preload hints, smooth
-  fly-to/route-follow, orbit, orbital insertion, look-at, lock-at, and motion
-  models
+  routes, smooth paths, timed pose tracks, materialized warm/preload hints,
+  route-follow/orbit/orbital-insertion automation, look-at, lock-at, and distinct
+  direct/inertial/thrust motion models
 
 @found-in-space/skykit-studio (sibling project)
   implemented: standalone alpha camera timeline editor, editor document/state

@@ -1,19 +1,19 @@
 import {
-  addVectors,
-  applyQuaternion,
-  cloneVector3,
-  computeSpatialLookAtOrientation,
-  IDENTITY_QUATERNION,
-  LOCAL_FORWARD,
-  LOCAL_RIGHT,
-  LOCAL_UP,
-  normalizeDirection,
-  normalizeQuaternion,
-  normalizeVector3,
-  scaleVector,
-  subtractVectors,
-  vectorLength,
+  addSpatialVectors as addVectors,
+  applySpatialQuaternion as applyQuaternion,
+  cloneSpatialVector3 as cloneVector3,
+  SPATIAL_IDENTITY_QUATERNION as IDENTITY_QUATERNION,
+  SPATIAL_LOCAL_FORWARD as LOCAL_FORWARD,
+  SPATIAL_LOCAL_RIGHT as LOCAL_RIGHT,
+  SPATIAL_LOCAL_UP as LOCAL_UP,
+  normalizeSpatialDirection as normalizeDirection,
+  normalizeSpatialQuaternion as normalizeQuaternion,
+  normalizeSpatialVector3 as normalizeVector3,
+  scaleSpatialVector as scaleVector,
+  subtractSpatialVectors as subtractVectors,
+  getSpatialVectorLength as vectorLength,
 } from '@found-in-space/spatial';
+import { computeSkykitLookAtOrientation } from './spatial-adapter.js';
 
 import { SKYKIT_ACTIONS, SKYKIT_CONTROLS } from './actions.js';
 import { finiteNumber, positiveFinite } from './utils.js';
@@ -263,10 +263,10 @@ export function createParallaxObserverPlugin(options = {}) {
         patch.targetPc = currentTargetPc;
       }
       if (lockTarget && currentTargetPc) {
-        const orientation = computeSpatialLookAtOrientation({
-          position: observerPc,
-          target: currentTargetPc,
-          up: basis.up,
+        const orientation = computeSkykitLookAtOrientation({
+          observerPc,
+          targetPc: currentTargetPc,
+          upIcrs: basis.up,
         });
         if (orientation && !sameQuaternion(view.orientationIcrs, orientation) && !sameQuaternion(lastOrientationIcrs, orientation)) {
           patch.orientationIcrs = orientation;

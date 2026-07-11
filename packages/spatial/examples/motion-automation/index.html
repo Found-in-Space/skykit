@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Compare spatial motion models and semantic navigation automation." />
+    <title>Motion &amp; Automation · Spatial Package Labs</title>
+    <link rel="stylesheet" href="../shared.css" />
+    <link rel="stylesheet" href="./motion-automation.css" />
+  </head>
+  <body>
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Spatial Lab 04</p>
+        <h1>Motion &amp; automation</h1>
+        <p class="lede">
+          Feed one control stream to three manual motion models, then review how semantic route,
+          orbit, and aim commands occupy independent navigation lanes.
+        </p>
+      </div>
+      <nav class="page-nav" aria-label="Spatial lab navigation">
+        <a href="%BASE_URL%packages/spatial/examples/index.html">Labs</a>
+        <a href="%BASE_URL%packages/spatial/examples/coordinates-aim/index.html">Coordinates</a>
+        <a href="%BASE_URL%packages/spatial/examples/routes-orbits/index.html">Routes</a>
+        <a href="%BASE_URL%packages/spatial/examples/paths-transitions/index.html">Paths</a>
+        <a href="%BASE_URL%packages/spatial/examples/motion-automation/index.html" aria-current="page">Motion</a>
+      </nav>
+    </header>
+
+    <main class="demo-layout">
+      <aside class="control-panel">
+        <h2>Shared manual controls</h2>
+        <p class="muted">The same canonical axes and buttons are read by every model.</p>
+
+        <div class="control-grid">
+          <label>
+            Strafe axis <output data-readout="move-x">0.00</output>
+            <input data-control="move-x" type="range" min="-1" max="1" step="0.05" value="0" />
+          </label>
+          <label>
+            Forward axis <output data-readout="move-y">1.00</output>
+            <input data-control="move-y" type="range" min="-1" max="1" step="0.05" value="1" />
+          </label>
+          <label>
+            Yaw / roll axis <output data-readout="attitude-x">0.00</output>
+            <input data-control="attitude-x" type="range" min="-1" max="1" step="0.05" value="0" />
+          </label>
+          <label>
+            Pitch axis <output data-readout="attitude-y">0.00</output>
+            <input data-control="attitude-y" type="range" min="-1" max="1" step="0.05" value="0" />
+          </label>
+          <label class="checkbox"><input data-control="boost" type="checkbox" /> Boost</label>
+          <label class="checkbox"><input data-control="roll" type="checkbox" /> Treat horizontal attitude as roll</label>
+        </div>
+
+        <div class="toolbar" aria-label="Manual control presets">
+          <button type="button" data-action="forward">Forward</button>
+          <button type="button" data-action="turn">Turn</button>
+          <button type="button" data-action="coast">Release</button>
+          <button type="button" data-action="reset-motion">Reset trails</button>
+        </div>
+
+        <p class="hint">
+          Release the axis after accelerating: direct motion stops immediately, while inertial
+          damping and thrust drag decay their stored velocity.
+        </p>
+
+        <h2 class="section-heading">Navigation lanes</h2>
+        <div class="toolbar nav-actions">
+          <button class="primary" type="button" data-nav-action="route">Route → settle → orbit</button>
+          <button type="button" data-nav-action="orbit">Orbit now</button>
+          <button type="button" data-nav-action="lock">Lock center</button>
+          <button type="button" data-nav-action="look">Look +Z</button>
+          <button type="button" data-nav-action="cancel-movement">Cancel movement</button>
+          <button type="button" data-nav-action="cancel-orientation">Cancel orientation</button>
+          <button type="button" data-nav-action="reset">Reset automation</button>
+        </div>
+        <label class="checkbox">
+          <input data-control="manual-look" type="checkbox" /> Manual-look override
+        </label>
+        <p class="hint">
+          Cancel movement while a lock remains, or cancel orientation while orbiting, to verify
+          that automation lanes are independent. “Orbit now” intentionally snaps to the nearest
+          angle on the authored radius; use the route command to review a continuous approach.
+        </p>
+      </aside>
+
+      <section class="visual-panel">
+        <div class="canvas-card">
+          <header>
+            <h2>Manual model comparison</h2>
+            <span class="status-pill" data-status="manual" role="status" aria-live="polite">driving</span>
+          </header>
+          <canvas data-canvas="motion" width="1100" height="430" aria-label="Trails for direct, inertial, and thrust spatial motion"></canvas>
+        </div>
+
+        <div class="motion-readouts" data-readouts="motion"></div>
+
+        <div class="canvas-card automation-card">
+          <header>
+            <h2>Semantic navigation automation</h2>
+            <span class="status-pill" data-status="navigation" role="status" aria-live="polite">idle</span>
+          </header>
+          <canvas data-canvas="navigation" width="1100" height="400" aria-label="Route, orbit, aim, and navigation state"></canvas>
+        </div>
+
+        <dl class="readout-grid" data-readouts="navigation">
+          <div class="readout"><dt>Movement</dt><dd data-nav-readout="movement">idle</dd></div>
+          <div class="readout"><dt>Aim</dt><dd data-nav-readout="aim">none</dd></div>
+          <div class="readout"><dt>Speed</dt><dd data-nav-readout="speed">0 pc/s</dd></div>
+          <div class="readout"><dt>Arrival</dt><dd data-nav-readout="arrival">none</dd></div>
+        </dl>
+
+        <div class="json-grid">
+          <section>
+            <h3>Command summary</h3>
+            <pre data-json="commands"></pre>
+          </section>
+          <section>
+            <h3>Navigation diagnostics</h3>
+            <pre data-json="diagnostics"></pre>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./motion-automation.js"></script>
+  </body>
+</html>
