@@ -20,6 +20,7 @@ import {
   createPoseAnchoredPanelDriver,
   createScenePanelDriver,
 } from '@found-in-space/touch-os/hosts/three';
+import * as THREE from 'three';
 
 import { SKYKIT_ACTIONS } from './actions.js';
 
@@ -38,6 +39,7 @@ const DEFAULT_PANEL_DRIVER_OPTIONS = Object.freeze({
   pointerClaimPolicy: 'block-on-hit',
   transparent: true,
 });
+const DEFAULT_ACTION_OUTPUT_MODE = 'raw-actions';
 const DEFAULT_TABLET_LAUNCHER_LAYOUT = Object.freeze({
   tileWidth: 84,
   tileHeight: 88,
@@ -229,6 +231,23 @@ export function createTouchOsHudPlugin(options) {
   if (!options || typeof options !== 'object') {
     throw new TypeError('createTouchOsHudPlugin requires options.');
   }
+  if (options.driver !== undefined && options.runtime === undefined) {
+    throw new TypeError(
+      'createTouchOsHudPlugin requires the driver\'s DisplayRuntime when a driver is supplied.',
+    );
+  }
+  if (
+    options.driver !== undefined
+    && (options.createDriver !== undefined || options.driverOptions !== undefined)
+  ) {
+    throw new TypeError(
+      'createTouchOsHudPlugin cannot apply createDriver or driverOptions to a supplied driver.',
+    );
+  }
+  assertUnmanagedTouchOsDriverOptions(
+    options.driverOptions,
+    'createTouchOsHudPlugin',
+  );
 
   const id = options.id ?? DEFAULT_HUD_ID;
   const enabled = options.enabled !== false;
@@ -245,59 +264,75 @@ export function createTouchOsHudPlugin(options) {
 
       const createRuntimeImpl = options.createRuntime ?? createRuntime;
       const createDriverImpl = options.createDriver ?? createHudPanelDriver;
+      const runtimeWasSupplied = options.runtime !== undefined;
       const runtime = options.runtime ?? createRuntimeImpl({
         ...(options.runtimeOptions ?? {}),
         root: initialRoot,
         surface: initialRootContext.surfaceMetrics,
       });
+      const driverWasSupplied = options.driver !== undefined;
       const driver = options.driver ?? createDriverImpl({
         ...DEFAULT_DRIVER_OPTIONS,
         ...(options.driverOptions ?? {}),
         runtime,
       });
+      const disposeRuntime = options.disposeRuntime ?? !runtimeWasSupplied;
+      const disposeDriver = options.disposeDriver ?? !driverWasSupplied;
       const pointerEventTypes = resolvePointerEventTypes(options.pointerEvents);
       const activePointers = new Set();
+      /** @type {import('@found-in-space/touch-os/hosts/three').ThreePanelHostInputEvent[]} */
+      const pendingEvents = [];
       let latestFrame = null;
+      let latestTimestamp = 0;
       let currentRoot = initialRoot;
       let attached = false;
       let disposed = false;
+      let driverDisposed = false;
 
       const part = {
         id,
         attach() {
           if (attached || disposed) return;
-          attached = true;
           driver.attach();
           for (const eventType of pointerEventTypes) {
             target.addEventListener(eventType, onPointerEvent, true);
           }
+          attached = true;
         },
         update(frame) {
-          if (disposed) return;
+          if (disposed || !attached) return;
           latestFrame = frame;
+          latestTimestamp = skykitFrameTimestamp(frame);
           const rootContext = createRootContext(id, context, target, options, frame);
           const nextRoot = resolveTouchOsRoot(options.root, rootContext);
           if (nextRoot && nextRoot !== currentRoot) {
             currentRoot = nextRoot;
             runtime.setRoot(nextRoot);
           }
+          const events = pendingEvents.splice(0);
           driver.update(createTouchOsHostFrame(frame, target, {
             surfaceMetrics: rootContext.surfaceMetrics,
             parent: options.parent,
+            ...(events.length ? { events } : {}),
           }));
-          handleRuntimeOutputs(runtime.takeOutputs(), frame);
+          reconcileActivePointers(events);
+          drainRuntimeOutputs(frame);
+        },
+        detach() {
+          detach();
         },
         dispose() {
           if (disposed) return;
-          disposed = true;
-          for (const eventType of pointerEventTypes) {
-            target.removeEventListener(eventType, onPointerEvent, true);
+          detach();
+          if (disposeDriver && !driverDisposed) {
+            driverDisposed = true;
+            driver.dispose?.();
+            drainRuntimeOutputs(latestFrame);
           }
-          activePointers.clear();
-          driver.detach();
-          if (options.disposeRuntime !== false) {
+          if (disposeRuntime) {
             runtime.dispose();
           }
+          disposed = true;
         },
         getSnapshot() {
           return {
@@ -317,9 +352,9 @@ export function createTouchOsHudPlugin(options) {
        * @param {Event} event
        */
       function onPointerEvent(event) {
-        if (disposed || !latestFrame || !isPointerEventLike(event)) return;
+        if (disposed || !attached || !latestFrame || !isPointerEventLike(event)) return;
 
-        const hostEvent = pointerEventToTouchOs(event, target);
+        const hostEvent = pointerEventToTouchOs(event, target, latestTimestamp);
         if (!hostEvent) return;
 
         const pointerId = String(event.pointerId ?? 'default');
@@ -327,21 +362,11 @@ export function createTouchOsHudPlugin(options) {
         if (event.type === 'pointermove' && !wasActive && event.pointerType !== 'mouse') {
           return;
         }
-        const rootContext = createRootContext(id, context, target, options, latestFrame);
-        driver.update({
-          ...createTouchOsHostFrame(latestFrame, target, {
-            surfaceMetrics: rootContext.surfaceMetrics,
-            parent: options.parent,
-          }),
-          events: [hostEvent],
-        });
-
+        pendingEvents.push(hostEvent);
         const hit = driver.getHit();
         const claimed = Boolean(hit?.blocked || hit?.componentId);
         if (event.type === 'pointerdown' && claimed) activePointers.add(pointerId);
         if (event.type === 'pointerup' || event.type === 'pointercancel') activePointers.delete(pointerId);
-
-        handleRuntimeOutputs(runtime.takeOutputs(), latestFrame);
 
         if (claimed || wasActive) {
           event.preventDefault();
@@ -350,11 +375,44 @@ export function createTouchOsHudPlugin(options) {
       }
 
       /**
-       * @param {Iterable<unknown>} outputs
+       * @param {readonly import('@found-in-space/touch-os/hosts/three').ThreePanelHostInputEvent[]} events
+       */
+      function reconcileActivePointers(events) {
+        const hit = driver.getHit?.();
+        for (const event of events) {
+          const pointerId = String(event.pointerId ?? 'default');
+          if (
+            event.type === 'pointer-down'
+            && hit?.pointerId === pointerId
+            && (hit.blocked || hit.componentId)
+          ) {
+            activePointers.add(pointerId);
+          }
+          if (event.type === 'pointer-up' || event.type === 'cancel') {
+            activePointers.delete(pointerId);
+          }
+        }
+      }
+
+      function detach() {
+        if (!attached || disposed) return;
+        for (const eventType of pointerEventTypes) {
+          target.removeEventListener(eventType, onPointerEvent, true);
+        }
+        pendingEvents.length = 0;
+        activePointers.clear();
+        driver.clearPointer?.(undefined, latestTimestamp);
+        drainRuntimeOutputs(latestFrame);
+        driver.detach();
+        drainRuntimeOutputs(latestFrame);
+        attached = false;
+      }
+
+      /**
        * @param {import('./index.d.ts').SkykitThreeFrame | null} frame
        */
-      function handleRuntimeOutputs(outputs, frame) {
-        const outputList = Array.from(outputs ?? []);
+      function drainRuntimeOutputs(frame) {
+        const outputList = Array.from(runtime.takeOutputs() ?? []);
         if (typeof options.onOutput === 'function') {
           for (const output of outputList) {
             options.onOutput(output, {
@@ -370,6 +428,7 @@ export function createTouchOsHudPlugin(options) {
         }
         dispatchTouchOsActionOutputs(outputList, context.actions, {
           sourcePrefix: options.sourcePrefix,
+          actionOutputMode: options.actionOutputMode,
         });
       }
     },
@@ -387,9 +446,36 @@ export function createTouchOsPanelPlugin(options) {
   if (!options || typeof options !== 'object') {
     throw new TypeError('createTouchOsPanelPlugin requires options.');
   }
+  if (options.driverHandle !== undefined && options.runtime === undefined) {
+    throw new TypeError(
+      'createTouchOsPanelPlugin requires the driver\'s DisplayRuntime when driverHandle is supplied.',
+    );
+  }
+  if (
+    options.driverHandle !== undefined
+    && (
+      options.driver !== undefined
+      || options.createDriver !== undefined
+      || options.driverOptions !== undefined
+      || (options.pointerSources?.length ?? 0) > 0
+      || (options.skykitPointerSources?.length ?? 0) > 0
+    )
+  ) {
+    throw new TypeError(
+      'createTouchOsPanelPlugin cannot configure the kind, factory, options, or pointer sources of a supplied driverHandle.',
+    );
+  }
+  assertUnmanagedTouchOsDriverOptions(
+    options.driverOptions,
+    'createTouchOsPanelPlugin',
+  );
 
   const id = options.id ?? 'skykit-touch-os-panel';
   const enabled = options.enabled !== false;
+  const raycaster = new THREE.Raycaster();
+  const staticSurfaceMetrics = typeof options.surfaceMetrics === 'function'
+    ? null
+    : resolveTouchOsPanelSurfaceMetrics(options.surfaceMetrics ?? {});
   /** @type {import('@found-in-space/touch-os').DisplayRuntime | null} */
   let runtime = null;
   /** @type {import('@found-in-space/touch-os/hosts/three').ThreePanelDriver | null} */
@@ -398,34 +484,51 @@ export function createTouchOsPanelPlugin(options) {
   let pluginContext = null;
   /** @type {import('./index.d.ts').SkykitThreeFrame | null} */
   let latestFrame = null;
+  /** @type {ReturnType<typeof createSkykitPointerSourceState>[]} */
+  let skykitPointerSourceStates = [];
+  let latestTimestamp = 0;
   let attached = false;
   let disposed = false;
+  let shouldDisposeRuntime = false;
+  let shouldDisposeDriver = false;
+  let driverDisposed = false;
 
   const plugin = {
     id,
     setup(context) {
       if (!enabled) return;
       pluginContext = /** @type {import('./index.d.ts').SkykitThreePluginContext} */ (context);
-      const rootContext = createPanelRootContext(id, pluginContext, options, null);
+      const rootContext = createPanelRootContext(id, pluginContext, options, null, staticSurfaceMetrics);
       const initialRoot = resolveTouchOsPanelRoot(options.root, rootContext);
       if (!initialRoot) return;
 
       const createRuntimeImpl = options.createRuntime ?? createRuntime;
+      const runtimeWasSupplied = options.runtime !== undefined;
       runtime = options.runtime ?? createRuntimeImpl({
         ...(options.runtimeOptions ?? {}),
         root: initialRoot,
         surface: rootContext.surfaceMetrics,
       });
+      shouldDisposeRuntime = options.disposeRuntime ?? !runtimeWasSupplied;
 
       const createDriverImpl = options.createDriver ?? resolveTouchOsPanelDriverFactory(options.driver);
+      const driverWasSupplied = options.driverHandle !== undefined;
+      skykitPointerSourceStates = (options.skykitPointerSources ?? []).map(createSkykitPointerSourceState);
+      const pointerSources = [
+        ...(options.pointerSources ?? []).map(createCanonicalThreePointerSource),
+        ...skykitPointerSourceStates.map((state) => state.hostSource),
+      ];
       driver = options.driverHandle ?? createDriverImpl({
         ...DEFAULT_PANEL_DRIVER_OPTIONS,
         ...(options.driverOptions ?? {}),
         runtime,
         surface: rootContext.surfaceMetrics,
-        ...(options.pointerSources === undefined ? {} : { pointerSources: options.pointerSources }),
-        ...(options.parent === undefined ? {} : { parent: options.parent }),
+        ...(pointerSources.length ? { pointerSources } : {}),
+        ...(options.parent !== undefined && typeof options.parent !== 'function'
+          ? { parent: options.parent }
+          : {}),
       });
+      shouldDisposeDriver = options.disposeDriver ?? !driverWasSupplied;
 
       let currentRoot = initialRoot;
 
@@ -434,39 +537,54 @@ export function createTouchOsPanelPlugin(options) {
         priority: options.priority,
         attach() {
           if (attached || disposed) return;
-          attached = true;
           driver?.attach();
+          attached = true;
         },
         update(frame) {
-          if (disposed || !runtime || !driver || !pluginContext) return;
+          if (disposed || !attached || !runtime || !driver || !pluginContext) return;
           latestFrame = frame;
-          const nextRootContext = createPanelRootContext(id, pluginContext, options, frame);
+          latestTimestamp = skykitFrameTimestamp(frame);
+          const nextRootContext = createPanelRootContext(
+            id,
+            pluginContext,
+            options,
+            frame,
+            staticSurfaceMetrics,
+          );
           const nextRoot = resolveTouchOsPanelRoot(options.root, nextRootContext);
           if (nextRoot && nextRoot !== currentRoot) {
             currentRoot = nextRoot;
             runtime.setRoot(nextRoot);
           }
+          for (const sourceState of skykitPointerSourceStates) {
+            sourceState.sample(frame, latestTimestamp);
+          }
           driver.update(createTouchOsPanelHostFrame(frame, options, nextRootContext));
-          handleTouchOsRuntimeOutputs(runtime.takeOutputs(), options, {
-            context: pluginContext,
-            viewer: pluginContext.viewer,
-            actions: pluginContext.actions,
-            runtime,
-            driver,
-            frame,
-          });
+          drainPanelOutputs(frame);
         },
         detach() {
+          if (!attached || disposed) return;
           driver?.detach();
+          drainPanelOutputs(latestFrame);
           attached = false;
         },
         dispose() {
           if (disposed) return;
-          disposed = true;
-          driver?.detach();
-          if (options.disposeRuntime !== false) {
+          if (attached) {
+            driver?.detach();
+            drainPanelOutputs(latestFrame);
+            attached = false;
+          }
+          if (shouldDisposeDriver && driver && !driverDisposed) {
+            driverDisposed = true;
+            driver.dispose?.();
+            drainPanelOutputs(latestFrame);
+          }
+          if (shouldDisposeRuntime) {
             runtime?.dispose();
           }
+          disposed = true;
+          skykitPointerSourceStates = [];
           runtime = null;
           driver = null;
           pluginContext = null;
@@ -476,9 +594,9 @@ export function createTouchOsPanelPlugin(options) {
             id,
             attached,
             driver: options.driver ?? 'scene',
-            surfaceMetrics: latestFrame
+            surfaceMetrics: staticSurfaceMetrics ?? (latestFrame
               ? resolveTouchOsPanelSurfaceMetrics(resolvePanelSurfaceMetricsInput(options.surfaceMetrics, latestFrame))
-              : rootContext.surfaceMetrics,
+              : rootContext.surfaceMetrics),
             hit: driver?.getHit?.() ?? null,
           };
         },
@@ -495,22 +613,87 @@ export function createTouchOsPanelPlugin(options) {
     getHit() {
       return driver?.getHit?.() ?? null;
     },
-    blockRay(_ray, blockContext = {}) {
-      const hit = driver?.getHit?.() ?? null;
-      if (!hit?.blocked) return null;
-      const maxDistance = Number(blockContext.maxDistance);
-      const distance = finiteNumber(hit.length, Infinity);
-      if (Number.isFinite(maxDistance) && distance > maxDistance) return null;
+    clearPointer(pointerId) {
+      if (!driver || disposed) return;
+      if (pointerId === undefined) {
+        clearSuppliedPointerSources(options.pointerSources, skykitPointerSourceStates);
+      }
+      driver.clearPointer(pointerId, latestTimestamp);
+      drainPanelOutputs(latestFrame);
+    },
+    blockRay(ray, blockContext = {}) {
+      const mesh = driver?.host?.mesh;
+      if (!attached || !mesh || mesh.visible === false || !ray || typeof ray !== 'object') return null;
+      const origin = toThreeVector3(ray.origin);
+      const direction = toThreeVector3(ray.direction);
+      if (!origin || !direction || direction.lengthSq() === 0) return null;
+      direction.normalize();
+
+      const rayLength = nonNegativeFiniteLimit(ray.length);
+      const contextLimit = nonNegativeFiniteLimit(blockContext.maxDistance);
+      const maxDistance = Math.min(rayLength, contextLimit);
+      if (maxDistance < 0) return null;
+
+      mesh.updateWorldMatrix?.(true, false);
+      raycaster.near = 0;
+      raycaster.far = maxDistance;
+      raycaster.set(origin, direction);
+      const hit = raycaster.intersectObject(mesh, false)[0];
+      if (!hit || hit.distance > maxDistance) return null;
       return {
         blocked: true,
         consumed: true,
-        distance,
+        distance: hit.distance,
         hit,
       };
     },
   };
 
   return plugin;
+
+  /**
+   * @param {import('./index.d.ts').SkykitThreeFrame | null} frame
+   */
+  function drainPanelOutputs(frame) {
+    if (!runtime || !driver || !pluginContext) return;
+    handleTouchOsRuntimeOutputs(runtime.takeOutputs(), options, {
+      context: pluginContext,
+      viewer: pluginContext.viewer,
+      actions: pluginContext.actions,
+      runtime,
+      driver,
+      frame,
+    });
+  }
+}
+
+/**
+ * Create a pointer source whose resolver receives the complete SkyKit Three
+ * frame. Samples are copied onto SkyKit's canonical millisecond frame clock
+ * before the panel driver sees them.
+ *
+ * @param {import('./touch-os.d.ts').SkykitTouchOsPointerSourceOptions | import('./touch-os.d.ts').SkykitTouchOsPointerResolver} options
+ * @returns {import('./touch-os.d.ts').SkykitTouchOsPointerSource}
+ */
+export function createSkykitTouchOsPointerSource(options) {
+  const resolver = typeof options === 'function' ? options : options?.sample;
+  if (typeof resolver !== 'function') {
+    throw new TypeError('createSkykitTouchOsPointerSource requires a sample resolver.');
+  }
+  const clear = typeof options === 'object' && options !== null ? options.clear : undefined;
+
+  return {
+    sample(frame) {
+      return normalizeSkykitPointerSamples(resolver(frame), skykitFrameTimestamp(frame));
+    },
+    ...(typeof clear === 'function'
+      ? {
+          clear() {
+            clear();
+          },
+        }
+      : {}),
+  };
 }
 
 /**
@@ -524,21 +707,26 @@ export function createTouchOsPanelPlugin(options) {
 export function dispatchTouchOsActionOutputs(outputs, actions, options = {}) {
   let dispatched = 0;
   const sourcePrefix = options.sourcePrefix ?? 'touch-os';
+  const actionOutputMode = resolveActionOutputMode(options.actionOutputMode);
+
+  if (actionOutputMode === 'none') return 0;
 
   for (const output of outputs ?? []) {
-    if (!isTouchOsActionOutput(output)) continue;
-
-    dispatched += 1;
-    const source = `${sourcePrefix}:${output.componentId ?? output.actionId}`;
-    const metadata = { source };
-    const phase = resolveOutputPhase(output.payload);
-    if (phase === 'start') {
-      actions.press(output.actionId, output.payload, metadata);
-    } else if (phase === 'stop') {
-      actions.release(output.actionId, metadata);
-    } else {
-      void actions.invoke(output.actionId, output.payload, metadata);
+    if (actionOutputMode === 'raw-actions') {
+      if (!isTouchOsActionOutput(output)) continue;
+      dispatched += 1;
+      dispatchTouchOsAction(output.actionId, output.payload, actions, {
+        source: `${sourcePrefix}:${output.componentId ?? output.actionId}`,
+      });
+      continue;
     }
+
+    const appAction = resolveTouchOsAppAction(output);
+    if (!appAction) continue;
+    dispatched += 1;
+    dispatchTouchOsAction(appAction.name, appAction.payload, actions, {
+      source: createTouchOsAppActionSource(sourcePrefix, appAction),
+    });
   }
 
   return dispatched;
@@ -713,6 +901,7 @@ export function createSkykitTouchStatusNode(status, options = {}) {
  */
 export function createTouchOsHostFrame(frame, target, options = {}) {
   return {
+    timestamp: skykitFrameTimestamp(frame),
     scene: frame.scene,
     camera: frame.camera,
     parent: resolveParent(options.parent, frame),
@@ -730,6 +919,7 @@ export function createTouchOsHostFrame(frame, target, options = {}) {
 export function createTouchOsPanelHostFrame(frame, options, rootContext) {
   const anchorPose = resolveAnchorPose(options.anchorPose, frame);
   return {
+    timestamp: skykitFrameTimestamp(frame),
     scene: frame.scene,
     camera: frame.camera,
     parent: resolveParent(options.parent, frame),
@@ -741,9 +931,10 @@ export function createTouchOsPanelHostFrame(frame, options, rootContext) {
 /**
  * @param {Event & Partial<PointerEvent>} event
  * @param {import('./touch-os.d.ts').TouchOsHudTarget} target
+ * @param {number} [timestamp]
  * @returns {import('@found-in-space/touch-os/hosts/three').ThreePanelHostInputEvent | null}
  */
-export function pointerEventToTouchOs(event, target) {
+export function pointerEventToTouchOs(event, target, timestamp = 0) {
   const rect = target.getBoundingClientRect();
   const width = rect.width || 1;
   const height = rect.height || 1;
@@ -757,7 +948,7 @@ export function pointerEventToTouchOs(event, target) {
     pointerType: event.pointerType || 'unknown',
     ndcX: (((event.clientX ?? rect.left) - rect.left) / width) * 2 - 1,
     ndcY: -((((event.clientY ?? rect.top) - rect.top) / height) * 2 - 1),
-    timestamp: finiteNumber(event.timeStamp, now()),
+    timestamp: finiteNumber(timestamp, 0),
     pressure: event.pressure,
   };
 }
@@ -817,16 +1008,18 @@ function createRootContext(id, context, target, options, frame) {
  * @param {import('./index.d.ts').SkykitPluginContext} context
  * @param {import('./touch-os.d.ts').TouchOsPanelPluginOptions} options
  * @param {import('./index.d.ts').SkykitThreeFrame | null} frame
+ * @param {import('@found-in-space/touch-os').SurfaceMetrics | null} staticSurfaceMetrics
  * @returns {import('./touch-os.d.ts').TouchOsPanelRootContext}
  */
-function createPanelRootContext(id, context, options, frame) {
+function createPanelRootContext(id, context, options, frame, staticSurfaceMetrics) {
   return {
     id,
     context,
     viewer: context.viewer,
     frame,
     view: frame?.view ?? context.getViewState(),
-    surfaceMetrics: resolveTouchOsPanelSurfaceMetrics(resolvePanelSurfaceMetricsInput(options.surfaceMetrics, frame)),
+    surfaceMetrics: staticSurfaceMetrics
+      ?? resolveTouchOsPanelSurfaceMetrics(resolvePanelSurfaceMetricsInput(options.surfaceMetrics, frame)),
   };
 }
 
@@ -927,6 +1120,25 @@ function resolveTouchOsPanelDriverFactory(driver) {
 }
 
 /**
+ * SkyKit resolves these values from its full frame or canonical pointer-source
+ * adapters. Accepting duplicates in driverOptions would either ignore them or
+ * bypass that boundary.
+ *
+ * @param {object | undefined} driverOptions
+ * @param {string} context
+ */
+function assertUnmanagedTouchOsDriverOptions(driverOptions, context) {
+  if (!driverOptions || typeof driverOptions !== 'object') return;
+  const managedKeys = ['runtime', 'surface', 'parent', 'pointerSources'];
+  const conflicts = managedKeys.filter((key) => Object.hasOwn(driverOptions, key));
+  if (conflicts.length > 0) {
+    throw new TypeError(
+      `${context} driverOptions cannot set SkyKit-managed ${conflicts.join(', ')}.`,
+    );
+  }
+}
+
+/**
  * @param {import('./touch-os.d.ts').TouchOsPanelPluginOptions['anchorPose']} anchorPose
  * @param {import('./index.d.ts').SkykitThreeFrame} frame
  * @returns {import('@found-in-space/touch-os/hosts/three').ThreeHostPose | undefined}
@@ -934,6 +1146,122 @@ function resolveTouchOsPanelDriverFactory(driver) {
 function resolveAnchorPose(anchorPose, frame) {
   const resolved = typeof anchorPose === 'function' ? anchorPose(frame) : anchorPose;
   return resolved ?? undefined;
+}
+
+/**
+ * @param {import('./touch-os.d.ts').SkykitTouchOsPointerSource} source
+ */
+function createSkykitPointerSourceState(source) {
+  if (!source || typeof source !== 'object' || typeof source.sample !== 'function') {
+    throw new TypeError('SkyKit-aware touch-os pointer sources require sample(frame).');
+  }
+  /** @type {readonly import('@found-in-space/touch-os/hosts/three').ThreePointerSample[]} */
+  let samples = [];
+
+  return {
+    source,
+    hostSource: {
+      sample() {
+        return samples;
+      },
+      clear() {
+        samples = [];
+        source.clear?.();
+      },
+    },
+    /**
+     * @param {import('./index.d.ts').SkykitThreeFrame} frame
+     * @param {number} timestamp
+     */
+    sample(frame, timestamp) {
+      samples = normalizeSkykitPointerSamples(source.sample(frame), timestamp);
+    },
+    clear() {
+      samples = [];
+      source.clear?.();
+    },
+  };
+}
+
+/**
+ * Preserve the touch-os host-frame callback contract while normalizing every
+ * returned sample onto that host frame's canonical timestamp.
+ *
+ * @param {import('@found-in-space/touch-os/hosts/three').ThreePointerSource} source
+ * @returns {import('@found-in-space/touch-os/hosts/three').ThreePointerSource}
+ */
+function createCanonicalThreePointerSource(source) {
+  if (!source || typeof source !== 'object' || typeof source.sample !== 'function') {
+    throw new TypeError('touch-os pointer sources require sample(frame).');
+  }
+  return {
+    sample(frame) {
+      return normalizeSkykitPointerSamples(source.sample(frame), frame.timestamp);
+    },
+    ...(typeof source.clear === 'function'
+      ? {
+          clear() {
+            source.clear();
+          },
+        }
+      : {}),
+  };
+}
+
+/**
+ * @param {unknown} resolved
+ * @param {number} timestamp
+ * @returns {readonly import('@found-in-space/touch-os/hosts/three').ThreePointerSample[]}
+ */
+function normalizeSkykitPointerSamples(resolved, timestamp) {
+  const values = resolved == null ? [] : Array.isArray(resolved) ? resolved : [resolved];
+  return values
+    .filter((sample) => sample && typeof sample === 'object' && typeof sample.pointerId === 'string')
+    .map((sample) => ({ ...sample, timestamp }));
+}
+
+/**
+ * @param {readonly import('@found-in-space/touch-os/hosts/three').ThreePointerSource[] | undefined} rawSources
+ * @param {readonly ReturnType<typeof createSkykitPointerSourceState>[]} skykitSourceStates
+ */
+function clearSuppliedPointerSources(rawSources, skykitSourceStates) {
+  for (const source of rawSources ?? []) {
+    source.clear?.();
+  }
+  for (const state of skykitSourceStates) {
+    state.clear();
+  }
+}
+
+/**
+ * @param {import('./index.d.ts').SkykitThreeFrame} frame
+ * @returns {number}
+ */
+function skykitFrameTimestamp(frame) {
+  return finiteNumber(frame?.elapsedSeconds, 0) * 1000;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {THREE.Vector3 | null}
+ */
+function toThreeVector3(value) {
+  if (!value || typeof value !== 'object') return null;
+  const x = Number(value.x);
+  const y = Number(value.y);
+  const z = Number(value.z);
+  if (![x, y, z].every(Number.isFinite)) return null;
+  return new THREE.Vector3(x, y, z);
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number}
+ */
+function nonNegativeFiniteLimit(value) {
+  if (value == null) return Infinity;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return Infinity;
+  return value >= 0 ? value : -1;
 }
 
 /**
@@ -950,7 +1278,88 @@ function handleTouchOsRuntimeOutputs(outputs, options, outputContext) {
   }
   dispatchTouchOsActionOutputs(outputList, outputContext.actions, {
     sourcePrefix: options.sourcePrefix,
+    actionOutputMode: options.actionOutputMode,
   });
+}
+
+/**
+ * @param {import('./touch-os.d.ts').TouchOsActionOutputMode | undefined} mode
+ * @returns {import('./touch-os.d.ts').TouchOsActionOutputMode}
+ */
+function resolveActionOutputMode(mode) {
+  const resolved = mode ?? DEFAULT_ACTION_OUTPUT_MODE;
+  if (resolved === 'raw-actions' || resolved === 'app-actions' || resolved === 'none') {
+    return resolved;
+  }
+  throw new TypeError(`Unsupported touch-os action output mode: ${String(mode)}`);
+}
+
+/**
+ * @param {string} actionId
+ * @param {unknown} payload
+ * @param {import('./index.d.ts').SkykitActionRegistry} actions
+ * @param {{ source: string }} metadata
+ */
+function dispatchTouchOsAction(actionId, payload, actions, metadata) {
+  const phase = resolveOutputPhase(payload);
+  if (phase === 'start') {
+    actions.press(actionId, payload, metadata);
+  } else if (phase === 'stop') {
+    actions.release(actionId, metadata);
+  } else {
+    void actions.invoke(actionId, payload, metadata);
+  }
+}
+
+/**
+ * @param {unknown} output
+ * @returns {{ type: 'app-action'; appId?: string; windowId?: string; instanceId?: string; name: string; payload?: unknown } | null}
+ */
+function resolveTouchOsAppAction(output) {
+  if (!output || typeof output !== 'object' || output.type !== 'app-event') return null;
+  const event = output.event;
+  if (!event || typeof event !== 'object' || event.type !== 'app-action' || typeof event.name !== 'string') {
+    return null;
+  }
+  return {
+    ...event,
+    appId: stableOptionalString(event.appId) ?? stableOptionalString(output.appId),
+    windowId: stableOptionalString(event.windowId) ?? stableOptionalString(output.windowId),
+    instanceId: stableOptionalString(event.instanceId) ?? stableOptionalString(output.instanceId),
+  };
+}
+
+/**
+ * @param {string} sourcePrefix
+ * @param {{ appId?: string; windowId?: string; instanceId?: string; name: string }} event
+ * @returns {string}
+ */
+function createTouchOsAppActionSource(sourcePrefix, event) {
+  return [
+    stableSourcePart(sourcePrefix, 'touch-os'),
+    'app',
+    stableSourcePart(event.appId, 'unknown-app'),
+    stableSourcePart(event.windowId, 'unknown-window'),
+    stableSourcePart(event.instanceId, 'unknown-instance'),
+    event.name,
+  ].map((part) => encodeURIComponent(part)).join(':');
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} fallback
+ * @returns {string}
+ */
+function stableSourcePart(value, fallback) {
+  return typeof value === 'string' && value.length > 0 ? value : fallback;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {string | undefined}
+ */
+function stableOptionalString(value) {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 /**
@@ -1174,10 +1583,4 @@ function createSymbolIcon(name) {
     kind: 'symbol',
     value: letters || 'SK',
   };
-}
-
-function now() {
-  return typeof performance !== 'undefined' && typeof performance.now === 'function'
-    ? performance.now()
-    : Date.now();
 }

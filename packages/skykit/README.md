@@ -559,11 +559,30 @@ Standalone browser examples live in the private workspace app at
 - `examples/hr-diagram-free-roam/` embeds the reusable HR diagram as a
   touch-os panel inside a free-roam SkyKit viewer.
 
+The optional `@found-in-space/skykit/xr` lifecycle helpers are reusable across
+session re-entry. Control bindings and ray sources expose `reset()` to clear
+pressed edges and cached tracking without disposing the handle, and session
+handles expose `onEnd()` with a single `native` or `explicit` reason. Ray visual,
+star-picking, and navigation plugins dispose only resources they create;
+caller-supplied ray sources and control bindings remain borrowed.
+
 ## Touch-OS Bridge
 
-The optional `@found-in-space/skykit/touch-os` subpath wires touch-os HUD
-outputs into SkyKit actions. It keeps richer panel rendering in touch-os while
-removing repeated app glue for pseudo-keys and status displays.
+The optional `@found-in-space/skykit/touch-os` subpath wires touch-os HUD and
+Three panel output into SkyKit actions. It keeps panel rendering, layout, and
+pointer capture in touch-os while SkyKit owns frame adaptation, plugin
+lifecycle, and semantic action routing.
+
+Install the published stable touch-os release when using this subpath:
+
+```sh
+npm install @found-in-space/skykit @found-in-space/touch-os@0.3.0 three
+```
+
+The ordinary `@found-in-space/skykit` entrypoint does not import touch-os at
+runtime and remains usable without that optional peer. Repository installs and
+builds resolve the registry package by default; a sibling touch-os checkout is
+not an implicit alias.
 
 ```js
 import {
@@ -578,6 +597,151 @@ createTouchOsHudPlugin({
   }),
 });
 ```
+
+### Output routing
+
+HUD and panel plugins accept `actionOutputMode`:
+
+- `raw-actions` is the default. It routes top-level touch-os `action` outputs
+  and preserves held-action start/stop phases.
+- `app-actions` routes only a validated outer `app-event` whose inner event is
+  an `app-action` with a string `name`. The inner payload is forwarded to that
+  SkyKit action. Forwarded raw component actions are ignored in this mode, so
+  one app intent follows one registry route.
+- `none` leaves interpretation to application code.
+
+When supplied, `onOutput` still receives every runtime output exactly once in
+all three modes. In `app-actions` mode, keep app-state synchronization such as
+`app-change` in the app callback, and register the command itself with the
+SkyKit action registry:
+
+```js
+const tabletRoot = createSkykitTabletRoot({
+  apps,
+  onAppEvent(event) {
+    if (event.type === 'app-change') synchronizeAppState(event.payload);
+    // app-action commands are handled by registered SkyKit actions.
+  },
+});
+
+createTouchOsPanelPlugin({
+  driver: 'scene',
+  root: tabletRoot,
+  actionOutputMode: 'app-actions',
+  onOutput(output) {
+    recordPanelDiagnostic(output);
+  },
+});
+```
+
+The bridge derives a stable action source from app, window, instance, and
+action identity. A cancellation therefore releases the same held SkyKit source
+that began the press.
+
+### Frames and pointer sources
+
+Each host frame uses `frame.elapsedSeconds * 1000` as its monotonic millisecond
+timestamp. DOM edges are stamped in that clock domain and queued for the next
+part update. XR pointer samples, explicit pointer clearing, and cancellation use
+the same time. Each SkyKit part update calls the driver once; the driver owns the
+corresponding runtime tick.
+
+SkyKit-facing parent, anchor-pose, metrics, and root factories are resolved
+while the complete `SkykitThreeFrame` is available. A raw touch-os
+`pointerSources` callback still receives `ThreePanelHostFrame`. Use
+`skykitPointerSources` when the sample needs `frame.xr`, viewer roots, or view
+state:
+
+```js
+import {
+  createSkykitTouchOsPointerSource,
+  createTouchOsPanelPlugin,
+} from '@found-in-space/skykit/touch-os';
+
+const rightController = createSkykitTouchOsPointerSource({
+  sample(frame) {
+    if (!frame.xr?.presenting) return [];
+    return resolveRightControllerSamples(frame);
+  },
+  clear() {
+    resetRightControllerEdges();
+  },
+});
+
+const panel = createTouchOsPanelPlugin({
+  driver: 'scene',
+  root: tabletRoot,
+  skykitPointerSources: [rightController],
+});
+```
+
+Pass pointer input through `pointerSources` or `skykitPointerSources`, panel
+metrics through `surfaceMetrics`, and the SkyKit-frame parent through `parent`.
+Those fields are deliberately excluded from `driverOptions`, which is reserved
+for host presentation settings such as panel dimensions, render order, depth,
+and `textureQuality`.
+
+Returned sample timestamps are normalized to the canonical frame time. Call
+`panel.clearPointer(pointerId?)` when tracking or a session disappears; it
+clears the driver at the latest canonical time and drains cancellation output
+immediately. Part `detach()` is reversible and also drains cancellation output,
+so the same part can attach again without stale capture. Supplying one pointer
+source to multiple independent panel plugins is not coordinated; use the public
+touch-os panel coordinator/session APIs for shared-source multi-panel routing.
+
+### Ownership and ray blocking
+
+Resources created by a HUD or panel plugin are owned and disposed by that
+plugin. A supplied `runtime`, driver handle, or pointer source is borrowed by
+default. `disposeRuntime` and `disposeDriver` explicitly override inferred
+runtime and driver ownership; supplied pointer sources are clearable but are
+never disposed implicitly. Final disposal and cleanup are idempotent from the
+consumer's point of view.
+
+A supplied driver must be paired with the same supplied `runtime` used to
+construct it, because SkyKit drains outputs from that runtime after updates and
+cleanup. Configure driver options and pointer sources when constructing the
+driver; the bridge rejects those construction-only options alongside a supplied
+driver instead of silently ignoring them.
+
+`panel.getHit()` inspects the driver's cached current-pointer hit. By contrast,
+`panel.blockRay(ray, { maxDistance })` is a non-dispatching geometric query: it
+raycasts the current public panel mesh for the supplied `SkykitXrRay`, normalizes
+its direction, and honors both `ray.length` and `maxDistance`. It neither sends
+panel input nor mutates pointer capture, so blocker queries for different rays
+remain independent.
+
+### Optional HR surface root
+
+`createSkykitHrDiagramPlugin()` uses the ordinary
+`createHrDiagramSurfaceSource()` export and does not import the HR touch-os
+subpath. A touch-aware application creates the presentation node explicitly and
+passes it as `touchOs.root`:
+
+```js
+import { createSkykitHrDiagramPlugin } from '@found-in-space/skykit';
+import { createHrDiagramEmbeddedSurfaceNode } from '@found-in-space/hr-diagram/touch-os';
+
+const sourceId = 'lesson:hr-diagram';
+const hrRoot = createHrDiagramEmbeddedSurfaceNode({
+  componentId: 'lesson:hr-node',
+  sourceId,
+  title: 'Hertzsprung–Russell diagram',
+  preserveAspectRatio: true,
+});
+
+const hr = createSkykitHrDiagramPlugin({
+  source: stellarSource,
+  touchOs: {
+    sourceId,
+    root: hrRoot,
+    surfaces: () => panel.getRuntime()?.getServices().surfaces,
+  },
+});
+```
+
+Without a caller-supplied root, `hr.getNode()` returns `null`; HR data,
+rendering, and the Three texture source continue to work without touch-os.
 
 ## Debug
 

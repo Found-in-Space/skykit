@@ -20,6 +20,9 @@ const DEFAULT_OBSERVER_PC = Object.freeze({ x: 0, y: 0, z: 0 });
 const DEFAULT_COORDINATE_UNITS_PER_PARSEC = 1;
 const DEFAULT_BACKGROUND = '#020712';
 const DEFAULT_POINT_ALPHA = 0.62;
+const DEFAULT_SURFACE_SOURCE_ID = 'hr-diagram.surface';
+const DEFAULT_SURFACE_WIDTH = 1024;
+const DEFAULT_SURFACE_HEIGHT = 640;
 const TEMPERATURE_TICKS_K = Object.freeze([3000, 5000, 8000, 15000, 30000]);
 
 /**
@@ -30,6 +33,8 @@ const TEMPERATURE_TICKS_K = Object.freeze([3000, 5000, 8000, 15000, 30000]);
  * @typedef {import('./index.d.ts').HrDiagramRenderer} HrDiagramRenderer
  * @typedef {import('./index.d.ts').HrDiagramRendererOptions} HrDiagramRendererOptions
  * @typedef {import('./index.d.ts').HrDiagramSelectedStar} HrDiagramSelectedStar
+ * @typedef {import('./index.d.ts').HrDiagramSurfaceSource} HrDiagramSurfaceSource
+ * @typedef {import('./index.d.ts').HrDiagramSurfaceSourceOptions} HrDiagramSurfaceSourceOptions
  * @typedef {import('./index.d.ts').HrDiagramView} HrDiagramView
  * @typedef {import('./index.d.ts').ProjectHrDiagramOptions} ProjectHrDiagramOptions
  * @typedef {import('./index.d.ts').ProjectHrDiagramResult} ProjectHrDiagramResult
@@ -432,6 +437,97 @@ export function createHrDiagramRenderer(options = {}) {
   function assertActive() {
     if (disposed) {
       throw new Error('HR diagram renderer is disposed.');
+    }
+  }
+}
+
+/**
+ * Create a Three.js texture source for publishing an HR diagram to an optional
+ * surface host. This source has no touch-os runtime dependency and is exported
+ * from the ordinary package entrypoint.
+ *
+ * @param {HrDiagramSurfaceSourceOptions} [options]
+ * @returns {HrDiagramSurfaceSource}
+ */
+export function createHrDiagramSurfaceSource(options = {}) {
+  const sourceId = options.sourceId ?? DEFAULT_SURFACE_SOURCE_ID;
+  const width = Math.max(1, Math.floor(options.width ?? DEFAULT_SURFACE_WIDTH));
+  const height = Math.max(1, Math.floor(options.height ?? DEFAULT_SURFACE_HEIGHT));
+  const target = new THREE.WebGLRenderTarget(width, height, {
+    depthBuffer: false,
+    stencilBuffer: false,
+  });
+  target.texture.colorSpace = THREE.SRGBColorSpace;
+  const renderer = createHrDiagramRenderer({
+    width,
+    height,
+    ...(options.rendererOptions ?? {}),
+  });
+  const handle = {
+    kind: /** @type {const} */ ('three-texture'),
+    texture: target.texture,
+  };
+  let disposed = false;
+  let lastFrameTimestamp = 0;
+
+  return {
+    sourceId,
+    handle,
+    target,
+    renderer,
+    apply(delta) {
+      assertActive();
+      renderer.apply(delta);
+    },
+    setCells(cells) {
+      assertActive();
+      renderer.setCells(cells);
+    },
+    setView(view) {
+      assertActive();
+      renderer.setView(view);
+    },
+    render(threeRenderer, timestamp = 0) {
+      assertActive();
+      lastFrameTimestamp = timestamp;
+      renderIntoTarget(threeRenderer, target, width, height, () => {
+        renderer.render(threeRenderer);
+      });
+    },
+    publish(surfaces, timestamp = lastFrameTimestamp) {
+      assertActive();
+      surfaces.publish(sourceId, {
+        available: true,
+        handle,
+        sourceWidth: width,
+        sourceHeight: height,
+        lastFrameTimestamp: timestamp,
+        refreshState: 'updating',
+        sourceType: 'three-texture',
+      });
+    },
+    unpublish(surfaces) {
+      surfaces.unpublish(sourceId);
+    },
+    getSnapshot() {
+      return {
+        ...renderer.getSnapshot(),
+        sourceId,
+        width,
+        height,
+      };
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      renderer.dispose();
+      target.dispose();
+    },
+  };
+
+  function assertActive() {
+    if (disposed) {
+      throw new Error('HR diagram surface source is disposed.');
     }
   }
 }
@@ -1270,4 +1366,50 @@ function normalizeFiniteNumber(value, fallback) {
  */
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * @param {THREE.WebGLRenderer} renderer
+ * @param {THREE.WebGLRenderTarget} target
+ * @param {number} width
+ * @param {number} height
+ * @param {() => void} callback
+ */
+function renderIntoTarget(renderer, target, width, height, callback) {
+  const previousTarget = renderer.getRenderTarget?.() ?? null;
+  const previousTargetViewport = previousTarget?.viewport?.clone?.() ?? null;
+  const previousTargetScissor = previousTarget?.scissor?.clone?.() ?? null;
+  const previousTargetScissorTest = previousTarget?.scissorTest;
+  const previousViewport = renderer.getViewport?.(new THREE.Vector4());
+  const previousScissor = renderer.getScissor?.(new THREE.Vector4());
+  const previousScissorTest = renderer.getScissorTest?.() ?? false;
+  const previousXrEnabled = renderer.xr?.enabled;
+
+  if (renderer.xr) {
+    renderer.xr.enabled = false;
+  }
+  target.viewport.set(0, 0, width, height);
+  target.scissor.set(0, 0, width, height);
+  target.scissorTest = false;
+  renderer.setRenderTarget(target);
+  try {
+    callback();
+  } finally {
+    if (previousTarget && previousTargetViewport && previousTargetScissor) {
+      previousTarget.viewport.copy(previousTargetViewport);
+      previousTarget.scissor.copy(previousTargetScissor);
+      if (previousTargetScissorTest !== undefined) {
+        previousTarget.scissorTest = previousTargetScissorTest;
+      }
+    }
+    renderer.setRenderTarget(previousTarget);
+    if (!previousTarget) {
+      if (previousViewport) renderer.setViewport(previousViewport);
+      if (previousScissor) renderer.setScissor(previousScissor);
+      renderer.setScissorTest(previousScissorTest);
+    }
+    if (renderer.xr && previousXrEnabled !== undefined) {
+      renderer.xr.enabled = previousXrEnabled;
+    }
+  }
 }

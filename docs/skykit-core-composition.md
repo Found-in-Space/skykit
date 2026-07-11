@@ -260,6 +260,81 @@ run in priority order. This lets keyboard, touch DOM, touch-os, WebXR, debug
 tools, and app-owned chapter buttons call the same semantic action without
 faking keypresses.
 
+## Touch-OS Action Boundary
+
+The optional `@found-in-space/skykit/touch-os` subpath adapts the published
+`@found-in-space/touch-os@0.3.0` host contract. The normal SkyKit entrypoint does
+not load touch-os, so composition that does not use surfaces does not need the
+optional peer.
+
+Touch-os remains the source of runtime outputs; SkyKit chooses whether any of
+those outputs enter its semantic action registry. Both HUD and panel plugins
+accept the same policy:
+
+```txt
+raw-actions (default)
+  route top-level action outputs, including held start/stop phases
+
+app-actions
+  route only outer app-event outputs containing a validated app-action name
+  forward the inner payload and ignore forwarded raw component actions
+
+none
+  do not route outputs into the action registry
+```
+
+When supplied, `onOutput` observes every runtime output exactly once regardless
+of the policy. An app using `app-actions` should update app-owned state from
+events such as `app-change` in its callback, while registered SkyKit action
+handlers execute commands. It should not also execute the same `app-action` in
+that callback.
+Held app actions use a stable source derived from their app, window, instance,
+and action identity so pointer cancellation releases the matching press.
+
+The bridge translates a `SkykitThreeFrame` into the touch-os host contract
+before one driver update per part update. Host frames, DOM edges, XR samples,
+pointer clearing, and cancellation all use `frame.elapsedSeconds * 1000`; the
+touch-os driver owns the one runtime tick. SkyKit-aware callbacks are resolved
+before that boundary. Raw touch-os pointer sources continue to receive
+`ThreePanelHostFrame`, while `createSkykitTouchOsPointerSource()` and the
+`skykitPointerSources` option expose the complete SkyKit frame without a
+latest-frame side channel.
+Pointer sources, parent resolution, and surface metrics use those top-level
+bridge options; `driverOptions` remains limited to host presentation settings
+so input cannot bypass clock normalization.
+
+Detach is reversible. Explicit `clearPointer()` and detach/final cleanup drain
+cancellation output before references are dropped. Plugin-created runtimes and
+drivers are owned; caller-supplied runtimes, drivers, and pointer/ray sources
+are borrowed by default. The runtime and driver defaults can be overridden with
+the explicit `disposeRuntime` and `disposeDriver` options, but supplied pointer
+sources are never disposed implicitly.
+
+When supplying a driver, the caller also supplies the same runtime used to
+construct it and configures the driver's pointer sources and construction
+options beforehand. The bridge rejects conflicting construction options rather
+than silently ignoring them.
+
+Panel blocker queries preserve the interaction boundary. `blockRay()` raycasts
+the current public panel mesh for the supplied XR ray and applies both finite
+distance limits without dispatching touch input or changing capture.
+`getHit()` remains cached current-pointer inspection and is not used as an
+arbitrary-ray answer.
+
+## Optional HR Surface Composition
+
+The ordinary `@found-in-space/hr-diagram` entrypoint exports
+`createHrDiagramSurfaceSource()`, a Three texture source that does not import
+touch-os. Core `createSkykitHrDiagramPlugin()` composes that source and the HR
+data/rendering lifecycle. It does not manufacture a touch-os node.
+
+Touch-aware applications create a root through
+`@found-in-space/hr-diagram/touch-os` and pass it as `touchOs.root`. That optional
+adapter delegates title, padding, clipping, fallback, and contain/stretch
+geometry to touch-os's public embedded-surface component. Without a supplied
+root, `getNode()` returns `null`; the texture source and HR renderer remain
+usable independently.
+
 ## Boundary
 
 Keep the package responsibilities narrow:

@@ -28,9 +28,11 @@ import type {
   ThreePanelDriver,
   ThreePanelHostFrame,
   ThreePanelHostInputEvent,
+  ThreePointerSample,
   ThreePointerSource,
 } from '@found-in-space/touch-os/hosts/three';
 import type * as THREE from 'three';
+import type { SkykitXrRay } from './xr.js';
 import type {
   SkykitActionRegistry,
   SkykitPlugin,
@@ -86,6 +88,11 @@ export interface TouchOsHudOutputContext {
   target: TouchOsHudTarget;
 }
 
+export type TouchOsHudDriverOptions = Omit<
+  HudPanelDriverOptions,
+  'runtime' | 'surface' | 'parent' | 'pointerSources'
+>;
+
 export interface TouchOsHudPluginOptions {
   id?: string;
   target: TouchOsHudTarget;
@@ -95,14 +102,21 @@ export interface TouchOsHudPluginOptions {
   surfaceMetrics?: Partial<SurfaceMetrics> | ((target: TouchOsHudTarget) => Partial<SurfaceMetrics> | null | undefined);
   pointerEvents?: boolean | readonly string[];
   sourcePrefix?: string;
+  /** Controls which touch-os outputs enter the SkyKit action registry. Defaults to `raw-actions`. */
+  actionOutputMode?: TouchOsActionOutputMode;
   parent?: THREE.Object3D | ((frame: SkykitThreeFrame) => THREE.Object3D | undefined);
   runtime?: DisplayRuntime;
   runtimeOptions?: Omit<RuntimeOptions, 'root' | 'surface'>;
   createRuntime?: (options: RuntimeOptions) => DisplayRuntime;
+  /** Borrowed driver. Supply the same runtime used to construct it; driverOptions/createDriver do not apply. */
   driver?: ThreePanelDriver;
-  driverOptions?: Omit<HudPanelDriverOptions, 'runtime'>;
+  /** Host presentation options; frame parent, surface metrics, and pointer input are managed by SkyKit. */
+  driverOptions?: TouchOsHudDriverOptions;
   createDriver?: (options: HudPanelDriverOptions) => ThreePanelDriver;
+  /** Override inferred runtime ownership. Supplied runtimes are borrowed by default. */
   disposeRuntime?: boolean;
+  /** Override inferred driver ownership. Supplied drivers are borrowed by default. */
+  disposeDriver?: boolean;
   onOutput?: (output: RuntimeOutput, context: TouchOsHudOutputContext) => void;
 }
 
@@ -111,6 +125,8 @@ export interface TouchOsHudPlugin extends SkykitPlugin {
 }
 
 export type TouchOsPanelDriverKind = 'hud' | 'pose-anchored' | 'scene';
+
+export type TouchOsActionOutputMode = 'raw-actions' | 'app-actions' | 'none';
 
 export interface SkykitTabletRootOptions {
   id?: string;
@@ -188,9 +204,25 @@ export type TouchOsPanelSurfaceMetricsInput =
   | ((frame: SkykitThreeFrame | null) => Partial<SurfaceMetrics> | null | undefined);
 
 export type TouchOsPanelDriverOptions =
-  | Omit<ScenePanelDriverOptions, 'runtime'>
-  | Omit<PoseAnchoredPanelDriverOptions, 'runtime'>
-  | Omit<HudPanelDriverOptions, 'runtime'>;
+  | Omit<ScenePanelDriverOptions, 'runtime' | 'surface' | 'parent' | 'pointerSources'>
+  | Omit<PoseAnchoredPanelDriverOptions, 'runtime' | 'surface' | 'parent' | 'pointerSources'>
+  | Omit<HudPanelDriverOptions, 'runtime' | 'surface' | 'parent' | 'pointerSources'>;
+
+export interface SkykitTouchOsPointerSource {
+  /** Receives the complete SkyKit frame. Returned sample timestamps are normalized by the bridge. */
+  sample(frame: SkykitThreeFrame): readonly ThreePointerSample[];
+  /** Clears source-owned pressed and edge state without disposing the source. */
+  clear?(): void;
+}
+
+export type SkykitTouchOsPointerResolver = (
+  frame: SkykitThreeFrame
+) => ThreePointerSample | readonly ThreePointerSample[] | null | undefined;
+
+export interface SkykitTouchOsPointerSourceOptions {
+  sample: SkykitTouchOsPointerResolver;
+  clear?(): void;
+}
 
 export interface TouchOsPanelPluginOptions {
   id?: string;
@@ -200,16 +232,26 @@ export interface TouchOsPanelPluginOptions {
   root: DisplayNode | TouchOsPanelRootFactory;
   surfaceMetrics?: TouchOsPanelSurfaceMetricsInput;
   sourcePrefix?: string;
+  /** Controls which touch-os outputs enter the SkyKit action registry. Defaults to `raw-actions`. */
+  actionOutputMode?: TouchOsActionOutputMode;
   parent?: THREE.Object3D | ((frame: SkykitThreeFrame) => THREE.Object3D | undefined);
   anchorPose?: ThreeHostPose | ((frame: SkykitThreeFrame) => ThreeHostPose | null | undefined);
+  /** Raw touch-os sources whose callbacks receive `ThreePanelHostFrame`. Borrowed and never disposed. */
   pointerSources?: readonly ThreePointerSource[];
+  /** SkyKit-aware sources sampled before host-frame construction. Borrowed and never disposed. */
+  skykitPointerSources?: readonly SkykitTouchOsPointerSource[];
   runtime?: DisplayRuntime;
   runtimeOptions?: Omit<RuntimeOptions, 'root' | 'surface'>;
   createRuntime?: (options: RuntimeOptions) => DisplayRuntime;
+  /** Borrowed driver. Supply its runtime; configure pointer sources and driver options before passing it here. */
   driverHandle?: ThreePanelDriver;
+  /** Host presentation options; frame parent, surface metrics, and pointer input are managed by SkyKit. */
   driverOptions?: TouchOsPanelDriverOptions;
   createDriver?: (options: ScenePanelDriverOptions | PoseAnchoredPanelDriverOptions | HudPanelDriverOptions) => ThreePanelDriver;
+  /** Override inferred runtime ownership. Supplied runtimes are borrowed by default. */
   disposeRuntime?: boolean;
+  /** Override inferred driver ownership. Supplied drivers are borrowed by default. */
+  disposeDriver?: boolean;
   onOutput?: (output: RuntimeOutput, context: TouchOsPanelOutputContext) => void;
 }
 
@@ -218,14 +260,17 @@ export interface TouchOsPanelPlugin extends SkykitPlugin {
   getRuntime(): DisplayRuntime | null;
   getDriver(): ThreePanelDriver | null;
   getHit(): ReturnType<ThreePanelDriver['getHit']> | null;
+  /** Clear one or all panel pointers at the latest SkyKit timestamp and drain cancellation outputs immediately. */
+  clearPointer(pointerId?: string): void;
   blockRay(
-    ray: unknown,
+    ray: SkykitXrRay,
     context?: { maxDistance?: number | null }
-  ): { blocked: true; consumed: true; distance: number; hit: unknown } | null;
+  ): { blocked: true; consumed: true; distance: number; hit: THREE.Intersection<THREE.Object3D> } | null;
 }
 
 export interface DispatchTouchOsActionOutputsOptions {
   sourcePrefix?: string;
+  actionOutputMode?: TouchOsActionOutputMode;
 }
 
 export interface SkykitTouchCommand {
@@ -284,6 +329,9 @@ export declare function createSkykitSurfaceApp<TState = unknown>(
 
 export declare function createTouchOsHudPlugin(options: TouchOsHudPluginOptions): TouchOsHudPlugin;
 export declare function createTouchOsPanelPlugin(options: TouchOsPanelPluginOptions): TouchOsPanelPlugin;
+export declare function createSkykitTouchOsPointerSource(
+  options: SkykitTouchOsPointerSourceOptions | SkykitTouchOsPointerResolver
+): SkykitTouchOsPointerSource;
 
 export declare function dispatchTouchOsActionOutputs(
   outputs: Iterable<unknown>,
@@ -317,7 +365,8 @@ export declare function createTouchOsPanelHostFrame(
 
 export declare function pointerEventToTouchOs(
   event: Event & Partial<PointerEvent>,
-  target: TouchOsHudTarget
+  target: TouchOsHudTarget,
+  timestamp?: number
 ): ThreePanelHostInputEvent | null;
 
 export declare function resolveTouchOsSurfaceMetrics(

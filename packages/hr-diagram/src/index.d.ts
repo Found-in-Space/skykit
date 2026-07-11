@@ -127,6 +127,59 @@ export interface HrDiagramRenderer {
   dispose(): void;
 }
 
+export interface HrDiagramSurfaceHandle {
+  kind: 'three-texture';
+  texture: THREE.Texture;
+}
+
+export interface HrDiagramSurfacePublication {
+  available?: boolean;
+  handle?: unknown;
+  sourceWidth?: number;
+  sourceHeight?: number;
+  aspectRatio?: number;
+  latencyMs?: number;
+  refreshState?: 'idle' | 'updating' | 'stale';
+  lastFrameTimestamp?: number;
+  sourceType?: string;
+}
+
+export interface HrDiagramSurfacePublisher {
+  publish(sourceId: string, update: HrDiagramSurfacePublication): void;
+}
+
+export interface HrDiagramSurfaceUnpublisher {
+  unpublish(sourceId: string): void;
+}
+
+export interface HrDiagramSurfaceSourceOptions {
+  sourceId?: string;
+  width?: number;
+  height?: number;
+  rendererOptions?: HrDiagramRendererOptions;
+}
+
+export interface HrDiagramSurfaceSource {
+  readonly sourceId: string;
+  readonly handle: HrDiagramSurfaceHandle;
+  readonly target: THREE.WebGLRenderTarget;
+  readonly renderer: HrDiagramRenderer;
+  apply(delta: StarCellDelta): void;
+  setCells(cells: Iterable<StarCellData>): void;
+  setView(view: HrDiagramView): void;
+  /** Renders the texture and records the monotonic host timestamp in milliseconds. */
+  render(renderer: THREE.WebGLRenderer, timestamp?: number): void;
+  /** Publishes source metadata using the latest render timestamp by default. */
+  publish(surfaces: HrDiagramSurfacePublisher, timestamp?: number): void;
+  unpublish(surfaces: HrDiagramSurfaceUnpublisher): void;
+  getSnapshot(): HrDiagramRendererSnapshot & {
+    sourceId: string;
+    width: number;
+    height: number;
+  };
+  dispose(): void;
+}
+
 export declare const HR_DIAGRAM_MODE_MAGNITUDE: 'magnitude-limited';
 export declare const HR_DIAGRAM_MODE_VOLUME: 'volume-complete';
 export declare const HR_DIAGRAM_MODE_FRUSTUM: 'frustum';
@@ -168,6 +221,10 @@ export declare function drawHrDiagramCanvas(
 export declare function createHrDiagramRenderer(
   options?: HrDiagramRendererOptions
 ): HrDiagramRenderer;
+
+export declare function createHrDiagramSurfaceSource(
+  options?: HrDiagramSurfaceSourceOptions
+): HrDiagramSurfaceSource;
 
 export declare function createHrDiagramGeometryFromCells(
   cells: Iterable<StarCellData>

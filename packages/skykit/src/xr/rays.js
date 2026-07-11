@@ -24,6 +24,7 @@ export function createSkykitXrRaySource(options = {}) {
   return {
     id,
     getRay,
+    reset,
     getSnapshot,
     dispose,
   };
@@ -76,7 +77,14 @@ export function createSkykitXrRaySource(options = {}) {
     };
   }
 
+  /** Clear cached tracking state without disposing the reusable source. */
+  function reset() {
+    assertActive();
+    lastRay = null;
+  }
+
   function dispose() {
+    if (disposed) return;
     disposed = true;
     lastRay = null;
   }

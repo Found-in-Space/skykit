@@ -45,10 +45,13 @@
     "release:version": "changeset version && npm run release:lockfile",
     "release:lockfile": "npm install --package-lock-only --ignore-scripts --no-audit --fund=false",
     "release:check-lockfile": "node ./scripts/check-release-lockfile.js",
+    "release:check-touch-os": "node ./scripts/check-touch-os-resolution.js",
+    "release:check-packed-consumers": "node ./scripts/check-packed-consumers.js",
     "release:publish": "changeset publish",
     "release:status": "changeset status --verbose",
     "release:trust": "scripts/configure-npm-trusted-publishing.sh",
     "test": "node --test",
+    "test:browser:xr-free-roam": "node ./scripts/check-xr-free-roam-browser.js",
     "test:watch": "node --test --watch",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },

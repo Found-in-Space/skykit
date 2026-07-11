@@ -741,6 +741,8 @@ test('shared star source feeds starfield and HR consumers from one provider sess
   assert.ok(rendererCalls.includes('stars/cells-upsert'));
   assert.equal(source.getStore().getSnapshot().starCount, 1);
   assert.equal(hr.getSource().getSnapshot().starCount, 1);
+  assert.equal(hr.getNode(), null);
+  assert.equal(hr.getSnapshot().nodeId, null);
 
   await viewer.dispose();
   assert.equal(session.disposed, true);
@@ -936,6 +938,7 @@ test('HR diagram touch-os surfaces can be resolved lazily from panel runtimes', 
   };
   const source = createSkykitStarSourcePlugin({ provider });
   const surfaces = createEmbeddedSurfaceSpy();
+  const root = { id: 'hr:node', component: {}, props: {} };
   let activeSurfaces = null;
   const hr = createSkykitHrDiagramPlugin({
     id: 'hr',
@@ -943,6 +946,7 @@ test('HR diagram touch-os surfaces can be resolved lazily from panel runtimes', 
     touchOs: {
       sourceId: 'hr:surface',
       surfaces: () => activeSurfaces,
+      root,
     },
   });
   const viewer = await createSkykitViewer({
@@ -956,6 +960,9 @@ test('HR diagram touch-os surfaces can be resolved lazily from panel runtimes', 
   assert.equal(surfaces.publishCalls.length, 1);
   assert.equal(surfaces.publishCalls[0].sourceId, 'hr:surface');
   assert.equal(surfaces.publishCalls[0].update.available, true);
+  assert.equal(surfaces.publishCalls[0].update.lastFrameTimestamp, 16);
+  assert.equal(hr.getNode(), root);
+  assert.equal(hr.getSnapshot().nodeId, 'hr:node');
 
   await viewer.dispose();
   assert.deepEqual(surfaces.unpublishCalls, ['hr:surface']);

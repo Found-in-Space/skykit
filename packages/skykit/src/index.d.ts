@@ -33,8 +33,8 @@ import type {
   HrDiagramHighlightRegion,
   HrDiagramMode,
   HrDiagramSelectedStar,
+  HrDiagramSurfaceSource,
 } from '@found-in-space/hr-diagram';
-import type { HrDiagramSurfaceSource } from '@found-in-space/hr-diagram/touch-os';
 import type {
   DisplayNode,
   EmbeddedSurfaceService,
@@ -786,9 +786,9 @@ export interface SkykitStarSourceRestartRetentionPolicy {
 export interface SkykitHrDiagramTouchOsOptions {
   surfaces?: EmbeddedSurfaceService | (() => EmbeddedSurfaceService | null | undefined);
   sourceId?: string;
-  componentId?: string;
   width?: number;
   height?: number;
+  /** Caller-created touch-os root. Core SkyKit never constructs one implicitly. */
   root?: DisplayNode | null;
 }
 
@@ -825,7 +825,8 @@ export type SkykitHrDiagramPluginRuntimeOptions = Partial<Omit<SkykitHrDiagramPl
 export interface SkykitHrDiagramPlugin extends SkykitPlugin {
   readonly id: string;
   getSource(): HrDiagramSurfaceSource;
-  getNode(): DisplayNode;
+  /** Returns the caller-supplied touch-os root, or null when none was supplied. */
+  getNode(): DisplayNode | null;
   getMode(): HrDiagramMode;
   setMode(mode: HrDiagramMode): Promise<void>;
   setOptions(options: SkykitHrDiagramPluginRuntimeOptions): Promise<void>;

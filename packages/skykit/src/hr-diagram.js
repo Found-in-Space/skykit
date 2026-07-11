@@ -2,12 +2,9 @@ import * as THREE from 'three';
 
 import {
   HR_DIAGRAM_MODE_VOLUME,
+  createHrDiagramSurfaceSource,
   normalizeHrDiagramMode,
 } from '@found-in-space/hr-diagram';
-import {
-  createHrDiagramEmbeddedSurfaceNode,
-  createHrDiagramSurfaceSource,
-} from '@found-in-space/hr-diagram/touch-os';
 import {
   createSphereVolumeStrategy,
 } from '@found-in-space/star-trees';
@@ -53,7 +50,6 @@ export function createSkykitHrDiagramPlugin(options) {
   const width = positiveFinite(options.width ?? options.touchOs?.width, DEFAULT_HR_WIDTH);
   const height = positiveFinite(options.height ?? options.touchOs?.height, DEFAULT_HR_HEIGHT);
   const sourceId = options.touchOs?.sourceId ?? `${id}:surface`;
-  const componentId = options.touchOs?.componentId ?? `${id}:node`;
   const surfaceSource = createHrDiagramSurfaceSource({
     sourceId,
     width,
@@ -68,14 +64,7 @@ export function createSkykitHrDiagramPlugin(options) {
       selectedStars: state.selectedStars,
     },
   });
-  const node = /** @type {import('@found-in-space/touch-os').DisplayNode} */ (/** @type {unknown} */ (
-    options.touchOs?.root ?? createHrDiagramEmbeddedSurfaceNode({
-      componentId,
-      sourceId,
-      title: 'HR diagram',
-      fallbackLabel: 'HR',
-    })
-  ));
+  const node = options.touchOs?.root ?? null;
   const viewProjection = new THREE.Matrix4();
   /** @type {(() => void) | null} */
   let unsubscribeProductRef = null;
@@ -128,7 +117,7 @@ export function createSkykitHrDiagramPlugin(options) {
 
       let renderedThisFrame = false;
       if (surfaceDirty && canRenderToTexture(frame.renderer)) {
-        surfaceSource.render(frame.renderer, frame.elapsedSeconds);
+        surfaceSource.render(frame.renderer, frame.elapsedSeconds * 1000);
         renderedFrames += 1;
         surfaceDirty = false;
         renderedThisFrame = true;
@@ -139,7 +128,7 @@ export function createSkykitHrDiagramPlugin(options) {
         lastPublishedSurfaces = null;
       }
       if (renderedThisFrame && surfaces) {
-        surfaceSource.publish(surfaces, frame.elapsedSeconds);
+        surfaceSource.publish(surfaces, frame.elapsedSeconds * 1000);
         publishedFrames += 1;
         lastPublishedSurfaces = surfaces;
       }
@@ -164,7 +153,7 @@ export function createSkykitHrDiagramPlugin(options) {
         publishedFrames,
         surfaceDirty,
         source: surfaceSource.getSnapshot(),
-        nodeId: node.id,
+        nodeId: node?.id ?? null,
         demandStrategyActive: typeof state.demandStrategy === 'function',
         sourceAttached: activeSource !== null,
         waitingForSource: isSkykitProductRef(options.source) && activeSource === null && !disposed,

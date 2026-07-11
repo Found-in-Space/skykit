@@ -11,6 +11,7 @@ import {
   createSkykitShipControlsRoot,
   createSkykitSurfaceApp,
   createSkykitTabletRoot,
+  createSkykitTouchOsPointerSource,
   createTouchOsHudPlugin,
   createTouchOsPanelPlugin,
   dispatchTouchOsActionOutputs,
@@ -46,6 +47,69 @@ test('dispatchTouchOsActionOutputs maps touch-os action phases to SkyKit actions
     ['release', 'ship.forward', { source: 'test-touch:forward' }],
     ['invoke', 'app.look', { target: 'sun' }, { source: 'test-touch:look' }],
   ]);
+});
+
+test('dispatchTouchOsActionOutputs validates app events and never mixes forwarded raw actions', () => {
+  const calls = [];
+  const actions = {
+    press(id, payload, metadata) {
+      calls.push(['press', id, payload, metadata]);
+    },
+    release(id, metadata) {
+      calls.push(['release', id, metadata]);
+    },
+    invoke(id, payload, metadata) {
+      calls.push(['invoke', id, payload, metadata]);
+      return Promise.resolve([]);
+    },
+  };
+  const appStart = {
+    type: 'app-event',
+    appId: 'space.found.controls',
+    windowId: 'controls-window',
+    instanceId: 'controls-instance',
+    componentId: 'controls-window:hold',
+    event: {
+      type: 'app-action',
+      name: 'ship:boost',
+      payload: { phase: 'start', amount: 2 },
+    },
+  };
+  const appStop = {
+    ...appStart,
+    event: {
+      type: 'app-action',
+      name: 'ship:boost',
+      payload: { phase: 'stop' },
+    },
+  };
+  const forwardedRaw = {
+    type: 'action',
+    actionId: 'ship:boost',
+    componentId: 'controls-window:hold',
+    payload: { phase: 'start' },
+  };
+
+  assert.equal(dispatchTouchOsActionOutputs([
+    appStart,
+    forwardedRaw,
+    { type: 'app-event', event: { type: 'app-action', name: 42 } },
+    appStop,
+  ], actions, {
+    actionOutputMode: 'app-actions',
+    sourcePrefix: 'tablet',
+  }), 2);
+
+  const stableSource = 'tablet:app:space.found.controls:controls-window:controls-instance:ship%3Aboost';
+  assert.deepEqual(calls, [
+    ['press', 'ship:boost', { phase: 'start', amount: 2 }, { source: stableSource }],
+    ['release', 'ship:boost', { source: stableSource }],
+  ]);
+
+  assert.equal(dispatchTouchOsActionOutputs([appStart, forwardedRaw], actions, {
+    actionOutputMode: 'none',
+  }), 0);
+  assert.equal(calls.length, 2);
 });
 
 test('createSkykitShipControlsRoot builds reusable pseudo-key controls and status', () => {
@@ -152,6 +216,7 @@ test('touch-os pointer helpers resolve screen input and surface metrics', () => 
     clientY: 360,
   });
   const hostEvent = pointerEventToTouchOs(event, target);
+  const canonicalEvent = pointerEventToTouchOs(event, target, 250);
 
   assert.deepEqual(metrics, {
     width: 640,
@@ -164,6 +229,8 @@ test('touch-os pointer helpers resolve screen input and surface metrics', () => 
   assert.equal(hostEvent.pointerId, '7');
   assert.equal(hostEvent.ndcX, 1);
   assert.equal(hostEvent.ndcY, -1);
+  assert.equal(hostEvent.timestamp, 0);
+  assert.equal(canonicalEvent.timestamp, 250);
 });
 
 test('createTouchOsHudPlugin attaches a HUD part, updates roots, and claims pointer actions', () => {
@@ -172,6 +239,7 @@ test('createTouchOsHudPlugin attaches a HUD part, updates roots, and claims poin
   const invoked = [];
   const roots = [];
   const driverFrames = [];
+  const driverLifecycle = { attach: 0, detach: 0, clear: 0 };
   const queuedOutputs = [];
   const observedOutputs = [];
   let addedPart = null;
@@ -192,7 +260,9 @@ test('createTouchOsHudPlugin attaches a HUD part, updates roots, and claims poin
       return { handled: false, componentId: undefined, targetId: undefined, outputs: [] };
     },
     resize() {},
-    tick() {},
+    tick() {
+      assert.fail('The SkyKit bridge must let the touch-os driver own runtime.tick().');
+    },
     takeOutputs() {
       return queuedOutputs.splice(0);
     },
@@ -216,7 +286,9 @@ test('createTouchOsHudPlugin attaches a HUD part, updates roots, and claims poin
     },
   };
   const driver = {
-    attach() {},
+    attach() {
+      driverLifecycle.attach += 1;
+    },
     update(frame) {
       driverFrames.push(frame);
       if (frame.events?.length) {
@@ -228,7 +300,9 @@ test('createTouchOsHudPlugin attaches a HUD part, updates roots, and claims poin
         };
       }
     },
-    detach() {},
+    detach() {
+      driverLifecycle.detach += 1;
+    },
     render() {
       return { commands: [], sharedSurfaceRevision: 0 };
     },
@@ -241,7 +315,12 @@ test('createTouchOsHudPlugin attaches a HUD part, updates roots, and claims poin
     getPointerState() {
       return undefined;
     },
-    clearPointer() {},
+    clearPointer() {
+      driverLifecycle.clear += 1;
+    },
+    dispose() {
+      invoked.push({ driverDisposed: true });
+    },
   };
 
   const plugin = createTouchOsHudPlugin({
@@ -249,6 +328,8 @@ test('createTouchOsHudPlugin attaches a HUD part, updates roots, and claims poin
     target,
     runtime,
     driver,
+    disposeRuntime: true,
+    disposeDriver: true,
     root: ({ status }) => createSkykitShipControlsRoot({
       id: 'test-root',
       status,
@@ -269,6 +350,7 @@ test('createTouchOsHudPlugin attaches a HUD part, updates roots, and claims poin
 
   assert.ok(addedPart);
   addedPart.attach();
+  assert.equal(driverLifecycle.attach, 1);
   addedPart.update(createFrame(0.25));
   assert.equal(roots.length, 1);
   assert.equal(driverFrames[0].surfaceMetrics.width, 800);
@@ -299,8 +381,13 @@ test('createTouchOsHudPlugin attaches a HUD part, updates roots, and claims poin
     clientY: 560,
   });
 
-  assert.equal(pointer.defaultPrevented, true);
-  assert.equal(pointer.immediatePropagationStopped, true);
+  assert.equal(pointer.defaultPrevented, false);
+  assert.equal(pointer.immediatePropagationStopped, false);
+  assert.equal(driverFrames.length, 2);
+  addedPart.update(createFrame(0.75));
+  assert.equal(driverFrames.length, 3);
+  assert.equal(driverFrames[2].timestamp, 750);
+  assert.equal(driverFrames[2].events[0].timestamp, 500);
   assert.deepEqual(invoked[0], {
     payload: { target: 'sun' },
     metadata: { source: 'touch-os:look-sun' },
@@ -308,7 +395,11 @@ test('createTouchOsHudPlugin attaches a HUD part, updates roots, and claims poin
   assert.equal(observedOutputs[1].output.type, 'action');
 
   addedPart.dispose();
-  assert.deepEqual(invoked[1], { disposed: true });
+  assert.deepEqual(driverLifecycle, { attach: 1, detach: 1, clear: 1 });
+  assert.deepEqual(invoked.slice(1), [
+    { driverDisposed: true },
+    { disposed: true },
+  ]);
 });
 
 test('createTouchOsHudPlugin skips unclaimed touch pointer moves before HUD work', () => {
@@ -326,7 +417,9 @@ test('createTouchOsHudPlugin skips unclaimed touch pointer moves before HUD work
       return { handled: false, componentId: undefined, targetId: undefined, outputs: [] };
     },
     resize() {},
-    tick() {},
+    tick() {
+      assert.fail('The SkyKit bridge must let the touch-os driver own runtime.tick().');
+    },
     takeOutputs() {
       return [];
     },
@@ -345,14 +438,21 @@ test('createTouchOsHudPlugin skips unclaimed touch pointer moves before HUD work
     isRenderDirty() {
       return false;
     },
-    dispose() {},
+    dispose() {
+      assert.fail('The borrowed HUD runtime must not be disposed.');
+    },
   };
+  const driverLifecycle = { attach: 0, detach: 0, clear: 0 };
   const driver = {
-    attach() {},
+    attach() {
+      driverLifecycle.attach += 1;
+    },
     update(frame) {
       driverFrames.push(frame);
     },
-    detach() {},
+    detach() {
+      driverLifecycle.detach += 1;
+    },
     render() {
       return { commands: [], sharedSurfaceRevision: 0 };
     },
@@ -365,7 +465,9 @@ test('createTouchOsHudPlugin skips unclaimed touch pointer moves before HUD work
     getPointerState() {
       return undefined;
     },
-    clearPointer() {},
+    clearPointer() {
+      driverLifecycle.clear += 1;
+    },
   };
 
   const plugin = createTouchOsHudPlugin({
@@ -400,10 +502,15 @@ test('createTouchOsHudPlugin skips unclaimed touch pointer moves before HUD work
     clientX: 400,
     clientY: 300,
   });
-  assert.equal(driverFrames.length, frameCount + 1);
+  assert.equal(driverFrames.length, frameCount);
   assert.equal(mouseMove.defaultPrevented, false);
+  addedPart.update(createFrame(0.5));
+  assert.equal(driverFrames.length, frameCount + 1);
+  assert.equal(driverFrames.at(-1).events.length, 1);
+  assert.equal(driverFrames.at(-1).events[0].timestamp, 250);
 
   addedPart.dispose();
+  assert.deepEqual(driverLifecycle, { attach: 1, detach: 1, clear: 1 });
 });
 
 test('createTouchOsPanelPlugin mounts pose-anchored panels, forwards outputs, and blocks XR picks', () => {
@@ -414,9 +521,19 @@ test('createTouchOsPanelPlugin mounts pose-anchored panels, forwards outputs, an
   let addedPart = null;
   let latestHit = null;
   let createdDriverOptions = null;
+  let rawPointerHostFrame = null;
   const pointerSource = {
-    sample() {
-      return [];
+    sample(frame) {
+      rawPointerHostFrame = frame;
+      return [{
+        pointerId: 'raw',
+        pointerType: 'mouse',
+        transport: 'screen',
+        phase: 'move',
+        timestamp: 999999,
+        ndcX: 0,
+        ndcY: 0,
+      }];
     },
   };
   const runtime = {
@@ -430,7 +547,9 @@ test('createTouchOsPanelPlugin mounts pose-anchored panels, forwards outputs, an
       return { handled: false, componentId: undefined, targetId: undefined, outputs: [] };
     },
     resize() {},
-    tick() {},
+    tick() {
+      assert.fail('The SkyKit bridge must let the touch-os driver own runtime.tick().');
+    },
     takeOutputs() {
       return queuedOutputs.splice(0);
     },
@@ -453,7 +572,12 @@ test('createTouchOsPanelPlugin mounts pose-anchored panels, forwards outputs, an
       this.disposed = true;
     },
   };
+  const panelMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }),
+  );
   const driver = {
+    host: { mesh: panelMesh },
     attach() {
       this.attached = true;
     },
@@ -483,7 +607,13 @@ test('createTouchOsPanelPlugin mounts pose-anchored panels, forwards outputs, an
     getPointerState() {
       return undefined;
     },
-    clearPointer() {},
+    clearPointer() {
+      this.clearCount = (this.clearCount ?? 0) + 1;
+    },
+    dispose() {
+      this.disposed = true;
+      this.attached = false;
+    },
   };
 
   const plugin = createTouchOsPanelPlugin({
@@ -518,22 +648,338 @@ test('createTouchOsPanelPlugin mounts pose-anchored panels, forwards outputs, an
   addedPart.update(createFrame(1.25));
 
   assert.equal(driver.attached, true);
-  assert.equal(createdDriverOptions.pointerSources[0], pointerSource);
+  const normalizedSamples = createdDriverOptions.pointerSources[0].sample(driverFrames[0]);
+  assert.equal(rawPointerHostFrame, driverFrames[0]);
+  assert.equal(normalizedSamples[0].timestamp, 1250);
   assert.equal(driverFrames[0].surfaceMetrics.width, 320);
+  assert.equal(driverFrames[0].timestamp, 1250);
   assert.deepEqual(driverFrames[0].anchorPose.position, { x: 1, y: 2, z: 3 });
   assert.equal(observedOutputs[0].output.type, 'change-request');
   assert.equal(observedOutputs[0].frameElapsedSeconds, 1.25);
   assert.deepEqual(plugin.getHit(), latestHit);
-  assert.deepEqual(plugin.blockRay({}), {
-    blocked: true,
-    consumed: true,
-    distance: 0.42,
-    hit: latestHit,
+  const blockerHit = plugin.blockRay({
+    id: 'query',
+    kind: 'custom',
+    handedness: null,
+    origin: { x: 0, y: 0, z: 1 },
+    direction: { x: 0, y: 0, z: -2 },
+    length: 2,
   });
+  assert.equal(blockerHit?.blocked, true);
+  assert.equal(blockerHit?.consumed, true);
+  assert.equal(blockerHit?.distance, 1);
+  assert.equal(blockerHit?.hit.object, panelMesh);
+  assert.equal(plugin.blockRay({
+    id: 'short-query',
+    kind: 'custom',
+    handedness: null,
+    origin: { x: 0, y: 0, z: 1 },
+    direction: { x: 0, y: 0, z: -1 },
+    length: 0.5,
+  }), null);
 
   addedPart.dispose();
   assert.equal(driver.attached, false);
-  assert.equal(runtime.disposed, true);
+  assert.equal(driver.disposed, true);
+  assert.equal(runtime.disposed, undefined);
+});
+
+test('panel callbacks and SkyKit-aware pointer sources receive the full frame and canonical clock', () => {
+  const actionCalls = [];
+  const actions = {
+    press(id, payload, metadata) {
+      actionCalls.push(['press', id, payload, metadata]);
+    },
+    release(id, metadata) {
+      actionCalls.push(['release', id, metadata]);
+    },
+    invoke(id, payload, metadata) {
+      actionCalls.push(['invoke', id, payload, metadata]);
+      return Promise.resolve([]);
+    },
+  };
+  const outputs = [];
+  const observed = [];
+  const callbackFrames = [];
+  const driverFrames = [];
+  const sourceFrames = [];
+  let sourceClears = 0;
+  let attachCount = 0;
+  let detachCount = 0;
+  let disposeCount = 0;
+  let held = true;
+  let addedPart = null;
+  let createdDriverOptions = null;
+  const runtime = createFakeRuntime(outputs);
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }),
+  );
+  const driver = {
+    host: { mesh },
+    attach() {
+      attachCount += 1;
+    },
+    update(frame) {
+      driverFrames.push(frame);
+      for (const source of createdDriverOptions.pointerSources) {
+        this.samples = source.sample(frame);
+      }
+    },
+    detach() {
+      detachCount += 1;
+      if (held) {
+        held = false;
+        outputs.push({
+          type: 'action',
+          actionId: 'ship.hold',
+          componentId: 'hold',
+          payload: { phase: 'stop' },
+        });
+      }
+    },
+    dispose() {
+      disposeCount += 1;
+    },
+    clearPointer(_pointerId, timestamp) {
+      this.clearTimestamp = timestamp;
+      if (held) {
+        held = false;
+        outputs.push({
+          type: 'action',
+          actionId: 'ship.hold',
+          componentId: 'hold',
+          payload: { phase: 'stop' },
+        });
+      }
+    },
+    getHit() {
+      return null;
+    },
+  };
+  const skykitSource = createSkykitTouchOsPointerSource({
+    sample(frame) {
+      sourceFrames.push(frame);
+      return {
+        pointerId: 'right-trigger',
+        pointerType: 'xr-controller',
+        transport: 'ray',
+        phase: 'down',
+        timestamp: 987654,
+        origin: { x: 0, y: 0, z: 1 },
+        direction: { x: 0, y: 0, z: -1 },
+      };
+    },
+    clear() {
+      sourceClears += 1;
+    },
+  });
+  const root = createSkykitShipControlsRoot({ id: 'full-frame-root' });
+  const plugin = createTouchOsPanelPlugin({
+    runtime,
+    root(rootContext) {
+      if (rootContext.frame) callbackFrames.push(['root', rootContext.frame]);
+      return root;
+    },
+    surfaceMetrics(frame) {
+      if (frame) callbackFrames.push(['metrics', frame]);
+      return { width: 320, height: 200 };
+    },
+    parent(frame) {
+      callbackFrames.push(['parent', frame]);
+      return frame.roots.navigationRoot;
+    },
+    anchorPose(frame) {
+      callbackFrames.push(['anchor', frame]);
+      return frame.xr.pose;
+    },
+    skykitPointerSources: [skykitSource],
+    createDriver(options) {
+      createdDriverOptions = options;
+      return driver;
+    },
+    onOutput(output) {
+      observed.push(output);
+    },
+  });
+  plugin.setup(createContext(actions, (part) => {
+    addedPart = part;
+  }));
+
+  const frame = {
+    ...createFrame(1.5),
+    xr: {
+      presenting: true,
+      pose: {
+        position: { x: 1, y: 2, z: 3 },
+        orientation: { x: 0, y: 0, z: 0, w: 1 },
+      },
+    },
+  };
+  outputs.push({
+    type: 'action',
+    actionId: 'ship.hold',
+    componentId: 'hold',
+    payload: { phase: 'start' },
+  });
+  addedPart.attach();
+  addedPart.update(frame);
+
+  assert.equal(driverFrames.length, 1);
+  assert.equal(driverFrames[0].timestamp, 1500);
+  assert.equal(driver.samples[0].timestamp, 1500);
+  assert.equal(sourceFrames[0], frame);
+  assert.deepEqual(
+    callbackFrames.map(([name, callbackFrame]) => [name, callbackFrame === frame]).sort(),
+    [['anchor', true], ['metrics', true], ['parent', true], ['root', true]],
+  );
+  assert.equal(observed.length, 1);
+  assert.equal(actionCalls[0][0], 'press');
+
+  plugin.clearPointer();
+  assert.equal(sourceClears, 1);
+  assert.equal(driver.clearTimestamp, 1500);
+  assert.equal(observed.length, 2);
+  assert.equal(actionCalls[1][0], 'release');
+
+  addedPart.detach();
+  addedPart.attach();
+  addedPart.update({ ...frame, elapsedSeconds: 2 });
+  assert.equal(attachCount, 2);
+  assert.equal(detachCount, 1);
+  assert.equal(driverFrames.length, 2);
+  addedPart.dispose();
+  addedPart.dispose();
+  assert.equal(detachCount, 2);
+  assert.equal(disposeCount, 1);
+  assert.equal(runtime.disposed, undefined);
+});
+
+test('supplied panel runtime and driver are borrowed unless ownership is explicitly transferred', () => {
+  const actions = createSkykitActionRegistry();
+  const borrowedOutputs = [];
+  const borrowedRuntime = createFakeRuntime(borrowedOutputs);
+  const borrowedDriver = createFakePanelDriver();
+  let borrowedPart = null;
+  const borrowedPlugin = createTouchOsPanelPlugin({
+    runtime: borrowedRuntime,
+    driverHandle: borrowedDriver,
+    root: createSkykitShipControlsRoot({ id: 'borrowed-root' }),
+  });
+  borrowedPlugin.setup(createContext(actions, (part) => {
+    borrowedPart = part;
+  }));
+  borrowedPart.attach();
+  borrowedPart.dispose();
+  borrowedPart.dispose();
+  assert.equal(borrowedDriver.disposeCount, 0);
+  assert.equal(borrowedRuntime.disposed, undefined);
+
+  const ownedRuntime = createFakeRuntime([]);
+  const ownedDriver = createFakePanelDriver();
+  let ownedPart = null;
+  const ownedPlugin = createTouchOsPanelPlugin({
+    runtime: ownedRuntime,
+    driverHandle: ownedDriver,
+    disposeRuntime: true,
+    disposeDriver: true,
+    root: createSkykitShipControlsRoot({ id: 'transferred-root' }),
+  });
+  ownedPlugin.setup(createContext(actions, (part) => {
+    ownedPart = part;
+  }));
+  ownedPart.attach();
+  ownedPart.dispose();
+  ownedPart.dispose();
+  assert.equal(ownedDriver.disposeCount, 1);
+  assert.equal(ownedRuntime.disposed, true);
+});
+
+test('supplied touch-os drivers require their runtime and reject ignored construction options', () => {
+  const root = createSkykitShipControlsRoot({ id: 'supplied-driver-root' });
+  const target = createTarget({ width: 640, height: 360 });
+  const runtime = createFakeRuntime([]);
+  const driver = createFakePanelDriver();
+
+  assert.throws(() => createTouchOsHudPlugin({
+    target,
+    root,
+    driver,
+  }), /requires the driver's DisplayRuntime/);
+  assert.throws(() => createTouchOsHudPlugin({
+    target,
+    root,
+    runtime,
+    driver,
+    driverOptions: { transparent: false },
+  }), /cannot apply createDriver or driverOptions/);
+
+  assert.throws(() => createTouchOsPanelPlugin({
+    root,
+    driverHandle: driver,
+  }), /requires the driver's DisplayRuntime/);
+  assert.throws(() => createTouchOsPanelPlugin({
+    root,
+    runtime,
+    driverHandle: driver,
+    pointerSources: [{ sample() { return []; } }],
+  }), /cannot configure the kind, factory, options, or pointer sources/);
+  assert.throws(() => createTouchOsPanelPlugin({
+    root,
+    driverOptions: {
+      pointerSources: [],
+    },
+  }), /driverOptions cannot set SkyKit-managed pointerSources/);
+  assert.throws(() => createTouchOsHudPlugin({
+    target,
+    root,
+    driverOptions: {
+      parent: new THREE.Group(),
+    },
+  }), /driverOptions cannot set SkyKit-managed parent/);
+});
+
+test('blockRay evaluates each supplied ray against the current mesh without reading cached pointer state', () => {
+  const actions = createSkykitActionRegistry();
+  const runtime = createFakeRuntime([]);
+  const driver = createFakePanelDriver();
+  let part = null;
+  let getHitCalls = 0;
+  let processCalls = 0;
+  driver.getHit = () => {
+    getHitCalls += 1;
+    return { blocked: true, length: 99 };
+  };
+  driver.interactor = {
+    process() {
+      processCalls += 1;
+    },
+  };
+  const plugin = createTouchOsPanelPlugin({
+    runtime,
+    driverHandle: driver,
+    root: createSkykitShipControlsRoot({ id: 'ray-query-root' }),
+  });
+  plugin.setup(createContext(actions, (nextPart) => {
+    part = nextPart;
+  }));
+  part.attach();
+  part.update(createFrame(1));
+
+  const first = plugin.blockRay(createTestRay({ x: 0, y: 0, z: 2 }, { x: 0, y: 0, z: -4 }, 3));
+  const miss = plugin.blockRay(createTestRay({ x: 2, y: 0, z: 2 }, { x: 0, y: 0, z: -1 }, 3));
+  assert.equal(first?.distance, 2);
+  assert.equal(miss, null);
+
+  driver.host.mesh.position.z = 1;
+  const moved = plugin.blockRay(createTestRay({ x: 0, y: 0, z: 2 }, { x: 0, y: 0, z: -1 }, 3));
+  assert.equal(moved?.distance, 1);
+  assert.equal(plugin.blockRay(createTestRay({ x: 0, y: 0, z: 2 }, { x: 0, y: 0, z: -1 }, 3), {
+    maxDistance: 0.5,
+  }), null);
+  assert.equal(getHitCalls, 0);
+  assert.equal(processCalls, 0);
+  part.dispose();
 });
 
 function createContext(actions, addPart) {
@@ -647,5 +1093,85 @@ function createTarget({ width, height, pixelRatio = 1 }) {
       listeners.get(type)?.(event);
       return event;
     },
+  };
+}
+
+function createFakeRuntime(outputs = []) {
+  return {
+    setRoot(root) {
+      this.root = root;
+    },
+    render() {
+      return { commands: [], sharedSurfaceRevision: 0 };
+    },
+    dispatchInput() {
+      return { handled: false, componentId: undefined, targetId: undefined, outputs: [] };
+    },
+    resize() {},
+    tick() {
+      assert.fail('The SkyKit bridge must let the touch-os driver own runtime.tick().');
+    },
+    takeOutputs() {
+      return outputs.splice(0);
+    },
+    getServices() {
+      return {};
+    },
+    getInteraction() {
+      return {};
+    },
+    getBounds() {
+      return undefined;
+    },
+    isLayoutDirty() {
+      return false;
+    },
+    isRenderDirty() {
+      return false;
+    },
+    dispose() {
+      this.disposed = true;
+    },
+  };
+}
+
+function createFakePanelDriver() {
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }),
+  );
+  return {
+    host: { mesh },
+    disposeCount: 0,
+    attach() {
+      this.attached = true;
+    },
+    update(frame) {
+      this.frame = frame;
+    },
+    detach() {
+      this.attached = false;
+    },
+    clearPointer(_pointerId, timestamp) {
+      this.clearTimestamp = timestamp;
+    },
+    getHit() {
+      return null;
+    },
+    dispose() {
+      this.disposeCount += 1;
+      this.attached = false;
+    },
+  };
+}
+
+function createTestRay(origin, direction, length) {
+  return {
+    id: 'test-ray',
+    kind: 'custom',
+    handedness: null,
+    origin,
+    direction,
+    length,
   };
 }

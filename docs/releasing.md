@@ -9,6 +9,33 @@ The current publishable package manifests are independently versioned at
 recovery/context; this checkout is not in Changesets prerelease mode because
 `.changeset/pre.json` is absent.
 
+## Public Website Version Policy
+
+The public website is a stable-release consumer, not a head-of-tree integration
+environment. While SkyKit is being developed toward `0.3.0`, the website stays
+pinned to the exact stable `0.2.0` package versions and CDN URLs.
+
+During `0.3.0` development:
+
+- repository package examples and tests exercise the in-development workspace
+  APIs;
+- the website remains an ergonomics and use-case reference for the intended
+  beginner-to-library learning path;
+- website dependencies, live-example version constants, and CDN URLs must not
+  be moved to `0.3.0` prereleases merely to follow workspace changes;
+- intentional `0.3.0` API changes are documented and validated in this
+  repository before the website is migrated.
+
+After the coordinated stable `0.3.0` package batch is available, migrate the
+website in a separate, reviewable change. That migration should update exact
+package pins and live-example constants together, adapt tutorial code to the
+released API, run the website build and live-example smoke checks, and only then
+deploy the new teaching surface.
+
+Urgent fixes for the live `0.2.0` teaching surface should use a compatible
+`0.2.x` release when a package fix is required. They should not pull unfinished
+`0.3.0` APIs into the website.
+
 ## Normal Change Flow
 
 1. Make the package change.
@@ -27,9 +54,16 @@ Run these checks before publishing or before merging release-sensitive package
 changes:
 
 ```sh
+npm ci
+npm run release:check-touch-os
 npm test
 npm run typecheck
+npm run build
+npm run build:examples
+npm run test:browser:xr-free-roam
 npm run release:check-lockfile
+npm run release:check-packed-consumers
+git diff --check
 ```
 
 For ordinary package-change pull requests, `npm run release:status` should pass
@@ -42,9 +76,15 @@ changes merge to `main`. The workflow runs:
 
 ```txt
 npm ci
+npm run release:check-touch-os
 npm test
 npm run typecheck
+npm run build
+npm run build:examples
+npm run test:browser:xr-free-roam
 npm run release:check-lockfile
+npm run release:check-packed-consumers
+committed-patch whitespace check
 changesets/action
 ```
 
@@ -68,6 +108,40 @@ whenever a workspace package version or internal dependency range changes.
 `npm run release:check-lockfile` verifies the workspace package entries in the
 lockfile against the package manifests and fails when they drift.
 
+## Stable Touch-OS Resolution
+
+SkyKit's optional touch-os integration is verified against the published stable
+package, not a sibling checkout. Package development dependencies and the
+examples application pin exact `@found-in-space/touch-os@0.3.0`; the SkyKit and
+HR package manifests declare the optional peer contract `>=0.3.0 <0.4.0`.
+
+With `TOUCH_OS_LOCAL_PATH` unset, both Vite configurations use normal installed
+package resolution. The environment variable is an explicit co-development
+override only:
+
+```sh
+TOUCH_OS_LOCAL_PATH=../touch-os npm run dev
+TOUCH_OS_LOCAL_PATH=../../../touch-os npm run dev:examples
+```
+
+The requested path is resolved relative to the Vite configuration that consumes
+it, which accounts for the different paths above.
+
+The build prints when that override is active and rejects a path that does not
+contain the expected source entries. Do not set it in CI or release checks, and
+do not treat a successful local-link build as installed-package verification.
+
+`npm run release:check-touch-os` fails if the override is set. It prints and
+verifies the installed version, exact manifest pins, optional peer ranges,
+registry lockfile source, and root `node_modules` resolution. Run it after
+`npm ci` so the check observes the clean lockfile install.
+
+`npm run release:check-packed-consumers` packs the workspace packages and makes
+two temporary external consumers. One imports the ordinary SkyKit and HR roots
+without installing touch-os. The other installs exact touch-os `0.3.0`, imports
+both optional subpaths, and rejects workspace or sibling symlink resolution.
+This packed check may download dependencies and is part of the release workflow.
+
 The workflow needs permission to create the Changesets version pull request. In
 GitHub, enable:
 
@@ -84,10 +158,17 @@ urgent package publish when the GitHub workflow is blocked.
 To prepare a release commit locally:
 
 ```sh
+npm ci
+npm run release:check-touch-os
 npm test
 npm run typecheck
+npm run build
+npm run build:examples
+npm run test:browser:xr-free-roam
 npm run release:version
 npm run release:check-lockfile
+npm run release:check-packed-consumers
+git diff --check
 ```
 
 Review and commit the generated package manifests, changelogs,

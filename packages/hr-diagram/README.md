@@ -24,6 +24,7 @@ It supports three projection/filtering modes:
 import {
   HR_DIAGRAM_MODE_VOLUME,
   createHrDiagramRenderer,
+  createHrDiagramSurfaceSource,
   drawHrDiagramCanvas,
 } from '@found-in-space/hr-diagram';
 
@@ -41,11 +42,39 @@ const renderer = createHrDiagramRenderer({
 for await (const delta of session.deltas()) {
   renderer.apply(delta);
 }
+
+const surfaceSource = createHrDiagramSurfaceSource({
+  sourceId: 'lesson:hr-diagram',
+  width: 1024,
+  height: 640,
+});
 ```
 
-The optional `@found-in-space/hr-diagram/touch-os` subpath publishes the WebGL
-renderer as a composite embedded surface, matching the high-performance surface
-pattern used by `touch-os`.
+`createHrDiagramSurfaceSource()` is part of the ordinary package entrypoint. It
+creates the Three texture source and render target without importing touch-os,
+so data and renderer consumers do not need the optional peer. Its optional
+render/publish timestamp is a monotonic host time in milliseconds.
+
+The optional `@found-in-space/hr-diagram/touch-os` subpath creates the touch-os
+node that presents that texture as a non-interactive composite surface:
+
+```js
+import { createHrDiagramEmbeddedSurfaceNode } from '@found-in-space/hr-diagram/touch-os';
+
+const root = createHrDiagramEmbeddedSurfaceNode({
+  componentId: 'lesson:hr-node',
+  sourceId: surfaceSource.sourceId,
+  title: 'Hertzsprung–Russell diagram',
+  fallbackLabel: 'HR diagram offline',
+  preserveAspectRatio: true,
+});
+```
+
+The adapter delegates layout and rendering to touch-os's public embedded-surface
+component. A title gets its own header above the padded viewport.
+`preserveAspectRatio: true` (the default) centers the source with contain-style
+letterboxing; `false` stretches it to the complete padded content bounds. The
+touch-os runtime and its embedded-surface service remain caller-owned.
 
 For the composed SkyKit example, see
 `../skykit/examples/hr-diagram-free-roam/`.
