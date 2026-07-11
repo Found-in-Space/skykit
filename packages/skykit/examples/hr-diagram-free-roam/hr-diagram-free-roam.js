@@ -12,6 +12,7 @@ import {
   createStreamingStarsPlugin,
   installSkykitDebugGlobal,
 } from '@found-in-space/skykit';
+import { createHrDiagramEmbeddedSurfaceNode } from '@found-in-space/hr-diagram/touch-os';
 import { createTouchOsHudPlugin } from '@found-in-space/skykit/touch-os';
 import {
   createChoiceGroup,
@@ -53,6 +54,14 @@ async function main() {
   const starField = createThreeStarField({ limitingMagnitude: 6.5, exposure: 2400 });
   const selectedStarTarget = createSelectedStarTarget();
   starField.object3d.add(selectedStarTarget.object3d);
+  const hrSurfaceId = 'hr-diagram:surface';
+  const hrNode = createHrDiagramEmbeddedSurfaceNode({
+    componentId: 'hr-diagram:node',
+    sourceId: hrSurfaceId,
+    title: 'HR diagram',
+    fallbackLabel: 'HR diagram offline',
+    preserveAspectRatio: true,
+  });
   let hrMode = 'frustum';
   let cachedHudRoot = null;
   let cachedHudMode = null;
@@ -62,7 +71,13 @@ async function main() {
     source,
     mode: hrMode,
     volumeRadiusPc: 25,
-    touchOs: { surfaces, width: 512, height: 360 },
+    touchOs: {
+      surfaces,
+      sourceId: hrSurfaceId,
+      root: hrNode,
+      width: 512,
+      height: 360,
+    },
   });
 
   const viewer = await createSkykitViewer({
@@ -78,7 +93,7 @@ async function main() {
       createSkyGrabPlugin({ target: host, sensitivityRadiansPerPixel: 0.00075 }),
       createTouchOsHudPlugin({
         target: host,
-        root: () => createHudRoot(hr, hrMode),
+        root: () => createHudRoot(hrMode),
         runtimeOptions: { services: { surfaces } },
         onOutput(output) {
           if (output.type !== 'change-request' || output.field !== 'hrMode') return;
@@ -107,7 +122,7 @@ async function main() {
     label: 'HR Diagram Free Roam',
   });
 
-  function createHudRoot(hrPlugin, mode) {
+  function createHudRoot(mode) {
     if (cachedHudRoot && cachedHudMode === mode) return cachedHudRoot;
     cachedHudMode = mode;
     cachedHudRoot = createDockLayout('hr-diagram-hud', {
@@ -127,7 +142,7 @@ async function main() {
               orientation: 'horizontal',
               options: HR_MODES,
             }),
-            hrPlugin.getNode(),
+            hrNode,
           ],
         }),
       },

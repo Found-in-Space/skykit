@@ -37,8 +37,11 @@
   "dependencies": {
     "@found-in-space/star-trees": "0.2.0"
   },
+  "devDependencies": {
+    "@found-in-space/touch-os": "0.3.0"
+  },
   "peerDependencies": {
-    "@found-in-space/touch-os": ">=0.2.0 <1",
+    "@found-in-space/touch-os": ">=0.3.0 <0.4.0",
     "three": "^0.170.0"
   },
   "peerDependenciesMeta": {

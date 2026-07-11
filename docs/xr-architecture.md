@@ -1,13 +1,17 @@
 # XR And Spatial Architecture
 
-Status: current `0.2.0` boundary and `0.3.0` target plan.
+Status: current `0.2.0` package boundary, stable touch-os `0.3.0`
+integration, and the remaining SkyKit `0.3.0` composition target.
 
 This note defines the split between shared spatial navigation and WebXR-specific
 runtime behavior.
 
-The public website remains pinned to stable `0.2.0` while this repository
-develops the `0.3.0` XR API. Repository examples and fake-XR tests validate the
-new API until a coordinated stable release is available. See
+The public website remains pinned to stable SkyKit `0.2.0` while this repository
+develops the broader `0.3.0` XR API. The repository bridge and examples resolve
+the published `@found-in-space/touch-os@0.3.0` package by default; they do not
+silently alias a sibling source checkout. Repository examples and deterministic
+fake-XR/browser tests validate the new API until a coordinated stable SkyKit
+release is available. See
 [`releasing.md`](./releasing.md#public-website-version-policy).
 
 ```txt
@@ -217,7 +221,7 @@ import {
 
 ---
 
-## 6. Current `0.2.0` Implementation Status
+## 6. Current Implementation Status
 
 Implemented in `@found-in-space/spatial`:
 
@@ -254,6 +258,32 @@ Implemented in `@found-in-space/skykit/xr`:
   handle without renderer-specific controller code.
 - fake-XR tests for rig, controls, rays, routing, depth, and sessions.
 
+Implemented at the touch-os `0.3.0` bridge boundary:
+
+- a canonical millisecond clock derived from `SkykitThreeFrame.elapsedSeconds`
+  for panel frames, DOM edges, XR samples, clearing, and cancellation;
+- one driver update, and therefore one driver-owned runtime tick, for each
+  SkyKit part update;
+- `raw-actions`, `app-actions`, and `none` output policies, with exactly-once
+  output observation and a single validated app-action registry route;
+- full-SkyKit-frame root, parent, anchor, metrics, and pointer-source
+  resolution before construction of the reduced touch-os host frame;
+- immediate pointer clearing and cancellation-output draining on tracking or
+  session loss, reversible detach, and final disposal;
+- current-mesh geometric `blockRay()` queries that do not dispatch panel input
+  or mutate pointer capture;
+- owned plugin-created runtimes/drivers and borrowed caller-supplied
+  runtimes/drivers/pointer sources;
+- borrowed caller-supplied XR ray sources in ray-visual and picking plugins,
+  while internally created sources remain owned.
+
+The `xr-free-roam/?skykit-test=1` browser mode is deliberately narrower than
+immersive coverage. Its synthetic head-anchored panel and browser-test pointer
+verify deterministic tablet, app-action, surface, visibility, and rendering
+behavior through normal panel frames. It does not emulate a native session,
+reference-space changes, headset/controller tracking, runtime controller
+profiles, compositor behavior, or headset rendering.
+
 Current composition gaps:
 
 - a single turnkey SkyKit XR starfield preset.
@@ -262,7 +292,8 @@ Current composition gaps:
 - explicit reference-space versus navigation-space pose and ray types.
 - one authoritative interaction route shared by panels, stars, app objects, and
   ray visuals.
-- safe ownership semantics for shared controls and ray sources.
+- full shared-runtime ownership semantics beyond the implemented supplied
+  ray-source cases.
 - semantic XR input mapping separated from spatial motion behavior.
 - a guided-journey adapter that moves the navigation rig with XR comfort policy.
 - published lesson docs that replace every legacy XR demo end to end.
@@ -378,6 +409,18 @@ ray source, controls handle, runtime, or session supplied by the application.
 Where transfer of ownership is useful, it must be an explicit option rather than
 an implicit side effect.
 
+The current ray visual and star-picking plugins already apply this rule to ray
+sources: a source passed by the application is borrowed, while one created by
+the plugin is owned and disposed idempotently. The touch-os bridge applies the
+same origin rule to runtimes and drivers, with explicit `disposeRuntime` and
+`disposeDriver` overrides. Supplied panel pointer sources are borrowed and may
+be cleared during cancellation, but are never disposed implicitly.
+
+Because runtime output draining remains a bridge responsibility, a supplied
+touch-os driver must be paired with the same supplied runtime used to construct
+it. Its pointer sources and construction options are configured before it is
+passed to SkyKit.
+
 ---
 
 ## 9. Coordinate Spaces And Units
@@ -441,6 +484,13 @@ and games can then drive the same motion model. `createSkykitXrNavigationPlugin`
 should become a convenience composition of the binding adapter and shared motion
 behavior, not a second private navigation implementation.
 
+At the current panel boundary, a SkyKit-aware touch-os pointer source resets its
+local control edges and ray state when the session, tracking pose, or resolved
+ray disappears. Native and explicit session end use the same cleanup direction:
+reset the source, call the panel's `clearPointer()` immediately, and drain the
+resulting action release. The pointer ID can then be reused on re-entry without
+stale pressed or capture state.
+
 Built-in action and control payloads should have public TypeScript contracts.
 Application namespaces remain open for custom actions.
 
@@ -483,6 +533,22 @@ XR instead of creating an XR-only star identity or UI contract.
 
 Ray visuals observe the authoritative route result. They do not rerun blocker
 tests, and removing a visual does not change interaction behavior.
+
+### Current independent-panel path
+
+The broader authoritative router above remains a composition target. The
+current SkyKit touch-os adapter exposes each panel as an independent blocker.
+Its `blockRay(ray, context)` creates a geometric answer for that supplied ray by
+raycasting the driver's current public mesh, normalizing direction, selecting
+the nearest intersection, and honoring both `ray.length` and
+`context.maxDistance`. It does not read the cached pointer hit, dispatch touch
+input, or alter capture; `getHit()` is only cached current-pointer inspection.
+
+One continuous pointer-source instance belongs to one independent panel plugin.
+Applications that need one source to coordinate several touch-os panels should
+use touch-os's public panel coordinator/session path. This migration does not
+add a competing SkyKit multi-panel coordinator before the authoritative router
+exists.
 
 ---
 

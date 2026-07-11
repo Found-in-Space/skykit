@@ -105,6 +105,7 @@ export function createSkykitXrControlBindings(options = {}) {
   return {
     id,
     update,
+    reset,
     getAxis,
     getButton,
     isPressed,
@@ -136,6 +137,15 @@ export function createSkykitXrControlBindings(options = {}) {
         notify(name, next);
       }
     }
+  }
+
+  /**
+   * Clear analog, pressed, and edge state so a later input source starts a
+   * fresh interaction lifecycle.
+   */
+  function reset() {
+    assertActive();
+    resetStates(true);
   }
 
   /**
@@ -211,8 +221,30 @@ export function createSkykitXrControlBindings(options = {}) {
   }
 
   function dispose() {
+    if (disposed) return;
+    resetStates(false);
     disposed = true;
     listeners.clear();
+  }
+
+  /** @param {boolean} notifyListeners */
+  function resetStates(notifyListeners) {
+    for (const name of axisStates.keys()) {
+      const previous = axisStates.get(name);
+      const next = axisState(0, 0, null);
+      axisStates.set(name, next);
+      if (notifyListeners && !axisEqual(previous, next)) {
+        notify(name, next);
+      }
+    }
+    for (const name of buttonStates.keys()) {
+      const previous = buttonStates.get(name);
+      const next = readSkykitXrButton([], config.buttons[name] ?? {}, null);
+      buttonStates.set(name, next);
+      if (notifyListeners && !buttonEqual(previous, next)) {
+        notify(name, next);
+      }
+    }
   }
 
   /**

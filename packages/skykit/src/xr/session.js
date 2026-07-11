@@ -83,6 +83,13 @@ export async function exitSkykitXrSession(sessionOrHandle) {
  */
 function createSessionHandle(options) {
   let ended = false;
+  /** @type {'native' | 'explicit' | null} */
+  let endReason = null;
+  let exitRequested = false;
+  /** @type {Promise<void> | null} */
+  let exitPromise = null;
+  /** @type {Set<(reason: 'native' | 'explicit') => void>} */
+  const endListeners = new Set();
   const session = options.session;
   const handle = {
     mode: options.mode,
@@ -93,8 +100,29 @@ function createSessionHandle(options) {
       return !ended;
     },
     async exit() {
-      await exitSkykitXrSession(session);
-      ended = true;
+      if (ended) return;
+      if (!exitPromise) {
+        exitRequested = true;
+        exitPromise = (async () => {
+          await exitSkykitXrSession(session);
+          finish('explicit');
+        })();
+      }
+      await exitPromise;
+    },
+    /** @param {(reason: 'native' | 'explicit') => void} listener */
+    onEnd(listener) {
+      if (typeof listener !== 'function') {
+        throw new TypeError('SkykitXrSessionHandle.onEnd() requires a listener.');
+      }
+      if (ended) {
+        listener(endReason ?? 'native');
+        return () => {};
+      }
+      endListeners.add(listener);
+      return () => {
+        endListeners.delete(listener);
+      };
     },
     getSnapshot() {
       return {
@@ -102,16 +130,29 @@ function createSessionHandle(options) {
         referenceSpaceType: options.referenceSpaceType,
         presenting: !ended,
         hasReferenceSpace: options.referenceSpace != null,
+        endReason,
       };
     },
   };
   if (session && typeof /** @type {{ addEventListener?: unknown }} */ (session).addEventListener === 'function') {
     /** @type {{ addEventListener: (type: string, listener: () => void, options?: unknown) => void }} */ (session)
       .addEventListener('end', () => {
-        ended = true;
+        finish(exitRequested ? 'explicit' : 'native');
       }, { once: true });
   }
   return handle;
+
+  /** @param {'native' | 'explicit'} reason */
+  function finish(reason) {
+    if (ended) return;
+    ended = true;
+    endReason = reason;
+    const listeners = Array.from(endListeners);
+    endListeners.clear();
+    for (const listener of listeners) {
+      listener(reason);
+    }
+  }
 }
 
 /**

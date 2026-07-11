@@ -196,8 +196,20 @@ export function createSkykitXrSessionPlugin(options = {}) {
   const referenceSpaceType = options.referenceSpaceType ?? 'local-floor';
   /** @type {import('../index.d.ts').SkykitThreePluginContext | null} */
   let context = null;
+  /** @type {unknown} Retained through asynchronous teardown after the plugin context is released. */
+  let contextRenderer = null;
   /** @type {import('../xr.d.ts').SkykitXrSessionHandle | null} */
   let handle = null;
+  /** @type {(() => void) | null} */
+  let unsubscribeSessionEnd = null;
+  /** @type {Promise<void> | null} */
+  let exitPromise = null;
+  /** @type {WeakSet<object>} */
+  const finalizedHandles = new WeakSet();
+  /** @type {WeakSet<object>} */
+  const finalizedRawSessions = new WeakSet();
+  /** @type {WeakSet<object>} */
+  const endedSessions = new WeakSet();
   let disposed = false;
   /** @type {boolean | null} */
   let supported = null;
@@ -212,9 +224,16 @@ export function createSkykitXrSessionPlugin(options = {}) {
     /** @param {import('../index.d.ts').SkykitThreeFrame} frame */
     update(frame) {
       const rendererXr = resolveRendererXr(renderer ?? frame.renderer);
-      const session = handle?.session ?? rendererXr?.getSession?.() ?? null;
+      const candidateSession = handle?.session ?? rendererXr?.getSession?.() ?? null;
+      const session = isEndedSession(candidateSession) ? null : candidateSession;
       const referenceSpace = handle?.referenceSpace ?? rendererXr?.getReferenceSpace?.() ?? null;
-      const presenting = Boolean(handle?.presenting || rendererXr?.isPresenting || session || frame.xr?.presenting);
+      const frameSessionEnded = isEndedSession(frame.xr?.session);
+      const presenting = Boolean(
+        handle?.presenting
+        || (rendererXr?.isPresenting && !isEndedSession(rendererXr.getSession?.()))
+        || session
+        || (frame.xr?.presenting && !frameSessionEnded),
+      );
       if (presenting) {
         frame.xr = {
           ...(frame.xr ?? {}),
@@ -226,6 +245,7 @@ export function createSkykitXrSessionPlugin(options = {}) {
     },
     getSnapshot,
     dispose() {
+      if (disposed) return;
       disposed = true;
       void exit();
     },
@@ -235,6 +255,7 @@ export function createSkykitXrSessionPlugin(options = {}) {
     id,
     setup(pluginContext) {
       context = /** @type {import('../index.d.ts').SkykitThreePluginContext} */ (pluginContext);
+      contextRenderer = context.renderer ?? null;
       context.addPart(part);
       const unregisters = [
         context.actions.registerAction(SKYKIT_ACTIONS.xr.enter, () => enter(), { label: 'Enter XR' }),
@@ -263,7 +284,7 @@ export function createSkykitXrSessionPlugin(options = {}) {
       throw new Error('SkykitXrSessionPlugin has been disposed.');
     }
     if (handle?.presenting) return handle;
-    const activeRenderer = renderer ?? context?.renderer;
+    const activeRenderer = renderer ?? contextRenderer ?? context?.renderer;
     const rendererXr = resolveRendererXr(activeRenderer);
     if (rendererXr) rendererXr.enabled = true;
     rendererXr?.setReferenceSpaceType?.(referenceSpaceType);
@@ -283,9 +304,23 @@ export function createSkykitXrSessionPlugin(options = {}) {
       if (rendererXr && typeof rendererXr.setSession === 'function') {
         await rendererXr.setSession(nextHandle.session);
       }
-      handle = nextHandle;
+      if (!nextHandle.presenting) {
+        throw new Error('WebXR session ended before renderer binding completed.');
+      }
+      const currentHandle = nextHandle;
+      handle = currentHandle;
+      unsubscribeSessionEnd?.();
+      unsubscribeSessionEnd = currentHandle.onEnd((reason) => {
+        finalizeSessionEnd(currentHandle, reason);
+      });
       enterStage = 'presenting';
-      options.onSessionStarted?.(handle);
+      context?.emit?.({
+        type: 'xr/session-start',
+        id,
+        mode,
+        referenceSpaceType,
+      });
+      options.onSessionStarted?.(currentHandle);
     } catch (error) {
       enterStage = 'failed';
       lastError = error instanceof Error ? error.message : String(error);
@@ -301,41 +336,116 @@ export function createSkykitXrSessionPlugin(options = {}) {
       }
       throw error;
     }
-    context?.emit?.({
-      type: 'xr/session-start',
-      id,
-      mode,
-      referenceSpaceType,
-    });
-    return handle;
+    return nextHandle;
   }
 
   async function exit() {
+    if (!exitPromise) {
+      exitPromise = performExit().finally(() => {
+        exitPromise = null;
+      });
+    }
+    await exitPromise;
+  }
+
+  async function performExit() {
     const previous = handle;
-    handle = null;
-    enterStage = 'exiting';
-    const activeRenderer = renderer ?? context?.renderer;
+    const activeRenderer = renderer ?? contextRenderer ?? context?.renderer;
     const rendererXr = resolveRendererXr(activeRenderer);
+    const activeSession = previous?.session ?? rendererXr?.getSession?.() ?? null;
+    if (!previous && !activeSession) {
+      enterStage = 'idle';
+      return;
+    }
+    enterStage = 'exiting';
     if (previous) {
       await exitSkykitXrSession(previous);
-    } else {
-      const activeSession = rendererXr?.getSession?.();
-      if (activeSession && typeof /** @type {{ end?: unknown }} */ (activeSession).end === 'function') {
-        await /** @type {{ end: () => Promise<void> | void }} */ (activeSession).end();
-      } else if (rendererXr && typeof rendererXr.setSession === 'function' && rendererXr.getSession?.()) {
-        await rendererXr.setSession(null);
-      }
+      await detachEndedRendererSession(previous.session);
+      finalizeSessionEnd(previous, 'explicit');
+      return;
     }
+    if (typeof /** @type {{ end?: unknown }} */ (activeSession).end === 'function') {
+      await /** @type {{ end: () => Promise<void> | void }} */ (activeSession).end();
+    } else if (rendererXr && typeof rendererXr.setSession === 'function') {
+      await rendererXr.setSession(null);
+    }
+    await detachEndedRendererSession(activeSession);
+    finalizeRawSessionEnd(/** @type {object} */ (activeSession), 'explicit');
+  }
+
+  /**
+   * @param {import('../xr.d.ts').SkykitXrSessionHandle} endedHandle
+   * @param {'native' | 'explicit'} reason
+   */
+  function finalizeSessionEnd(endedHandle, reason) {
+    if (finalizedHandles.has(endedHandle)) return;
+    finalizedHandles.add(endedHandle);
+    if (handle === endedHandle) {
+      handle = null;
+      unsubscribeSessionEnd?.();
+      unsubscribeSessionEnd = null;
+    }
+    rememberEndedSession(endedHandle.session);
+    void detachEndedRendererSession(endedHandle.session);
     enterStage = 'idle';
+    emitSessionEnd(reason);
+    options.onSessionEnded?.(endedHandle, reason);
+  }
+
+  /**
+   * @param {object} session
+   * @param {'native' | 'explicit'} reason
+   */
+  function finalizeRawSessionEnd(session, reason) {
+    if (finalizedRawSessions.has(session)) return;
+    finalizedRawSessions.add(session);
+    endedSessions.add(session);
+    enterStage = 'idle';
+    emitSessionEnd(reason);
+  }
+
+  /** @param {'native' | 'explicit'} reason */
+  function emitSessionEnd(reason) {
     context?.emit?.({
       type: 'xr/session-end',
       id,
       mode,
+      reason,
     });
   }
 
+  /** @param {unknown} endedSession */
+  async function detachEndedRendererSession(endedSession) {
+    const rendererXr = resolveRendererXr(renderer ?? contextRenderer ?? context?.renderer);
+    if (
+      rendererXr
+      && typeof rendererXr.setSession === 'function'
+      && rendererXr.getSession?.() === endedSession
+    ) {
+      try {
+        await rendererXr.setSession(null);
+      } catch {
+        // The native session has already ended; cleanup must remain idempotent.
+      }
+    }
+  }
+
+  /** @param {unknown} session */
+  function rememberEndedSession(session) {
+    if (session && typeof session === 'object') {
+      endedSessions.add(session);
+    }
+  }
+
+  /** @param {unknown} session */
+  function isEndedSession(session) {
+    return Boolean(session && typeof session === 'object' && endedSessions.has(session));
+  }
+
   function isPresenting() {
-    return Boolean(handle?.presenting || resolveRendererXr(renderer ?? context?.renderer)?.isPresenting);
+    if (handle?.presenting) return true;
+    const rendererXr = resolveRendererXr(renderer ?? contextRenderer ?? context?.renderer);
+    return Boolean(rendererXr?.isPresenting && !isEndedSession(rendererXr.getSession?.()));
   }
 
   function getSnapshot() {
@@ -359,6 +469,7 @@ export function createSkykitXrSessionPlugin(options = {}) {
  */
 export function createSkykitXrNavigationPlugin(options = {}) {
   const id = options.id ?? 'skykit-xr-navigation';
+  const ownsControls = options.controls == null;
   const controls = options.controls ?? createSkykitXrControlBindings({
     axes: {
       move: options.moveAxis ?? { hand: 'right' },
@@ -385,8 +496,9 @@ export function createSkykitXrNavigationPlugin(options = {}) {
     priority: options.priority,
     /** @param {import('../index.d.ts').SkykitThreeFrame} frame */
     update(frame) {
-      if (disposed || frame.xr?.presenting !== true) {
-        presenting = false;
+      if (disposed) return;
+      if (frame.xr?.presenting !== true || !frame.xr.session) {
+        resetNavigationInput(frame);
         return;
       }
       presenting = true;
@@ -452,8 +564,11 @@ export function createSkykitXrNavigationPlugin(options = {}) {
       };
     },
     dispose() {
+      if (disposed) return;
       disposed = true;
-      controls.dispose?.();
+      if (ownsControls) {
+        controls.dispose?.();
+      }
     },
   };
 
@@ -464,17 +579,41 @@ export function createSkykitXrNavigationPlugin(options = {}) {
     },
     getSnapshot: () => part.getSnapshot(),
   };
+
+  /** @param {import('../index.d.ts').SkykitThreeFrame} frame */
+  function resetNavigationInput(frame) {
+    if (ownsControls) {
+      controls.reset?.();
+    }
+    if (
+      presenting
+      || lastMove.x !== 0
+      || lastMove.y !== 0
+      || lastMove.z !== 0
+      || lastAttitude.pitch !== 0
+      || lastAttitude.yaw !== 0
+      || lastAttitude.roll !== 0
+    ) {
+      lastMove = { x: 0, y: 0, z: 0 };
+      lastAttitude = { pitch: 0, yaw: 0, roll: 0 };
+      frame.viewer.actions.setControlValue(SKYKIT_CONTROLS.ship.move, cloneVector3(lastMove), { source: id });
+      frame.viewer.actions.setControlValue(SKYKIT_CONTROLS.ship.attitude, { ...lastAttitude }, { source: id });
+    }
+    presenting = false;
+  }
 }
 
 /**
- * @param {import('../xr.d.ts').SkykitXrRayVisualPluginOptions} options
+ * @param {import('../xr.d.ts').SkykitXrRayVisualPluginOptions} [options]
  * @returns {import('../index.d.ts').SkykitPlugin & { getSnapshot(): unknown }}
  */
-export function createSkykitXrRayVisualPlugin(options) {
-  if (!options?.raySource || typeof options.raySource.getRay !== 'function') {
-    throw new TypeError('createSkykitXrRayVisualPlugin() requires a raySource.');
-  }
+export function createSkykitXrRayVisualPlugin(options = {}) {
   const id = options.id ?? 'skykit-xr-ray-visual';
+  const ownsRaySource = options.raySource == null;
+  const raySource = options.raySource ?? createSkykitXrRaySource({
+    kind: 'target-ray',
+    handedness: options.handedness ?? 'right',
+  });
   const root = new THREE.Group();
   root.name = id;
   root.visible = false;
@@ -513,14 +652,16 @@ export function createSkykitXrRayVisualPlugin(options) {
     },
     /** @param {import('../index.d.ts').SkykitThreeFrame} frame */
     update(frame) {
-      if (disposed || frame.xr?.presenting !== true) {
+      if (disposed) return;
+      if (frame.xr?.presenting !== true || !frame.xr.session) {
+        if (ownsRaySource) raySource.reset?.();
         setVisible(false);
         return;
       }
       const session = frame.xr.session && typeof frame.xr.session === 'object'
         ? /** @type {{ inputSources?: Iterable<unknown> }} */ (frame.xr.session)
         : null;
-      const ray = options.raySource.getRay({
+      const ray = raySource.getRay({
         frame: frame.xr.frame,
         referenceSpace: frame.xr.referenceSpace,
         session: /** @type {any} */ (frame.xr.session),
@@ -529,6 +670,7 @@ export function createSkykitXrRayVisualPlugin(options) {
         viewer: frame.viewer,
       });
       if (!ray) {
+        if (ownsRaySource) raySource.reset?.();
         setVisible(false);
         return;
       }
@@ -557,6 +699,7 @@ export function createSkykitXrRayVisualPlugin(options) {
       parent = null;
     },
     dispose() {
+      if (disposed) return;
       disposed = true;
       parent?.remove(root);
       parent = null;
@@ -564,7 +707,9 @@ export function createSkykitXrRayVisualPlugin(options) {
       if (ownsMaterial) {
         material.dispose();
       }
-      options.raySource.dispose?.();
+      if (ownsRaySource) {
+        raySource.dispose?.();
+      }
     },
     getSnapshot() {
       return {
@@ -574,7 +719,7 @@ export function createSkykitXrRayVisualPlugin(options) {
         blocked,
         lastLength,
         parentName: parent?.name ?? null,
-        raySource: options.raySource.getSnapshot?.() ?? null,
+        raySource: raySource.getSnapshot?.() ?? null,
       };
     },
   };
@@ -604,10 +749,12 @@ export function createSkykitXrStarPickingPlugin(options) {
   }
   const id = options.id ?? 'skykit-xr-star-picking';
   const pickHand = normalizePickHand(options.handedness);
+  const ownsRaySource = options.raySource == null;
   const raySource = options.raySource ?? createSkykitXrRaySource({
     kind: 'target-ray',
     handedness: options.handedness ?? 'right',
   });
+  const ownsControls = options.controls == null;
   const controls = options.controls ?? createSkykitXrControlBindings({
     buttons: {
       select: options.selectButton ?? { hand: pickHand, button: 'trigger' },
@@ -628,12 +775,15 @@ export function createSkykitXrStarPickingPlugin(options) {
     priority: options.priority ?? 50,
     /** @param {import('../index.d.ts').SkykitThreeFrame} frame */
     update(frame) {
-      if (disposed || frame.xr?.presenting !== true) return;
+      if (disposed) return;
+      if (frame.xr?.presenting !== true || !frame.xr.session) {
+        resetOwnedInteraction();
+        return;
+      }
       const session = frame.xr.session && typeof frame.xr.session === 'object'
         ? /** @type {{ inputSources?: Iterable<unknown> }} */ (frame.xr.session)
         : null;
       controls.update({ inputSources: session?.inputSources ?? [] });
-      if (!controls.getButton('select').pressedEdge) return;
       const ray = raySource.getRay({
         frame: frame.xr.frame,
         referenceSpace: frame.xr.referenceSpace,
@@ -641,7 +791,11 @@ export function createSkykitXrStarPickingPlugin(options) {
         inputSources: session?.inputSources ?? [],
         rig: options.rig,
       });
-      if (!ray) return;
+      if (!ray) {
+        resetOwnedInteraction();
+        return;
+      }
+      if (!controls.getButton('select').pressedEdge) return;
       const blocked = resolveBlockedRay(ray, frame, options.blockers);
       if (blocked) {
         blockedCount += 1;
@@ -703,14 +857,21 @@ export function createSkykitXrStarPickingPlugin(options) {
               objectIndex: /** @type {{ objectIndex?: unknown }} */ (lastPick).objectIndex ?? null,
             }
           : null,
+        raySource: raySource.getSnapshot?.() ?? null,
+        controls: controls.getSnapshot?.() ?? null,
       };
     },
     dispose() {
+      if (disposed) return;
       disposed = true;
       unregisterDemand?.();
       unregisterDemand = null;
-      controls.dispose?.();
-      raySource.dispose?.();
+      if (ownsControls) {
+        controls.dispose?.();
+      }
+      if (ownsRaySource) {
+        raySource.dispose?.();
+      }
     },
   };
 
@@ -727,6 +888,15 @@ export function createSkykitXrStarPickingPlugin(options) {
     },
     getSnapshot: () => part.getSnapshot(),
   };
+
+  function resetOwnedInteraction() {
+    if (ownsControls) {
+      controls.reset?.();
+    }
+    if (ownsRaySource) {
+      raySource.reset?.();
+    }
+  }
 }
 
 /**

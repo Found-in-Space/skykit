@@ -28,9 +28,22 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - run: npm ci
+      - name: Install Chromium for the browser smoke test
+        run: npx playwright install --with-deps chromium
+      - run: npm run release:check-touch-os
       - run: npm test
       - run: npm run typecheck
+      - run: npm run build
+      - run: npm run build:examples
+      - run: npm run test:browser:xr-free-roam
       - run: npm run release:check-lockfile
+      - run: npm run release:check-packed-consumers
+      - name: Check pushed patches for whitespace errors
+        if: github.event_name == 'push'
+        run: git log --check --oneline "${{ github.event.before }}..${{ github.sha }}"
+      - name: Check the dispatched commit for whitespace errors
+        if: github.event_name == 'workflow_dispatch'
+        run: git log -1 --check --oneline
 
       - uses: changesets/action@v1
         with:

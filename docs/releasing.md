@@ -54,9 +54,16 @@ Run these checks before publishing or before merging release-sensitive package
 changes:
 
 ```sh
+npm ci
+npm run release:check-touch-os
 npm test
 npm run typecheck
+npm run build
+npm run build:examples
+npm run test:browser:xr-free-roam
 npm run release:check-lockfile
+npm run release:check-packed-consumers
+git diff --check
 ```
 
 For ordinary package-change pull requests, `npm run release:status` should pass
@@ -69,9 +76,15 @@ changes merge to `main`. The workflow runs:
 
 ```txt
 npm ci
+npm run release:check-touch-os
 npm test
 npm run typecheck
+npm run build
+npm run build:examples
+npm run test:browser:xr-free-roam
 npm run release:check-lockfile
+npm run release:check-packed-consumers
+committed-patch whitespace check
 changesets/action
 ```
 
@@ -95,6 +108,40 @@ whenever a workspace package version or internal dependency range changes.
 `npm run release:check-lockfile` verifies the workspace package entries in the
 lockfile against the package manifests and fails when they drift.
 
+## Stable Touch-OS Resolution
+
+SkyKit's optional touch-os integration is verified against the published stable
+package, not a sibling checkout. Package development dependencies and the
+examples application pin exact `@found-in-space/touch-os@0.3.0`; the SkyKit and
+HR package manifests declare the optional peer contract `>=0.3.0 <0.4.0`.
+
+With `TOUCH_OS_LOCAL_PATH` unset, both Vite configurations use normal installed
+package resolution. The environment variable is an explicit co-development
+override only:
+
+```sh
+TOUCH_OS_LOCAL_PATH=../touch-os npm run dev
+TOUCH_OS_LOCAL_PATH=../../../touch-os npm run dev:examples
+```
+
+The requested path is resolved relative to the Vite configuration that consumes
+it, which accounts for the different paths above.
+
+The build prints when that override is active and rejects a path that does not
+contain the expected source entries. Do not set it in CI or release checks, and
+do not treat a successful local-link build as installed-package verification.
+
+`npm run release:check-touch-os` fails if the override is set. It prints and
+verifies the installed version, exact manifest pins, optional peer ranges,
+registry lockfile source, and root `node_modules` resolution. Run it after
+`npm ci` so the check observes the clean lockfile install.
+
+`npm run release:check-packed-consumers` packs the workspace packages and makes
+two temporary external consumers. One imports the ordinary SkyKit and HR roots
+without installing touch-os. The other installs exact touch-os `0.3.0`, imports
+both optional subpaths, and rejects workspace or sibling symlink resolution.
+This packed check may download dependencies and is part of the release workflow.
+
 The workflow needs permission to create the Changesets version pull request. In
 GitHub, enable:
 
@@ -111,10 +158,17 @@ urgent package publish when the GitHub workflow is blocked.
 To prepare a release commit locally:
 
 ```sh
+npm ci
+npm run release:check-touch-os
 npm test
 npm run typecheck
+npm run build
+npm run build:examples
+npm run test:browser:xr-free-roam
 npm run release:version
 npm run release:check-lockfile
+npm run release:check-packed-consumers
+git diff --check
 ```
 
 Review and commit the generated package manifests, changelogs,

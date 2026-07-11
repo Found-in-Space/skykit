@@ -9,12 +9,9 @@ const errors = [];
 
 comparePackageEntry('', rootManifest, lockPackages['']);
 
-for (const dirent of readdirSync(path.join(rootDir, 'packages'), { withFileTypes: true })) {
-  if (!dirent.isDirectory()) continue;
-  const manifestPath = path.join('packages', dirent.name, 'package.json');
-  if (!exists(manifestPath)) continue;
-  const manifest = readJson(manifestPath);
-  comparePackageEntry(path.join('packages', dirent.name), manifest, lockPackages[path.join('packages', dirent.name)]);
+for (const workspacePath of listWorkspacePaths(rootManifest.workspaces)) {
+  const manifest = readJson(path.join(workspacePath, 'package.json'));
+  comparePackageEntry(workspacePath, manifest, lockPackages[workspacePath]);
 }
 
 if (errors.length > 0) {
@@ -39,6 +36,24 @@ function comparePackageEntry(lockKey, manifest, lockEntry) {
   compareObject(label, 'optionalDependencies', manifest.optionalDependencies, lockEntry.optionalDependencies);
   compareObject(label, 'peerDependencies', manifest.peerDependencies, lockEntry.peerDependencies);
   compareObject(label, 'peerDependenciesMeta', manifest.peerDependenciesMeta, lockEntry.peerDependenciesMeta);
+}
+
+function listWorkspacePaths(patterns = []) {
+  const paths = [];
+  for (const pattern of patterns) {
+    if (!pattern.endsWith('/*')) {
+      if (exists(path.join(pattern, 'package.json'))) paths.push(pattern);
+      continue;
+    }
+
+    const parentPath = pattern.slice(0, -2);
+    for (const dirent of readdirSync(path.join(rootDir, parentPath), { withFileTypes: true })) {
+      if (!dirent.isDirectory()) continue;
+      const workspacePath = path.join(parentPath, dirent.name);
+      if (exists(path.join(workspacePath, 'package.json'))) paths.push(workspacePath);
+    }
+  }
+  return paths.sort((a, b) => a.localeCompare(b));
 }
 
 function compareValue(label, field, expected, actual) {

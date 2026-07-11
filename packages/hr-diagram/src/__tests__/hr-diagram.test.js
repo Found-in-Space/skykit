@@ -9,12 +9,12 @@ import {
   HR_DIAGRAM_MODE_VOLUME,
   createHrDiagramGeometryFromCells,
   createHrDiagramRenderer,
+  createHrDiagramSurfaceSource,
   drawHrDiagramCanvas,
   normalizeHrDiagramMode,
   projectHrDiagramStars,
   projectHrPoint,
 } from '../index.js';
-import { createHrDiagramSurfaceSource } from '../touch-os.js';
 
 test('projects HR points with temperature and absolute magnitude', () => {
   const point = projectHrPoint({

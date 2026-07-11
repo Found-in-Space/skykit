@@ -44,11 +44,17 @@ test('xr free-roam demo uses restored alpha XR regressions defaults', () => {
   assert.match(source, /homeControl:\s*'button'/);
   assert.match(source, /pointerType:\s*'ray'/);
   assert.match(source, /return xrRig\.leftHandRoot/);
-  assert.match(source, /latestPanelFrame = rootContext\?\.frame \?\? latestPanelFrame/);
+  assert.match(source, /createSkykitTouchOsPointerSource/);
+  assert.match(source, /skykitPointerSources:\s*\[\s*touchPointerSource/);
+  assert.match(source, /actionOutputMode:\s*'app-actions'/);
+  assert.match(source, /touchPanel\?\.clearPointer\('right-trigger'\)/);
+  assert.match(source, /__SKYKIT_XR_FREE_ROAM_TEST__/);
+  assert.match(source, /skykit-test/);
+  assert.doesNotMatch(source, /latestPanelFrame/);
+  assert.doesNotMatch(source, /getLatestPanelFrame/);
   assert.doesNotMatch(source, /dragThreshold/);
   assert.doesNotMatch(source, /driver:\s*'pose-anchored'/);
   assert.doesNotMatch(source, /anchorPose/);
-  assert.doesNotMatch(source, /latestPanelFrame = frame/);
   assert.doesNotMatch(source, /createChoiceGroup/);
   assert.doesNotMatch(source, /createSlider/);
   assert.doesNotMatch(source, /createToggle/);
@@ -144,7 +150,63 @@ test('skykit/xr control bindings read axes and button edges', () => {
   assert.equal(controls.getButton('select').pressedEdge, true);
   controls.update({ inputSources: [source] });
   assert.equal(controls.getButton('select').pressedEdge, false);
+  controls.reset();
+  assert.equal(controls.getAxis('move').active, false);
+  assert.deepEqual(controls.getButton('select'), {
+    pressed: false,
+    touched: false,
+    value: 0,
+    pressedEdge: false,
+    releasedEdge: false,
+    activeHand: null,
+  });
+  controls.update({ inputSources: [source] });
+  assert.equal(controls.getButton('select').pressedEdge, true);
   controls.dispose();
+  controls.dispose();
+});
+
+test('skykit/xr controller ray source clears stale tracking and can be reused', () => {
+  const targetRaySpace = {};
+  const referenceSpace = {};
+  const inputSource = { handedness: 'right', targetRaySpace };
+  let tracked = true;
+  const frame = {
+    getPose(space, reference) {
+      assert.equal(space, targetRaySpace);
+      assert.equal(reference, referenceSpace);
+      if (!tracked) return null;
+      return {
+        transform: {
+          position: { x: 1, y: 2, z: 3 },
+          orientation: { x: 0, y: 0, z: 0, w: 1 },
+        },
+      };
+    },
+  };
+  const raySource = createSkykitXrRaySource({ kind: 'target-ray', handedness: 'right' });
+  const context = {
+    frame,
+    referenceSpace,
+    session: { inputSources: [inputSource] },
+  };
+
+  assert.deepEqual(raySource.getRay(context)?.origin, { x: 1, y: 2, z: 3 });
+  tracked = false;
+  assert.equal(raySource.getRay(context), null);
+  assert.equal(raySource.getSnapshot().lastRay, null);
+
+  tracked = true;
+  assert.ok(raySource.getRay(context));
+  assert.equal(raySource.getRay({ frame, referenceSpace, session: null }), null);
+  assert.equal(raySource.getSnapshot().lastRay, null);
+
+  assert.ok(raySource.getRay(context));
+  raySource.reset();
+  assert.equal(raySource.getSnapshot().lastRay, null);
+  assert.ok(raySource.getRay(context));
+  raySource.dispose();
+  raySource.dispose();
 });
 
 test('skykit/xr body, rays, and pick router compose generic route results', () => {
@@ -402,6 +464,187 @@ test('skykit/xr session plugin registers enter/exit actions and syncs snapshot s
   assert.deepEqual(events, ['xr/session-start', 'xr/session-end']);
 });
 
+test('skykit/xr native and explicit session ends share one cleanup lifecycle', async () => {
+  const nativeSession = createFakeXrSession();
+  const explicitSession = createFakeXrSession();
+  const pendingSessions = [nativeSession, explicitSession];
+  let activeSession = null;
+  const renderer = {
+    xr: {
+      enabled: false,
+      isPresenting: false,
+      getSession() {
+        return activeSession;
+      },
+      setReferenceSpaceType() {},
+      async setSession(session) {
+        activeSession = session;
+        this.isPresenting = Boolean(session);
+      },
+    },
+  };
+  for (const session of pendingSessions) {
+    session.onEnded = () => {
+      if (activeSession === session) {
+        activeSession = null;
+        renderer.xr.isPresenting = false;
+      }
+    };
+  }
+  const navigator = {
+    xr: {
+      async isSessionSupported() {
+        return true;
+      },
+      async requestSession() {
+        return pendingSessions.shift();
+      },
+    },
+  };
+  const events = [];
+  const cleanupReasons = [];
+  const plugin = createSkykitXrSessionPlugin({
+    renderer,
+    navigator,
+    onSessionEnded(_handle, reason) {
+      cleanupReasons.push(reason);
+    },
+  });
+  plugin.setup(createPluginContext({
+    addPart() {},
+    emit(event) {
+      events.push(`${event.type}:${event.reason ?? 'start'}`);
+    },
+  }));
+
+  const firstHandle = await plugin.enter();
+  const directReasons = [];
+  firstHandle.onEnd((reason) => directReasons.push(reason));
+  nativeSession.dispatchEnd();
+  nativeSession.dispatchEnd();
+  assert.equal(firstHandle.presenting, false);
+  assert.equal(plugin.getSnapshot().presenting, false);
+  assert.equal(activeSession, null);
+
+  const secondHandle = await plugin.enter();
+  assert.equal(secondHandle.presenting, true);
+  await plugin.exit();
+  await plugin.exit();
+
+  assert.deepEqual(directReasons, ['native']);
+  assert.deepEqual(cleanupReasons, ['native', 'explicit']);
+  assert.deepEqual(events, [
+    'xr/session-start:start',
+    'xr/session-end:native',
+    'xr/session-start:start',
+    'xr/session-end:explicit',
+  ]);
+  assert.equal(nativeSession.endCount, 0);
+  assert.equal(explicitSession.endCount, 1);
+  assert.equal(activeSession, null);
+});
+
+test('skykit/xr explicit exit detaches an externally active renderer session', async () => {
+  const externalSession = {
+    endCount: 0,
+    async end() {
+      this.endCount += 1;
+    },
+  };
+  let activeSession = externalSession;
+  const boundSessions = [];
+  const renderer = {
+    xr: {
+      isPresenting: true,
+      getSession() {
+        return activeSession;
+      },
+      async setSession(session) {
+        boundSessions.push(session);
+        activeSession = session;
+        this.isPresenting = Boolean(session);
+      },
+    },
+  };
+  const events = [];
+  const plugin = createSkykitXrSessionPlugin({
+    renderer,
+    navigator: {
+      xr: {
+        async isSessionSupported() {
+          return true;
+        },
+      },
+    },
+  });
+  plugin.setup(createPluginContext({
+    emit(event) {
+      events.push(`${event.type}:${event.reason ?? 'start'}`);
+    },
+  }));
+
+  await plugin.exit();
+  await plugin.exit();
+
+  assert.equal(externalSession.endCount, 1);
+  assert.equal(activeSession, null);
+  assert.deepEqual(boundSessions, [null]);
+  assert.deepEqual(events, ['xr/session-end:explicit']);
+  assert.equal(plugin.getSnapshot().presenting, false);
+});
+
+test('skykit/xr teardown retains the context renderer until asynchronous session exit completes', async () => {
+  const session = createFakeXrSession();
+  let activeSession = null;
+  let finishEnd = null;
+  session.end = async function end() {
+    this.endCount += 1;
+    await new Promise((resolve) => {
+      finishEnd = () => {
+        this.dispatchEnd();
+        resolve();
+      };
+    });
+  };
+  const renderer = {
+    xr: {
+      isPresenting: false,
+      getSession() {
+        return activeSession;
+      },
+      setReferenceSpaceType() {},
+      async setSession(nextSession) {
+        activeSession = nextSession;
+        this.isPresenting = Boolean(nextSession);
+      },
+    },
+  };
+  const plugin = createSkykitXrSessionPlugin({
+    navigator: {
+      xr: {
+        async isSessionSupported() {
+          return true;
+        },
+        async requestSession() {
+          return session;
+        },
+      },
+    },
+  });
+  const cleanup = plugin.setup(createPluginContext({ renderer }));
+  await plugin.enter();
+  assert.equal(activeSession, session);
+
+  cleanup();
+  assert.equal(typeof finishEnd, 'function');
+  finishEnd();
+  await plugin.exit();
+
+  assert.equal(activeSession, null);
+  assert.equal(session.endCount, 1);
+  assert.equal(plugin.getSnapshot().presenting, false);
+});
+
 test('skykit/xr navigation plugin updates viewer state from controller axes', () => {
   const actions = createSkykitActionRegistry();
   let part = null;
@@ -431,11 +674,32 @@ test('skykit/xr navigation plugin updates viewer state from controller axes', ()
   assert.equal(patches.length, 1);
   assert.equal(patches[0].observerPc.z, -0.16);
   assert.deepEqual(actions.getControlValue('skykit:ship.control.move'), { x: 0, y: 0, z: -10 });
+
+  const lostSessionFrame = createXrFrame({ actions });
+  lostSessionFrame.xr = { presenting: false };
+  part.update(lostSessionFrame);
+  assert.deepEqual(actions.getControlValue('skykit:ship.control.move'), { x: 0, y: 0, z: 0 });
+  assert.deepEqual(actions.getControlValue('skykit:ship.control.attitude'), { pitch: 0, yaw: 0, roll: 0 });
+
+  part.update(createXrFrame({
+    actions,
+    inputSources: [{
+      handedness: 'right',
+      gamepad: {
+        axes: [0, -1],
+        buttons: [],
+      },
+    }],
+    requestViewState(patch) {
+      patches.push(patch);
+    },
+  }));
+  assert.equal(patches.length, 2);
 });
 
 test('skykit/xr ray visual shows the controller ray and shortens at blockers', () => {
   let part = null;
-  let disposedRaySource = false;
+  let disposedRaySource = 0;
   const plugin = createSkykitXrRayVisualPlugin({
     raySource: {
       getRay() {
@@ -452,7 +716,7 @@ test('skykit/xr ray visual shows the controller ray and shortens at blockers', (
         return { id: 'ray-source' };
       },
       dispose() {
-        disposedRaySource = true;
+        disposedRaySource += 1;
       },
     },
     blockers: [{
@@ -482,7 +746,82 @@ test('skykit/xr ray visual shows the controller ray and shortens at blockers', (
   part.update({ ...createXrFrame(), xr: { presenting: false } });
   assert.equal(part.object3d.visible, false);
   part.dispose();
-  assert.equal(disposedRaySource, true);
+  part.dispose();
+  assert.equal(disposedRaySource, 0);
+});
+
+test('skykit/xr ray visual and picker own only internally created ray sources', () => {
+  const visualParts = [];
+  const internalVisual = createSkykitXrRayVisualPlugin();
+  internalVisual.setup(createPluginContext({
+    addPart(part) {
+      visualParts.push(part);
+    },
+  }));
+  assert.equal(internalVisual.getSnapshot().raySource.disposed, false);
+  visualParts[0].dispose();
+  visualParts[0].dispose();
+  assert.equal(internalVisual.getSnapshot().raySource.disposed, true);
+
+  let borrowedDisposeCount = 0;
+  const borrowedRaySource = {
+    id: 'shared-right-ray',
+    getRay() {
+      return {
+        id: 'shared-right-ray',
+        kind: 'target-ray',
+        handedness: 'right',
+        origin: { x: 0, y: 0, z: 0 },
+        direction: { x: 0, y: 0, z: -1 },
+        length: 10,
+      };
+    },
+    reset() {},
+    getSnapshot() {
+      return { id: 'shared-right-ray', disposed: false };
+    },
+    dispose() {
+      borrowedDisposeCount += 1;
+    },
+  };
+  const borrowedVisualParts = [];
+  const borrowedVisual = createSkykitXrRayVisualPlugin({ raySource: borrowedRaySource });
+  borrowedVisual.setup(createPluginContext({
+    addPart(part) {
+      borrowedVisualParts.push(part);
+    },
+  }));
+  borrowedVisualParts[0].dispose();
+  borrowedVisualParts[0].dispose();
+
+  const borrowedPickerParts = [];
+  const borrowedPicker = createSkykitXrStarPickingPlugin({
+    renderer: { pick() { return null; } },
+    raySource: borrowedRaySource,
+  });
+  borrowedPicker.setup(createPluginContext({
+    addPart(part) {
+      borrowedPickerParts.push(part);
+    },
+  }));
+  borrowedPickerParts[0].dispose();
+  borrowedPickerParts[0].dispose();
+  assert.equal(borrowedDisposeCount, 0);
+  assert.ok(borrowedRaySource.getRay());
+
+  const internalPickerParts = [];
+  const internalPicker = createSkykitXrStarPickingPlugin({
+    renderer: { pick() { return null; } },
+  });
+  internalPicker.setup(createPluginContext({
+    addPart(part) {
+      internalPickerParts.push(part);
+    },
+  }));
+  assert.equal(internalPicker.getSnapshot().raySource.disposed, false);
+  internalPickerParts[0].dispose();
+  internalPickerParts[0].dispose();
+  assert.equal(internalPicker.getSnapshot().raySource.disposed, true);
 });
 
 test('skykit/xr star picking fires only on trigger edge and registers attribute-only demand', () => {
@@ -558,6 +897,75 @@ test('skykit/xr star picking fires only on trigger edge and registers attribute-
     attributes: ['position', 'teffLog8', 'magAbs'],
   });
   assert.equal(emitted.filter((event) => event.type === 'stars/xr-pick').length, 2);
+});
+
+test('skykit/xr star picking resets owned right-hand state across pose and session loss', () => {
+  const targetRaySpace = {};
+  const referenceSpace = {};
+  const inputSource = {
+    handedness: 'right',
+    targetRaySpace,
+    gamepad: {
+      axes: [],
+      buttons: [{ pressed: true, touched: true, value: 1 }],
+    },
+  };
+  let tracked = true;
+  const xrFrame = {
+    getPose(space, reference) {
+      assert.equal(space, targetRaySpace);
+      assert.equal(reference, referenceSpace);
+      if (!tracked) return null;
+      return {
+        transform: {
+          position: { x: 0, y: 0, z: 0 },
+          orientation: { x: 0, y: 0, z: 0, w: 1 },
+        },
+      };
+    },
+  };
+  let part = null;
+  let pickCount = 0;
+  const plugin = createSkykitXrStarPickingPlugin({
+    renderer: {
+      pick() {
+        pickCount += 1;
+        return null;
+      },
+    },
+  });
+  plugin.setup(createPluginContext({
+    addPart(nextPart) {
+      part = nextPart;
+    },
+  }));
+  const trackedFrame = () => createXrFrame({
+    inputSources: [inputSource],
+    referenceSpace,
+    xrFrame,
+  });
+
+  part.update(trackedFrame());
+  part.update(trackedFrame());
+  assert.equal(pickCount, 1);
+
+  tracked = false;
+  part.update(trackedFrame());
+  assert.equal(plugin.getSnapshot().controls.buttons.select.pressed, false);
+  assert.equal(plugin.getSnapshot().raySource.lastRay, null);
+
+  tracked = true;
+  part.update(trackedFrame());
+  assert.equal(pickCount, 2);
+
+  const sessionLossFrame = trackedFrame();
+  sessionLossFrame.xr = { presenting: false };
+  part.update(sessionLossFrame);
+  assert.equal(plugin.getSnapshot().controls.buttons.select.pressed, false);
+  assert.equal(plugin.getSnapshot().raySource.lastRay, null);
+
+  part.update(trackedFrame());
+  assert.equal(pickCount, 3);
 });
 
 test('skykit/xr star picking respects panel blockers before renderer picks', () => {
@@ -691,6 +1099,34 @@ function createXrFrame(overrides = {}) {
         inputSources: overrides.inputSources ?? [],
       },
       referenceSpace: overrides.referenceSpace ?? {},
+    },
+  };
+}
+
+function createFakeXrSession() {
+  const endListeners = new Set();
+  let ended = false;
+  return {
+    endCount: 0,
+    onEnded: null,
+    addEventListener(type, listener) {
+      if (type === 'end') endListeners.add(listener);
+    },
+    removeEventListener(type, listener) {
+      if (type === 'end') endListeners.delete(listener);
+    },
+    async end() {
+      this.endCount += 1;
+      this.dispatchEnd();
+    },
+    dispatchEnd() {
+      if (ended) return;
+      ended = true;
+      this.onEnded?.();
+      for (const listener of Array.from(endListeners)) {
+        listener();
+      }
+      endListeners.clear();
     },
   };
 }

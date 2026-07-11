@@ -17,6 +17,7 @@ import {
   installSkykitDebugGlobal,
 } from '@found-in-space/skykit';
 import {
+  createSkykitTouchOsPointerSource,
   createSkykitSurfaceApp,
   createSkykitTabletRoot,
   createTouchOsPanelPlugin,
@@ -37,11 +38,12 @@ import {
 import {
   createActionCard,
   createButton,
+  createHoldButton,
   createSurfaceShell,
   defineControlsApp,
   defineTouchApp,
 } from '@found-in-space/touch-os';
-import { createXrRayPointerSource } from '@found-in-space/touch-os/hosts/three';
+import { createHrDiagramEmbeddedSurfaceNode } from '@found-in-space/hr-diagram/touch-os';
 import {
   OCTREE_DEFAULT,
   createStarOctreeProviderService,
@@ -99,13 +101,17 @@ const XR_PANEL_THEME = Object.freeze({
 const XR_DEMO_ACTIONS = Object.freeze({
   goSelected: 'xr-demo:selected.go',
   selectSun: 'xr-demo:selected.sun',
+  testHold: 'xr-demo:test.hold',
 });
 const XR_TABLET_APP_IDS = Object.freeze({
   target: 'space.found.skykit.xr-free-roam.target',
   rendering: 'space.found.skykit.xr-free-roam.rendering',
   hrDiagram: 'space.found.skykit.xr-free-roam.hr-diagram',
+  testInput: 'space.found.skykit.xr-free-roam.test-input',
 });
+const XR_FREE_ROAM_TEST_MODE = new URLSearchParams(globalThis.location?.search ?? '').get('skykit-test') === '1';
 const HR_SURFACE_SIZE = Object.freeze({ width: 1024, height: 640 });
+const HR_SURFACE_SOURCE_ID = 'xr-free-roam-hr-diagram:surface';
 const LOCAL_FORWARD_VECTOR = new THREE.Vector3(0, 0, -1);
 const _headGazeDirection = new THREE.Vector3();
 const _headGazeQuaternion = new THREE.Quaternion();
@@ -138,8 +144,8 @@ async function main() {
   const initialOrientation = orientationLookingAt(PREFLIGHT_BACKGROUND_OBSERVER_PC, SOL_PC);
   const xrRig = createSkykitXrRig({
     navigationPose: {
-      position: PREFLIGHT_BACKGROUND_OBSERVER_PC,
-      orientation: initialOrientation,
+      observerPc: PREFLIGHT_BACKGROUND_OBSERVER_PC,
+      orientationIcrs: initialOrientation,
     },
   });
   const shipDeck = createShipDeckSlab();
@@ -172,6 +178,12 @@ async function main() {
     xrRig.xrOrigin,
   );
   const touchPointerSource = createRightHandTouchPointerSource(rightRaySource);
+  const browserTestPointerSource = XR_FREE_ROAM_TEST_MODE
+    ? createBrowserTestPointerSource()
+    : null;
+  const browserTestDiagnostics = XR_FREE_ROAM_TEST_MODE
+    ? { actionCounts: Object.create(null), actionEvents: [], panelFrames: 0 }
+    : null;
   const panelState = {
     limitingMagnitude: DEFAULT_LIMITING_MAGNITUDE,
     exposureLog10: DEFAULT_EXPOSURE_LOG10,
@@ -183,13 +195,20 @@ async function main() {
   let panelRevision = 0;
   let cachedPanelRevision = -1;
   let cachedPanelRoot = null;
-  let latestPanelFrame = null;
-  let leftHandPanelTracked = false;
+  let leftHandPanelTracked = XR_FREE_ROAM_TEST_MODE;
+  let rightHandPanelTracked = false;
   let activeXrHandle = null;
   let artController = null;
   let preflightController = null;
   let touchPanel = null;
   let selectionGeneration = 0;
+  const hrDiagramRoot = createHrDiagramEmbeddedSurfaceNode({
+    componentId: 'xr-free-roam-hr-diagram:node',
+    sourceId: HR_SURFACE_SOURCE_ID,
+    title: 'Hertzsprung–Russell diagram',
+    fallbackLabel: 'HR diagram unavailable',
+    preserveAspectRatio: true,
+  });
   const hrDiagram = createSkykitHrDiagramPlugin({
     id: 'xr-free-roam-hr-diagram',
     source,
@@ -198,8 +217,8 @@ async function main() {
     width: HR_SURFACE_SIZE.width,
     height: HR_SURFACE_SIZE.height,
     touchOs: {
-      sourceId: 'xr-free-roam-hr-diagram:surface',
-      componentId: 'xr-free-roam-hr-diagram:node',
+      sourceId: HR_SURFACE_SOURCE_ID,
+      root: hrDiagramRoot,
       surfaces: () => touchPanel?.getRuntime()?.getServices().surfaces,
       width: HR_SURFACE_SIZE.width,
       height: HR_SURFACE_SIZE.height,
@@ -208,9 +227,10 @@ async function main() {
   const tabletApps = createXrTabletApps({
     hrDiagram,
     renderTargetReadout: createSelectedTargetReadout,
+    testMode: XR_FREE_ROAM_TEST_MODE,
   });
 
-  const artPlugin = await createConstellationArtPlugin().catch((error) => {
+  const artPlugin = XR_FREE_ROAM_TEST_MODE ? null : await createConstellationArtPlugin().catch((error) => {
     debug.recordDiagnostic({
       level: 'warn',
       type: 'xr-free-roam/constellation-art-error',
@@ -225,13 +245,18 @@ async function main() {
     priority: 20,
     driver: 'scene',
     root: createPanelRoot,
+    actionOutputMode: 'app-actions',
     surfaceMetrics: XR_PANEL_SURFACE,
     runtimeOptions: {
       theme: XR_PANEL_THEME,
       longPressDelay: 360,
     },
-    pointerSources: [touchPointerSource],
+    skykitPointerSources: [
+      touchPointerSource,
+      ...(browserTestPointerSource ? [browserTestPointerSource] : []),
+    ],
     parent() {
+      if (XR_FREE_ROAM_TEST_MODE) return xrRig.headRoot;
       return xrRig.leftHandRoot;
     },
     driverOptions: {
@@ -240,7 +265,17 @@ async function main() {
       transparent: true,
       depthTest: false,
       renderOrder: 50,
+      textureQuality: {
+        anisotropy: renderer.capabilities.getMaxAnisotropy?.() ?? 1,
+      },
       updatePlacement(mesh) {
+        if (XR_FREE_ROAM_TEST_MODE) {
+          applyLocalTabletPlacement(mesh, {
+            offset: { x: -0.2, y: -0.02, z: -0.72 },
+            tiltRadians: 0,
+          });
+          return true;
+        }
         if (!leftHandPanelTracked) return false;
         applyLocalTabletPlacement(mesh, {
           offset: { x: 0.04, y: 0.02, z: -0.08 },
@@ -296,12 +331,20 @@ async function main() {
       createSkykitXrBodyPlugin({
         rig: xrRig,
         onBody(body) {
-          leftHandPanelTracked = Boolean(body.leftHand?.grip ?? body.leftHand?.targetRay);
+          if (!XR_FREE_ROAM_TEST_MODE) {
+            leftHandPanelTracked = Boolean(body.leftHand?.grip ?? body.leftHand?.targetRay);
+          }
+          const nextRightHandPanelTracked = Boolean(body.rightHand?.targetRay);
+          if (rightHandPanelTracked && !nextRightHandPanelTracked) {
+            clearRightHandPanelPointer();
+          }
+          rightHandPanelTracked = nextRightHandPanelTracked;
           artController?.setViewDirectionIcrs?.(resolveHeadGazeDirectionIcrs(body, xrRig, camera));
         },
       }),
       createXrFreeRoamFrameSyncPlugin({
         update() {
+          if (browserTestDiagnostics) browserTestDiagnostics.panelFrames += 1;
           selectedTarget.update(camera);
           updateXrDepthRange(activeXrHandle);
         },
@@ -338,6 +381,8 @@ async function main() {
     label: 'XR Free Roam Alpha',
   });
   viewer.on('xr/session-end', () => {
+    clearRightHandPanelPointer();
+    rightHandPanelTracked = false;
     activeXrHandle = null;
     shipDeck.visible = false;
     preflightController?.setSessionStatus('Session ended');
@@ -347,6 +392,17 @@ async function main() {
   });
 
   registerDemoActions(viewer);
+  const removeBrowserTestActionObserver = browserTestDiagnostics
+    ? viewer.actions.subscribe((event) => {
+        if (!['action/invoke', 'action/press', 'action/release'].includes(event.type)) return;
+        browserTestDiagnostics.actionCounts[event.id] = (browserTestDiagnostics.actionCounts[event.id] ?? 0) + 1;
+        browserTestDiagnostics.actionEvents.push({
+          type: event.type,
+          id: event.id,
+          source: event.source ?? event.metadata?.source ?? null,
+        });
+      })
+    : null;
   applyRenderState(viewer, starField, source);
   preflightController = createPreflightController({
     viewer,
@@ -367,11 +423,148 @@ async function main() {
   window.addEventListener('beforeunload', () => {
     loop.dispose();
     selectedTarget.dispose();
-    void viewer.dispose();
+    removeBrowserTestActionObserver?.();
+    if (XR_FREE_ROAM_TEST_MODE) delete globalThis.__SKYKIT_XR_FREE_ROAM_TEST__;
+    void viewer.dispose().finally(() => rightRaySource.dispose?.());
     void provider.dispose?.();
     void metaProvider.dispose?.();
   });
   loop.start();
+  if (XR_FREE_ROAM_TEST_MODE && browserTestPointerSource && browserTestDiagnostics) {
+    installBrowserTestApi();
+  }
+
+  function installBrowserTestApi() {
+    const pointerId = 'browser-test-pointer';
+
+    globalThis.__SKYKIT_XR_FREE_ROAM_TEST__ = {
+      ready: true,
+      appIds: { ...XR_TABLET_APP_IDS },
+      actions: { ...XR_DEMO_ACTIONS },
+      async openApp(appId) {
+        const launcherId = `xr-free-roam-tablet:home:open:${slugifyTouchOsId(appId)}`;
+        if (!findPanelCommand({ componentId: launcherId })) {
+          await tapPanelCommand({ role: 'tablet-home-button' });
+        }
+        await tapPanelCommand({ componentId: launcherId });
+        return this.snapshot();
+      },
+      async selectSun() {
+        await tapPanelCommand({ componentIdSuffix: 'xr-selected-sun', role: 'button-face' });
+        await waitForPanelFrames(2);
+        return this.snapshot();
+      },
+      async flyToSelected() {
+        await tapPanelCommand({ componentIdSuffix: 'xr-selected-details', role: 'action-card-primary' });
+        return this.snapshot();
+      },
+      async startHold() {
+        await pressPanelCommand({ componentIdSuffix: 'xr-test-hold', role: 'hold-button-face' });
+        return this.snapshot();
+      },
+      async simulateTrackingLoss() {
+        browserTestPointerSource.clear();
+        touchPanel.clearPointer(pointerId);
+        await waitForPanelFrames(1);
+        return this.snapshot();
+      },
+      async setPanelVisible(visible) {
+        const mesh = touchPanel.getDriver()?.host?.mesh;
+        if (mesh) mesh.visible = Boolean(visible);
+        await waitForPanelFrames(1);
+        return this.snapshot();
+      },
+      hrGeometry() {
+        const viewport = findPanelCommand({ role: 'embedded-surface-viewport' });
+        const frame = findPanelCommand({ role: 'embedded-surface-frame' });
+        return {
+          viewport: viewport?.rect ? { ...viewport.rect } : null,
+          frame: frame?.rect ? { ...frame.rect } : null,
+          sourceAspectRatio: HR_SURFACE_SIZE.width / HR_SURFACE_SIZE.height,
+        };
+      },
+      snapshot() {
+        const runtime = touchPanel.getRuntime();
+        const driver = touchPanel.getDriver();
+        return {
+          ready: true,
+          panelFrames: browserTestDiagnostics.panelFrames,
+          actionCounts: { ...browserTestDiagnostics.actionCounts },
+          actionEvents: [...browserTestDiagnostics.actionEvents],
+          selectedLabel: panelState.selected?.label ?? null,
+          holdPressed: viewer.actions.isPressed(XR_DEMO_ACTIONS.testHold),
+          panelVisible: driver?.host?.mesh?.visible ?? false,
+          canvas: driver?.host?.canvas
+            ? { width: driver.host.canvas.width, height: driver.host.canvas.height }
+            : null,
+          surface: runtime?.render?.().surface ?? null,
+          devicePixelRatio: window.devicePixelRatio,
+        };
+      },
+    };
+    document.documentElement.dataset.xrFreeRoamTestReady = 'true';
+
+    async function tapPanelCommand(match) {
+      await pressPanelCommand(match);
+      const current = browserTestPointerSource.getSample();
+      browserTestPointerSource.setSample({ ...current, phase: 'up' });
+      await waitForPanelFrames(1);
+      browserTestPointerSource.clear();
+      await waitForPanelFrames(1);
+    }
+
+    async function pressPanelCommand(match) {
+      const command = findPanelCommand(match);
+      if (!command?.rect) {
+        throw new Error(`XR test panel command not found: ${JSON.stringify(match)}`);
+      }
+      browserTestPointerSource.setSample({
+        pointerId,
+        pointerType: 'touch',
+        transport: 'surface',
+        phase: 'down',
+        timestamp: 0,
+        surfaceX: command.rect.x + command.rect.width / 2,
+        surfaceY: command.rect.y + command.rect.height / 2,
+      });
+      await waitForPanelFrames(1);
+      const current = browserTestPointerSource.getSample();
+      browserTestPointerSource.setSample({ ...current, phase: 'move' });
+      await waitForPanelFrames(1);
+    }
+
+    function findPanelCommand(match) {
+      const commands = touchPanel.getRuntime()?.render?.().commands ?? [];
+      return commands.find((command) => (
+        (match.role === undefined || command.role === match.role)
+        && (match.componentId === undefined || command.componentId === match.componentId)
+        && (
+          match.componentIdSuffix === undefined
+          || command.componentId?.endsWith(match.componentIdSuffix)
+        )
+      ));
+    }
+
+    function waitForPanelFrames(count) {
+      const targetFrame = browserTestDiagnostics.panelFrames + count;
+      return new Promise((resolve, reject) => {
+        let attempts = 0;
+        const check = () => {
+          if (browserTestDiagnostics.panelFrames >= targetFrame) {
+            resolve();
+            return;
+          }
+          attempts += 1;
+          if (attempts > 120) {
+            reject(new Error('Timed out waiting for the deterministic XR panel frame hook.'));
+            return;
+          }
+          requestAnimationFrame(check);
+        };
+        requestAnimationFrame(check);
+      });
+    }
+  }
 
   function resize() {
     const width = host.clientWidth || 1;
@@ -426,8 +619,7 @@ async function main() {
     });
   }
 
-  function createPanelRoot(rootContext) {
-    latestPanelFrame = rootContext?.frame ?? latestPanelFrame;
+  function createPanelRoot() {
     if (cachedPanelRoot && cachedPanelRevision === panelRevision) return cachedPanelRoot;
     cachedPanelRevision = panelRevision;
     cachedPanelRoot = createSkykitTabletRoot({
@@ -485,14 +677,8 @@ async function main() {
       return;
     }
 
-    if (event.type !== 'app-action') return;
-    if (event.name === XR_DEMO_ACTIONS.goSelected) {
-      if (panelState.selected) {
-        goToTarget(viewer, panelState.selected.targetPc, 0.65);
-      }
-    } else if (event.name === XR_DEMO_ACTIONS.selectSun) {
-      selectSunTarget();
-    }
+    // App actions are routed once by the panel plugin through SkyKit's action
+    // registry. This callback owns app-change state synchronization only.
   }
 
   function applyTabletStateChange(payload) {
@@ -687,11 +873,10 @@ async function main() {
     panelRevision += 1;
   }
 
-  function getLatestPanelFrame() {
-    return latestPanelFrame;
+  function clearRightHandPanelPointer() {
+    touchPointerSource.clear?.();
+    touchPanel?.clearPointer('right-trigger');
   }
-
-  touchPointerSource.getLatestPanelFrame = getLatestPanelFrame;
 }
 
 function createHeadGazeAnchoredImageController(controller) {
@@ -795,7 +980,7 @@ function createXrFreeRoamFrameSyncPlugin(options) {
 }
 
 function createXrTabletApps(options) {
-  return [
+  const apps = [
     createTargetTabletApp(options),
     createRenderingTabletApp(),
     createSkykitSurfaceApp({
@@ -814,6 +999,47 @@ function createXrTabletApps(options) {
       emptyLabel: 'HR diagram unavailable',
     }),
   ];
+  if (options.testMode) apps.push(createXrTestInputApp());
+  return apps;
+}
+
+function createXrTestInputApp() {
+  return defineTouchApp({
+    manifest: {
+      id: XR_TABLET_APP_IDS.testInput,
+      name: 'Test Input',
+      version: '1.0.0',
+      icon: { kind: 'symbol', value: 'TI' },
+      preferredWindow: {
+        width: 420,
+        height: 526,
+        minWidth: 320,
+        minHeight: 260,
+        resizable: false,
+      },
+    },
+    createApp(ctx) {
+      return {
+        render() {
+          return createSurfaceShell('xr-test-input-app', {
+            pointerOpaque: true,
+            padding: 12,
+            children: [
+              createHoldButton('xr-test-hold', {
+                label: 'Hold for tracking-loss test',
+                actionId: XR_DEMO_ACTIONS.testHold,
+                startPayload: { phase: 'start' },
+                stopPayload: { phase: 'stop' },
+              }),
+            ],
+          });
+        },
+        handleOutput(output) {
+          emitTabletAppOutput(ctx, output);
+        },
+      };
+    },
+  });
 }
 
 function createTargetTabletApp(options) {
@@ -1109,44 +1335,82 @@ function createSelectedIdentifierLines(selected) {
   return lines;
 }
 
+function createBrowserTestPointerSource() {
+  let sample = null;
+  const source = createSkykitTouchOsPointerSource({
+    sample() {
+      return sample ? [sample] : [];
+    },
+    clear() {
+      sample = null;
+    },
+  });
+  return Object.assign(source, {
+    setSample(nextSample) {
+      sample = nextSample;
+    },
+    getSample() {
+      return sample ? { ...sample } : null;
+    },
+  });
+}
+
+function slugifyTouchOsId(value) {
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 function createRightHandTouchPointerSource(raySource) {
   const controls = createSkykitXrControlBindings({
     buttons: {
       select: { hand: 'right', button: 'trigger' },
     },
   });
-  const pointerSource = createXrRayPointerSource(() => {
-    const skykitFrame = pointerSource.getLatestPanelFrame?.();
-    const xr = skykitFrame?.xr;
-    if (xr?.presenting !== true || !xr.session) return undefined;
-    const inputSources = xr.session && typeof xr.session === 'object'
-      ? xr.session.inputSources ?? []
-      : [];
-    controls.update({ inputSources });
-    const ray = raySource.getRay({
-      frame: xr.frame,
-      referenceSpace: xr.referenceSpace,
-      session: xr.session,
-      inputSources,
-    });
-    if (!ray) return undefined;
+  return createSkykitTouchOsPointerSource({
+    sample(skykitFrame) {
+      const xr = skykitFrame.xr;
+      if (xr?.presenting !== true || !xr.session || !xr.frame || !xr.referenceSpace) {
+        reset();
+        return [];
+      }
+      const inputSources = xr.session.inputSources ?? [];
+      controls.update({ inputSources });
+      const ray = raySource.getRay({
+        frame: xr.frame,
+        referenceSpace: xr.referenceSpace,
+        session: xr.session,
+        inputSources,
+      });
+      if (!ray) {
+        reset();
+        return [];
+      }
 
-    const select = controls.getButton('select');
-    const phase = select.pressedEdge ? 'down' : select.releasedEdge ? 'up' : 'move';
+      const select = controls.getButton('select');
+      const phase = select.pressedEdge ? 'down' : select.releasedEdge ? 'up' : 'move';
       return {
         pointerId: 'right-trigger',
         pointerType: 'ray',
+        transport: 'ray',
         handedness: 'right',
-      phase,
-      timestamp: skykitFrame.elapsedSeconds * 1000,
-      sourceId: 'right-controller',
-      pressure: select.value,
-      origin: ray.origin,
-      direction: ray.direction,
-    };
+        phase,
+        timestamp: skykitFrame.elapsedSeconds * 1000,
+        sourceId: 'right-controller',
+        pressure: select.value,
+        origin: ray.origin,
+        direction: ray.direction,
+      };
+    },
+    clear: reset,
   });
-  pointerSource.getLatestPanelFrame = () => null;
-  return pointerSource;
+
+  function reset() {
+    controls.reset();
+    raySource.reset?.();
+  }
 }
 
 function createWorldXrRaySource(source, transformRoot) {
@@ -1170,6 +1434,9 @@ function createWorldXrRaySource(source, transformRoot) {
     },
     getSnapshot() {
       return source.getSnapshot?.() ?? { id: `${source.id}:world` };
+    },
+    reset() {
+      source.reset?.();
     },
     dispose() {
       source.dispose?.();

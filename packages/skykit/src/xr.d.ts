@@ -163,6 +163,8 @@ export interface SkykitXrButtonState {
 export interface SkykitXrControlBindingsHandle {
   readonly id: string;
   update(context?: Iterable<any> | { inputSources?: Iterable<any>; session?: { inputSources?: Iterable<any> } }): void;
+  /** Clear analog, pressed, and edge state for a fresh input lifecycle. */
+  reset(): void;
   getAxis(name: string): SkykitXrAxisState;
   getButton(name: string): SkykitXrButtonState;
   isPressed(name: string): boolean;
@@ -208,6 +210,8 @@ export interface SkykitXrRaySourceOptions {
 export interface SkykitXrRaySource {
   readonly id: string;
   getRay(context?: SkykitXrRayContext): SkykitXrRay | null;
+  /** Clear the cached ray without disposing the reusable source. */
+  reset(): void;
   getSnapshot(): {
     id: string;
     kind: string;
@@ -354,11 +358,14 @@ export interface SkykitXrSessionHandle {
   referenceSpace: any;
   readonly presenting: boolean;
   exit(): Promise<void>;
+  /** Subscribe to the single native-or-explicit session cleanup transition. */
+  onEnd(listener: (reason: 'native' | 'explicit') => void): () => void;
   getSnapshot(): {
     mode: string;
     referenceSpaceType: string;
     presenting: boolean;
     hasReferenceSpace: boolean;
+    endReason: 'native' | 'explicit' | null;
   };
 }
 
@@ -376,6 +383,7 @@ export interface SkykitXrSessionPluginOptions {
   navigator?: unknown;
   priority?: number;
   onSessionStarted?: (handle: SkykitXrSessionHandle) => void;
+  onSessionEnded?: (handle: SkykitXrSessionHandle, reason: 'native' | 'explicit') => void;
 }
 
 export interface SkykitXrSessionPlugin extends SkykitPlugin {
@@ -389,6 +397,7 @@ export interface SkykitXrNavigationPluginOptions {
   id?: string;
   priority?: number;
   rig?: SkykitXrRig;
+  /** Caller-supplied controls are borrowed and are not disposed by the plugin. */
   controls?: SkykitXrControlBindingsHandle;
   moveAxis?: SkykitXrAxisBinding;
   attitudeAxis?: SkykitXrAxisBinding;
@@ -410,7 +419,9 @@ export interface SkykitXrNavigationPlugin extends SkykitPlugin {
 export interface SkykitXrRayVisualPluginOptions {
   id?: string;
   priority?: number;
-  raySource: SkykitXrRaySource;
+  /** Caller-supplied sources are borrowed; omission creates an owned right-hand target ray. */
+  raySource?: SkykitXrRaySource;
+  handedness?: 'left' | 'right' | string;
   rig?: SkykitXrRig;
   blockers?: Iterable<SkykitXrPickBlocker>;
   parent?: THREE.Object3D | ((context: import('./index.js').SkykitThreePluginContext) => THREE.Object3D | null | undefined);
@@ -449,8 +460,10 @@ export interface SkykitXrStarPickingPluginOptions {
   renderer: ThreeStarField;
   source?: SkykitStarCellSource | null;
   rig?: SkykitXrRig;
+  /** Caller-supplied sources are borrowed; omission creates an owned target ray. */
   raySource?: SkykitXrRaySource;
   blockers?: Iterable<SkykitXrPickBlocker>;
+  /** Caller-supplied controls are borrowed and are not disposed by the plugin. */
   controls?: SkykitXrControlBindingsHandle;
   handedness?: 'left' | 'right' | string;
   selectButton?: SkykitXrButtonBinding;
@@ -471,7 +484,7 @@ export declare function createSkykitXrPickRouter(options?: SkykitXrPickRouterOpt
 export declare function createSkykitXrObserverRig(options: CreateSkykitXrObserverRigOptions): import('./index.js').SkykitObserverRig;
 export declare function createSkykitXrSessionPlugin(options?: SkykitXrSessionPluginOptions): SkykitXrSessionPlugin;
 export declare function createSkykitXrNavigationPlugin(options?: SkykitXrNavigationPluginOptions): SkykitXrNavigationPlugin;
-export declare function createSkykitXrRayVisualPlugin(options: SkykitXrRayVisualPluginOptions): SkykitXrRayVisualPlugin;
+export declare function createSkykitXrRayVisualPlugin(options?: SkykitXrRayVisualPluginOptions): SkykitXrRayVisualPlugin;
 export declare function createSkykitXrStarPickingPlugin(options: SkykitXrStarPickingPluginOptions): SkykitPlugin & {
   getSnapshot(): unknown;
 };
