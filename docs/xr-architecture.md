@@ -1,9 +1,14 @@
 # XR And Spatial Architecture
 
-Status: current alpha package documentation.
+Status: current `0.2.0` boundary and `0.3.0` target plan.
 
 This note defines the split between shared spatial navigation and WebXR-specific
 runtime behavior.
+
+The public website remains pinned to stable `0.2.0` while this repository
+develops the `0.3.0` XR API. Repository examples and fake-XR tests validate the
+new API until a coordinated stable release is available. See
+[`releasing.md`](./releasing.md#public-website-version-policy).
 
 ```txt
 @found-in-space/spatial
@@ -89,7 +94,10 @@ normal desktop and Canvas usage should not import it.
   blocker-first routing into target-owned `pick(ray)` implementations.
 - SkyKit XR plugins:
   observer rig bridging, body tracking, controller navigation controls, session
-  enter/exit actions, ray visualization, and star-picking events.
+  enter/exit actions, ray visualization, and generic interaction routing. The
+  current alpha also contains a star-picking composition adapter; the `0.3.0`
+  target moves renderer-specific picking behind a `three-star-field`-owned pick
+  target.
 - WebXR session helpers:
   support checks, enter/exit helpers, reference-space defaults, and safe
   render-state depth application.
@@ -209,7 +217,7 @@ import {
 
 ---
 
-## 6. Current Implementation Status
+## 6. Current `0.2.0` Implementation Status
 
 Implemented in `@found-in-space/spatial`:
 
@@ -246,9 +254,365 @@ Implemented in `@found-in-space/skykit/xr`:
   handle without renderer-specific controller code.
 - fake-XR tests for rig, controls, rays, routing, depth, and sessions.
 
-Not implemented yet:
+Current composition gaps:
 
 - a single turnkey SkyKit XR starfield preset.
-- GPU pick routing or built-in star-specific XR pick effects.
-- a journey runtime that drives `skykit:navigation.*` actions.
+- one shared per-viewer XR runtime for session, body, input, and interaction
+  state.
+- explicit reference-space versus navigation-space pose and ray types.
+- one authoritative interaction route shared by panels, stars, app objects, and
+  ray visuals.
+- safe ownership semantics for shared controls and ray sources.
+- semantic XR input mapping separated from spatial motion behavior.
+- a guided-journey adapter that moves the navigation rig with XR comfort policy.
 - published lesson docs that replace every legacy XR demo end to end.
+
+---
+
+## 7. `0.3.0` Composition Goal
+
+The low-level XR factories remain useful, but a learner should not have to wire
+the same camera, rig roots, reference-space state, controls, rays, blockers,
+renderer loop, and cleanup into every feature.
+
+The `0.3.0` target is:
+
+```txt
+turnkey XR browser
+  -> exposes the ordinary viewer, renderer, provider, star field, and XR runtime
+  -> accepts normal app plugins and replaceable XR components
+  -> is built from the same public factories as the deep composition path
+
+shared XR runtime
+  -> owns per-viewer session/body/input/interaction state
+  -> updates native WebXR state once per frame
+  -> exposes inspectable public handles
+
+focused adapters
+  -> map XR input to semantic SkyKit controls/actions
+  -> adapt touch-os surfaces and renderer-owned pick targets
+  -> never move domain ownership into XR
+```
+
+Do not introduce a hidden factory registry or an XR-only viewer implementation.
+The preset is a readable composition of normal SkyKit, spatial, renderer, and
+Touch OS APIs.
+
+---
+
+## 8. Shared `SkykitXrRuntime`
+
+Create one shared runtime per viewer:
+
+```js
+const xr = createSkykitXrRuntime({
+  camera,
+  navigation: { model: 'direct' },
+});
+
+const viewer = await createSkykitViewer({
+  host,
+  renderer,
+  observerRig: xr.observerRig,
+  plugins: [
+    xr.plugin,
+    stars,
+    myPanel,
+  ],
+});
+```
+
+The runtime should expose ordinary public handles rather than an opaque facade:
+
+```txt
+rig
+observerRig
+session
+body
+input
+rays
+interactions
+plugin
+getSnapshot()
+dispose()
+```
+
+The runtime owns frame coordination. It reads the session, reference space,
+viewer/head pose, hands, controller buttons/axes, and registered rays once per
+XR frame. Consumers read immutable snapshots or subscribe to changes; they do
+not independently mutate shared edge-tracking state.
+
+The session handle must observe native `end` events and publish the same
+`xr/session-end` lifecycle used by an explicit `exit()`. App cleanup must not
+depend on which actor ended the session.
+
+### Viewer topology integration
+
+The XR observer rig should expose the canonical SkyKit `roots`,
+`navigationRoot`, and `cameraMount` fields already allowed by the observer-rig
+contract. `createSkykitViewer()` should derive its roots and camera mount from the
+observer rig unless the application explicitly overrides them.
+
+Precedence is explicit viewer option, then observer-rig value, then the core
+desktop default.
+
+Core and XR must use the same live `Map<string, Object3D>` contract for
+scale-banded roots. A scale-band root created after viewer startup must be
+mounted into the scene through a public root-registration path; copying a
+`Record` into a `Map` at startup is not sufficient.
+
+The deep path may still pass roots and camera mounts explicitly for unusual scene
+graphs, but the normal XR composition should need only `observerRig`.
+
+### Resource ownership
+
+Ownership follows one rule across XR factories and plugins:
+
+```txt
+created internally -> owner disposes it
+supplied by caller  -> consumer borrows it
+```
+
+Removing a ray visual, picker, panel, or input adapter must not dispose a shared
+ray source, controls handle, runtime, or session supplied by the application.
+Where transfer of ownership is useful, it must be an explicit option rather than
+an implicit side effect.
+
+---
+
+## 9. Coordinate Spaces And Units
+
+Do not alias tracked WebXR poses to parsec navigation poses.
+
+Use distinct contracts:
+
+```txt
+SpatialPose
+  observerPc + orientationIcrs
+  parsec/ICRS navigation semantics
+
+XrReferencePose
+  positionMeters + orientation
+  WebXR reference-space semantics
+
+RenderWorldPose
+  positionWorldUnits + orientation
+  Three.js scene/render semantics
+```
+
+Rays carry the same clarity:
+
+```ts
+type SkykitRaySpace = 'xr-reference' | 'render-world' | 'icrs';
+```
+
+A ray includes its space and unit semantics. The XR runtime owns explicit
+conversion helpers between reference space, render world, and ICRS/navigation
+space using the active rig and scale profile. Applications should not need a
+custom wrapper merely to turn a controller ray into a world-space ray.
+
+Head and hand tracking remains reference-space input. Ship/navigation actions
+remain navigation-rig-frame intent. A plugin may deliberately map head gaze to
+a ship action, but that mapping is visible and optional.
+
+---
+
+## 10. Input And Motion Composition
+
+Separate native input interpretation from motion behavior:
+
+```txt
+WebXR axes/buttons/poses
+  -> XR binding adapter
+  -> typed SkyKit actions and controls
+  -> shared spatial motion/navigation plugin
+  -> navigation rig pose
+```
+
+The XR binding adapter owns handedness, component indices, deadzones, button
+edges, and profile-specific defaults. It writes semantic controls such as
+`SKYKIT_CONTROLS.ship.move` and `SKYKIT_CONTROLS.ship.attitude`, and invokes
+semantic actions for discrete commands. Session exit or tracking loss releases
+all action presses owned by that input source and resets its analog controls.
+
+The motion consumer owns direct, inertial, or thrust behavior and makes the
+control frame explicit. Desktop keyboard, Touch OS, gamepads, XR, automation,
+and games can then drive the same motion model. `createSkykitXrNavigationPlugin`
+should become a convenience composition of the binding adapter and shared motion
+behavior, not a second private navigation implementation.
+
+Built-in action and control payloads should have public TypeScript contracts.
+Application namespaces remain open for custom actions.
+
+---
+
+## 11. Authoritative Interaction Routing
+
+One interaction service should route each source sample:
+
+```txt
+controller / hand / gaze ray
+  -> ordered blockers and interaction targets
+      -> Touch OS panel
+      -> app object
+      -> star-field pick target
+  -> one route result
+      -> selection/action output
+      -> ray visual length/state
+      -> diagnostics
+```
+
+The router needs composable registration rather than replacement-only arrays:
+
+```txt
+addSource(source, options?) -> teardown
+addBlocker(blocker, options?) -> teardown
+addTarget(target, options?) -> teardown
+subscribe(listener) -> teardown
+```
+
+Ordering, pointer ownership, capture, blocking, and fallthrough are explicit.
+Touch OS already owns panel-local interaction and pointer claim semantics; its
+SkyKit adapter registers a panel with the XR interaction service. XR does not
+render or interpret the surface.
+
+`three-star-field` should expose a renderer-owned generic pick target or adapter.
+The XR router supplies the ray and view context. Selection events should use the
+same semantic result and stable `StarObjectRef` identity across mouse, touch, and
+XR instead of creating an XR-only star identity or UI contract.
+
+Ray visuals observe the authoritative route result. They do not rerun blocker
+tests, and removing a visual does not change interaction behavior.
+
+---
+
+## 12. Turnkey XR Browser
+
+Add a thin beginner entrypoint under the optional XR subpath:
+
+```js
+const sky = await createSkykitXrBrowser({
+  host: '#viewer',
+  plugins: [myLessonPlugin],
+});
+
+enterButton.addEventListener('click', () => sky.xr.enter());
+```
+
+It returns the normal composition handles:
+
+```txt
+viewer
+xr
+renderer
+camera
+provider
+starField
+loop
+install(plugin)
+dispose()
+```
+
+The preset should provide a streamed star field, WebXR-safe topology, renderer
+animation loop, support/session actions, a documented controller profile,
+reasonable depth policy, and a basic interaction ray. Session entry stays lazy
+and user-initiated. Before entry, after exit, and when immersive XR is unsupported
+or denied, it remains a functioning desktop viewer.
+
+Every convenience is replaceable through an ordinary provider, renderer,
+strategy, rig/runtime component, input binding, interaction target, depth policy,
+or plugin. Supplying a custom component must not require forking the preset.
+
+The public website should gain an XR lesson only after stable `0.3.0` is
+published. Until then, the repository owns the reference example and fake-XR
+coverage.
+
+---
+
+## 13. Guided Journeys In XR
+
+XR consumes the shared guided-journey controller described in
+[`chapter-and-camera-timeline-architecture.md`](./chapter-and-camera-timeline-architecture.md).
+It does not own a separate journey schema.
+
+The SkyKit XR journey adapter:
+
+- moves the navigation rig, never the headset camera;
+- resolves chapter camera intent through the shared navigation controller;
+- may apply an explicit comfort policy such as smooth travel, shortened travel,
+  fade/teleport, or confirmation;
+- presents journey state through replaceable Touch OS, voice, controller, or
+  application UI;
+- preserves the same chapter IDs, history, readiness, and app-owned hooks used on
+  desktop.
+
+Comfort policy is runtime/participant policy, not authored astronomical data.
+Journey content may state intent and allowable alternatives, but it should not
+hard-code a headset-specific locomotion implementation.
+
+---
+
+## 14. `0.3.0` Delivery Plan
+
+### Phase 1: topology, spaces, and ownership
+
+- Complete the observer-rig roots/camera-mount seam.
+- Unify the scale-band root contract and dynamic mounting.
+- Introduce reference-space pose and tagged ray types with conversions.
+- Correct stale example pose fields as the new contracts land.
+- Standardize borrowed versus owned resource disposal.
+- Propagate native session-end lifecycle.
+
+### Phase 2: shared runtime and semantic input
+
+- Add `SkykitXrRuntime` and update body/input state once per frame.
+- Split XR bindings from shared motion behavior.
+- Type built-in control values and document their frames.
+- Keep direct low-level body, controls, ray, and session factories available.
+
+### Phase 3: interaction composition
+
+- Make one router the authoritative source/target/blocker service.
+- Add dynamic registration and route-result subscriptions.
+- Adapt Touch OS panels without moving surface ownership into XR.
+- Move renderer-specific star picking to a renderer-owned target and use stable
+  star identity.
+
+### Phase 4: beginner preset and lessons
+
+- Build `createSkykitXrBrowser()` from public factories.
+- Reduce the current XR free-roam example to preset plus visible app-owned
+  customization.
+- Add a deeper example that replaces input, interaction, and panel pieces.
+- Add fake-XR lifecycle, ownership, routing, and session-end tests.
+
+### Phase 5: stable release and website migration
+
+- Publish the coordinated stable `0.3.0` package batch.
+- Migrate the website's exact pins in a separate reviewed change.
+- Add a user-initiated XR quickstart and fallback lesson to the website only
+  after the stable APIs are available.
+
+---
+
+## 15. Acceptance Criteria
+
+The `0.3.0` XR composition slice is ready when:
+
+- a default streamed-star XR viewer needs no manual root mapping, camera mount,
+  ray-space wrapper, or renderer-loop wiring;
+- the preset returns the normal viewer and all replaceable component handles;
+- head/hand reference poses cannot be confused with parsec navigation poses in
+  the public types;
+- type tests reject a ray supplied to a target that requires a different space;
+- body and controller edge state is updated once per frame and safely shared;
+- removing one consumer never disposes a caller-owned shared resource;
+- XR controls drive the same semantic action/control and spatial motion behavior
+  as desktop and Touch OS;
+- panels, stars, and app objects share one ordered interaction result;
+- ray visuals observe routing without repeating it;
+- native and explicit session exit publish the same lifecycle;
+- unsupported or denied XR leaves the preset usable as a desktop viewer;
+- a guided journey uses the same chapter controller on desktop and in XR;
+- all deep XR factories remain directly usable;
+- the public website remains on `0.2.0` until stable `0.3.0` is published.

@@ -124,6 +124,14 @@ Viewer: embed.js for no-code, viewer.js for JavaScript customization
 Data: data.js for rows, labels, lists, maps, and renderer-independent games
 ```
 
+The public website consumes exact stable package releases. It remains pinned to
+`0.2.0` while this workspace develops the `0.3.0` API. Repository examples and
+tests should teach and validate the in-development API; the website remains the
+product and ergonomics reference until a coordinated stable `0.3.0` release is
+available. Do not point public lessons at prerelease packages. See
+[`releasing.md`](./releasing.md#public-website-version-policy) for the migration
+policy.
+
 Root `demos/` pages and the old root `src/` implementation are legacy
 transition sandboxes. App-level SkyKit examples live in `apps/examples/`;
 focused package learning work should prefer:
@@ -149,6 +157,8 @@ packages/skykit/examples/
   guide/timeline retiming workflows, deterministic browser export page,
   JavaScript sky-frame capture, cached overlay block rendering, ffmpeg composite
   helpers, and the skykit-studio-render CLI
+  dependency direction: Studio consumes public skykit and spatial APIs; no
+  package in this workspace depends on Studio
 
 @found-in-space/star-trees
   implemented: StarCellData types, StarCellStore, StarObjectRef identity,

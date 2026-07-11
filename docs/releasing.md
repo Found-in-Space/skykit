@@ -9,6 +9,33 @@ The current publishable package manifests are independently versioned at
 recovery/context; this checkout is not in Changesets prerelease mode because
 `.changeset/pre.json` is absent.
 
+## Public Website Version Policy
+
+The public website is a stable-release consumer, not a head-of-tree integration
+environment. While SkyKit is being developed toward `0.3.0`, the website stays
+pinned to the exact stable `0.2.0` package versions and CDN URLs.
+
+During `0.3.0` development:
+
+- repository package examples and tests exercise the in-development workspace
+  APIs;
+- the website remains an ergonomics and use-case reference for the intended
+  beginner-to-library learning path;
+- website dependencies, live-example version constants, and CDN URLs must not
+  be moved to `0.3.0` prereleases merely to follow workspace changes;
+- intentional `0.3.0` API changes are documented and validated in this
+  repository before the website is migrated.
+
+After the coordinated stable `0.3.0` package batch is available, migrate the
+website in a separate, reviewable change. That migration should update exact
+package pins and live-example constants together, adapt tutorial code to the
+released API, run the website build and live-example smoke checks, and only then
+deploy the new teaching surface.
+
+Urgent fixes for the live `0.2.0` teaching surface should use a compatible
+`0.2.x` release when a package fix is required. They should not pull unfinished
+`0.3.0` APIs into the website.
+
 ## Normal Change Flow
 
 1. Make the package change.

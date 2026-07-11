@@ -46,8 +46,9 @@ should not be folded back into core `skykit`.
 
 Camera timeline authoring and deterministic export tooling live in the sibling
 [`Found-in-Space/skykit-studio`](https://github.com/Found-in-Space/skykit-studio)
-repository as `@found-in-space/skykit-studio`. It still consumes SkyKit
-packages, but it is not part of this workspace.
+repository as `@found-in-space/skykit-studio`. Studio is downstream: it consumes
+public SkyKit and spatial APIs, while SkyKit never depends on Studio. Studio is
+not part of this workspace.
 
 Historical H-alpha and dust pipeline work remains available in
 [`Found-in-Space/pipeline-dust`](https://github.com/Found-in-Space/pipeline-dust).
@@ -86,6 +87,6 @@ path, the app-composition path, and skyculture metadata naming rules.
 - [`packages/anchored-image/README.md`](./packages/anchored-image/README.md): package API guide for `@found-in-space/anchored-image`
 - [`docs/constellations.md`](./docs/constellations.md): constellation loading paths and skyculture metadata naming rules
 - [`docs/skykit-core-composition.md`](./docs/skykit-core-composition.md): current alpha direction for core `@found-in-space/skykit`
-- [`docs/xr-architecture.md`](./docs/xr-architecture.md): current alpha boundary for `@found-in-space/spatial` and `@found-in-space/skykit/xr`
-- [`docs/chapter-and-camera-timeline-architecture.md`](./docs/chapter-and-camera-timeline-architecture.md): current alpha boundary for website chapters and Studio camera timelines
+- [`docs/xr-architecture.md`](./docs/xr-architecture.md): current XR/spatial boundary and the `0.3.0` XR composition plan
+- [`docs/chapter-and-camera-timeline-architecture.md`](./docs/chapter-and-camera-timeline-architecture.md): current chapter/Studio boundary and the `0.3.0` guided-journey plan
 - [`docs/releasing.md`](./docs/releasing.md): Changesets release flow for publishable packages
