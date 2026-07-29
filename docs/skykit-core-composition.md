@@ -232,6 +232,12 @@ The layer should pass through:
 It should not introduce SkyKit-specific star lifecycle events or support the old
 star batch API.
 
+The current streaming helper is centered on one octree provider. The accepted
+[multiple-provider direction](./multiple-star-providers.md) keeps octree,
+static reference, scenario, and session providers as independent lanes whose
+products can be composed without merging their source datasets or discarding
+provider identity.
+
 ## Actions
 
 SkyKit has a small semantic action registry. It is for shared commands and held

@@ -83,6 +83,7 @@ path, the app-composition path, and skyculture metadata naming rules.
 - [`docs/alpha-rules.md`](./docs/alpha-rules.md): current alpha rewrite rules and package-boundary guidance
 - [`docs/package-learning-architecture.md`](./docs/package-learning-architecture.md): alpha learning path and package-example direction
 - [`docs/star-octree-provider.md`](./docs/star-octree-provider.md): current alpha contract for `@found-in-space/star-octree-provider`
+- [`docs/multiple-star-providers.md`](./docs/multiple-star-providers.md): accepted direction for composing octree, static reference, scenario, and session star providers
 - [`packages/star-map-canvas/README.md`](./packages/star-map-canvas/README.md): package API guide for `@found-in-space/star-map-canvas`
 - [`packages/anchored-image/README.md`](./packages/anchored-image/README.md): package API guide for `@found-in-space/anchored-image`
 - [`docs/constellations.md`](./docs/constellations.md): constellation loading paths and skyculture metadata naming rules

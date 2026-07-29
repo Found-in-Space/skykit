@@ -318,6 +318,10 @@ The provider emits decoded star cells. It does not own:
 - sidecar metadata lookup
 - persistent app IDs outside the semantic star identity
 
+It also does not own static reference or scenario stars. Those belong to
+separate provider lanes composed by applications or SkyKit. See the accepted
+[multiple-provider direction](./multiple-star-providers.md).
+
 `@found-in-space/star-trees` owns star cell data shapes, stores, Morton
 helpers, object refs, pick metadata, and star math helpers.
 
