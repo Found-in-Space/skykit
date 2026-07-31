@@ -3,7 +3,13 @@ import test from 'node:test';
 import { gzipSync } from 'node:zlib';
 
 import { createStarCellKey } from '@found-in-space/star-trees';
-import { parseStarHeader } from '../star-octree-format.js';
+import {
+  parseShardFromBlock,
+  parseStarHeader,
+  STAR_HAS_PAYLOAD,
+  STAR_IS_FRONTIER,
+  STAR_IS_TERMINAL,
+} from '../star-octree-format.js';
 import { createStarOctreeIndexSource } from '../star-octree-index-source.js';
 import { createStarOctreeScheduler } from '../star-octree-scheduler.js';
 import {
@@ -48,6 +54,37 @@ test('parseStarHeader rejects bad magic and unsupported versions', () => {
     () => parseStarHeader(toArrayBuffer(createStarHeaderBytes({ version: 99 }))),
     /unsupported STAR version 99/,
   );
+});
+
+test('parseStarHeader accepts STAR v2', () => {
+  const header = parseStarHeader(
+    toArrayBuffer(createStarHeaderBytes({ version: 2 })),
+  );
+
+  assert.equal(header.version, 2);
+});
+
+test('parseShardFromBlock reads v2 frontier refs after 24-byte node records', () => {
+  const shard = parseShardFromBlock(
+    toArrayBuffer(
+      createShardBytes({
+        version: 2,
+        nodes: [
+          createShardNodeRecord({
+            flags: STAR_IS_FRONTIER,
+            childMask: 1,
+          }),
+        ],
+        firstFrontierIndex: 1,
+        frontierOffsets: [4096],
+      }),
+    ),
+    192,
+    2,
+  );
+
+  assert.ok(shard);
+  assert.equal(shard.readFrontierContinuation(1), 4096n);
 });
 
 test('ensureBootstrapLoaded fetches and caches the bootstrap index', async () => {
@@ -145,6 +182,82 @@ test('ensureRootShardLoaded warms a contiguous root shard in one initial range',
     assert.equal(node.halfSize, 100);
     assert.equal(node.payloadOffset, 512);
     assert.equal(node.payloadLength, 32);
+    assert.equal(node.starCount, null);
+    assert.equal(node.isTerminal, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('ensureRootShardLoaded reads STAR v2 terminal nodes and star counts', async () => {
+  const rootShard = createShardBytes({
+    version: 2,
+    nodes: [
+      createShardNodeRecord({
+        flags: STAR_HAS_PAYLOAD | STAR_IS_TERMINAL,
+        payloadOffset: 512,
+        payloadLength: 96,
+        starCount: 6,
+      }),
+    ],
+  });
+  const fileBytes = concatBytes([
+    createStarHeaderBytes({
+      version: 2,
+      indexOffset: HEADER_SIZE,
+      indexLength: rootShard.length,
+    }),
+    rootShard,
+  ]);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fileBytes, []);
+
+  try {
+    const source = createStarOctreeIndexSource({
+      providerId: 'provider-a',
+      options: {
+        url: 'memory://stars-v2.octree',
+      },
+    });
+
+    const loadedRoot = await source.ensureRootShardLoaded();
+    const node = loadedRoot.nodes[0];
+
+    assert.equal(loadedRoot.shard.header.version, 2);
+    assert.equal(node.starCount, 6);
+    assert.equal(node.isTerminal, true);
+    assert.equal(node.payloadOffset, 512);
+    assert.equal(node.payloadLength, 96);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('ensureRootShardLoaded rejects mixed STAR and OSHR versions', async () => {
+  const rootShard = createShardBytes({ version: 1 });
+  const fileBytes = concatBytes([
+    createStarHeaderBytes({
+      version: 2,
+      indexOffset: HEADER_SIZE,
+      indexLength: rootShard.length,
+    }),
+    rootShard,
+  ]);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fileBytes, []);
+
+  try {
+    const source = createStarOctreeIndexSource({
+      providerId: 'provider-a',
+      options: {
+        url: 'memory://mixed-version.octree',
+      },
+    });
+
+    await assert.rejects(
+      source.ensureRootShardLoaded(),
+      /OSHR: version 1 at 64 does not match STAR version 2/,
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

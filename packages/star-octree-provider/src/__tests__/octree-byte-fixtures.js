@@ -3,7 +3,9 @@ export const DESCRIPTOR_SIZE = 128;
 export const STAR_MAGIC = 0x52415453;
 export const SHARD_MAGIC = 0x5248534f;
 export const SHARD_HEADER_SIZE = 80;
-export const SHARD_NODE_SIZE = 20;
+export const SHARD_NODE_V1_SIZE = 20;
+export const SHARD_NODE_V2_SIZE = 24;
+export const SHARD_NODE_SIZE = SHARD_NODE_V1_SIZE;
 export const FRONTIER_REF_SIZE = 8;
 
 export function concatBytes(parts) {
@@ -110,6 +112,7 @@ export function createStarHeaderBytes({
 }
 
 export function createShardBytes({
+  version = 1,
   parentGlobalDepth = -1,
   parentGridX = 0,
   parentGridY = 0,
@@ -119,19 +122,21 @@ export function createShardBytes({
   firstFrontierIndex = 0,
   frontierOffsets = [],
 } = {}) {
+  const nodeRecordSize =
+    version === 2 ? SHARD_NODE_V2_SIZE : SHARD_NODE_V1_SIZE;
   const frontierCount =
     firstFrontierIndex > 0 && nodes.length >= firstFrontierIndex
       ? nodes.length - firstFrontierIndex + 1
       : 0;
   const bytes = new Uint8Array(
     SHARD_HEADER_SIZE +
-      nodes.length * SHARD_NODE_SIZE +
+      nodes.length * nodeRecordSize +
       frontierCount * FRONTIER_REF_SIZE,
   );
   const view = new DataView(bytes.buffer);
 
   view.setUint32(0, SHARD_MAGIC, true);
-  view.setUint16(4, 1, true);
+  view.setUint16(4, version, true);
   view.setUint16(18, nodes.length, true);
   view.setInt16(22, parentGlobalDepth, true);
   view.setUint32(24, parentGridX, true);
@@ -146,17 +151,22 @@ export function createShardBytes({
   view.setBigUint64(54, BigInt(SHARD_HEADER_SIZE), true);
   view.setBigUint64(
     62,
-    BigInt(SHARD_HEADER_SIZE + nodes.length * SHARD_NODE_SIZE),
+    BigInt(SHARD_HEADER_SIZE + nodes.length * nodeRecordSize),
     true,
   );
 
   nodes.forEach((node, index) => {
-    writeShardNodeRecord(view, SHARD_HEADER_SIZE + index * SHARD_NODE_SIZE, node);
+    writeShardNodeRecord(
+      view,
+      SHARD_HEADER_SIZE + index * nodeRecordSize,
+      node,
+      version,
+    );
   });
 
   for (let index = 0; index < frontierCount; index += 1) {
     view.setBigUint64(
-      SHARD_HEADER_SIZE + nodes.length * SHARD_NODE_SIZE + index * FRONTIER_REF_SIZE,
+      SHARD_HEADER_SIZE + nodes.length * nodeRecordSize + index * FRONTIER_REF_SIZE,
       BigInt(frontierOffsets[index] ?? 0),
       true,
     );
@@ -175,11 +185,12 @@ export function createShardNodeRecord(overrides = {}) {
     reserved: 0,
     payloadOffset: 0,
     payloadLength: 0,
+    starCount: 0,
     ...overrides,
   };
 }
 
-function writeShardNodeRecord(view, offset, node) {
+function writeShardNodeRecord(view, offset, node, version) {
   view.setUint16(offset, node.firstChild, true);
   view.setUint16(offset + 2, node.localPath, true);
   view.setUint8(offset + 4, node.childMask);
@@ -188,4 +199,7 @@ function writeShardNodeRecord(view, offset, node) {
   view.setUint8(offset + 7, node.reserved ?? 0);
   view.setBigUint64(offset + 8, BigInt(node.payloadOffset), true);
   view.setUint32(offset + 16, node.payloadLength, true);
+  if (version === 2) {
+    view.setUint32(offset + 20, node.starCount, true);
+  }
 }

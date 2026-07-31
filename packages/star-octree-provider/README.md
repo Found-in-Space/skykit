@@ -19,6 +19,10 @@ materialization, payload batching, cache warming, decode, and cell emission.
 Bundled strategy helpers are ordinary implementations of the same public
 strategy interface as application strategies.
 
+The loader supports STAR/OSHR v1 and v2 artifacts. V2 adds packed terminal
+nodes and serialized node star counts while retaining the same public
+cell-identity contract.
+
 See [`../../docs/star-octree-provider.md`](../../docs/star-octree-provider.md)
 for the package contract, strategy/planner/scheduler semantics, and API
 semantics.

@@ -27,6 +27,25 @@ Payload-range batching may group network and decode work internally. Decoded
 output is always split back into independent `StarCellData` records before it
 reaches a provider session, renderer, or store.
 
+## STAR Format Compatibility
+
+The provider reads STAR/OSHR format versions 1 and 2. A file's top-level STAR
+version and every OSHR shard version must match; mixed-version artifacts are
+rejected.
+
+Version 1 uses 20-byte node records and does not serialize node star counts.
+Version 2 uses 24-byte node records and adds a `u32` star count plus the
+`IS_TERMINAL` node flag. Runtime traversal nodes expose:
+
+- `starCount: null` for version 1;
+- `starCount: number` for version 2;
+- `isTerminal: true` when a version 2 node contains one packed subtree payload.
+
+For version 2, an ordinary payload node's count describes its own payload, a
+terminal node's count describes the complete packed subtree payload, and an
+index-only node has a count of zero. These fields remain provider execution
+details; public star and cell identity is still `level + mortonCode`.
+
 ## Public Deltas
 
 Provider sessions and streams emit `StarCellDelta` values:

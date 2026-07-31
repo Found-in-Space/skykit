@@ -202,6 +202,10 @@ export interface StarOctreeRuntimeNode {
   childMask: number;
   payloadOffset: number;
   payloadLength: number;
+  /** Serialized node count in STAR v2, or `null` for STAR v1. */
+  starCount: number | null;
+  /** Whether this STAR v2 node contains a packed terminal subtree payload. */
+  isTerminal: boolean;
   firstChild: number;
   localDepth: number;
   localPath: number;
@@ -254,7 +258,7 @@ export interface StarOctreeBootstrapIndex {
   datasetId?: string | null;
   datasetIdentitySource?: string | null;
   header: {
-    version: number;
+    version: 1 | 2;
     indexOffset: number;
     indexLength: number;
     worldCenterX: number;

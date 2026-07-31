@@ -13,14 +13,20 @@ export const STAR_DESCRIPTOR_MAGIC = 0x4353444f;
 export const STAR_DESCRIPTOR_VERSION = 1;
 export const STAR_RENDER_DESCRIPTOR_KIND = 1;
 export const STAR_SIDECAR_DESCRIPTOR_KIND = 2;
+export const STAR_FORMAT_VERSION_V1 = 1;
+export const STAR_FORMAT_VERSION_V2 = 2;
 
 export const SHARD_MAGIC = 0x5248534f;
 export const SHARD_HEADER_SIZE = 80;
-export const SHARD_NODE_RECORD_SIZE = 20;
+export const SHARD_NODE_V1_RECORD_SIZE = 20;
+export const SHARD_NODE_V2_RECORD_SIZE = 24;
+export const SHARD_NODE_RECORD_SIZE = SHARD_NODE_V1_RECORD_SIZE;
 export const SHARD_FRONTIER_REF_SIZE = 8;
 
 export const STAR_HAS_PAYLOAD = 0x01;
+export const STAR_HAS_CHILDREN = 0x02;
 export const STAR_IS_FRONTIER = 0x04;
+export const STAR_IS_TERMINAL = 0x08;
 
 /**
  * @typedef {StarOctreeBootstrapHeader & {
@@ -34,6 +40,7 @@ export const STAR_IS_FRONTIER = 0x04;
 
 /**
  * @typedef {{
+ *   version: 1 | 2;
  *   offset: number;
  *   nodeCount: number;
  *   parentGlobalDepth: number;
@@ -57,6 +64,7 @@ export const STAR_IS_FRONTIER = 0x04;
  *   reserved: number;
  *   payloadOffset: number;
  *   payloadLength: number;
+ *   starCount: number | null;
  * }} ShardNodeRecord
  */
 
@@ -80,9 +88,7 @@ export function parseStarHeader(input) {
   }
 
   const version = view.getUint16(4, true);
-  if (version !== 1) {
-    throw new Error(`stars.octree: unsupported STAR version ${version}`);
-  }
+  assertSupportedStarFormatVersion(version, 'stars.octree: unsupported STAR version');
 
   const header = {
     version,
@@ -109,9 +115,10 @@ export function parseStarHeader(input) {
 /**
  * @param {ArrayBuffer | DataView} input
  * @param {number} shardOffset
+ * @param {number} [expectedVersion]
  * @returns {ParsedShardHeader}
  */
-export function parseShardHeader(input, shardOffset) {
+export function parseShardHeader(input, shardOffset, expectedVersion) {
   const view = toDataView(input);
   if (view.byteLength < SHARD_HEADER_SIZE) {
     throw new Error('OSHR: truncated header');
@@ -123,8 +130,11 @@ export function parseShardHeader(input, shardOffset) {
   }
 
   const version = view.getUint16(4, true);
-  if (version !== 1) {
-    throw new Error(`OSHR: unsupported version ${version}`);
+  assertSupportedStarFormatVersion(version, 'OSHR: unsupported version');
+  if (expectedVersion !== undefined && version !== expectedVersion) {
+    throw new Error(
+      `OSHR: version ${version} at ${shardOffset} does not match STAR version ${expectedVersion}`,
+    );
   }
 
   const entryNodes = [];
@@ -133,6 +143,7 @@ export function parseShardHeader(input, shardOffset) {
   }
 
   return {
+    version,
     offset: shardOffset,
     nodeCount: view.getUint16(18, true),
     parentGlobalDepth: view.getInt16(22, true),
@@ -149,12 +160,18 @@ export function parseShardHeader(input, shardOffset) {
 /**
  * @param {DataView} tableView
  * @param {number} nodeIndex
+ * @param {number} [version]
  * @returns {ShardNodeRecord}
  */
-export function readShardNodeRecord(tableView, nodeIndex) {
-  const offset = (nodeIndex - 1) * SHARD_NODE_RECORD_SIZE;
+export function readShardNodeRecord(
+  tableView,
+  nodeIndex,
+  version = STAR_FORMAT_VERSION_V1,
+) {
+  const recordSize = shardNodeRecordSize(version);
+  const offset = (nodeIndex - 1) * recordSize;
 
-  if (nodeIndex <= 0 || offset + SHARD_NODE_RECORD_SIZE > tableView.byteLength) {
+  if (nodeIndex <= 0 || offset + recordSize > tableView.byteLength) {
     throw new RangeError(`OSHR: node index ${nodeIndex} is outside the node table`);
   }
 
@@ -167,6 +184,10 @@ export function readShardNodeRecord(tableView, nodeIndex) {
     reserved: tableView.getUint8(offset + 7),
     payloadOffset: Number(tableView.getBigUint64(offset + 8, true)),
     payloadLength: tableView.getUint32(offset + 16, true),
+    starCount:
+      version === STAR_FORMAT_VERSION_V2
+        ? tableView.getUint32(offset + 20, true)
+        : null,
   };
 }
 
@@ -265,8 +286,13 @@ export function makeNodeKey(shardOffset, nodeIndex) {
 /**
  * @param {number} nodeCount
  * @param {number} firstFrontierIndex
+ * @param {number} [version]
  */
-export function shardBlockSize(nodeCount, firstFrontierIndex) {
+export function shardBlockSize(
+  nodeCount,
+  firstFrontierIndex,
+  version = STAR_FORMAT_VERSION_V1,
+) {
   const frontierCount =
     firstFrontierIndex > 0 && nodeCount >= firstFrontierIndex
       ? nodeCount - firstFrontierIndex + 1
@@ -274,7 +300,7 @@ export function shardBlockSize(nodeCount, firstFrontierIndex) {
 
   return (
     SHARD_HEADER_SIZE +
-    nodeCount * SHARD_NODE_RECORD_SIZE +
+    nodeCount * shardNodeRecordSize(version) +
     frontierCount * SHARD_FRONTIER_REF_SIZE
   );
 }
@@ -282,16 +308,22 @@ export function shardBlockSize(nodeCount, firstFrontierIndex) {
 /**
  * @param {ArrayBuffer} buffer
  * @param {number} shardOffset
+ * @param {number} [expectedVersion]
  * @returns {ResolvedStarOctreeShard | null}
  */
-export function parseShardFromBlock(buffer, shardOffset) {
+export function parseShardFromBlock(buffer, shardOffset, expectedVersion) {
   if (buffer.byteLength < SHARD_HEADER_SIZE) {
     return null;
   }
 
-  const shardHeader = parseShardHeader(buffer.slice(0, SHARD_HEADER_SIZE), shardOffset);
+  const shardHeader = parseShardHeader(
+    buffer.slice(0, SHARD_HEADER_SIZE),
+    shardOffset,
+    expectedVersion,
+  );
   const nodeTableStart = SHARD_HEADER_SIZE;
-  const nodeTableLength = shardHeader.nodeCount * SHARD_NODE_RECORD_SIZE;
+  const nodeTableLength =
+    shardHeader.nodeCount * shardNodeRecordSize(shardHeader.version);
   const nodeTableEnd = nodeTableStart + nodeTableLength;
 
   if (buffer.byteLength < nodeTableEnd) {
@@ -344,7 +376,7 @@ export class ResolvedStarOctreeShard {
    * @param {number} nodeIndex
    */
   readNode(nodeIndex) {
-    return readShardNodeRecord(this.nodeTable, nodeIndex);
+    return readShardNodeRecord(this.nodeTable, nodeIndex, this.header.version);
   }
 
   /**
@@ -384,6 +416,8 @@ export class ResolvedStarOctreeShard {
       childMask: record.childMask,
       payloadOffset: record.payloadOffset,
       payloadLength: record.payloadLength,
+      starCount: record.starCount,
+      isTerminal: Boolean(record.flags & STAR_IS_TERMINAL),
       firstChild: record.firstChild,
       localDepth: record.localDepth,
       localPath: record.localPath,
@@ -404,6 +438,30 @@ export class ResolvedStarOctreeShard {
     }
 
     return nodes;
+  }
+}
+
+/**
+ * @param {number} version
+ */
+export function shardNodeRecordSize(version) {
+  assertSupportedStarFormatVersion(version, 'unsupported STAR format version');
+  return version === STAR_FORMAT_VERSION_V1
+    ? SHARD_NODE_V1_RECORD_SIZE
+    : SHARD_NODE_V2_RECORD_SIZE;
+}
+
+/**
+ * @param {number} version
+ * @param {string} message
+ * @returns {asserts version is 1 | 2}
+ */
+function assertSupportedStarFormatVersion(version, message) {
+  if (
+    version !== STAR_FORMAT_VERSION_V1 &&
+    version !== STAR_FORMAT_VERSION_V2
+  ) {
+    throw new Error(`${message} ${version}`);
   }
 }
 
