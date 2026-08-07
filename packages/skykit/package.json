@@ -82,7 +82,7 @@
   },
   "peerDependencies": {
     "@found-in-space/touch-os": ">=0.3.0 <0.4.0",
-    "three": "^0.170.0"
+    "three": "^0.170.0 || ^0.185.0"
   },
   "peerDependenciesMeta": {
     "@found-in-space/touch-os": {
