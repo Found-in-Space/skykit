@@ -1,6 +1,6 @@
 {
   "name": "@found-in-space/skykit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Slim composition and teaching layer for Found in Space packages",
   "license": "MIT",
   "type": "module",
@@ -70,12 +70,12 @@
   },
   "dependencies": {
     "@found-in-space/anchored-image": "0.2.0",
-    "@found-in-space/hr-diagram": "0.2.0",
-    "@found-in-space/meta-sidecar-provider": "0.2.0",
-    "@found-in-space/spatial": "0.2.0",
-    "@found-in-space/star-octree-provider": "0.2.0",
-    "@found-in-space/star-trees": "0.2.0",
-    "@found-in-space/three-star-field": "0.2.0"
+    "@found-in-space/hr-diagram": "0.3.0",
+    "@found-in-space/meta-sidecar-provider": "0.2.1",
+    "@found-in-space/spatial": "0.3.0",
+    "@found-in-space/star-octree-provider": "0.3.0",
+    "@found-in-space/star-trees": "0.2.1",
+    "@found-in-space/three-star-field": "0.2.1"
   },
   "devDependencies": {
     "@found-in-space/touch-os": "0.3.0"

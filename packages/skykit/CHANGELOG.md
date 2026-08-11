@@ -1,5 +1,47 @@
 # @found-in-space/skykit
 
+## 0.3.0
+
+### Minor Changes
+
+- 0a3c842: Add `createSkyOrbitPlugin()` for pointer drag orbit controls, browser `mouseMode: 'orbit'`, and a temporary Hyades orbit example.
+- a65737c: Add runtime product registries and product refs so SkyKit plugins can publish and consume running handles such as shared star sources.
+- 28a4e4b: Reset the spatial alpha API to the canonical contract with strict names,
+  data-only routes, paths, and transitions, canonical `deltaSecs` and
+  `sampleStepSecs`, destination-preserving route endpoints, public aim tracks,
+  distinct manual motion models, and route/orbit/aim navigation. Enforce strict
+  runtime validation and update SkyKit, SkyKit XR, and star-map-canvas adapters to
+  consume the new spatial surface without losing their public compatibility
+  shapes. Honor independent navigation cancellation and arrival settle/dwell
+  semantics, and prevent stale async SkyKit navigation resolutions from replacing
+  newer commands.
+- 98b453d: Adopt the stable touch-os 0.3 bridge with canonical frame timing, explicit
+  action-output routing, reversible panel lifecycle, safe ownership and pointer
+  cancellation, geometric XR ray blocking, and the optional HR embedded-surface
+  adapter with aspect-preserving title layout.
+
+### Patch Changes
+
+- 3a3ad08: Make view-driven anchored image art follow the camera orientation when selecting the nearest active image, and support clean dynamic replacement of anchored image sky plugins.
+- 3e15faf: Implement lane-aware view and pose transition evaluation with delays, easing, strict timing validation, and shared path-backed sampling. Preserve authored transition lane timing through SkyKit navigation actions.
+- 17d32a6: Load STAR v2 terminal-packed octrees, expose serialized node star counts,
+  terminal state, and exact subtree-brightest levels, reject mixed STAR/OSHR
+  versions, and skip coalesced payloads that cannot contain stars relevant to the
+  active magnitude limit. Include the new provider in the SkyKit compatibility
+  bundle.
+- Updated dependencies [7887a87]
+- Updated dependencies [436ea98]
+- Updated dependencies [3e15faf]
+- Updated dependencies [17d32a6]
+- Updated dependencies [28a4e4b]
+- Updated dependencies [98b453d]
+  - @found-in-space/spatial@0.3.0
+  - @found-in-space/star-octree-provider@0.3.0
+  - @found-in-space/star-trees@0.2.1
+  - @found-in-space/hr-diagram@0.3.0
+  - @found-in-space/meta-sidecar-provider@0.2.1
+  - @found-in-space/three-star-field@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes

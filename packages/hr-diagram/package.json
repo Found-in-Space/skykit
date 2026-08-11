@@ -1,6 +1,6 @@
 {
   "name": "@found-in-space/hr-diagram",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Reusable HR diagram data, canvas, WebGL, and touch-os helpers for Found in Space star cells",
   "license": "MIT",
   "type": "module",
@@ -35,7 +35,7 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@found-in-space/star-trees": "0.2.0"
+    "@found-in-space/star-trees": "0.2.1"
   },
   "devDependencies": {
     "@found-in-space/touch-os": "0.3.0"
