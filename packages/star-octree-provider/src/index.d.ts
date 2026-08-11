@@ -202,6 +202,10 @@ export interface StarOctreeRuntimeNode {
   childMask: number;
   payloadOffset: number;
   payloadLength: number;
+  /** Serialized payload record count in STAR v2; unavailable in STAR v1. */
+  starCount: number | null;
+  /** True when STAR v2 collapsed this node's complete subtree into its payload. */
+  isTerminal: boolean;
   firstChild: number;
   localDepth: number;
   localPath: number;

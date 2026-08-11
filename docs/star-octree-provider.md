@@ -8,6 +8,13 @@ payload decode, cache warming, and cell-delta emission. Strategies are a shared
 semantic contract consumed by loaders and planners. Viewers, renderers,
 sidecars, controls, lessons, and journeys live in separate packages.
 
+The loader accepts STAR v1 and v2 artifacts and requires every OSHR shard to
+match the top-level STAR version. V2's 24-byte node records add a serialized
+payload star count and may mark a payload-bearing leaf as terminal. Terminal
+nodes need no special strategy behavior: they preserve logical cell identity,
+carry the collapsed subtree payload, and naturally stop traversal because they
+have no children.
+
 ## Core Contract
 
 The public star streaming model is cell-keyed:

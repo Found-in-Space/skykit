@@ -80,6 +80,22 @@ test('decodeStarPayload returns requested provider-native parsec attributes with
   assert.equal(decoded.refs, undefined);
 });
 
+test('decodeStarPayload validates serialized STAR v2 payload counts', () => {
+  const payload = createPayloadBytes([
+    { local: [0, 0, 0], magAbs: 4.25, teffLog8: 128 },
+    { local: [0.5, 0.5, 0.5], magAbs: 5.25, teffLog8: 140 },
+  ]);
+
+  assert.equal(
+    decodeStarPayload(payload, createNode('matching-v2', { starCount: 2 })).count,
+    2,
+  );
+  assert.throws(
+    () => decodeStarPayload(payload, createNode('mismatched-v2', { starCount: 3 })),
+    /STAR v2 payload count mismatch.*index=3, payload=2/,
+  );
+});
+
 test('decodeStarPayload omits optional numeric columns when not requested', () => {
   const decoded = decodeStarPayload(
     createPayloadBytes([
