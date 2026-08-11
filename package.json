@@ -41,6 +41,7 @@
     "bench:baseline": "node ./benchmarks/star-planner/src/run-baseline.js",
     "bench:compare": "node ./benchmarks/star-planner/src/compare-baseline.js",
     "bench:smoke": "node ./benchmarks/star-planner/src/run-smoke.js",
+    "bench:octree": "node ./benchmarks/octree-format/src/run-octree-format-benchmark.js",
     "changeset": "changeset",
     "release:version": "changeset version && npm run release:lockfile",
     "release:lockfile": "npm install --package-lock-only --ignore-scripts --no-audit --fund=false",

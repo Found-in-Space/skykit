@@ -19,6 +19,12 @@ materialization, payload batching, cache warming, decode, and cell emission.
 Bundled strategy helpers are ordinary implementations of the same public
 strategy interface as application strategies.
 
+Both STAR v1 and STAR v2 render octrees are supported. V2 terminal-packed nodes
+are exposed through the existing logical-cell stream; runtime traversal nodes
+also report `starCount` and `isTerminal` for diagnostics. V1 nodes report
+`starCount: null` and `isTerminal: false`. V2 payload decode verifies the
+serialized count against the decompressed 16-byte record count.
+
 See [`../../docs/star-octree-provider.md`](../../docs/star-octree-provider.md)
 for the package contract, strategy/planner/scheduler semantics, and API
 semantics.

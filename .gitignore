@@ -120,6 +120,7 @@ public/volumes/
 
 # Benchmark raw run artifacts
 benchmarks/star-planner/.runs/
+benchmarks/octree-format/.runs/
 
 # Serverless directories
 .serverless/
