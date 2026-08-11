@@ -180,7 +180,7 @@ export function createShardNodeRecord(overrides = {}) {
     childMask: 0,
     localDepth: 1,
     flags: 0,
-    reserved: 0,
+    brightestLevel: 0,
     payloadOffset: 0,
     payloadLength: 0,
     starCount: 0,
@@ -194,7 +194,7 @@ function writeShardNodeRecord(view, offset, node, version) {
   view.setUint8(offset + 4, node.childMask);
   view.setUint8(offset + 5, node.localDepth);
   view.setUint8(offset + 6, node.flags);
-  view.setUint8(offset + 7, node.reserved ?? 0);
+  view.setUint8(offset + 7, node.brightestLevel ?? 0);
   view.setBigUint64(offset + 8, BigInt(node.payloadOffset), true);
   view.setUint32(offset + 16, node.payloadLength, true);
   if (version === 2) {

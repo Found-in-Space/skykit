@@ -206,6 +206,8 @@ export interface StarOctreeRuntimeNode {
   starCount: number | null;
   /** True when STAR v2 collapsed this node's complete subtree into its payload. */
   isTerminal: boolean;
+  /** Exact absolute level of the brightest natural star in this subtree for STAR v2. */
+  brightestLevel: number | null;
   firstChild: number;
   localDepth: number;
   localPath: number;

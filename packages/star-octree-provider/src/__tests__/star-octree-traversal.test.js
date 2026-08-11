@@ -9,7 +9,11 @@ import {
   createStarCellKey,
   loadRadiusForMagnitudeShell,
 } from '@found-in-space/star-trees';
-import { STAR_HAS_PAYLOAD, STAR_IS_FRONTIER } from '../star-octree-format.js';
+import {
+  STAR_HAS_PAYLOAD,
+  STAR_IS_FRONTIER,
+  STAR_IS_TERMINAL,
+} from '../star-octree-format.js';
 import { createStarOctreeIndexSource } from '../star-octree-index-source.js';
 import {
   planStarOctreeStrategyDemand,
@@ -336,6 +340,77 @@ test('observer-shell demand matches the legacy half-size magnitude shell', async
     assert.equal(included.entries[0].metadata.loadRadiusPc, 50);
     assert.equal(pruned.entries.length, 0);
     assert.equal(pruned.metadata.prunedNodeCount, 1);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('observer-shell demand skips an out-of-range coalesced STAR v2 payload', async () => {
+  const indexOffset = HEADER_SIZE + DESCRIPTOR_SIZE;
+  const rootShard = createShardBytes({
+    version: 2,
+    nodes: [
+      createShardNodeRecord({
+        flags: STAR_HAS_PAYLOAD | STAR_IS_TERMINAL,
+        brightestLevel: 2,
+        payloadOffset: 1000,
+        payloadLength: 10,
+        starCount: 4,
+      }),
+    ],
+  });
+  const { indexSource, restoreFetch } = createIndexSourceForBytes(concatBytes([
+    createStarHeaderBytes({
+      version: 2,
+      indexOffset,
+      indexLength: rootShard.length,
+      worldHalfSize: 100,
+      magLimit: 6.5,
+      maxLevel: 2,
+    }),
+    createOdscDescriptorBytes(),
+    rootShard,
+  ]));
+  const baseContext = {
+    providerId: 'provider-v2',
+    strategy: createObserverShellStrategy(),
+    viewRevision: 1,
+    demandRevision: 0,
+    attributes: ['position'],
+    coordinates: { units: ['pc', 'pc', 'pc'] },
+  };
+
+  try {
+    const pruned = await planStarOctreeStrategyDemand({
+      indexSource,
+      context: withTraversalContext(indexSource, {
+        ...baseContext,
+        view: {
+          revision: 1,
+          observerPc: { x: 150, y: 0, z: 0 },
+          limitingMagnitude: 6.5,
+        },
+      }),
+    });
+    const included = await planStarOctreeStrategyDemand({
+      indexSource,
+      context: withTraversalContext(indexSource, {
+        ...baseContext,
+        view: {
+          revision: 2,
+          observerPc: { x: 125, y: 0, z: 0 },
+          limitingMagnitude: 6.5,
+        },
+      }),
+    });
+
+    assert.equal(pruned.entries.length, 0);
+    assert.equal(pruned.metadata.prunedNodeCount, 1);
+    assert.equal(pruned.metadata.payloadNodeCount, 0);
+    assert.equal(included.entries.length, 1);
+    assert.equal(included.entries[0].node.brightestLevel, 2);
+    assert.equal(included.entries[0].metadata.magnitudeHalfSizePc, 25);
+    assert.equal(included.entries[0].metadata.loadRadiusPc, 25);
   } finally {
     restoreFetch();
   }
