@@ -55,6 +55,8 @@ export interface StarTreeCellGeometry extends StarCellRef {
   centerZ: number;
   halfSize: number;
   level: number;
+  /** Exact absolute level of the brightest natural star in this subtree, when known. */
+  brightestLevel?: number | null;
   gridX?: number;
   gridY?: number;
   gridZ?: number;

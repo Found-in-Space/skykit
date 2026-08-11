@@ -23,7 +23,11 @@ Both STAR v1 and STAR v2 render octrees are supported. V2 terminal-packed nodes
 are exposed through the existing logical-cell stream; runtime traversal nodes
 also report `starCount` and `isTerminal` for diagnostics. V1 nodes report
 `starCount: null` and `isTerminal: false`. V2 payload decode verifies the
-serialized count against the decompressed 16-byte record count.
+serialized count against the decompressed 16-byte record count. Every v2 node
+also exposes the exact absolute natural level of its subtree's brightest star
+as `brightestLevel`. Observer-shell and target-frustum traversal use that value
+to skip coalesced payloads containing no stars relevant to the active magnitude
+limit. Header flags remain reserved; there is no legacy v2 encoding.
 
 See [`../../docs/star-octree-provider.md`](../../docs/star-octree-provider.md)
 for the package contract, strategy/planner/scheduler semantics, and API

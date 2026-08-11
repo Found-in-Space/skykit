@@ -155,17 +155,19 @@ test('ensureRootShardLoaded warms a contiguous root shard in one initial range',
     assert.equal(node.halfSize, 100);
     assert.equal(node.payloadOffset, 512);
     assert.equal(node.payloadLength, 32);
+    assert.equal(node.brightestLevel, null);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test('ensureRootShardLoaded reads STAR v2 star counts and terminal flags', async () => {
+test('ensureRootShardLoaded reads STAR v2 counts, terminals, and brightest level', async () => {
   const rootShard = createShardBytes({
     version: 2,
     nodes: [
       createShardNodeRecord({
         flags: STAR_HAS_PAYLOAD | STAR_IS_TERMINAL,
+        brightestLevel: 6,
         payloadOffset: 512,
         payloadLength: 32,
         starCount: 987,
@@ -197,6 +199,7 @@ test('ensureRootShardLoaded reads STAR v2 star counts and terminal flags', async
     assert.equal(loadedRoot.shard.header.nodeRecordSize, 24);
     assert.equal(node.starCount, 987);
     assert.equal(node.isTerminal, true);
+    assert.equal(node.brightestLevel, 6);
     assert.equal(node.childMask, 0);
   } finally {
     globalThis.fetch = originalFetch;
@@ -225,6 +228,43 @@ test('ensureRootShardLoaded rejects mixed STAR and OSHR versions', async () => {
     await assert.rejects(
       () => source.ensureRootShardLoaded(),
       /STAR\/OSHR version mismatch.*STAR=2, OSHR=1/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('ensureRootShardLoaded rejects an invalid STAR v2 brightest level', async () => {
+  const rootShard = createShardBytes({
+    version: 2,
+    parentGlobalDepth: 0,
+    nodes: [
+      createShardNodeRecord({
+        localDepth: 1,
+        brightestLevel: 0,
+      }),
+    ],
+  });
+  const fileBytes = concatBytes([
+    createStarHeaderBytes({
+      version: 2,
+      indexOffset: HEADER_SIZE,
+      indexLength: rootShard.length,
+    }),
+    rootShard,
+  ]);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fileBytes, []);
+
+  try {
+    const source = createStarOctreeIndexSource({
+      providerId: 'provider-invalid-brightest-level',
+      options: { url: 'memory://invalid-brightest-level.octree' },
+    });
+
+    await assert.rejects(
+      () => source.ensureRootShardLoaded(),
+      /node brightest level.*nodeLevel=1, brightestLevel=0/,
     );
   } finally {
     globalThis.fetch = originalFetch;

@@ -26,6 +26,7 @@ export const STAR_HAS_PAYLOAD = 0x01;
 export const STAR_HAS_CHILDREN = 0x02;
 export const STAR_IS_FRONTIER = 0x04;
 export const STAR_IS_TERMINAL = 0x08;
+export const STAR_MAX_MORTON_LEVEL = 21;
 
 export const SUPPORTED_STAR_FORMAT_VERSIONS = [1, 2];
 
@@ -63,7 +64,7 @@ export const SUPPORTED_STAR_FORMAT_VERSIONS = [1, 2];
  *   childMask: number;
  *   localDepth: number;
  *   flags: number;
- *   reserved: number;
+ *   brightestLevel: number;
  *   payloadOffset: number;
  *   payloadLength: number;
  *   starCount: number | null;
@@ -184,7 +185,7 @@ export function readShardNodeRecord(tableView, nodeIndex, version = 1) {
     childMask: tableView.getUint8(offset + 4),
     localDepth: tableView.getUint8(offset + 5),
     flags: tableView.getUint8(offset + 6),
-    reserved: tableView.getUint8(offset + 7),
+    brightestLevel: tableView.getUint8(offset + 7),
     payloadOffset: Number(tableView.getBigUint64(offset + 8, true)),
     payloadLength: tableView.getUint32(offset + 16, true),
     starCount: version === 2 ? tableView.getUint32(offset + 20, true) : null,
@@ -413,6 +414,19 @@ export class ResolvedStarOctreeShard {
   readRuntimeNode(starHeader, nodeIndex) {
     const record = this.readNode(nodeIndex);
     const geometry = runtimeNodeGeometry(starHeader, this.header, record);
+    const brightestLevel = starHeader.version === 2
+      ? record.brightestLevel
+      : null;
+
+    if (
+      brightestLevel != null &&
+      (brightestLevel < geometry.level || brightestLevel > STAR_MAX_MORTON_LEVEL)
+    ) {
+      throw new Error(
+        'OSHR: node brightest level is outside its representable subtree: ' +
+        `nodeLevel=${geometry.level}, brightestLevel=${brightestLevel}`,
+      );
+    }
 
     return {
       ...geometry,
@@ -422,6 +436,7 @@ export class ResolvedStarOctreeShard {
       payloadLength: record.payloadLength,
       starCount: record.starCount,
       isTerminal: Boolean(record.flags & STAR_IS_TERMINAL),
+      brightestLevel,
       firstChild: record.firstChild,
       localDepth: record.localDepth,
       localPath: record.localPath,
