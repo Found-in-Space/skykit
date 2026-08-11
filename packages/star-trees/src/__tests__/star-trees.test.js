@@ -363,6 +363,36 @@ test('observer-shell strategy evaluates magnitude-limited cell relevance', () =>
   assert.equal(far.descend, false);
 });
 
+test('observer-shell strategy prunes a coalesced subtree by its brightest level', () => {
+  const evaluator = createEvaluator(
+    createObserverShellStrategy(),
+    { observerPc: { x: 0, y: 0, z: 0 }, limitingMagnitude: 6.5 },
+    { indexMagnitude: 6.5 },
+  );
+  const geometry = {
+    centerX: 70,
+    centerY: 0,
+    centerZ: 0,
+    halfSize: 50,
+    level: 1,
+    gridX: 0,
+    gridY: 0,
+    gridZ: 0,
+  };
+
+  const naturalLevelCell = evaluator.evaluateCell(createNode(geometry));
+  const coalescedCell = evaluator.evaluateCell(createNode({
+    ...geometry,
+    brightestLevel: 3,
+  }));
+
+  assert.equal(naturalLevelCell.include, true);
+  assert.equal(coalescedCell.include, false);
+  assert.equal(coalescedCell.metadata.brightestLevel, 3);
+  assert.equal(coalescedCell.metadata.magnitudeHalfSizePc, 12.5);
+  assert.equal(coalescedCell.metadata.loadRadiusPc, 12.5);
+});
+
 test('target-frustum strategy uses the nearest visible witness', () => {
   const evaluator = createEvaluator(
     createTargetFrustumStrategy({ overscanDeg: 0 }),

@@ -3,7 +3,11 @@ import test from 'node:test';
 import { gzipSync } from 'node:zlib';
 
 import { createStarCellKey } from '@found-in-space/star-trees';
-import { parseStarHeader } from '../star-octree-format.js';
+import {
+  parseStarHeader,
+  STAR_HAS_PAYLOAD,
+  STAR_IS_TERMINAL,
+} from '../star-octree-format.js';
 import { createStarOctreeIndexSource } from '../star-octree-index-source.js';
 import { createStarOctreeScheduler } from '../star-octree-scheduler.js';
 import {
@@ -37,6 +41,12 @@ test('parseStarHeader reads valid STAR header and ODSC descriptor', () => {
   assert.equal(header.magLimit, 7.25);
   assert.equal(header.datasetUuid, datasetUuid);
   assert.equal(header.artifactKind, 'render');
+});
+
+test('parseStarHeader accepts STAR v2', () => {
+  const header = parseStarHeader(toArrayBuffer(createStarHeaderBytes({ version: 2 })));
+
+  assert.equal(header.version, 2);
 });
 
 test('parseStarHeader rejects bad magic and unsupported versions', () => {
@@ -145,6 +155,117 @@ test('ensureRootShardLoaded warms a contiguous root shard in one initial range',
     assert.equal(node.halfSize, 100);
     assert.equal(node.payloadOffset, 512);
     assert.equal(node.payloadLength, 32);
+    assert.equal(node.brightestLevel, null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('ensureRootShardLoaded reads STAR v2 counts, terminals, and brightest level', async () => {
+  const rootShard = createShardBytes({
+    version: 2,
+    nodes: [
+      createShardNodeRecord({
+        flags: STAR_HAS_PAYLOAD | STAR_IS_TERMINAL,
+        brightestLevel: 6,
+        payloadOffset: 512,
+        payloadLength: 32,
+        starCount: 987,
+      }),
+    ],
+  });
+  const fileBytes = concatBytes([
+    createStarHeaderBytes({
+      version: 2,
+      indexOffset: HEADER_SIZE,
+      indexLength: rootShard.length,
+    }),
+    rootShard,
+  ]);
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fileBytes, requests);
+
+  try {
+    const source = createStarOctreeIndexSource({
+      providerId: 'provider-v2',
+      options: { url: 'memory://stars-v2.octree' },
+    });
+
+    const loadedRoot = await source.ensureRootShardLoaded();
+    const node = loadedRoot.nodes[0];
+
+    assert.equal(loadedRoot.shard.header.version, 2);
+    assert.equal(loadedRoot.shard.header.nodeRecordSize, 24);
+    assert.equal(node.starCount, 987);
+    assert.equal(node.isTerminal, true);
+    assert.equal(node.brightestLevel, 6);
+    assert.equal(node.childMask, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('ensureRootShardLoaded rejects mixed STAR and OSHR versions', async () => {
+  const rootShard = createShardBytes({ version: 1 });
+  const fileBytes = concatBytes([
+    createStarHeaderBytes({
+      version: 2,
+      indexOffset: HEADER_SIZE,
+      indexLength: rootShard.length,
+    }),
+    rootShard,
+  ]);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fileBytes, []);
+
+  try {
+    const source = createStarOctreeIndexSource({
+      providerId: 'provider-mixed',
+      options: { url: 'memory://mixed.octree' },
+    });
+
+    await assert.rejects(
+      () => source.ensureRootShardLoaded(),
+      /STAR\/OSHR version mismatch.*STAR=2, OSHR=1/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('ensureRootShardLoaded rejects an invalid STAR v2 brightest level', async () => {
+  const rootShard = createShardBytes({
+    version: 2,
+    parentGlobalDepth: 0,
+    nodes: [
+      createShardNodeRecord({
+        localDepth: 1,
+        brightestLevel: 0,
+      }),
+    ],
+  });
+  const fileBytes = concatBytes([
+    createStarHeaderBytes({
+      version: 2,
+      indexOffset: HEADER_SIZE,
+      indexLength: rootShard.length,
+    }),
+    rootShard,
+  ]);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch(fileBytes, []);
+
+  try {
+    const source = createStarOctreeIndexSource({
+      providerId: 'provider-invalid-brightest-level',
+      options: { url: 'memory://invalid-brightest-level.octree' },
+    });
+
+    await assert.rejects(
+      () => source.ensureRootShardLoaded(),
+      /node brightest level.*nodeLevel=1, brightestLevel=0/,
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

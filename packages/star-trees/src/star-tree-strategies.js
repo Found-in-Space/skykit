@@ -760,8 +760,9 @@ function lookaheadAnchorSignature(anchor) {
 function evaluateObserverShellCell(options) {
   const distancePc = options.queuedDistancePc ??
     distanceToCellAabbPc(options.view.observerPc, options.cell);
+  const magnitudeHalfSizePc = magnitudeHalfSizeForCell(options.cell);
   const loadRadiusPc = loadRadiusForMagnitudeShell(
-    options.cell.halfSize,
+    magnitudeHalfSizePc,
     options.view.limitingMagnitude,
     options.indexMagnitude,
   );
@@ -792,6 +793,10 @@ function evaluateObserverShellCell(options) {
     metadata: {
       distancePc,
       loadRadiusPc,
+      magnitudeHalfSizePc,
+      ...(options.cell.brightestLevel != null
+        ? { brightestLevel: options.cell.brightestLevel }
+        : {}),
       limitingMagnitude: options.view.limitingMagnitude,
       indexMagnitude: options.indexMagnitude,
       ...(options.role === 'prefetch'
@@ -815,8 +820,9 @@ function evaluateObserverShellCell(options) {
  * }} options
  */
 function evaluateTargetFrustumCell(options) {
+  const magnitudeHalfSizePc = magnitudeHalfSizeForCell(options.cell);
   const loadRadiusPc = loadRadiusForMagnitudeShell(
-    options.cell.halfSize,
+    magnitudeHalfSizePc,
     options.view.limitingMagnitude,
     options.indexMagnitude,
   );
@@ -832,6 +838,10 @@ function evaluateTargetFrustumCell(options) {
         shellRejected: true,
         distancePc: minimumDistancePc,
         loadRadiusPc,
+        magnitudeHalfSizePc,
+        ...(options.cell.brightestLevel != null
+          ? { brightestLevel: options.cell.brightestLevel }
+          : {}),
       },
     };
   }
@@ -861,6 +871,10 @@ function evaluateTargetFrustumCell(options) {
         shellRejected: true,
         distancePc,
         loadRadiusPc,
+        magnitudeHalfSizePc,
+        ...(options.cell.brightestLevel != null
+          ? { brightestLevel: options.cell.brightestLevel }
+          : {}),
       },
     };
   }
@@ -883,6 +897,10 @@ function evaluateTargetFrustumCell(options) {
       forwardDistancePc: visiblePoint.forwardDistancePc,
       nearestVisiblePc: visiblePoint.point,
       loadRadiusPc,
+      magnitudeHalfSizePc,
+      ...(options.cell.brightestLevel != null
+        ? { brightestLevel: options.cell.brightestLevel }
+        : {}),
       limitingMagnitude: options.view.limitingMagnitude,
       indexMagnitude: options.indexMagnitude,
       frustumMode: options.view.frustumMode,
@@ -1024,6 +1042,24 @@ export function normalizeTargetFrustumView(view = {}, options = {}) {
  */
 export function loadRadiusForMagnitudeShell(halfSize, limitingMagnitude, indexMagnitude) {
   return halfSize * 10 ** ((limitingMagnitude - indexMagnitude) / 5);
+}
+
+/**
+ * Use the brightest natural level in a coalesced subtree as the conservative
+ * magnitude band for shell pruning while retaining the node's actual spatial
+ * half-size for AABB and frustum geometry.
+ *
+ * @param {import('./index.d.ts').StarTreeCellGeometry} cell
+ */
+function magnitudeHalfSizeForCell(cell) {
+  if (cell.brightestLevel == null) {
+    return cell.halfSize;
+  }
+  const brightestLevel = Number(cell.brightestLevel);
+  if (!Number.isInteger(brightestLevel) || brightestLevel < cell.level) {
+    return cell.halfSize;
+  }
+  return cell.halfSize / 2 ** (brightestLevel - cell.level);
 }
 
 /**

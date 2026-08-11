@@ -187,6 +187,12 @@ export function decodeStarPayload(buffer, node, options = {}) {
   }
 
   const count = Math.floor(buffer.byteLength / PAYLOAD_RECORD_SIZE);
+  if (node.starCount != null && node.starCount !== count) {
+    throw new Error(
+      `STAR v2 payload count mismatch for ${node.level}:${node.mortonCode}: ` +
+        `index=${node.starCount}, payload=${count}.`,
+    );
+  }
   const view = new DataView(buffer);
   const decodeAttributes = normalizePayloadDecodeAttributes(options.attributes);
   const positionsPc = new Float32Array(count * 3);

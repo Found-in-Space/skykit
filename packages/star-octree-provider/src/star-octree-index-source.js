@@ -366,14 +366,20 @@ export function createStarOctreeIndexSource(createOptions) {
     const shardHeader = parseShardHeader(
       initialBuffer.slice(0, SHARD_HEADER_SIZE),
       shardOffset,
+      parsedHeader?.version,
     );
     const totalSize = shardBlockSize(
       shardHeader.nodeCount,
       shardHeader.firstFrontierIndex,
+      shardHeader.version,
     );
 
     if (totalSize <= initialBuffer.byteLength) {
-      const parsed = parseShardFromBlock(initialBuffer.slice(0, totalSize), shardOffset);
+      const parsed = parseShardFromBlock(
+        initialBuffer.slice(0, totalSize),
+        shardOffset,
+        parsedHeader?.version,
+      );
       if (parsed) {
         return parsed;
       }
@@ -433,7 +439,11 @@ export function createStarOctreeIndexSource(createOptions) {
       }
 
       const shardOffset = fileOffset + cursor;
-      const parsed = parseShardFromBlock(buffer.slice(cursor), shardOffset);
+      const parsed = parseShardFromBlock(
+        buffer.slice(cursor),
+        shardOffset,
+        parsedHeader?.version,
+      );
       if (!parsed) {
         break;
       }
@@ -449,6 +459,7 @@ export function createStarOctreeIndexSource(createOptions) {
       cursor += shardBlockSize(
         parsed.header.nodeCount,
         parsed.header.firstFrontierIndex,
+        parsed.header.version,
       );
     }
 

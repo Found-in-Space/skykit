@@ -8,6 +8,17 @@ payload decode, cache warming, and cell-delta emission. Strategies are a shared
 semantic contract consumed by loaders and planners. Viewers, renderers,
 sidecars, controls, lessons, and journeys live in separate packages.
 
+The loader accepts STAR v1 and v2 artifacts and requires every OSHR shard to
+match the top-level STAR version. V2's 24-byte node records add a serialized
+payload star count and may mark a payload-bearing leaf as terminal. Terminal
+nodes need no special strategy behavior: they preserve logical cell identity,
+carry the collapsed subtree payload, and naturally stop traversal because they
+have no children. Every v2 node also stores the exact absolute natural level of
+the brightest star in its complete subtree. Runtime nodes expose that byte as
+`brightestLevel`; magnitude-aware strategies use it to reject coalesced
+subtrees containing only out-of-range faint stars before any payload transfer.
+There is no capability flag or alternate v2 interpretation.
+
 ## Core Contract
 
 The public star streaming model is cell-keyed:
@@ -241,9 +252,10 @@ type StarStrategyChange =
 ```
 
 `StarCellGeometry` is semantic geometry only: cell key, level, Morton code,
-center parsecs, half-size parsecs, and logical grid coordinates. Strategy-visible
-cells must not expose storage fields such as `payloadOffset`, `payloadLength`,
-`nodeIndex`, `shardOffset`, byte ranges, or loader-specific node keys.
+center parsecs, half-size parsecs, logical grid coordinates, and optional
+subtree-brightest natural level. Strategy-visible cells must not expose storage
+fields such as `payloadOffset`, `payloadLength`, `nodeIndex`, `shardOffset`, byte
+ranges, or loader-specific node keys.
 
 Priority is a partial order. Cells may draw/tie in priority, and the planner may
 load tied cells in whichever order is most efficient for batching, cache reuse,
@@ -279,8 +291,14 @@ one-frame churn.
 Observer-shell selection should match the direct magnitude-shell heuristic:
 
 ```txt
-loadRadiusPc = halfSizePc * 10 ** ((limitingMagnitude - indexMagnitude) / 5)
+magnitudeHalfSizePc = halfSizePc / 2 ** (brightestLevel - level)
+loadRadiusPc = magnitudeHalfSizePc * 10 ** ((limitingMagnitude - indexMagnitude) / 5)
 ```
+
+For ordinary natural-level cells, `brightestLevel === level`, so this is the
+same radius as before. For a coalesced v2 node, spatial AABB/frustum tests still
+use the node's actual `halfSizePc`; only the magnitude load radius uses the
+smaller half-size represented by `brightestLevel`.
 
 Do not add broad fixed padding to compensate for streaming churn. Refresh
 throttling should be expressed through strategy change/diff policy, such as
