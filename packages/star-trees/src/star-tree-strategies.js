@@ -1036,12 +1036,23 @@ export function normalizeTargetFrustumView(view = {}, options = {}) {
 }
 
 /**
- * @param {number} halfSize
+ * Return the conservative visibility radius for the brightest encoded star in
+ * a natural magnitude level. A level spans a factor of two in visibility
+ * distance, and magnitudes encoded to the nearest 0.01 may be 0.005 brighter
+ * than the source magnitude used to assign that level.
+ *
+ * @param {number} magnitudeHalfSize
  * @param {number} limitingMagnitude
  * @param {number} indexMagnitude
  */
-export function loadRadiusForMagnitudeShell(halfSize, limitingMagnitude, indexMagnitude) {
-  return halfSize * 10 ** ((limitingMagnitude - indexMagnitude) / 5);
+export function loadRadiusForMagnitudeShell(
+  magnitudeHalfSize,
+  limitingMagnitude,
+  indexMagnitude,
+) {
+  return 2 * magnitudeHalfSize *
+    10 ** ((limitingMagnitude - indexMagnitude) / 5) *
+    10 ** (0.005 / 5);
 }
 
 /**

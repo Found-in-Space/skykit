@@ -435,7 +435,7 @@ export declare function normalizeTargetFrustumView(
 };
 
 export declare function loadRadiusForMagnitudeShell(
-  halfSize: number,
+  magnitudeHalfSize: number,
   limitingMagnitude: number,
   indexMagnitude: number
 ): number;
