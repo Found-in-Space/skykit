@@ -76,10 +76,18 @@ export function createThreeStarField(options = {}) {
       createDefaultThreeStarFieldMaterialProfile(view),
   );
   const disposeMaterialProfile = options.disposeMaterialProfile !== false;
+  const vertexAttributeSpecs = normalizeVertexAttributeSpecs(options.vertexAttributes);
+  const cellVertexAttributes = new Map();
   /** @type {Map<string, StarCellData>} */
   const cellsByKey = new Map();
   const frustumCulled = options.frustumCulled === true;
-  let geometry = createThreeStarFieldGeometryFromCells([]);
+  const initialGeometryState = buildThreeStarFieldGeometry(
+    [],
+    vertexAttributeSpecs,
+    cellVertexAttributes,
+  );
+  let geometry = initialGeometryState.geometry;
+  let cellRanges = initialGeometryState.cellRanges;
   const points = new THREE.Points(geometry, materialProfile.material);
   points.name = `${fieldId}:points`;
   points.frustumCulled = frustumCulled;
@@ -97,7 +105,6 @@ export function createThreeStarField(options = {}) {
     haloPoints.userData.cellStore = true;
     object3d.add(haloPoints);
   }
-
   /** @type {ThreeStarFieldSnapshotStatus} */
   let status = 'idle';
   /** @type {string | null} */
@@ -112,6 +119,7 @@ export function createThreeStarField(options = {}) {
     object3d,
     apply,
     setCells,
+    setCellVertexAttribute,
     clear,
     setView,
     pick,
@@ -169,6 +177,10 @@ export function createThreeStarField(options = {}) {
     for (const cell of nextCells) {
       assertStarCellData(cell);
       cellsByKey.set(cell.cellKey, cell);
+      discardMismatchedCellVertexAttributes(cell);
+    }
+    for (const cellKey of cellVertexAttributes.keys()) {
+      if (!cellsByKey.has(cellKey)) cellVertexAttributes.delete(cellKey);
     }
     rebuildGeometry();
     status = cellsByKey.size > 0 ? 'streaming' : 'idle';
@@ -177,6 +189,7 @@ export function createThreeStarField(options = {}) {
   function clear() {
     assertActive();
     cellsByKey.clear();
+    cellVertexAttributes.clear();
     rebuildGeometry();
     status = 'idle';
     lastError = null;
@@ -265,6 +278,7 @@ export function createThreeStarField(options = {}) {
     if (haloPoints) {
       object3d.remove(haloPoints);
     }
+    cellVertexAttributes.clear();
     geometry.dispose();
     if (disposeMaterialProfile) {
       materialProfile.dispose();
@@ -280,6 +294,7 @@ export function createThreeStarField(options = {}) {
     for (const cell of cells) {
       assertStarCellData(cell);
       cellsByKey.set(cell.cellKey, cell);
+      discardMismatchedCellVertexAttributes(cell);
     }
     rebuildGeometry();
   }
@@ -291,6 +306,7 @@ export function createThreeStarField(options = {}) {
     let changed = false;
     for (const cellKey of cellKeys) {
       changed = cellsByKey.delete(cellKey) || changed;
+      cellVertexAttributes.delete(cellKey);
     }
     if (changed) {
       rebuildGeometry();
@@ -306,15 +322,62 @@ export function createThreeStarField(options = {}) {
   }
 
   function rebuildGeometry() {
-    const nextGeometry = createThreeStarFieldGeometryFromCells(cellsByKey.values());
+    const nextState = buildThreeStarFieldGeometry(
+      cellsByKey.values(),
+      vertexAttributeSpecs,
+      cellVertexAttributes,
+    );
+    const nextGeometry = nextState.geometry;
     const previousGeometry = geometry;
     geometry = nextGeometry;
+    cellRanges = nextState.cellRanges;
     points.geometry = nextGeometry;
     if (haloPoints) {
       haloPoints.geometry = nextGeometry;
     }
     syncRenderVisibility();
     previousGeometry.dispose();
+  }
+
+  function setCellVertexAttribute(cellKey, name, values) {
+    assertActive();
+    const spec = vertexAttributeSpecs.get(name);
+    if (!spec) throw new Error(`Unknown star-field vertex attribute: ${name}.`);
+    const cell = cellsByKey.get(cellKey);
+    const range = cellRanges.get(cellKey);
+    if (!cell || !range) return false;
+    const expectedLength = cell.count * spec.itemSize;
+    if (!values || values.length !== expectedLength) {
+      throw new RangeError(
+        `${name} for ${cellKey} requires ${expectedLength} values, received ${values?.length ?? 0}.`,
+      );
+    }
+
+    const ArrayType = spec.type === 'float32' ? Float32Array : Uint8Array;
+    const stored = values instanceof ArrayType ? values : new ArrayType(values);
+    let cellAttributes = cellVertexAttributes.get(cellKey);
+    if (!cellAttributes) {
+      cellAttributes = new Map();
+      cellVertexAttributes.set(cellKey, cellAttributes);
+    }
+    cellAttributes.set(name, stored);
+
+    const attribute = geometry.getAttribute(name);
+    const updateOffset = range.offset * spec.itemSize;
+    attribute.array.set(stored, updateOffset);
+    attribute.addUpdateRange(updateOffset, expectedLength);
+    attribute.needsUpdate = true;
+    return true;
+  }
+
+  function discardMismatchedCellVertexAttributes(cell) {
+    const attributes = cellVertexAttributes.get(cell.cellKey);
+    if (!attributes) return;
+    for (const [name, values] of attributes) {
+      const spec = vertexAttributeSpecs.get(name);
+      if (!spec || values.length !== cell.count * spec.itemSize) attributes.delete(name);
+    }
+    if (attributes.size === 0) cellVertexAttributes.delete(cell.cellKey);
   }
 
   function assertActive() {
@@ -329,6 +392,10 @@ export function createThreeStarField(options = {}) {
  * @returns {THREE.BufferGeometry}
  */
 export function createThreeStarFieldGeometryFromCells(cells) {
+  return buildThreeStarFieldGeometry(cells, new Map(), new Map()).geometry;
+}
+
+function buildThreeStarFieldGeometry(cells, vertexAttributeSpecs, cellVertexAttributes) {
   const geometry = new THREE.BufferGeometry();
   const orderedCells = Array.from(cells)
     .sort((left, right) => left.cellKey.localeCompare(right.cellKey));
@@ -336,21 +403,40 @@ export function createThreeStarFieldGeometryFromCells(cells) {
   const positions = new Float32Array(totalCount * 3);
   const teffLog8 = new Uint8Array(totalCount);
   const magAbs = new Float32Array(totalCount);
+  const customAttributes = new Map();
+  const cellRanges = new Map();
+  for (const [name, spec] of vertexAttributeSpecs) {
+    customAttributes.set(name, createVertexAttributeArray(spec, totalCount * spec.itemSize));
+  }
   let offset = 0;
 
   for (const cell of orderedCells) {
+    cellRanges.set(cell.cellKey, { count: cell.count, offset });
     positions.set(cell.coordinates.components, offset * 3);
     teffLog8.set(cell.attributes.teffLog8 ?? createFallbackTeff(cell.count), offset);
     magAbs.set(cell.attributes.magAbs ?? createFallbackMagAbs(cell.count), offset);
+    const decorations = cellVertexAttributes.get(cell.cellKey);
+    for (const [name, spec] of vertexAttributeSpecs) {
+      const values = decorations?.get(name);
+      if (values?.length === cell.count * spec.itemSize) {
+        customAttributes.get(name).set(values, offset * spec.itemSize);
+      }
+    }
     offset += cell.count;
   }
 
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('teff_log8', new THREE.BufferAttribute(teffLog8, 1, true));
   geometry.setAttribute('magAbs', new THREE.BufferAttribute(magAbs, 1));
+  for (const [name, spec] of vertexAttributeSpecs) {
+    geometry.setAttribute(
+      name,
+      new THREE.BufferAttribute(customAttributes.get(name), spec.itemSize, spec.normalized),
+    );
+  }
   geometry.setDrawRange(0, totalCount);
   geometry.computeBoundingSphere();
-  return geometry;
+  return { cellRanges, geometry };
 }
 
 /**
@@ -668,6 +754,36 @@ function normalizeMaterialProfile(profile) {
         haloMaterial?.dispose();
       },
   };
+}
+
+function normalizeVertexAttributeSpecs(input) {
+  const specs = new Map();
+  for (const candidate of input ?? []) {
+    const name = String(candidate?.name ?? '');
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      throw new TypeError(`Invalid star-field vertex attribute name: ${name || '(empty)'}.`);
+    }
+    if (['position', 'teff_log8', 'magAbs'].includes(name)) {
+      throw new Error(`Star-field vertex attribute ${name} is reserved.`);
+    }
+    const itemSize = Number(candidate.itemSize ?? 1);
+    if (!Number.isInteger(itemSize) || itemSize < 1 || itemSize > 4) {
+      throw new RangeError(`Star-field vertex attribute ${name} requires itemSize 1-4.`);
+    }
+    const type = candidate.type === 'float32' ? 'float32' : 'uint8';
+    specs.set(name, {
+      itemSize,
+      normalized: candidate.normalized === true,
+      type,
+    });
+  }
+  return specs;
+}
+
+function createVertexAttributeArray(spec, length) {
+  return spec.type === 'float32'
+    ? new Float32Array(length)
+    : new Uint8Array(length);
 }
 
 /**

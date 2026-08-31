@@ -2641,6 +2641,51 @@ test('streaming star layer can use an explicit session without disposing it', as
   assert.equal(session.disposed, false);
 });
 
+test('star source debounces octree demand updates while keeping the provider view current', async () => {
+  const session = createFakeSession();
+  const source = createSkykitStarSourcePlugin({ session, demandDebounceMs: 10 });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [source],
+    view: {
+      observerPc: { x: 0, y: 0, z: 0 },
+      limitingMagnitude: 7,
+      coordinateUnitsPerParsec: 1,
+    },
+  });
+
+  assert.equal(session.updateCalls.length, 1);
+  assert.equal(source.getSnapshot().demandDebounceMs, 10);
+  assert.equal(source.getSnapshot().demandUpdatePending, false);
+
+  viewer.requestViewState({ observerPc: { x: 1, y: 0, z: 0 } }, 'test-move-a');
+  viewer.update(0.5);
+  viewer.requestViewState({ observerPc: { x: 3, y: 0, z: 0 } }, 'test-move-b');
+  viewer.update(0.5);
+
+  assert.equal(session.updateCalls.length, 3);
+  assert.equal(session.updateCalls[1].options.demand, 'suppress');
+  assert.equal(session.updateCalls[2].options.demand, 'suppress');
+  assert.equal(source.getSnapshot().demandUpdatePending, true);
+
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  assert.equal(session.updateCalls.length, 4);
+  assert.equal(session.updateCalls[3].patch.observerPc.x, 3);
+  assert.equal(session.updateCalls[3].options.reason, 'skykit.view-settled');
+  assert.equal(session.updateCalls[3].options.demand, undefined);
+  assert.equal(source.getSnapshot().demandUpdatePending, false);
+
+  viewer.requestViewState({ observerPc: { x: 4, y: 0, z: 0 } }, 'test-move-c');
+  viewer.update(0.5);
+  assert.equal(session.updateCalls.length, 5);
+  assert.equal(source.getSnapshot().demandUpdatePending, true);
+  await viewer.dispose();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(session.updateCalls.length, 5);
+  assert.equal(source.getSnapshot().demandUpdatePending, false);
+});
+
 function createTestCell(options = {}) {
   const keyOrdinal = options.keyOrdinal ?? 1;
   const node = {

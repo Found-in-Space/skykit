@@ -740,6 +740,8 @@ export interface SkykitStarCellSourceSnapshot {
   store: unknown;
   session: unknown;
   provider?: unknown;
+  demandDebounceMs: number;
+  demandUpdatePending: boolean;
   lastError?: string | null;
   disposed: boolean;
 }
@@ -768,6 +770,7 @@ export interface SkykitStarSourcePluginOptions {
   attributes?: readonly string[];
   coordinates?: StarOctreeCoordinateOutput;
   updateOptions?: ViewUpdateOptions;
+  demandDebounceMs?: number;
   retainCellsOnRestart?: SkykitStarSourceRestartRetentionPolicy | false;
   publish?: SkykitStarSourcePublishOptions | false;
 }
