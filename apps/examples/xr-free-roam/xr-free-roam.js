@@ -66,6 +66,18 @@ const SOL_PC = { x: 0, y: 0, z: 0 };
 const ORION_CENTER_PC = { x: 62.775, y: 602.667, z: -12.713 };
 const PREFLIGHT_BACKGROUND_ORBIT_RADIUS_PC = 2;
 const PREFLIGHT_BACKGROUND_OBSERVER_PC = { x: 0, y: 0, z: PREFLIGHT_BACKGROUND_ORBIT_RADIUS_PC };
+const XR_FREE_ROAM_DEFAULTS = Object.freeze({
+  octreeUrl: OCTREE_DEFAULT,
+  datasetId: DATASET_ID_c56103,
+  observerPc: PREFLIGHT_BACKGROUND_OBSERVER_PC,
+  targetPc: SOL_PC,
+});
+const XR_FREE_ROAM_CONFIG = globalThis.__SKYKIT_XR_FREE_ROAM_CONFIG__ ?? {};
+const RENDER_OCTREE_URL = XR_FREE_ROAM_CONFIG.octreeUrl ?? XR_FREE_ROAM_DEFAULTS.octreeUrl;
+const RENDER_DATASET_ID = XR_FREE_ROAM_CONFIG.datasetId ?? XR_FREE_ROAM_DEFAULTS.datasetId;
+const INITIAL_OBSERVER_PC = XR_FREE_ROAM_CONFIG.initialObserverPc ?? XR_FREE_ROAM_DEFAULTS.observerPc;
+const INITIAL_TARGET_PC = XR_FREE_ROAM_CONFIG.initialTargetPc ?? XR_FREE_ROAM_DEFAULTS.targetPc;
+const PREFLIGHT_BACKGROUND_ORBIT_ENABLED = XR_FREE_ROAM_CONFIG.preflightBackgroundOrbit !== false;
 const PREFLIGHT_BACKGROUND_ORBIT_SPEED_RAD_PER_SEC = 0.002;
 const PREFLIGHT_BACKGROUND_ORBIT_NORMAL = { x: 0, y: 1, z: 0 };
 const DEFAULT_WORLD_SCALE = 1;
@@ -141,10 +153,10 @@ async function main() {
   renderer.xr.enabled = true;
 
   const camera = new THREE.PerspectiveCamera(60, 1, 0.02, 2000000);
-  const initialOrientation = orientationLookingAt(PREFLIGHT_BACKGROUND_OBSERVER_PC, SOL_PC);
+  const initialOrientation = orientationLookingAt(INITIAL_OBSERVER_PC, INITIAL_TARGET_PC);
   const xrRig = createSkykitXrRig({
     navigationPose: {
-      observerPc: PREFLIGHT_BACKGROUND_OBSERVER_PC,
+      observerPc: INITIAL_OBSERVER_PC,
       orientationIcrs: initialOrientation,
     },
   });
@@ -153,24 +165,33 @@ async function main() {
   xrRig.deckRoot.add(shipDeck);
 
   const provider = createStarOctreeProviderService({
-    url: OCTREE_DEFAULT,
-    datasetId: DATASET_ID_c56103,
+    url: RENDER_OCTREE_URL,
+    datasetId: RENDER_DATASET_ID,
   });
-  const metaProvider = createMetaSidecarProviderService({
-    url: deriveMetaSidecarUrlFromRenderUrl(OCTREE_DEFAULT),
-    parentDatasetId: DATASET_ID_c56103,
+  const metaProvider = XR_FREE_ROAM_CONFIG.metaSidecarUrl === null
+    ? null
+    : createMetaSidecarProviderService({
+        url: XR_FREE_ROAM_CONFIG.metaSidecarUrl
+          ?? deriveMetaSidecarUrlFromRenderUrl(RENDER_OCTREE_URL),
+        parentDatasetId: RENDER_DATASET_ID,
+      });
+  const source = createSkykitStarSourcePlugin({
+    ...(XR_FREE_ROAM_CONFIG.starSourceOptions ?? {}),
+    provider,
   });
-  const source = createSkykitStarSourcePlugin({ provider });
-  const starField = createThreeStarField({
+  const starFieldOptions = {
     limitingMagnitude: DEFAULT_LIMITING_MAGNITUDE,
     coordinateUnitsPerParsec: DEFAULT_WORLD_SCALE,
     exposure: DEFAULT_EXPOSURE,
-    materialProfile: createDefaultThreeStarFieldMaterialProfile({
-      limitingMagnitude: DEFAULT_LIMITING_MAGNITUDE,
-      coordinateUnitsPerParsec: DEFAULT_WORLD_SCALE,
-      exposure: DEFAULT_EXPOSURE,
-    }),
-  });
+    ...(XR_FREE_ROAM_CONFIG.starFieldOptions ?? {}),
+  };
+  const materialProfile = typeof XR_FREE_ROAM_CONFIG.createStarFieldMaterialProfile === 'function'
+    ? XR_FREE_ROAM_CONFIG.createStarFieldMaterialProfile({
+        createDefaultProfile: createDefaultThreeStarFieldMaterialProfile,
+        view: starFieldOptions,
+      })
+    : createDefaultThreeStarFieldMaterialProfile(starFieldOptions);
+  const starField = createThreeStarField({ ...starFieldOptions, materialProfile });
   const selectedTarget = createSelectedStarTarget();
   xrRig.originContentRoot.add(selectedTarget.object3d);
   const rightRaySource = createWorldXrRaySource(
@@ -303,8 +324,8 @@ async function main() {
       scaleBandedContentRoots: new Map(Object.entries(xrRig.scaleBandedContentRoots)),
     },
     view: {
-      observerPc: PREFLIGHT_BACKGROUND_OBSERVER_PC,
-      targetPc: SOL_PC,
+      observerPc: INITIAL_OBSERVER_PC,
+      targetPc: INITIAL_TARGET_PC,
       limitingMagnitude: DEFAULT_LIMITING_MAGNITUDE,
       coordinateUnitsPerParsec: DEFAULT_WORLD_SCALE,
       lookAt: { orientationIcrs: initialOrientation },
@@ -374,6 +395,30 @@ async function main() {
       }),
     ],
   });
+  let extensionTeardown = null;
+  if (typeof XR_FREE_ROAM_CONFIG.extend === 'function') {
+    const extension = await XR_FREE_ROAM_CONFIG.extend({
+      viewer,
+      source,
+      xrRig,
+      renderer,
+      camera,
+      starField,
+      datasetId: RENDER_DATASET_ID,
+      getRenderState() {
+        return {
+          limitingMagnitude: panelState.limitingMagnitude,
+          worldScale: 10 ** panelState.worldScaleLog10,
+        };
+      },
+    });
+    if (extension?.plugin) {
+      await viewer.addPlugin(extension.plugin);
+    }
+    extensionTeardown = typeof extension === 'function'
+      ? extension
+      : extension?.dispose ?? null;
+  }
   const loop = createSkykitAnimationLoop(viewer, { scheduler: 'renderer' });
 
   debug.registerViewer(viewer, {
@@ -387,7 +432,7 @@ async function main() {
     shipDeck.visible = false;
     preflightController?.setSessionStatus('Session ended');
     preflightController?.sync();
-    startPreflightBackgroundOrbit(viewer);
+    if (PREFLIGHT_BACKGROUND_ORBIT_ENABLED) startPreflightBackgroundOrbit(viewer);
     invalidatePanel();
   });
 
@@ -403,7 +448,7 @@ async function main() {
         });
       })
     : null;
-  applyRenderState(viewer, starField, source);
+  applyRenderState(viewer, starField, source, { refreshDemand: false });
   preflightController = createPreflightController({
     viewer,
     panelState,
@@ -417,17 +462,18 @@ async function main() {
   });
   preflightController.sync();
   void preflightController.refreshXrSupport();
-  startPreflightBackgroundOrbit(viewer);
+  if (PREFLIGHT_BACKGROUND_ORBIT_ENABLED) startPreflightBackgroundOrbit(viewer);
   resize();
   window.addEventListener('resize', resize);
   window.addEventListener('beforeunload', () => {
     loop.dispose();
     selectedTarget.dispose();
+    extensionTeardown?.();
     removeBrowserTestActionObserver?.();
     if (XR_FREE_ROAM_TEST_MODE) delete globalThis.__SKYKIT_XR_FREE_ROAM_TEST__;
     void viewer.dispose().finally(() => rightRaySource.dispose?.());
     void provider.dispose?.();
-    void metaProvider.dispose?.();
+    void metaProvider?.dispose?.();
   });
   loop.start();
   if (XR_FREE_ROAM_TEST_MODE && browserTestPointerSource && browserTestDiagnostics) {
@@ -753,11 +799,13 @@ async function main() {
 
   async function resolveSelectedStarIdentifiers(pick, generation) {
     const ref = pick.objectRef ?? pick.pickMeta ?? null;
-    if (!ref) {
+    if (!ref || !metaProvider) {
       debug.recordDiagnostic({
         level: 'warn',
         type: 'xr-free-roam/star-pick-missing-sidecar-ref',
-        message: 'Selected star did not include sidecar lookup metadata.',
+        message: !ref
+          ? 'Selected star did not include sidecar lookup metadata.'
+          : 'No metadata sidecar is configured for this free-roam session.',
       });
       updateSelectedIdentifiers(generation, null, 'unavailable');
       return;
@@ -793,7 +841,7 @@ async function main() {
     invalidatePanel();
   }
 
-  function applyRenderState(activeViewer, activeStarField, activeSource) {
+  function applyRenderState(activeViewer, activeStarField, activeSource, options = {}) {
     const worldScale = 10 ** panelState.worldScaleLog10;
     const exposure = 10 ** panelState.exposureLog10;
     activeViewer.requestViewState({
@@ -809,7 +857,9 @@ async function main() {
       nearSizeFloor: panelState.nearFloor ? 8 : 0,
       nearAlphaFloor: panelState.nearFloor ? 0.35 : 0,
     });
-    void activeSource.refreshDemand?.('xr-free-roam.rendering');
+    if (options.refreshDemand !== false) {
+      void activeSource.refreshDemand?.('xr-free-roam.rendering');
+    }
     updateXrDepthRange(activeXrHandle);
   }
 

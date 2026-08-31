@@ -29,6 +29,7 @@
   "sideEffects": false,
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "dev:visual-duplicates": "node ./apps/examples/visual-duplicates/server.js",
     "build": "vite build",
     "verify:pages-urls": "node ./scripts/verify-pages-urls.js",
     "dev:examples": "npm run dev --workspace @found-in-space/skykit-examples",

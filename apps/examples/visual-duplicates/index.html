@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Found in Space - STAR v2 Duplicate Links</title>
+  </head>
+  <body>
+    <main class="xr-free-roam-shell">
+      <header class="xr-app-header" aria-label="Found in Space application">
+        <img class="xr-brand-mark" src="/robbie.svg" alt="" aria-hidden="true" />
+        <div class="xr-brand-copy">
+          <p>Found in Space - SkyKit</p>
+          <strong>VR Free Roam</strong>
+        </div>
+      </header>
+      <div class="viewer-shell" data-viewer></div>
+      <section class="xr-preflight" data-preflight aria-labelledby="xr-preflight-title">
+        <div class="xr-clipboard">
+          <div class="xr-clipboard-clip" aria-hidden="true"></div>
+          <div class="xr-preflight-copy">
+            <h1 id="xr-preflight-title">Pre Flight Checklist</h1>
+            <p class="duplicates-note">Normal free roam at the Sun, with visible duplicate pairs linked.</p>
+          </div>
+          <ol class="xr-checklist" aria-label="Preflight checklist" aria-live="polite">
+            <li data-preflight-check="skykit" data-state="pending">
+              <span class="xr-check-mark" aria-hidden="true"></span>
+              <span class="xr-check-copy">
+                <strong>SkyKit available</strong>
+                <span data-preflight-check-status>Starting</span>
+              </span>
+            </li>
+            <li data-preflight-check="stars" data-state="pending">
+              <span class="xr-check-mark" aria-hidden="true"></span>
+              <span class="xr-check-copy">
+                <strong>Stars loading</strong>
+                <span data-preflight-check-status>Waiting for cells</span>
+              </span>
+            </li>
+            <li data-preflight-check="duplicates" data-state="pending">
+              <span class="xr-check-mark" aria-hidden="true"></span>
+              <span class="xr-check-copy">
+                <strong>Duplicate links</strong>
+                <span data-duplicate-link-status>Reading sparse sidecar</span>
+              </span>
+            </li>
+            <li data-preflight-check="xr" data-state="pending">
+              <span class="xr-check-mark" aria-hidden="true"></span>
+              <span class="xr-check-copy">
+                <strong>XR environment available</strong>
+                <span data-preflight-check-status>Checking</span>
+              </span>
+            </li>
+          </ol>
+          <div class="xr-outcome">
+            <button class="xr-primary-action" type="button" data-action="enter-xr" disabled>Running checklist</button>
+            <aside class="xr-readiness-message" data-xr-requirements hidden role="status">
+              XR is not available in this browser session. To fly in VR, use a
+              WebXR-capable headset or OpenXR runtime, a browser with immersive
+              WebXR support, and open SkyKit from HTTPS or localhost.
+            </aside>
+            <p class="xr-session-status" data-session-status aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
