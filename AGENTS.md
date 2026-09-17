@@ -124,6 +124,25 @@ package APIs when there is an active consumer.
 - `docs/chapter-and-camera-timeline-architecture.md`: shared website chapter
   and Studio camera timeline boundary.
 
+## Interactive Navigation Continuity
+
+Every interactive transition MUST start from the live displayed position and
+orientation, including interrupted motion, manual looking, reverse navigation,
+skips, and revisits. Authored chapter poses and route anchors are destinations,
+never an assumed current state. NEVER preapply destination `lookAt`, `targetPc`,
+or pose patches before starting an animation; view patches are immediate camera
+operations. Preserve live motion when planning orbit transfers, and ensure
+cancellation supersedes queued samples and stale asynchronous activations.
+
+Read the mandatory continuity contract in
+[`docs/chapter-and-camera-timeline-architecture.md`](docs/chapter-and-camera-timeline-architecture.md)
+before changing view-state semantics, navigation, journey adapters, or camera
+examples. Changes to those contracts MUST include actual-runtime checks of the
+first rendered frame at zero/tiny elapsed time, interruptions and manual input,
+noncanonical route starts, and arrival. A dependency/API migration MUST audit
+downstream callers of changed view and navigation operations; compilation and
+deterministic Studio/video tests alone do not establish interactive continuity.
+
 ## WebXR And Scene Graph Constraints
 
 See `docs/xr-architecture.md` for the full spatial/WebXR boundary. Critical
