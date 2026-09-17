@@ -66,6 +66,49 @@ This convention preserves app ownership, but it does not provide:
 The `0.3.0` work should extract these repeated runtime semantics while keeping
 lesson-specific content and effects in the application.
 
+## Mandatory continuity contract (all versions)
+
+This is required behavior for the current website baseline and all future
+navigation/journey adapters. It is not deferred to the `0.3.0` plan.
+
+- Every interactive transition MUST start from the currently displayed live
+  position and orientation, including manual looking and unfinished movement.
+  Never use the previous chapter's authored pose as the source. Reverse, skip,
+  repeat, initial-chapter revisit, and rapid activation have the same contract.
+- At zero elapsed transition time the displayed pose MUST be unchanged; as
+  elapsed time approaches zero, displacement and angular change MUST approach
+  zero. One-frame flashes and teleports to path starts violate the contract even
+  if later frames interpolate smoothly.
+- Destination camera intent MUST pass through navigation. Applying destination
+  `lookAt`, `targetPc`, or pose values through `requestViewState` before animating
+  is forbidden: these are immediate camera writes. Initial placement is allowed
+  during viewer creation and must not be repeated during chapter activation.
+- Explicit routes MUST connect from the live source pose. Generated orbit
+  transfers must consume live motion/phase where available. An authored route
+  anchor or previous chapter ID is never proof of the current camera state.
+- A handover MUST supersede the old operation's queued camera samples as well
+  as its automation. A newer activation must prevent older asynchronous
+  preparation, camera commands, and arrival callbacks from regaining control.
+- Exactly one component owns each camera lane at a time. App-owned model and
+  annotation effects must not secretly write camera poses during navigation.
+  Deterministic sequence playback has its own explicit ownership handover.
+- Changes to view-state meaning, navigation semantics, or dependency versions
+  MUST audit downstream callers, not just preserve their method signatures.
+  The website regression caused by treating orientation-resolving `targetPc`
+  input as passive metadata is a concrete example of this failure mode.
+
+Verification MUST exercise actual viewer updates with the installed runtime:
+zero/tiny-time starts, arbitrary live poses and orbit phases, manual looking,
+interruption/reversal, rapid activation, delayed preparation, and final arrival.
+Check rendered frames after queued view patches flush. Test camera ownership
+separately from scene data/model effects. Offline Studio/video continuity tests
+do not substitute for these interactive tests.
+
+The website's public repository records the regression history, implementation
+rules, and reproduction coverage in `docs/camera-transitions.md`; its
+`npm test` suite runs before Pages deployment. Keep the contract valid when
+migrating the website from its released baseline to the future controller.
+
 ## 3. Target Package Boundaries
 
 ```txt
@@ -342,6 +385,8 @@ import from either repository.
 
 The `0.3.0` guided-journey slice is ready when:
 
+- the mandatory live-state continuity contract above passes actual-runtime
+  tests, including interrupted and out-of-order activation;
 - awaiting navigation means awaiting actual arrival;
 - every navigation and journey operation settles exactly once with a terminal
   outcome;
