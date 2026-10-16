@@ -85,8 +85,8 @@ test('xr free-roam demo uses restored alpha XR regressions defaults', () => {
   assert.match(source, /XR_CONSTELLATION_ART_RADIUS_WORLD_UNITS\s*=\s*8000/);
   assert.match(source, /createHeadGazeAnchoredImageController/);
   assert.match(source, /setViewDirectionIcrs\?\.\(resolveHeadGazeDirectionIcrs\(body, xrRig, camera\)\)/);
-  assert.match(source, /body\?\.head\?\.orientationIcrs/);
-  assert.match(source, /getNavigationPose\?\.\(\)\.orientationIcrs/);
+  assert.match(source, /body\?\.head\?\.orientation/);
+  assert.match(source, /getNavigationPose\?\.\(\)\.orientation/);
   assert.match(source, /strategy:\s*'nearest'/);
   assert.match(source, /maxAngleDeg:\s*XR_CONSTELLATION_ART_MAX_ANGLE_DEG/);
   assert.match(source, /anchorMode:\s*'observer-centric'/);
@@ -117,8 +117,8 @@ test('skykit/xr rig builds multi-root hierarchy', () => {
   const rig = createSkykitXrRig({
     camera,
     navigationPose: {
-      observerPc: { x: 1, y: 2, z: 3 },
-      orientationIcrs: { x: 0, y: 0, z: 0, w: 1 },
+      position: { x: 1, y: 2, z: 3 },
+      orientation: { x: 0, y: 0, z: 0, w: 1 },
     },
     scaleBandIds: ['galaxy'],
   });
@@ -214,8 +214,8 @@ test('skykit/xr body, rays, and pick router compose generic route results', () =
   const body = createSkykitXrBodyTracker().update({
     rig,
     shipPose: {
-      observerPc: { x: 0, y: 0, z: 0 },
-      orientationIcrs: { x: 0, y: 0, z: 0, w: 1 },
+      position: { x: 0, y: 0, z: 0 },
+      orientation: { x: 0, y: 0, z: 0, w: 1 },
     },
   });
   const raySource = createSkykitXrRaySource({ kind: 'ship-forward', length: 12 });
@@ -230,6 +230,29 @@ test('skykit/xr body, rays, and pick router compose generic route results', () =
   const route = router.route({ rig, body });
   assert.equal(route.type, 'hit');
   assert.equal(route.hit.object, 'target');
+});
+
+test('XR separates metre navigation and per-reference tracking coordinates from catalog space', () => {
+  const space = { frameId: 'solar-system:heliocentric-j2000', metersPerUnit: 1 };
+  const rig = createSkykitXrRig({ navigationPose: { space } });
+  const tracker = createSkykitXrBodyTracker();
+  const transform = { position: { x: 0.1, y: 1.6, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } };
+  const frame = { getViewerPose: () => ({ transform }) };
+  const referenceSpace = {};
+  const first = tracker.update({ rig, frame, referenceSpace, shipPose: { position: { x: 100, y: 0, z: 0 } } });
+  assert.deepEqual(first.ship.space, space);
+  assert.equal(rig.getNavigationPose().position.x, 100);
+  assert.equal(first.head.space.metersPerUnit, 1);
+  assert.notEqual(first.head.space.frameId, first.ship.space.frameId);
+  const again = tracker.update({ rig, frame, referenceSpace });
+  assert.deepEqual(again.head.space, first.head.space);
+  const changed = tracker.update({ rig, frame, referenceSpace: {} });
+  assert.notEqual(changed.head.space.frameId, first.head.space.frameId);
+  const ray = createSkykitXrRaySource({ kind: 'head-gaze' }).getRay({ body: first });
+  assert.deepEqual(ray.space, first.head.space);
+  assert.throws(() => createSkykitXrObserverRig({ rig }), RangeError);
+  rig.dispose();
+  tracker.dispose();
 });
 
 test('skykit/xr body plugin drives tracked hand roots before dependent parts', () => {
@@ -284,7 +307,7 @@ test('skykit/xr body plugin drives tracked hand roots before dependent parts', (
 test('skykit/xr depth helpers compute and apply render state', () => {
   const range = computeSkykitXrDepthRange({
     visibleBounds: { min: { x: -1, y: -1, z: -20 }, max: { x: 1, y: 1, z: -10 } },
-    scale: { navigationUnits: 'pc', metersPerNavigationUnit: 10 },
+    scale: { worldUnitsPerUnit: 10 },
     observerCentricSpheres: [{ radiusNavigationUnits: 30 }],
   });
   assert.ok(range.depthFar >= 100);
@@ -325,9 +348,7 @@ test('skykit/xr depth helpers include distant visible star bounds', () => {
     },
     observerCentricSpheres: [{ radiusNavigationUnits: 16 }],
     scale: {
-      navigationUnits: 'pc',
-      metersPerNavigationUnit: 1,
-      worldUnitsPerNavigationUnit: 1,
+      worldUnitsPerUnit: 1,
     },
     policy: {
       near: 0.03,
@@ -384,7 +405,7 @@ test('skykit/xr observer rig bridges viewer state to an XR rig without camera re
 
   assert.deepEqual(observer.getObserverPc(), { x: 2, y: 3, z: 4 });
   assert.deepEqual(observer.getRenderObserverPosition(), { x: 4, y: 6, z: 8 });
-  assert.equal(rig.getScaleProfile().worldUnitsPerNavigationUnit, 2);
+  assert.equal(rig.getScaleProfile().worldUnitsPerUnit, 2);
 });
 
 test('skykit/xr session plugin registers enter/exit actions and syncs snapshot state', async () => {

@@ -1,5 +1,6 @@
 import {
   SPATIAL_IDENTITY_QUATERNION,
+  SPATIAL_METERS_PER_PARSEC,
   evaluateSpatialAim,
   normalizeSpatialQuaternion,
   normalizeSpatialTarget,
@@ -7,6 +8,9 @@ import {
   raDecDistanceToIcrs,
   resolveSpatialTarget,
 } from '@found-in-space/spatial';
+
+/** Existing star catalog axes and origin; no heliocentric/barycentric translation is implied. */
+export const SKYKIT_ICRS_SPACE = Object.freeze({ frameId: 'skykit:catalog-icrs', metersPerUnit: SPATIAL_METERS_PER_PARSEC });
 
 const SKYKIT_DEFAULT_LOOK_UP = Object.freeze({ x: 0, y: 0, z: 1 });
 
@@ -116,49 +120,25 @@ export function parseDeclination(value) {
 
 /** @param {unknown} input @returns {SpatialTargetSpec} */
 export function normalizeSkykitTargetInput(input) {
-  if (Array.isArray(input) && input.length >= 3) {
-    return { kind: 'position', targetPc: normalizeSkykitVector3(input) };
-  }
+  if (Array.isArray(input)) return { space: SKYKIT_ICRS_SPACE, kind: 'position', target: normalizeSkykitVector3(input) };
   if (typeof input === 'string') {
     const parsed = parseSpatialLookAtText(input);
-    return parsed ? normalizeSkykitTargetInput(parsed) : { kind: 'bookmark', id: input };
+    return parsed ? normalizeSkykitTargetInput(parsed) : { space: SKYKIT_ICRS_SPACE, kind: 'bookmark', id: input };
   }
-  if (!input || typeof input !== 'object') {
-    throw new TypeError('Expected a SkyKit target input.');
-  }
-  const value = /** @type {Record<string, unknown>} */ (input);
-  if (value.kind === 'position' || value.kind === 'radec' || value.kind === 'bookmark') {
-    return normalizeSpatialTarget({
-      ...value,
-      ...(value.kind === 'position' ? { targetPc: normalizeSkykitVector3(value.targetPc) } : {}),
-      ...(value.kind === 'radec' && value.distancePc === undefined ? { distancePc: 1 } : {}),
-    });
-  }
-  if ('targetPc' in value) {
-    return { kind: 'position', targetPc: normalizeSkykitVector3(value.targetPc) };
-  }
-  if ('positionPc' in value) {
-    return { kind: 'position', targetPc: normalizeSkykitVector3(value.positionPc) };
-  }
-  if ('position' in value) {
-    return { kind: 'position', targetPc: normalizeSkykitVector3(value.position) };
-  }
-  if ('x' in value && 'y' in value && 'z' in value) {
-    return { kind: 'position', targetPc: normalizeSkykitVector3(value) };
-  }
-  if ('raDeg' in value || 'raHours' in value || 'decDeg' in value) {
-    return normalizeSpatialTarget({
-      kind: 'radec',
-      raDeg: value.raDeg,
-      raHours: value.raHours,
-      decDeg: value.decDeg,
-      distancePc: value.distancePc ?? 1,
-    });
-  }
-  if ('bookmarkId' in value) {
-    return { kind: 'bookmark', id: String(value.bookmarkId) };
-  }
-  throw new TypeError('Unsupported SkyKit target input.');
+  if (!input || typeof input !== 'object') throw new TypeError('Expected a SkyKit target input.');
+  const value = /** @type {Record<string, any>} */ (input);
+  if (value.space) return normalizeSpatialTarget(value, SKYKIT_ICRS_SPACE);
+  if (value.kind === 'bookmark' || 'bookmarkId' in value) return normalizeSpatialTarget({
+    space: SKYKIT_ICRS_SPACE, kind: 'bookmark', id: String(value.id ?? value.bookmarkId),
+  });
+  if ('raDeg' in value || 'raHours' in value || 'decDeg' in value) return normalizeSpatialTarget({
+    space: SKYKIT_ICRS_SPACE, kind: 'radec',
+    ...(value.raDeg !== undefined ? { raDeg: value.raDeg } : { raHours: value.raHours }),
+    decDeg: value.decDeg, distance: value.distancePc ?? 1,
+  });
+  return { space: SKYKIT_ICRS_SPACE, kind: 'position', target: normalizeSkykitVector3(
+    value.targetPc ?? value.positionPc ?? value.position ?? value,
+  ) };
 }
 
 /** @param {unknown} input @param {SkykitResolveOptions} [options] @returns {Promise<SpatialVector3 | null>} */
@@ -294,16 +274,16 @@ export function resolveSkykitLookAtSync(input, options = {}) {
 export function computeSkykitLookAtOrientation(input) {
   const observerPc = normalizeSpatialVector3(input?.observerPc ?? input?.position);
   const targetPc = normalizeSpatialVector3(input?.targetPc ?? input?.target);
-  const sample = evaluateSpatialAim({
-    observerPc,
-    aim: {
+  const sample = evaluateSpatialAim({ space: SKYKIT_ICRS_SPACE,
+    position: observerPc,
+    aim: { space: SKYKIT_ICRS_SPACE,
       kind: 'target',
-      targetPc,
-      upIcrs: normalizeSkykitVector3(input?.upIcrs ?? input?.up ?? SKYKIT_DEFAULT_LOOK_UP),
+      target: targetPc,
+      up: normalizeSkykitVector3(input?.upIcrs ?? input?.up ?? SKYKIT_DEFAULT_LOOK_UP),
       ...(input?.positionAngleDeg !== undefined ? { positionAngleDeg: -Number(input.positionAngleDeg) } : {}),
     },
   });
-  return sample.orientationIcrs;
+  return sample.orientation;
 }
 
 /**
@@ -317,19 +297,19 @@ function resolvedLookFromTarget(lookAt, targetPc, observerPcInput) {
     return { lookAt, targetPc: null, orientationIcrs: null, unresolved: lookAt };
   }
   const observerPc = normalizeSpatialVector3(observerPcInput, { x: 0, y: 0, z: 0 });
-  const sample = evaluateSpatialAim({
-    observerPc,
-    aim: {
+  const sample = evaluateSpatialAim({ space: SKYKIT_ICRS_SPACE,
+    position: observerPc,
+    aim: { space: SKYKIT_ICRS_SPACE,
       kind: 'target',
-      targetPc,
-      upIcrs: lookAt.upIcrs ?? SKYKIT_DEFAULT_LOOK_UP,
+      target: targetPc,
+      up: lookAt.upIcrs ?? SKYKIT_DEFAULT_LOOK_UP,
       ...(lookAt.positionAngleDeg !== undefined ? { positionAngleDeg: -Number(lookAt.positionAngleDeg) } : {}),
     },
   });
   return {
     lookAt,
     targetPc,
-    orientationIcrs: sample.orientationIcrs,
+    orientationIcrs: sample.orientation,
     unresolved: null,
   };
 }
@@ -337,19 +317,19 @@ function resolvedLookFromTarget(lookAt, targetPc, observerPcInput) {
 /** @param {Record<string, any>} lookAt @param {unknown} observerPcInput @returns {ResolvedSkykitLookAt} */
 function resolvedLookFromDirection(lookAt, observerPcInput) {
   const observerPc = normalizeSpatialVector3(observerPcInput, { x: 0, y: 0, z: 0 });
-  const sample = evaluateSpatialAim({
-    observerPc,
-    aim: {
+  const sample = evaluateSpatialAim({ space: SKYKIT_ICRS_SPACE,
+    position: observerPc,
+    aim: { space: SKYKIT_ICRS_SPACE,
       kind: 'direction',
-      forwardIcrs: normalizeSpatialVector3(lookAt.forwardIcrs),
-      upIcrs: lookAt.upIcrs ?? SKYKIT_DEFAULT_LOOK_UP,
+      forward: normalizeSpatialVector3(lookAt.forwardIcrs),
+      up: lookAt.upIcrs ?? SKYKIT_DEFAULT_LOOK_UP,
       ...(lookAt.positionAngleDeg !== undefined ? { positionAngleDeg: -Number(lookAt.positionAngleDeg) } : {}),
     },
   });
   return {
     lookAt,
     targetPc: null,
-    orientationIcrs: sample.orientationIcrs,
+    orientationIcrs: sample.orientation,
     unresolved: null,
   };
 }
@@ -390,39 +370,40 @@ function normalizeSkykitLookAtInput(input) {
       ...value,
       kind: 'direction',
       forwardIcrs: normalizeSpatialVector3(raDecDistanceToIcrs({
+        space: SKYKIT_ICRS_SPACE,
         ...(value.raDeg !== undefined ? { raDeg: Number(value.raDeg) } : {}),
         ...(value.raHours !== undefined ? { raHours: Number(value.raHours) } : {}),
         decDeg: Number(value.decDeg),
-        distancePc: 1,
+        distance: 1,
       })),
       ...(value.upIcrs !== undefined ? { upIcrs: normalizeSpatialVector3(value.upIcrs) } : {}),
       ...(value.positionAngleDeg !== undefined ? { positionAngleDeg: Number(value.positionAngleDeg) } : {}),
     };
   }
-  return normalizeSkykitTargetInput(value);
+  const target = normalizeSkykitTargetInput(value);
+  if (target.kind === 'position') return { kind: 'position', targetPc: target.target };
+  if (target.kind === 'radec') return { kind: 'radec', ...(target.raDeg !== undefined ? { raDeg: target.raDeg } : { raHours: target.raHours }), decDeg: target.decDeg, distancePc: target.distance };
+  return target;
 }
 
 /** @param {unknown} targetPc @param {{ upIcrs?: unknown; positionAngleDeg?: unknown }} [options] */
 export function skykitTargetToAimSpec(targetPc, options = {}) {
-  return {
-    kind: 'target',
-    targetPc: normalizeSpatialVector3(targetPc),
-    upIcrs: normalizeSpatialVector3(options.upIcrs ?? SKYKIT_DEFAULT_LOOK_UP),
-    ...(options.positionAngleDeg !== undefined ? { positionAngleDeg: -Number(options.positionAngleDeg) } : {}),
-  };
+  return { space: SKYKIT_ICRS_SPACE, kind: 'target', target: normalizeSpatialVector3(targetPc),
+    up: normalizeSpatialVector3(options.upIcrs ?? SKYKIT_DEFAULT_LOOK_UP),
+    ...(options.positionAngleDeg !== undefined ? { positionAngleDeg: -Number(options.positionAngleDeg) } : {}) };
 }
 
 /** @param {unknown} point */
 export function skykitPointToTargetSpec(point) {
-  return { kind: 'position', targetPc: normalizeSpatialVector3(point) };
+  return { space: SKYKIT_ICRS_SPACE, kind: 'position', target: normalizeSpatialVector3(point) };
 }
 
 /** @param {unknown} input */
 export function skykitRaDecToTargetSpec(input) {
   const target = normalizeSkykitTargetInput(input);
   if (target.kind !== 'radec') return target;
-  const targetPc = raDecDistanceToIcrs(target);
-  return targetPc ? { kind: 'position', targetPc } : target;
+  const position = raDecDistanceToIcrs(target);
+  return position ? { space: SKYKIT_ICRS_SPACE, kind: 'position', target: position } : target;
 }
 
 /** @param {Record<string, any>} source @param {ResolvedSkykitLookAt} resolved @returns {ResolvedSkykitLookAt} */

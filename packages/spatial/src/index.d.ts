@@ -1,3 +1,12 @@
+/** A frame identifies origin, axes and reference epoch, supplied by its domain owner. */
+export interface SpatialCoordinateSpace {
+  readonly frameId: string;
+  readonly metersPerUnit: number;
+}
+export interface SpatialCoordinateContext { space: SpatialCoordinateSpace; }
+/** Nested specs may inherit their enclosing operation's space. */
+export type SpatialInput<T> = T extends unknown ? Omit<T, 'space'> & { space?: SpatialCoordinateSpace } : never;
+
 export interface SpatialVector3 {
   x: number;
   y: number;
@@ -12,14 +21,14 @@ export interface SpatialQuaternion {
 }
 
 export interface SpatialPose {
-  observerPc: SpatialVector3;
-  orientationIcrs: SpatialQuaternion;
+  space: SpatialCoordinateSpace;
+  position: SpatialVector3;
+  orientation: SpatialQuaternion;
 }
 
 export interface SpatialScaleProfile {
-  navigationUnits?: 'pc' | 'au' | 'm' | 'kpc' | string;
-  metersPerNavigationUnit?: number;
-  worldUnitsPerNavigationUnit?: number;
+  /** Render units per coordinate unit. Does not change physical state or time. */
+  worldUnitsPerUnit?: number;
 }
 
 export interface SpatialSourceRef {
@@ -72,7 +81,7 @@ export const DEFAULT_SPATIAL_SCALE_PROFILE: Readonly<Required<SpatialScaleProfil
 
 export function normalizeSpatialVector3(input: unknown, fallback?: SpatialVector3): SpatialVector3;
 export function normalizeSpatialQuaternion(input: unknown, fallback?: SpatialQuaternion): SpatialQuaternion;
-export function normalizeSpatialPose(input?: { observerPc?: unknown; orientationIcrs?: unknown }): SpatialPose;
+export function normalizeSpatialPose(input: { space?: SpatialCoordinateSpace; position?: unknown; orientation?: unknown }, inheritedSpace?: SpatialCoordinateSpace): SpatialPose;
 export function normalizeSpatialScaleProfile(input?: SpatialScaleProfile): Required<SpatialScaleProfile>;
 export function cloneSpatialVector3(value: SpatialVector3): SpatialVector3;
 export function cloneSpatialQuaternion(value: SpatialQuaternion): SpatialQuaternion;
@@ -87,7 +96,7 @@ export function multiplySpatialQuaternions(a: SpatialQuaternion, b: SpatialQuate
 export function createSpatialQuaternionFromAxisAngle(axis: SpatialVector3, angleRad: number): SpatialQuaternion;
 export function applySpatialQuaternion(vector: SpatialVector3, quaternion: SpatialQuaternion): SpatialVector3;
 export function rotateSpatialLocalAxis(
-  orientationIcrs: SpatialQuaternion,
+  orientation: SpatialQuaternion,
   localAxis: SpatialVector3,
   angleRad: number
 ): SpatialQuaternion;
@@ -98,19 +107,22 @@ export function raDecToIcrsDirection(input: {
   decDeg: number;
 }): SpatialVector3 | null;
 export function raDecDistanceToIcrs(input: {
+  space: SpatialCoordinateSpace;
+  space: SpatialCoordinateSpace;
   raDeg?: number;
   raHours?: number;
   decDeg: number;
-  distancePc: number;
+  distance: number;
 }): SpatialVector3 | null;
 export function icrsToRaDec(
-  positionPc: SpatialVector3,
-  observerPc?: SpatialVector3
+  point: SpatialVector3,
+  observer?: SpatialVector3
 ): { raDeg: number; raHours: number; decDeg: number } | null;
-export function icrsDirectionToTargetPc(
-  directionIcrs: SpatialVector3,
-  distancePc: number,
-  observerPc?: SpatialVector3
+export function icrsDirectionToTarget(
+  direction: SpatialVector3,
+  distance: number,
+  space: SpatialCoordinateSpace,
+  observer?: SpatialVector3
 ): SpatialVector3 | null;
 export function projectSpatialEquirectangular(input: {
   raDeg: number;
@@ -120,9 +132,9 @@ export function projectSpatialEquirectangular(input: {
 }): { x: number; y: number };
 
 export type SpatialTargetSpec =
-  | { kind: 'position'; targetPc: SpatialVector3; source?: SpatialSourceRef }
-  | { kind: 'radec'; raDeg?: number; raHours?: number; decDeg: number; distancePc: number; source?: SpatialSourceRef }
-  | { kind: 'bookmark'; id: string; source?: SpatialSourceRef };
+  (| { kind: 'position'; target: SpatialVector3; source?: SpatialSourceRef }
+  | { kind: 'radec'; raDeg?: number; raHours?: number; decDeg: number; distance: number; source?: SpatialSourceRef }
+  | { kind: 'bookmark'; id: string; source?: SpatialSourceRef }) & SpatialCoordinateContext;
 
 export interface ResolveSpatialTargetOptions {
   resolveBookmark?: (
@@ -131,61 +143,62 @@ export interface ResolveSpatialTargetOptions {
   ) => SpatialTargetSpec | Promise<SpatialTargetSpec | null> | null;
 }
 
-export function normalizeSpatialTarget(input: unknown): SpatialTargetSpec;
+export function normalizeSpatialTarget(input: unknown, inheritedSpace?: SpatialCoordinateSpace): SpatialTargetSpec;
 export function resolveSpatialTarget(
   input: SpatialTargetSpec,
   options?: ResolveSpatialTargetOptions
 ): SpatialVector3 | Promise<SpatialVector3 | null> | null;
 
 export type SpatialAimSpec =
-  | {
+  (| {
       kind: 'target';
-      targetPc: SpatialVector3;
-      upIcrs?: SpatialVector3;
+      target: SpatialVector3;
+      up?: SpatialVector3;
       positionAngleDeg?: number;
       lock?: boolean;
       source?: SpatialSourceRef;
     }
   | {
       kind: 'direction';
-      forwardIcrs: SpatialVector3;
-      upIcrs?: SpatialVector3;
+      forward: SpatialVector3;
+      up?: SpatialVector3;
       positionAngleDeg?: number;
       source?: SpatialSourceRef;
     }
   | {
       kind: 'orientation';
-      orientationIcrs: SpatialQuaternion;
+      orientation: SpatialQuaternion;
       source?: SpatialSourceRef;
-    };
+    }) & SpatialCoordinateContext;
 
 export type SpatialAimSample =
-  | {
+  (| {
       kind: 'target';
-      targetPc: SpatialVector3;
-      forwardIcrs: SpatialVector3;
-      upIcrs: SpatialVector3;
-      orientationIcrs: SpatialQuaternion;
-      distancePc: number;
+      target: SpatialVector3;
+      forward: SpatialVector3;
+      up: SpatialVector3;
+      orientation: SpatialQuaternion;
+      distance: number;
       source?: SpatialSourceRef;
       diagnostics?: SpatialSampleDiagnostics;
     }
   | {
       kind: 'direction' | 'orientation';
-      forwardIcrs: SpatialVector3;
-      upIcrs: SpatialVector3;
-      orientationIcrs: SpatialQuaternion;
-      syntheticTargetPc?: SpatialVector3;
-      syntheticTargetDistancePc?: number;
+      forward: SpatialVector3;
+      up: SpatialVector3;
+      orientation: SpatialQuaternion;
+      syntheticTarget?: SpatialVector3;
+      syntheticTargetDistance?: number;
       source?: SpatialSourceRef;
       diagnostics?: SpatialSampleDiagnostics;
-    };
+    }) & SpatialCoordinateContext;
 
-export function normalizeSpatialAimSpec(input: unknown): SpatialAimSpec;
+export function normalizeSpatialAimSpec(input: unknown, inheritedSpace?: SpatialCoordinateSpace): SpatialAimSpec;
 export function evaluateSpatialAim(input: {
-  observerPc: SpatialVector3;
-  aim: SpatialAimSpec;
-  syntheticTargetDistancePc?: number;
+  space: SpatialCoordinateSpace;
+  position: SpatialVector3;
+  aim: SpatialInput<SpatialAimSpec>;
+  syntheticTargetDistance?: number;
 }): SpatialAimSample;
 
 export interface SpatialFrameState {
@@ -200,7 +213,7 @@ export interface SpatialFrameState {
 }
 
 export interface SpatialTargetLockState {
-  targetPc: SpatialVector3;
+  target: SpatialVector3;
   aim: Extract<SpatialAimSample, { kind: 'target' }> | null;
 }
 
@@ -208,48 +221,51 @@ export interface SpatialOrbitState {
   orbit: SpatialOrbitSpec;
   angleRad: number;
   basis: SpatialOrbitBasis;
-  speedPcPerSec: number;
+  speedUnitsPerSec: number;
 }
 
 export interface SpatialPathFollowState {
   routeId?: string;
   routeKind: SpatialRouteKind;
-  distancePc: number;
-  velocityPcPerSec?: SpatialVector3;
-  speedPcPerSec: number;
+  distance: number;
+  velocityUnitsPerSec?: SpatialVector3;
+  speedUnitsPerSec: number;
   segmentIndex: number | null;
 }
 
 export interface SpatialDestinationSpec {
+  space: SpatialCoordinateSpace;
   id?: string;
   label?: string;
-  centerPc: SpatialVector3;
-  radiusPc?: number;
-  boundsRadiusPc?: number;
-  aim?: SpatialAimSpec;
-  orbit?: SpatialOrbitSpec;
+  center: SpatialVector3;
+  radius?: number;
+  boundsRadius?: number;
+  aim?: SpatialInput<SpatialAimSpec>;
+  orbit?: SpatialInput<SpatialOrbitSpec>;
   dwellSecs?: number;
   source?: SpatialSourceRef;
   metadata?: Record<string, unknown>;
 }
 
-export function normalizeSpatialDestination(input: unknown): SpatialDestinationSpec;
+export function normalizeSpatialDestination(input: unknown, inheritedSpace?: SpatialCoordinateSpace): SpatialDestinationSpec;
 
 export interface SpatialOrbitSpec {
-  centerPc: SpatialVector3;
-  radiusPc: number;
+  space: SpatialCoordinateSpace;
+  center: SpatialVector3;
+  radius: number;
   orbitNormal?: SpatialVector3;
   referenceAxis?: SpatialVector3;
   handedness?: 1 | -1;
   initialAngleRad?: number;
   angularSpeedRadPerSec?: number;
-  aim?: SpatialAimSpec;
+  aim?: SpatialInput<SpatialAimSpec>;
   source?: SpatialSourceRef;
 }
 
 export interface SpatialOrbitBasis {
-  centerPc: SpatialVector3;
-  radiusPc: number;
+  space: SpatialCoordinateSpace;
+  center: SpatialVector3;
+  radius: number;
   normal: SpatialVector3;
   radial: SpatialVector3;
   tangent: SpatialVector3;
@@ -258,22 +274,24 @@ export interface SpatialOrbitBasis {
 }
 
 export interface SpatialOrbitSample {
+  space: SpatialCoordinateSpace;
   elapsedSecs: number;
   angleRad: number;
-  positionPc: SpatialVector3;
-  velocityPcPerSec: SpatialVector3;
-  speedPcPerSec: number;
+  position: SpatialVector3;
+  velocityUnitsPerSec: SpatialVector3;
+  speedUnitsPerSec: number;
   radial: SpatialVector3;
   tangent: SpatialVector3;
   basis: SpatialOrbitBasis;
   aim: SpatialAimSample;
 }
 
-export function normalizeSpatialOrbitSpec(input: unknown): SpatialOrbitSpec;
+export function normalizeSpatialOrbitSpec(input: unknown, inheritedSpace?: SpatialCoordinateSpace): SpatialOrbitSpec;
 export function createSpatialOrbitBasis(orbit: SpatialOrbitSpec): SpatialOrbitBasis;
 export function deriveSpatialOrbitAngle(input: {
-  centerPc: SpatialVector3;
-  positionPc: SpatialVector3;
+  space: SpatialCoordinateSpace;
+  center: SpatialVector3;
+  position: SpatialVector3;
   orbitNormal?: SpatialVector3;
   referenceAxis?: SpatialVector3;
   handedness?: 1 | -1;
@@ -284,8 +302,9 @@ export function sampleSpatialOrbitPosition(
 ): SpatialVector3;
 export function evaluateSpatialOrbit(orbit: SpatialOrbitSpec, elapsedSecs: number): SpatialOrbitSample;
 export function deriveSpatialOrbitHandoff(input: {
-  positionPc: SpatialVector3;
-  orbit: SpatialOrbitSpec;
+  space: SpatialCoordinateSpace;
+  position: SpatialVector3;
+  orbit: SpatialInput<SpatialOrbitSpec>;
 }): {
   orbit: SpatialOrbitSpec & { initialAngleRad: number };
   basis: SpatialOrbitBasis;
@@ -293,15 +312,15 @@ export function deriveSpatialOrbitHandoff(input: {
 };
 
 export type SpatialTimingSpec =
-  | { kind: 'duration'; durationSecs: number; minDurationSecs?: number; maxDurationSecs?: number; source?: SpatialSourceRef }
-  | { kind: 'constantSpeed'; speedPcPerSec: number; durationSecs?: number; source?: SpatialSourceRef }
+  (| { kind: 'duration'; durationSecs: number; minDurationSecs?: number; maxDurationSecs?: number; source?: SpatialSourceRef }
+  | { kind: 'constantSpeed'; speedUnitsPerSec: number; durationSecs?: number; source?: SpatialSourceRef }
   | {
       kind: 'trapezoid';
-      departureSpeedPcPerSec?: number;
-      cruiseSpeedPcPerSec?: number;
-      arrivalSpeedPcPerSec?: number;
-      accelerationPcPerSec2?: number;
-      decelerationPcPerSec2?: number;
+      departureSpeedUnitsPerSec?: number;
+      cruiseSpeedUnitsPerSec?: number;
+      arrivalSpeedUnitsPerSec?: number;
+      accelerationUnitsPerSec2?: number;
+      decelerationUnitsPerSec2?: number;
       durationSecs?: number;
       minDurationSecs?: number;
       maxDurationSecs?: number;
@@ -309,11 +328,11 @@ export type SpatialTimingSpec =
     }
   | {
       kind: 'triangular';
-      departureSpeedPcPerSec?: number;
-      peakSpeedPcPerSec?: number;
-      arrivalSpeedPcPerSec?: number;
-      accelerationPcPerSec2?: number;
-      decelerationPcPerSec2?: number;
+      departureSpeedUnitsPerSec?: number;
+      peakSpeedUnitsPerSec?: number;
+      arrivalSpeedUnitsPerSec?: number;
+      accelerationUnitsPerSec2?: number;
+      decelerationUnitsPerSec2?: number;
       durationSecs?: number;
       source?: SpatialSourceRef;
     }
@@ -322,22 +341,22 @@ export type SpatialTimingSpec =
       durationSecs: number;
       phases: SpatialTimingPhase[];
       source?: SpatialSourceRef;
-    };
+    }) & SpatialCoordinateContext;
 
 export interface SpatialTimingPhase {
   kind: 'accelerate' | 'cruise' | 'decelerate' | 'blend' | 'hold';
   startTimeSecs: number;
   endTimeSecs: number;
-  startDistancePc: number;
-  endDistancePc: number;
-  startSpeedPcPerSec: number;
-  endSpeedPcPerSec: number;
+  startDistance: number;
+  endDistance: number;
+  startSpeedUnitsPerSec: number;
+  endSpeedUnitsPerSec: number;
 }
 
 export interface SpatialTimingDiagnostics {
   requestedDurationSecs?: number;
-  requestedAccelerationPcPerSec2?: number;
-  requestedDecelerationPcPerSec2?: number;
+  requestedAccelerationUnitsPerSec2?: number;
+  requestedDecelerationUnitsPerSec2?: number;
   requestedAccelerationApplied?: boolean;
   requestedDecelerationApplied?: boolean;
   durationConstrainedProfile?: boolean;
@@ -347,69 +366,73 @@ export interface SpatialTimingDiagnostics {
 }
 
 export interface SpatialTimingProfile {
+  space: SpatialCoordinateSpace;
   kind: 'duration' | 'constantSpeed' | 'trapezoid' | 'triangular' | 'custom';
   durationSecs: number;
-  distancePc?: number;
-  departureSpeedPcPerSec?: number;
-  cruiseSpeedPcPerSec?: number;
-  arrivalSpeedPcPerSec?: number;
-  peakSpeedPcPerSec?: number;
-  accelerationPcPerSec2?: number;
-  decelerationPcPerSec2?: number;
+  distance?: number;
+  departureSpeedUnitsPerSec?: number;
+  cruiseSpeedUnitsPerSec?: number;
+  arrivalSpeedUnitsPerSec?: number;
+  peakSpeedUnitsPerSec?: number;
+  accelerationUnitsPerSec2?: number;
+  decelerationUnitsPerSec2?: number;
   phases: SpatialTimingPhase[];
   diagnostics: SpatialTimingDiagnostics;
 }
 
-export function normalizeSpatialTimingSpec(input: unknown): SpatialTimingSpec;
+export function normalizeSpatialTimingSpec(input: unknown, inheritedSpace?: SpatialCoordinateSpace): SpatialTimingSpec;
 export function deriveSpatialOrbitalInsertTiming(input: {
-  distancePc: number;
-  orbitalSpeedPcPerSec: number;
-  currentSpeedPcPerSec?: number;
-  approachSpeedPcPerSec?: number;
+  space: SpatialCoordinateSpace;
+  distance: number;
+  orbitalSpeedUnitsPerSec: number;
+  currentSpeedUnitsPerSec?: number;
+  approachSpeedUnitsPerSec?: number;
   durationSecs?: number;
-  accelerationPcPerSec2?: number;
-  decelerationPcPerSec2?: number;
+  accelerationUnitsPerSec2?: number;
+  decelerationUnitsPerSec2?: number;
   minDurationSecs?: number;
   maxDurationSecs?: number;
 }): SpatialTimingProfile;
 
 export type SpatialTravelSpec =
-  | {
+  (| {
       kind: 'polyline';
-      timing?: SpatialTimingSpec | SpatialTimingProfile;
+      timing?: SpatialInput<SpatialTimingSpec> | SpatialTimingProfile;
       source?: SpatialSourceRef;
     }
   | {
       kind: 'orbitTransfer';
-      timing?: SpatialTimingSpec | SpatialTimingProfile;
+      timing?: SpatialInput<SpatialTimingSpec> | SpatialTimingProfile;
       sampleStepSecs?: number;
       maxPoints?: number;
       source?: SpatialSourceRef;
     }
   | {
       kind: 'orbitalInsert';
-      timing?: SpatialTimingSpec | SpatialTimingProfile;
+      timing?: SpatialInput<SpatialTimingSpec> | SpatialTimingProfile;
       sampleStepSecs?: number;
       maxPoints?: number;
       source?: SpatialSourceRef;
-    };
+    }) & SpatialCoordinateContext;
 
-export function normalizeSpatialTravelSpec(input: unknown): SpatialTravelSpec;
+export function normalizeSpatialTravelSpec(input: unknown, inheritedSpace?: SpatialCoordinateSpace): SpatialTravelSpec;
 export function deriveSpatialRouteTiming(input: {
-  totalLengthPc: number;
-  travel?: SpatialTravelSpec;
-  departureSpeedPcPerSec?: number;
-  arrivalSpeedPcPerSec?: number;
+  space: SpatialCoordinateSpace;
+  totalLength: number;
+  travel?: SpatialInput<SpatialTravelSpec>;
+  departureSpeedUnitsPerSec?: number;
+  arrivalSpeedUnitsPerSec?: number;
 }): SpatialTimingProfile;
 
 export type SpatialRouteKind = 'polyline' | 'orbitTransfer' | 'orbitalInsert';
 
 export interface SpatialRoute {
+  space: SpatialCoordinateSpace;
   id?: string;
   kind: SpatialRouteKind;
-  pointsPc: SpatialVector3[];
+  points: SpatialVector3[];
   segments: SpatialRouteSegment[];
-  totalLengthPc: number;
+  totalLength: number;
   timing: SpatialTimingProfile;
   departure: SpatialRouteEndpoint;
   arrival: SpatialRouteEndpoint;
@@ -421,33 +444,35 @@ export interface SpatialRoute {
 
 export interface SpatialRouteSegment {
   index: number;
-  startPc: SpatialVector3;
-  endPc: SpatialVector3;
-  lengthPc: number;
-  cumulativeStartPc: number;
-  cumulativeEndPc: number;
+  start: SpatialVector3;
+  end: SpatialVector3;
+  length: number;
+  cumulativeStart: number;
+  cumulativeEnd: number;
   durationSecs?: number;
-  averageSpeedPcPerSec?: number;
-  curvatureRadPerPc?: number;
+  averageSpeedUnitsPerSec?: number;
+  curvatureRadPer?: number;
 }
 
 export interface SpatialRouteEndpointSpec {
-  positionPc?: SpatialVector3;
-  destination?: SpatialDestinationSpec;
-  orbit?: SpatialOrbitSpec | null;
-  aim?: SpatialAimSpec | null;
-  velocityPcPerSec?: SpatialVector3;
-  speedPcPerSec?: number;
+  space: SpatialCoordinateSpace;
+  position?: SpatialVector3;
+  destination?: SpatialInput<SpatialDestinationSpec>;
+  orbit?: SpatialInput<SpatialOrbitSpec> | null;
+  aim?: SpatialInput<SpatialAimSpec> | null;
+  velocityUnitsPerSec?: SpatialVector3;
+  speedUnitsPerSec?: number;
   source?: SpatialSourceRef;
   metadata?: Record<string, unknown>;
 }
 
 export interface SpatialRouteEndpoint {
+  space: SpatialCoordinateSpace;
   kind: 'point' | 'destination' | 'orbit';
-  positionPc: SpatialVector3;
+  position: SpatialVector3;
   destination?: SpatialDestinationSpec;
-  velocityPcPerSec?: SpatialVector3;
-  speedPcPerSec?: number;
+  velocityUnitsPerSec?: SpatialVector3;
+  speedUnitsPerSec?: number;
   orbit?: SpatialOrbitSpec | null;
   orbitBasis?: SpatialOrbitBasis | null;
   aim?: SpatialAimSpec | null;
@@ -456,19 +481,20 @@ export interface SpatialRouteEndpoint {
 }
 
 export interface SpatialRouteEndpointBuildOptions {
+  space?: SpatialCoordinateSpace;
   role?: 'departure' | 'arrival';
-  referencePose?: SpatialPose;
-  fallbackAim?: SpatialAimSpec | null;
-  fallbackOrbit?: SpatialOrbitSpec | null;
+  referencePose?: SpatialInput<SpatialPose>;
+  fallbackAim?: SpatialInput<SpatialAimSpec> | null;
+  fallbackOrbit?: SpatialInput<SpatialOrbitSpec> | null;
 }
 
 export interface SpatialRouteDiagnostics {
   durationSecs: number;
-  totalLengthPc: number;
-  averageSpeedPcPerSec: number;
-  peakSpeedPcPerSec: number;
-  departureSpeedPcPerSec: number;
-  arrivalSpeedPcPerSec: number;
+  totalLength: number;
+  averageSpeedUnitsPerSec: number;
+  peakSpeedUnitsPerSec: number;
+  departureSpeedUnitsPerSec: number;
+  arrivalSpeedUnitsPerSec: number;
   settleSecs?: number;
   settleBehavior?: 'none' | 'snap' | 'blendToOrbit' | 'continueOrbit';
   selectedOrbitNormal?: SpatialVector3;
@@ -476,26 +502,27 @@ export interface SpatialRouteDiagnostics {
   selectedTangent?: SpatialVector3;
   insertionSelection?: 'explicitAngle' | 'tangent' | 'nearestAngleFallback';
   insertionAngleRad?: number;
-  insertionPositionPc?: SpatialVector3;
+  insertionPosition?: SpatialVector3;
   /** Cosine alignment between the insertion approach and signed orbital velocity. */
   insertionApproachAlignment?: number;
   /** Cosine alignment between an authored departure velocity and the insertion approach. */
   insertionDepartureVelocityAlignment?: number;
   /** Signed distance from the departure position to the orbit plane. */
-  insertionPlaneOffsetPc?: number;
+  insertionPlaneOffset?: number;
   warnings: SpatialDiagnosticWarning[];
   [key: string]: unknown;
 }
 
 export interface SpatialRouteSample {
+  space: SpatialCoordinateSpace;
   elapsedSecs: number;
   frameIndex?: number;
   routeId?: string;
   routeKind: SpatialRouteKind;
-  positionPc: SpatialVector3;
-  velocityPcPerSec: SpatialVector3;
-  speedPcPerSec: number;
-  distancePc: number;
+  position: SpatialVector3;
+  velocityUnitsPerSec: SpatialVector3;
+  speedUnitsPerSec: number;
+  distance: number;
   segmentIndex: number | null;
   complete: boolean;
   diagnostics?: SpatialSampleDiagnostics;
@@ -507,34 +534,37 @@ export interface SpatialRouteEvaluationOptions {
 
 export interface SpatialRouteSamplingOptions extends SpatialRouteEvaluationOptions, SpatialSamplingOptions {}
 
-export function normalizeSpatialRouteEndpointSpec(input: unknown): SpatialRouteEndpointSpec;
+export function normalizeSpatialRouteEndpointSpec(input: unknown, inheritedSpace?: SpatialCoordinateSpace): SpatialRouteEndpointSpec;
 export function buildSpatialRouteEndpoint(
   input: SpatialRouteEndpointSpec | SpatialDestinationSpec | SpatialVector3,
   options?: SpatialRouteEndpointBuildOptions
 ): SpatialRouteEndpoint | null;
 export function buildSpatialPolylineRoute(input: {
-  pointsPc: Iterable<SpatialVector3>;
-  travel?: Extract<SpatialTravelSpec, { kind: 'polyline' }>;
-  arrivalAction?: SpatialArrivalAction | null;
+  space: SpatialCoordinateSpace;
+  points: Iterable<SpatialVector3>;
+  travel?: Extract<SpatialInput<SpatialTravelSpec>, { kind: 'polyline' }>;
+  arrivalAction?: SpatialInput<SpatialArrivalAction> | null;
   source?: SpatialSourceRef;
 }): SpatialRoute;
 export function buildSpatialOrbitTransferRoute(input: {
-  from: SpatialRouteEndpointSpec | SpatialRouteEndpoint;
-  to: SpatialRouteEndpointSpec | SpatialRouteEndpoint;
-  travel?: Extract<SpatialTravelSpec, { kind: 'orbitTransfer' }>;
-  arrivalAction?: SpatialArrivalAction | null;
-  referencePose?: SpatialPose;
+  space: SpatialCoordinateSpace;
+  from: SpatialInput<SpatialRouteEndpointSpec> | SpatialRouteEndpoint;
+  to: SpatialInput<SpatialRouteEndpointSpec> | SpatialRouteEndpoint;
+  travel?: Extract<SpatialInput<SpatialTravelSpec>, { kind: 'orbitTransfer' }>;
+  arrivalAction?: SpatialInput<SpatialArrivalAction> | null;
+  referencePose?: SpatialInput<SpatialPose>;
   source?: SpatialSourceRef;
 }): SpatialRoute | null;
 export function buildSpatialOrbitalInsertRoute(input: {
-  from: SpatialRouteEndpointSpec | SpatialRouteEndpoint;
-  orbit: SpatialOrbitSpec;
-  destination?: SpatialDestinationSpec;
-  travel?: Extract<SpatialTravelSpec, { kind: 'orbitalInsert' }>;
-  referencePose?: SpatialPose;
+  space: SpatialCoordinateSpace;
+  from: SpatialInput<SpatialRouteEndpointSpec> | SpatialRouteEndpoint;
+  orbit: SpatialInput<SpatialOrbitSpec>;
+  destination?: SpatialInput<SpatialDestinationSpec>;
+  travel?: Extract<SpatialInput<SpatialTravelSpec>, { kind: 'orbitalInsert' }>;
+  referencePose?: SpatialInput<SpatialPose>;
   source?: SpatialSourceRef;
 }): SpatialRoute | null;
-export function getSpatialRouteDiagnostics(route: SpatialRoute): SpatialRouteDiagnostics;
+export function getSpatialRouteDiagnostics(route: SpatialRoute): SpatialRouteDiagnostics & SpatialCoordinateContext;
 export function evaluateSpatialRoute(
   route: SpatialRoute,
   elapsedSecs: number,
@@ -543,7 +573,7 @@ export function evaluateSpatialRoute(
 export function sampleSpatialRoute(route: SpatialRoute, options?: SpatialRouteSamplingOptions): SpatialRouteSample[];
 
 export type SpatialArrivalAction =
-  | { kind: 'none' }
+  (| { kind: 'none' }
   | {
       kind: 'orbit';
       destination?: SpatialDestinationSpec;
@@ -573,11 +603,12 @@ export type SpatialArrivalAction =
       aim: Extract<SpatialAimSpec, { kind: 'target' }>;
       dwellSecs?: number;
       source?: SpatialSourceRef;
-    };
+    }) & SpatialCoordinateContext;
 
-export function normalizeSpatialArrivalAction(input: unknown): SpatialArrivalAction;
+export function normalizeSpatialArrivalAction(input: unknown, inheritedSpace?: SpatialCoordinateSpace): SpatialArrivalAction;
 
 export interface SpatialAimTrack {
+  space: SpatialCoordinateSpace;
   keys: SpatialAimKey[];
   durationSecs: number;
   defaultInterpolation?: SpatialAimInterpolationSpec;
@@ -595,23 +626,25 @@ export interface SpatialAimTrackSample {
 
 export type SpatialAimEvaluationContext =
   | {
-      observerPc: SpatialVector3;
-      fallbackUpIcrs?: SpatialVector3;
-      syntheticTargetDistancePc?: number;
+      position: SpatialVector3;
+      fallbackUp?: SpatialVector3;
+      syntheticTargetDistance?: number;
     }
   | {
       positionSample: SpatialPathSample;
-      fallbackUpIcrs?: SpatialVector3;
-      syntheticTargetDistancePc?: number;
+      fallbackUp?: SpatialVector3;
+      syntheticTargetDistance?: number;
     };
 
 export interface BuildSpatialAimTrackOptions {
+  space: SpatialCoordinateSpace;
   durationSecs?: number;
   defaultInterpolation?: SpatialAimInterpolationSpec;
   duplicateTimePolicy?: SpatialDuplicateTimePolicy;
 }
 
 export interface SpatialPathSpec {
+  space: SpatialCoordinateSpace;
   durationSecs?: number;
   positionKeys: SpatialPositionKey[];
   aimKeys?: SpatialAimKey[];
@@ -622,18 +655,20 @@ export interface SpatialPathSpec {
 }
 
 export interface SpatialPositionKey {
+  space?: SpatialCoordinateSpace;
   id: string;
   timeSecs: number;
-  positionPc: SpatialVector3;
+  position: SpatialVector3;
   interpolation?: SpatialPositionInterpolation;
   source?: SpatialSourceRef;
   metadata?: Record<string, unknown>;
 }
 
 export interface SpatialAimKey {
+  space?: SpatialCoordinateSpace;
   id: string;
   timeSecs: number;
-  aim: SpatialAimSpec;
+  aim: SpatialInput<SpatialAimSpec>;
   interpolation?: SpatialAimInterpolationSpec;
   source?: SpatialSourceRef;
   metadata?: Record<string, unknown>;
@@ -643,8 +678,8 @@ export type SpatialPositionInterpolation =
   | { kind: 'hold' }
   | { kind: 'linear'; easing?: SpatialEasingSpec }
   | { kind: 'catmullRom'; tension?: number; centripetal?: boolean }
-  | { kind: 'cubicBezier'; inTangentPc?: SpatialVector3; outTangentPc?: SpatialVector3 }
-  | { kind: 'hermite'; inVelocityPcPerSec?: SpatialVector3; outVelocityPcPerSec?: SpatialVector3 };
+  | { kind: 'cubicBezier'; inTangent?: SpatialVector3; outTangent?: SpatialVector3 }
+  | { kind: 'hermite'; inVelocityUnitsPerSec?: SpatialVector3; outVelocityUnitsPerSec?: SpatialVector3 };
 
 export type SpatialAimInterpolationSpec =
   | { kind: 'hold' }
@@ -668,26 +703,29 @@ export interface SpatialTimeRemapSpec {
 }
 
 export interface SpatialPathSample {
+  space: SpatialCoordinateSpace;
   timeSecs: number;
   playbackElapsedSecs?: number;
   frameIndex?: number;
   pose: SpatialPose;
   aim: SpatialAimSample | null;
-  velocityPcPerSec: SpatialVector3;
-  speedPcPerSec: number;
-  accelerationPcPerSec2?: SpatialVector3;
-  accelerationMagnitudePcPerSec2?: number;
+  velocityUnitsPerSec: SpatialVector3;
+  speedUnitsPerSec: number;
+  accelerationUnitsPerSec2?: SpatialVector3;
+  accelerationMagnitudeUnitsPerSec2?: number;
   segmentIndex: number | null;
   segmentId?: string | null;
   diagnostics?: SpatialSampleDiagnostics;
 }
 
 export interface SpatialPathEvaluationOptions {
+  space?: SpatialCoordinateSpace;
   frameIndex?: number;
-  syntheticTargetDistancePc?: number;
+  syntheticTargetDistance?: number;
 }
 
-export interface SpatialPathSamplingOptions extends SpatialPathEvaluationOptions, SpatialSamplingOptions {}
+export interface SpatialPathSamplingOptions extends SpatialPathEvaluationOptions, SpatialSamplingOptions {
+  space?: SpatialCoordinateSpace;}
 export interface SpatialPathPlaybackEvaluationOptions extends SpatialPathEvaluationOptions {}
 
 export interface SpatialPathDiagnostics {
@@ -699,15 +737,15 @@ export interface SpatialPathDiagnostics {
 }
 
 export function buildSpatialAimTrack(
-  keys?: Iterable<SpatialAimKey>,
-  options?: BuildSpatialAimTrackOptions
+  keys: Iterable<SpatialAimKey> | undefined,
+  options: BuildSpatialAimTrackOptions
 ): SpatialAimTrack;
 export function evaluateSpatialAimTrack(
   track: SpatialAimTrack,
   timeSecs: number,
   context: SpatialAimEvaluationContext
 ): SpatialAimTrackSample;
-export function normalizeSpatialPathSpec(input: unknown): SpatialPathSpec;
+export function normalizeSpatialPathSpec(input: unknown, inheritedSpace?: SpatialCoordinateSpace): SpatialPathSpec;
 export function evaluateSpatialPath(
   path: SpatialPathSpec,
   timeSecs: number,
@@ -725,6 +763,7 @@ export function sampleSpatialPathDiagnostics(
 ): SpatialPathDiagnostics;
 
 export interface SpatialViewTransitionSpec {
+  space?: SpatialCoordinateSpace;
   from: SpatialFrameState;
   to: SpatialFrameState;
   durationSecs?: number;
@@ -742,6 +781,7 @@ export interface SpatialTransitionLaneSpec {
 }
 
 export interface SpatialViewTransitionPath {
+  space: SpatialCoordinateSpace;
   kind: 'viewTransitionPath';
   durationSecs: number;
   path: SpatialPathSpec;
@@ -751,6 +791,7 @@ export interface SpatialViewTransitionPath {
 }
 
 export interface SpatialViewTransitionSample {
+  space: SpatialCoordinateSpace;
   elapsedSecs: number;
   complete: boolean;
   positionComplete: boolean;
@@ -783,14 +824,16 @@ export function evaluateSpatialViewTransition(
 ): SpatialViewTransitionSample;
 
 export interface SpatialPoseTransitionSpec {
-  from: SpatialPose;
-  to: SpatialPose;
+  space?: SpatialCoordinateSpace;
+  from: SpatialInput<SpatialPose>;
+  to: SpatialInput<SpatialPose>;
   durationSecs?: number;
   movement?: SpatialTransitionLaneSpec;
   orientation?: SpatialTransitionLaneSpec;
 }
 
 export interface SpatialPoseTransition {
+  space: SpatialCoordinateSpace;
   durationSecs: number;
   from: SpatialPose;
   to: SpatialPose;
@@ -799,6 +842,7 @@ export interface SpatialPoseTransition {
 }
 
 export interface SpatialPoseTransitionSample {
+  space: SpatialCoordinateSpace;
   elapsedSecs: number;
   complete: boolean;
   movementComplete: boolean;
@@ -815,32 +859,32 @@ export function evaluateSpatialPoseTransition(
 ): SpatialPoseTransitionSample;
 
 export type SpatialPreloadHint =
-  | {
+  (| {
       kind: 'pathVolume';
-      pointsPc: SpatialVector3[];
-      radiusPc: number;
+      points: SpatialVector3[];
+      radius: number;
       timeRangeSecs?: [number, number];
       priority?: number;
     }
   | {
       kind: 'sphereVolume';
-      centerPc: SpatialVector3;
-      radiusPc: number;
+      center: SpatialVector3;
+      radius: number;
       timeRangeSecs?: [number, number];
       priority?: number;
     }
   | {
       kind: 'viewLookahead';
       pose: SpatialPose;
-      velocityPcPerSec: SpatialVector3;
+      velocityUnitsPerSec: SpatialVector3;
       lookaheadSecs: number;
       timeRangeSecs?: [number, number];
       priority?: number;
-    };
+    }) & SpatialCoordinateContext;
 
 export interface MaterializeSpatialPreloadHintsOptions extends SpatialPathSamplingOptions {
-  pathRadiusPc?: number;
-  sphereRadiusPc?: number;
+  pathRadius?: number;
+  sphereRadius?: number;
   lookaheadSecs?: number;
   priority?: number;
 }
@@ -857,7 +901,7 @@ export interface SpatialControlReader {
 }
 
 export interface SpatialMotionUpdateInput {
-  pose: SpatialPose;
+  pose: SpatialInput<SpatialPose>;
   controls?: SpatialControlReader;
   deltaSecs: number;
   scale?: SpatialScaleProfile;
@@ -866,9 +910,10 @@ export interface SpatialMotionUpdateInput {
 export function normalizeSpatialUpdateDelta(input: { deltaSecs: number }): number;
 
 export interface SpatialMotionSnapshot {
+  space: SpatialCoordinateSpace;
   kind: string;
-  velocityPcPerSec: SpatialVector3;
-  speedPcPerSec: number;
+  velocityUnitsPerSec: SpatialVector3;
+  speedUnitsPerSec: number;
   scale: Required<SpatialScaleProfile>;
   activeAutomation: string | null;
 }
@@ -880,11 +925,12 @@ export interface SpatialMotionModel {
 }
 
 export interface SpatialManualMotionOptions {
+  space: SpatialCoordinateSpace;
   moveAxis?: string;
   attitudeAxis?: string;
   rollModifierButton?: string;
   boostButton?: string;
-  moveSpeedPcPerSec?: number;
+  moveSpeedUnitsPerSec?: number;
   boostMultiplier?: number;
   pitchRateRadPerSec?: number;
   yawRateRadPerSec?: number;
@@ -892,27 +938,27 @@ export interface SpatialManualMotionOptions {
 }
 
 export interface SpatialInertialMotionOptions extends SpatialManualMotionOptions {
-  accelerationPcPerSec2?: number;
+  accelerationUnitsPerSec2?: number;
   damping?: number;
-  maxSpeedPcPerSec?: number;
+  maxSpeedUnitsPerSec?: number;
 }
 
 export interface SpatialThrustMotionOptions extends SpatialManualMotionOptions {
-  thrustPcPerSec2?: number;
+  thrustUnitsPerSec2?: number;
   mass?: number;
   drag?: number;
-  maxSpeedPcPerSec?: number;
+  maxSpeedUnitsPerSec?: number;
 }
 
-export function createDirectSpatialMotionModel(options?: SpatialManualMotionOptions): SpatialMotionModel;
-export function createInertialSpatialMotionModel(options?: SpatialInertialMotionOptions): SpatialMotionModel;
-export function createThrustSpatialMotionModel(options?: SpatialThrustMotionOptions): SpatialMotionModel;
+export function createDirectSpatialMotionModel(options: SpatialManualMotionOptions): SpatialMotionModel;
+export function createInertialSpatialMotionModel(options: SpatialInertialMotionOptions): SpatialMotionModel;
+export function createThrustSpatialMotionModel(options: SpatialThrustMotionOptions): SpatialMotionModel;
 
 export interface SpatialNavigationAutomation {
   flyRoute(route: SpatialRoute): void;
-  orbit(orbit: SpatialOrbitSpec): void;
-  lookAt(aim: SpatialAimSpec): void;
-  lockAt(aim: Extract<SpatialAimSpec, { kind: 'target' }>): void;
+  orbit(orbit: SpatialInput<SpatialOrbitSpec>): void;
+  lookAt(aim: SpatialInput<SpatialAimSpec>): void;
+  lockAt(aim: SpatialInput<Extract<SpatialAimSpec, { kind: 'target' }>>): void;
   unlockAt(): void;
   cancelMovement(): void;
   cancelOrientation(): void;
@@ -928,6 +974,7 @@ export interface SpatialNavigationAutomation {
 }
 
 export interface SpatialNavigationDiagnostics {
+  space: SpatialCoordinateSpace;
   activeMovement?: SpatialMovementDiagnostics | null;
   activeAim?: SpatialAimDiagnostics | null;
   elapsedSecs: number;
@@ -935,7 +982,7 @@ export interface SpatialNavigationDiagnostics {
   frameState: SpatialFrameState;
   activeRoute?: SpatialRoute | null;
   activeTiming?: SpatialTimingProfile | null;
-  currentSpeedPcPerSec: number;
+  currentSpeedUnitsPerSec: number;
   arrivalAction?: SpatialArrivalAction | null;
   pendingSettle?: SpatialSettleDiagnostics | null;
   warnings: SpatialDiagnosticWarning[];
@@ -945,9 +992,9 @@ export interface SpatialMovementDiagnostics {
   kind: SpatialRouteKind | 'orbit' | 'manual' | 'idle';
   route?: SpatialRoute | null;
   orbit?: SpatialOrbitState | null;
-  distancePc?: number;
-  totalLengthPc?: number;
-  speedPcPerSec?: number;
+  distance?: number;
+  totalLength?: number;
+  speedUnitsPerSec?: number;
 }
 
 export interface SpatialAimDiagnostics {
@@ -963,4 +1010,36 @@ export interface SpatialSettleDiagnostics {
   targetOrbit?: SpatialOrbitSpec;
 }
 
-export function createSpatialNavigationAutomation(): SpatialNavigationAutomation;
+export function createSpatialNavigationAutomation(space: SpatialCoordinateSpace): SpatialNavigationAutomation;
+
+export const SPATIAL_METERS_PER_AU: number;
+export const SPATIAL_METERS_PER_PARSEC: number;
+export const SPATIAL_Z_UP_TO_Y_UP: Readonly<SpatialQuaternion>;
+export function normalizeSpatialCoordinateSpace(input: unknown, inheritedSpace?: SpatialCoordinateSpace): SpatialCoordinateSpace;
+export function crossSpatialVectors(a: SpatialVector3, b: SpatialVector3): SpatialVector3;
+export function dotSpatialVectors(a: SpatialVector3, b: SpatialVector3): number;
+export function invertSpatialQuaternion(input: SpatialQuaternion): SpatialQuaternion;
+export function interpolateSpatialQuaternions(a: SpatialQuaternion, b: SpatialQuaternion, t: number): SpatialQuaternion;
+export function interpolateSpatialDirections(a: SpatialVector3, b: SpatialVector3, t: number, options?: { antipodalTangent?: SpatialVector3; antipodalCosineThreshold?: number }): SpatialVector3;
+export function createSpatialQuaternionFromForwardUp(forward: SpatialVector3, up: SpatialVector3): SpatialQuaternion;
+
+export interface SpatialTransform {
+  from: SpatialCoordinateSpace;
+  to: SpatialCoordinateSpace;
+  sourceOrigin?: SpatialVector3;
+  targetOrigin?: SpatialVector3;
+  rotation?: SpatialQuaternion;
+}
+export interface NormalizedSpatialTransform extends SpatialTransform {
+  sourceOrigin: SpatialVector3;
+  targetOrigin: SpatialVector3;
+  rotation: SpatialQuaternion;
+}
+export function normalizeSpatialTransform(input: SpatialTransform): NormalizedSpatialTransform;
+export function transformSpatialPoint(transform: SpatialTransform, point: SpatialVector3): SpatialVector3;
+export function transformSpatialDisplacement(transform: SpatialTransform, displacement: SpatialVector3): SpatialVector3;
+export function transformSpatialDirection(transform: SpatialTransform, direction: SpatialVector3): SpatialVector3;
+export function transformSpatialOrientation(transform: SpatialTransform, orientation: SpatialQuaternion): SpatialQuaternion;
+export function transformSpatialPose(transform: SpatialTransform, pose: SpatialPose): SpatialPose;
+export function invertSpatialTransform(transform: SpatialTransform): NormalizedSpatialTransform;
+export function composeSpatialTransforms(first: SpatialTransform, second: SpatialTransform): NormalizedSpatialTransform;

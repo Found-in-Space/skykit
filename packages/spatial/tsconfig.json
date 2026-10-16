@@ -5,7 +5,8 @@
   },
   "include": [
     "src/**/*.js",
-    "src/**/*.d.ts"
+    "src/**/*.d.ts",
+    "src/__tests__/coordinate-contract.ts"
   ],
   "exclude": [
     "src/__tests__/**/*.js"

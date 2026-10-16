@@ -1,95 +1,52 @@
 # @found-in-space/spatial
 
-Dependency-free spatial semantics for coordinates, poses, aims, paths, routes,
-orbits, timing, preload hints, manual motion, and navigation automation.
+Dependency-free coordinates, transforms, poses, aims, routes, paths, timing,
+preload volumes, manual motion, and navigation automation.
 
-This package is renderer-neutral. It can be used from Canvas, Three.js, WebXR,
-Node scripts, Studio export tooling, or any other spatial experience without
-pulling in SkyKit or Three.js.
+This source implements the **breaking 0.3.0-alpha.0 API**. It is distinct from
+published spatial 0.2.0. Use the matching packed alpha or a compatible release
+batch; changing an installed 0.2.0 package in place will break its consumers.
 
-It owns:
-
-- vector, quaternion, pose, and scale-profile helpers
-- RA/Dec, ICRS direction, equirectangular projection, and target resolution
-- target, direction, and orientation aim evaluation
-- polyline, orbit-transfer, and orbital-insert routes
-- path sampling, aim tracks, view transitions, and preload hints
-- direct, inertial, and thrust manual motion models
-- `createSpatialNavigationAutomation()` over canonical routes, orbits, and aims
+Coordinates declare their space. Stellar applications can use parsecs; Solar
+System applications can use metres or AU. An operation's nested geometry inherits
+its space. Different spaces require an explicit transformation.
 
 ```js
 import {
-  SPATIAL_IDENTITY_QUATERNION,
-  buildSpatialOrbitTransferRoute,
+  buildSpatialPolylineRoute,
   createSpatialNavigationAutomation,
-  raDecDistanceToIcrs,
+  SPATIAL_IDENTITY_QUATERNION,
 } from '@found-in-space/spatial';
 
-const pleiadesPc = raDecDistanceToIcrs({
-  raDeg: 56.75,
-  decDeg: 24.12,
-  distancePc: 136,
+const space = { frameId: 'my-simulation:heliocentric-j2000', metersPerUnit: 1 };
+const route = buildSpatialPolylineRoute({
+  space,
+  points: [{ x: 0, y: 0, z: 0 }, { x: 1000, y: 0, z: 0 }],
+  travel: { kind: 'polyline', timing: { kind: 'constantSpeed', speedUnitsPerSec: 100 } },
 });
-
-const route = buildSpatialOrbitTransferRoute({
-  from: { positionPc: { x: 0, y: 0, z: 0 } },
-  to: { positionPc: pleiadesPc },
-  travel: { kind: 'orbitTransfer', timing: { kind: 'duration', durationSecs: 4 } },
+const navigation = createSpatialNavigationAutomation(space);
+navigation.flyRoute(route);
+const pose = navigation.update({
+  pose: { space, position: { x: 0, y: 0, z: 0 }, orientation: SPATIAL_IDENTITY_QUATERNION },
+  deltaSecs: 1,
 });
-
-const navigation = createSpatialNavigationAutomation();
-if (route) navigation.flyRoute(route);
-
-let pose = {
-  observerPc: { x: 0, y: 0, z: 0 },
-  orientationIcrs: SPATIAL_IDENTITY_QUATERNION,
-};
-
-pose = navigation.update({ pose, deltaSecs: 1 / 60 });
+// pose.position.x === 100 metres; display scale does not alter this result.
 ```
 
-Orbital insertion chooses a tangent contact point by default. Leave
-`initialAngleRad` unset and the builder selects the tangent whose approach
-direction agrees with the signed orbit direction:
+The package owns generic algebra and geometry. Domain owners define origins,
+axes, epochs, astronomical corrections, body models, and datums. Renderer and XR
+adapters own scene graphs, GPU coordinates, tracking acquisition, and physical
+presentation policy. A circular spatial orbit is navigation geometry, not an
+orbital mechanics prediction.
 
-```js
-import { buildSpatialOrbitalInsertRoute } from '@found-in-space/spatial';
+See [the API contract](api-contract.md) for coordinate inheritance, transformation
+semantics, precision, timing, and migration. [The declarations](src/index.d.ts)
+are the complete public signatures. Only the package root is a supported import.
 
-const insertion = buildSpatialOrbitalInsertRoute({
-  from: { positionPc: { x: -15, y: 0, z: 9 } },
-  orbit: {
-    centerPc: { x: 0, y: 0, z: 0 },
-    radiusPc: 6,
-    orbitNormal: { x: 0, y: 1, z: 0 },
-    handedness: 1,
-    angularSpeedRadPerSec: 0.24,
-    // No initialAngleRad: derive a tangent insertion point.
-  },
-  travel: { kind: 'orbitalInsert' },
-});
-```
+## Direct-package labs
 
-Set `initialAngleRad` when an authored contact point is more important than a
-tangent approach. Starts without a valid tangent use the nearest orbit angle
-and report an `orbitalInsertTangentFallback` warning in route diagnostics. The
-route materializes its selected angle and ends with the exact signed orbital
-velocity, so navigation can continue the orbit without a heading snap.
-
-`@found-in-space/spatial` does not know about stars, octrees, renderers, DOM,
-WebXR sessions, or authored SkyKit action payloads. Applications resolve those
-semantic inputs into canonical spatial objects before calling this package.
-
-## Interactive examples
-
-The package examples use only DOM and Canvas2D around direct spatial API calls:
-
-- `examples/coordinates-aim/`
-- `examples/routes-orbits/`
-- `examples/paths-transitions/`
-- `examples/motion-automation/`
-
-Review them in the deployed
-[Spatial Package Labs](https://found-in-space.github.io/skykit/packages/spatial/examples/).
-Repository contributors can also run `npm run dev` from the workspace root and
-open `/packages/spatial/examples/`. These repository examples are deployed by
-the workspace but are intentionally not included in the npm package tarball.
+Run the workspace with `npm run dev` and open `packages/spatial/examples/`.
+The four Canvas2D labs demonstrate coordinates/aim, routes/orbits,
+paths/transitions, and motion/automation. Each declares its coordinate space and
+imports spatial directly, without SkyKit or Three.js. These source examples are
+not included in the npm archive.

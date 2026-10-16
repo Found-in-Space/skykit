@@ -1,3 +1,5 @@
+import { normalizeSpatialCoordinateSpace } from '@found-in-space/spatial';
+import { SKYKIT_ICRS_SPACE } from '../spatial-adapter.js';
 import * as THREE from 'three';
 
 import { SKYKIT_ACTIONS, SKYKIT_CONTROLS } from '../actions.js';
@@ -28,11 +30,12 @@ export function createSkykitXrObserverRig(options) {
     throw new TypeError('createSkykitXrObserverRig() requires an XR rig.');
   }
   const rig = options.rig;
+  normalizeSpatialCoordinateSpace(rig.getNavigationPose().space, SKYKIT_ICRS_SPACE);
   let coordinateUnitsPerParsec = positiveFinite(
     options.coordinateUnitsPerParsec,
-    rig.getScaleProfile?.().worldUnitsPerNavigationUnit ?? 1,
+    rig.getScaleProfile?.().worldUnitsPerUnit ?? 1,
   );
-  let previousObserverPc = rig.getNavigationPose().observerPc;
+  let previousObserverPc = rig.getNavigationPose().position;
   let motion = {
     velocityPcPerSec: { x: 0, y: 0, z: 0 },
     speedPcPerSec: 0,
@@ -45,11 +48,11 @@ export function createSkykitXrObserverRig(options) {
     type: 'xr',
     getObserverPc() {
       assertActive();
-      return cloneVector3(rig.getNavigationPose().observerPc);
+      return cloneVector3(rig.getNavigationPose().position);
     },
     getRenderObserverPosition() {
       assertActive();
-      const position = rig.getNavigationPose().observerPc;
+      const position = rig.getNavigationPose().position;
       return {
         x: position.x * coordinateUnitsPerParsec,
         y: position.y * coordinateUnitsPerParsec,
@@ -58,7 +61,7 @@ export function createSkykitXrObserverRig(options) {
     },
     getOrientationIcrs() {
       assertActive();
-      return cloneQuaternion(rig.getNavigationPose().orientationIcrs);
+      return cloneQuaternion(rig.getNavigationPose().orientation);
     },
     getMotion() {
       assertActive();
@@ -69,11 +72,11 @@ export function createSkykitXrObserverRig(options) {
     },
     setObserverPc(observerPc) {
       assertActive();
-      rig.setNavigationPose({ observerPc: normalizeVector3(observerPc, rig.getNavigationPose().observerPc) });
+      rig.setNavigationPose({ position: normalizeVector3(observerPc, rig.getNavigationPose().position) });
     },
     setOrientationIcrs(orientation) {
       assertActive();
-      rig.setNavigationPose({ orientationIcrs: normalizeQuaternion(orientation, rig.getNavigationPose().orientationIcrs) });
+      rig.setNavigationPose({ orientation: normalizeQuaternion(orientation, rig.getNavigationPose().orientation) });
     },
     update(frame) {
       assertActive();
@@ -83,7 +86,7 @@ export function createSkykitXrObserverRig(options) {
         syncScaleProfile();
       }
       const dt = Math.max(0, finiteNumber(frame?.deltaSeconds, 0));
-      const position = rig.getNavigationPose().observerPc;
+      const position = rig.getNavigationPose().position;
       if (dt > 0) {
         const velocity = {
           x: (position.x - previousObserverPc.x) / dt,
@@ -109,9 +112,7 @@ export function createSkykitXrObserverRig(options) {
 
   function syncScaleProfile() {
     rig.setScaleProfile?.({
-      navigationUnits: 'pc',
-      metersPerNavigationUnit: coordinateUnitsPerParsec,
-      worldUnitsPerNavigationUnit: coordinateUnitsPerParsec,
+      worldUnitsPerUnit: coordinateUnitsPerParsec,
     });
   }
 

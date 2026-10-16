@@ -221,6 +221,14 @@ import {
 
 ---
 
+Spatial's source alpha requires declared coordinate spaces and separates
+physical unit conversion from rendered size. See the
+[canonical spatial contract](../packages/spatial/api-contract.md). SkyKit keeps
+its parsec/ICRS view fields at the adapter boundary. XR tracking poses and rays
+carry the identity of their reference space in metres; navigation poses carry
+the rig's declared coordinate space. A tracking pose must not be labelled ICRS
+merely because it uses the same vector/quaternion representation.
+
 ## 6. Current Implementation Status
 
 Implemented in `@found-in-space/spatial`:
@@ -431,7 +439,7 @@ Use distinct contracts:
 
 ```txt
 SpatialPose
-  observerPc + orientationIcrs
+  space + position + orientation
   parsec/ICRS navigation semantics
 
 XrReferencePose

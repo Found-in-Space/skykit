@@ -156,8 +156,8 @@ async function main() {
   const initialOrientation = orientationLookingAt(INITIAL_OBSERVER_PC, INITIAL_TARGET_PC);
   const xrRig = createSkykitXrRig({
     navigationPose: {
-      observerPc: INITIAL_OBSERVER_PC,
-      orientationIcrs: initialOrientation,
+      position: INITIAL_OBSERVER_PC,
+      orientation: initialOrientation,
     },
   });
   const shipDeck = createShipDeckSlab();
@@ -902,9 +902,7 @@ async function main() {
         { radiusNavigationUnits: constellationRadiusNavigationUnits },
       ],
       scale: {
-        navigationUnits: 'pc',
-        metersPerNavigationUnit: worldScale,
-        worldUnitsPerNavigationUnit: worldScale,
+        worldUnitsPerUnit: worldScale,
       },
       policy: {
         near: 0.03,
@@ -960,7 +958,7 @@ function createHeadGazeAnchoredImageController(controller) {
 }
 
 function resolveHeadGazeDirectionIcrs(body, xrRig, camera) {
-  const headOrientation = normalizeQuaternionLike(body?.head?.orientationIcrs);
+  const headOrientation = normalizeQuaternionLike(body?.head?.orientation);
   if (headOrientation) {
     _headGazeQuaternion.set(
       headOrientation.x,
@@ -968,7 +966,7 @@ function resolveHeadGazeDirectionIcrs(body, xrRig, camera) {
       headOrientation.z,
       headOrientation.w,
     );
-    const shipOrientation = normalizeQuaternionLike(xrRig?.getNavigationPose?.().orientationIcrs);
+    const shipOrientation = normalizeQuaternionLike(xrRig?.getNavigationPose?.().orientation);
     if (shipOrientation) {
       _shipGazeQuaternion.set(
         shipOrientation.x,

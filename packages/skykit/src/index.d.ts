@@ -1312,3 +1312,5 @@ export declare function installSkykitDebugGlobal(
   debugBridge: SkykitDebugBridge,
   options?: InstallSkykitDebugGlobalOptions
 ): () => void;
+
+export const SKYKIT_ICRS_SPACE: Readonly<import('@found-in-space/spatial').SpatialCoordinateSpace>;

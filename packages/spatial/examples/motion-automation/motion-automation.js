@@ -1,4 +1,5 @@
 import {
+  SPATIAL_METERS_PER_PARSEC,
   SPATIAL_IDENTITY_QUATERNION,
   SPATIAL_LOCAL_FORWARD,
   applySpatialQuaternion,
@@ -12,6 +13,8 @@ import {
   sampleSpatialRoute,
 } from '@found-in-space/spatial';
 
+const space = Object.freeze({ frameId: 'spatial:example-icrs', metersPerUnit: SPATIAL_METERS_PER_PARSEC });
+
 const COLORS = {
   direct: '#78dcff',
   inertial: '#ffc778',
@@ -24,15 +27,15 @@ const COLORS = {
   text: '#ecf6ff',
 };
 
-const originPose = Object.freeze({
-  observerPc: Object.freeze({ x: 0, y: 0, z: 0 }),
-  orientationIcrs: SPATIAL_IDENTITY_QUATERNION,
+const originPose = Object.freeze({ space,
+  position: Object.freeze({ x: 0, y: 0, z: 0 }),
+  orientation: SPATIAL_IDENTITY_QUATERNION,
 });
 
 const navigationStart = Object.freeze({ x: -8, y: 0, z: -4 });
-const orbit = Object.freeze({
-  centerPc: Object.freeze({ x: 4, y: 0, z: 0 }),
-  radiusPc: 3,
+const orbit = Object.freeze({ space,
+  center: Object.freeze({ x: 4, y: 0, z: 0 }),
+  radius: 3,
   orbitNormal: Object.freeze({ x: 0, y: 1, z: 0 }),
   referenceAxis: Object.freeze({ x: 1, y: 0, z: 0 }),
   handedness: 1,
@@ -40,8 +43,8 @@ const orbit = Object.freeze({
   angularSpeedRadPerSec: 0.7,
 });
 
-const route = buildSpatialPolylineRoute({
-  pointsPc: [
+const route = buildSpatialPolylineRoute({ space,
+  points: [
     navigationStart,
     { x: -5, y: 0, z: 3 },
     { x: 0, y: 0, z: -2 },
@@ -49,13 +52,13 @@ const route = buildSpatialPolylineRoute({
   ],
   travel: {
     kind: 'polyline',
-    timing: {
+    timing: { space,
       kind: 'trapezoid',
       durationSecs: 6,
-      departureSpeedPcPerSec: 0,
-      arrivalSpeedPcPerSec: orbit.radiusPc * orbit.angularSpeedRadPerSec,
-      accelerationPcPerSec2: 2,
-      decelerationPcPerSec2: 2,
+      departureSpeedUnitsPerSec: 0,
+      arrivalSpeedUnitsPerSec: orbit.radius * orbit.angularSpeedRadPerSec,
+      accelerationUnitsPerSec2: 2,
+      decelerationUnitsPerSec2: 2,
     },
   },
   arrivalAction: {
@@ -127,8 +130,8 @@ function main() {
       {
         id: 'direct',
         label: 'Direct',
-        model: createDirectSpatialMotionModel({
-          moveSpeedPcPerSec: 4,
+        model: createDirectSpatialMotionModel({ space,
+          moveSpeedUnitsPerSec: 4,
           boostMultiplier: 2,
           yawRateRadPerSec: 1.2,
           pitchRateRadPerSec: 1.2,
@@ -140,11 +143,11 @@ function main() {
       {
         id: 'inertial',
         label: 'Inertial',
-        model: createInertialSpatialMotionModel({
-          moveSpeedPcPerSec: 4,
-          accelerationPcPerSec2: 3,
+        model: createInertialSpatialMotionModel({ space,
+          moveSpeedUnitsPerSec: 4,
+          accelerationUnitsPerSec2: 3,
           damping: 0.75,
-          maxSpeedPcPerSec: 6,
+          maxSpeedUnitsPerSec: 6,
           boostMultiplier: 2,
           yawRateRadPerSec: 1.2,
           pitchRateRadPerSec: 1.2,
@@ -156,12 +159,12 @@ function main() {
       {
         id: 'thrust',
         label: 'Thrust',
-        model: createThrustSpatialMotionModel({
-          moveSpeedPcPerSec: 4,
-          thrustPcPerSec2: 6,
+        model: createThrustSpatialMotionModel({ space,
+          moveSpeedUnitsPerSec: 4,
+          thrustUnitsPerSec2: 6,
           mass: 2,
           drag: 0.28,
-          maxSpeedPcPerSec: 6,
+          maxSpeedUnitsPerSec: 6,
           boostMultiplier: 2,
           yawRateRadPerSec: 1.2,
           pitchRateRadPerSec: 1.2,
@@ -175,10 +178,10 @@ function main() {
 
   function resetNavigation() {
     navigation?.dispose();
-    navigation = createSpatialNavigationAutomation();
-    navigationPose = {
-      observerPc: { ...navigationStart },
-      orientationIcrs: { ...SPATIAL_IDENTITY_QUATERNION },
+    navigation = createSpatialNavigationAutomation(space);
+    navigationPose = { space,
+      position: { ...navigationStart },
+      orientation: { ...SPATIAL_IDENTITY_QUATERNION },
     };
     navigationTrail = [{ ...navigationStart }];
     manualLookActive = false;
@@ -208,9 +211,9 @@ function main() {
     required('[data-control="manual-look"]').addEventListener('change', (event) => {
       manualLookActive = event.currentTarget.checked;
       if (manualLookActive) {
-        navigationPose = {
+        navigationPose = { space,
           ...navigationPose,
-          orientationIcrs: createSpatialQuaternionFromAxisAngle(
+          orientation: createSpatialQuaternionFromAxisAngle(
             { x: 0, y: 1, z: 0 },
             Math.PI * 0.72,
           ),
@@ -248,14 +251,14 @@ function main() {
   function runNavigationAction(action) {
     if (action === 'route') {
       navigation.cancel();
-      navigationPose = {
-        observerPc: { ...navigationStart },
-        orientationIcrs: { ...SPATIAL_IDENTITY_QUATERNION },
+      navigationPose = { space,
+        position: { ...navigationStart },
+        orientation: { ...SPATIAL_IDENTITY_QUATERNION },
       };
       navigationTrail = [{ ...navigationStart }];
-      navigation.lookAt({
+      navigation.lookAt({ space,
         kind: 'direction',
-        forwardIcrs: { x: 0.35, y: 0.12, z: 1 },
+        forward: { x: 0.35, y: 0.12, z: 1 },
         source: { kind: 'example', id: 'preserved-route-aim' },
       });
       navigation.flyRoute(route);
@@ -263,17 +266,17 @@ function main() {
       return;
     }
     if (action === 'orbit') {
-      navigation.orbit(deriveSpatialOrbitHandoff({
-        positionPc: navigationPose.observerPc,
+      navigation.orbit(deriveSpatialOrbitHandoff({ space,
+        position: navigationPose.position,
         orbit,
       }).orbit);
       lastCommand = 'orbit(handoff.orbit) · radius snap';
       return;
     }
     if (action === 'lock') {
-      navigation.lockAt({
+      navigation.lockAt({ space,
         kind: 'target',
-        targetPc: orbit.centerPc,
+        target: orbit.center,
         lock: true,
         source: { kind: 'example', id: 'orbit-center-lock' },
       });
@@ -281,9 +284,9 @@ function main() {
       return;
     }
     if (action === 'look') {
-      navigation.lookAt({
+      navigation.lookAt({ space,
         kind: 'direction',
-        forwardIcrs: { x: 0, y: 0, z: 1 },
+        forward: { x: 0, y: 0, z: 1 },
         source: { kind: 'example', id: 'positive-z' },
       });
       lastCommand = 'lookAt(+Z)';
@@ -313,12 +316,10 @@ function main() {
           controls: controlReader,
           deltaSecs,
           scale: {
-            navigationUnits: 'pc',
-            metersPerNavigationUnit: 3.085677581491367e16,
-            worldUnitsPerNavigationUnit: 1,
+            worldUnitsPerUnit: 1,
           },
         });
-        appendTrail(entry.trail, entry.pose.observerPc, 360);
+        appendTrail(entry.trail, entry.pose.position, 360);
       }
 
       navigationPose = navigation.update({
@@ -326,7 +327,7 @@ function main() {
         deltaSecs,
         manualLookActive,
       });
-      appendTrail(navigationTrail, navigationPose.observerPc, 520);
+      appendTrail(navigationTrail, navigationPose.position, 520);
     }
 
     drawMotionComparison(motionCanvas, motionContext, models);
@@ -351,9 +352,9 @@ function main() {
       y: height - 34 - ((point.z - bounds.minZ) / (bounds.maxZ - bounds.minZ)) * (height - 68),
     });
 
-    drawPolyline(context, routeSamples.map((sample) => project(sample.positionPc)), COLORS.route, 2);
-    const center = project(orbit.centerPc);
-    const edge = project({ x: orbit.centerPc.x + orbit.radiusPc, y: 0, z: orbit.centerPc.z });
+    drawPolyline(context, routeSamples.map((sample) => project(sample.position)), COLORS.route, 2);
+    const center = project(orbit.center);
+    const edge = project({ x: orbit.center.x + orbit.radius, y: 0, z: orbit.center.z });
     context.strokeStyle = COLORS.orbit;
     context.lineWidth = 1.5;
     context.setLineDash([7, 5]);
@@ -363,12 +364,12 @@ function main() {
     context.setLineDash([]);
 
     drawPolyline(context, trail.map(project), 'rgba(255,255,255,0.38)', 1.2);
-    const observer = project(pose.observerPc);
-    const forward = applySpatialQuaternion(SPATIAL_LOCAL_FORWARD, pose.orientationIcrs);
+    const observer = project(pose.position);
+    const forward = applySpatialQuaternion(SPATIAL_LOCAL_FORWARD, pose.orientation);
     const forwardEnd = project({
-      x: pose.observerPc.x + forward.x * 2.2,
-      y: pose.observerPc.y + forward.y * 2.2,
-      z: pose.observerPc.z + forward.z * 2.2,
+      x: pose.position.x + forward.x * 2.2,
+      y: pose.position.y + forward.y * 2.2,
+      z: pose.position.z + forward.z * 2.2,
     });
     drawArrow(context, observer, forwardEnd, COLORS.aim);
     drawDot(context, observer, 6, COLORS.text);
@@ -396,7 +397,7 @@ function main() {
       const snapshot = entry.model.getSnapshot();
       const element = document.createElement('div');
       element.className = 'model-readout';
-      element.innerHTML = `<strong style="color:${COLORS[entry.id]}">${entry.label}</strong><span>${formatNumber(snapshot.speedPcPerSec)} pc/s · ${formatVector(entry.pose.observerPc)}</span>`;
+      element.innerHTML = `<strong style="color:${COLORS[entry.id]}">${entry.label}</strong><span>${formatNumber(snapshot.speedUnitsPerSec)} pc/s · ${formatVector(entry.pose.position)}</span>`;
       return element;
     }));
 
@@ -410,7 +411,7 @@ function main() {
     required('[data-status="navigation"]').textContent = lastCommand;
     required('[data-nav-readout="movement"]').textContent = movementKind;
     required('[data-nav-readout="aim"]').textContent = manualLookActive ? `${aimKind} (manual override)` : aimKind;
-    required('[data-nav-readout="speed"]').textContent = `${formatNumber(diagnostics.currentSpeedPcPerSec)} pc/s`;
+    required('[data-nav-readout="speed"]').textContent = `${formatNumber(diagnostics.currentSpeedUnitsPerSec)} pc/s`;
     required('[data-nav-readout="arrival"]').textContent = settle
       ? `settling ${formatNumber(settle.elapsedSecs)}/${formatNumber(settle.durationSecs)} s`
       : diagnostics.arrivalAction?.kind ?? 'none';
@@ -418,12 +419,12 @@ function main() {
     required('[data-json="diagnostics"]').textContent = stringify({
       activeMovement: diagnostics.activeMovement && {
         kind: diagnostics.activeMovement.kind,
-        distancePc: diagnostics.activeMovement.distancePc,
-        totalLengthPc: diagnostics.activeMovement.totalLengthPc,
-        speedPcPerSec: diagnostics.activeMovement.speedPcPerSec,
+        distance: diagnostics.activeMovement.distance,
+        totalLength: diagnostics.activeMovement.totalLength,
+        speedUnitsPerSec: diagnostics.activeMovement.speedUnitsPerSec,
         orbit: diagnostics.activeMovement.orbit && {
           angleRad: diagnostics.activeMovement.orbit.angleRad,
-          speedPcPerSec: diagnostics.activeMovement.orbit.speedPcPerSec,
+          speedUnitsPerSec: diagnostics.activeMovement.orbit.speedUnitsPerSec,
         },
       },
       activeAim: diagnostics.activeAim && {
@@ -431,7 +432,7 @@ function main() {
         manualLookActive: diagnostics.activeAim.manualLookActive ?? false,
         targetLocked: Boolean(diagnostics.activeAim.targetLock),
       },
-      currentSpeedPcPerSec: diagnostics.currentSpeedPcPerSec,
+      currentSpeedUnitsPerSec: diagnostics.currentSpeedUnitsPerSec,
       pendingSettle: diagnostics.pendingSettle,
       arrivalAction: diagnostics.arrivalAction?.kind ?? null,
       navigationWarnings: diagnostics.warnings,
@@ -444,13 +445,13 @@ function main() {
   function renderStaticCommands() {
     required('[data-json="commands"]').textContent = stringify({
       manualModels: [
-        ['createDirectSpatialMotionModel', { moveSpeedPcPerSec: 4 }],
-        ['createInertialSpatialMotionModel', { accelerationPcPerSec2: 3, damping: 0.75, maxSpeedPcPerSec: 6 }],
-        ['createThrustSpatialMotionModel', { thrustPcPerSec2: 6, mass: 2, drag: 0.28, maxSpeedPcPerSec: 6 }],
+        ['createDirectSpatialMotionModel', { moveSpeedUnitsPerSec: 4 }],
+        ['createInertialSpatialMotionModel', { accelerationUnitsPerSec2: 3, damping: 0.75, maxSpeedUnitsPerSec: 6 }],
+        ['createThrustSpatialMotionModel', { thrustUnitsPerSec2: 6, mass: 2, drag: 0.28, maxSpeedUnitsPerSec: 6 }],
       ],
-      route: {
+      route: { space,
         builder: 'buildSpatialPolylineRoute',
-        pointsPc: route.pointsPc,
+        points: route.points,
         timing: route.timing,
         arrivalAction: route.arrivalAction,
       },
@@ -496,8 +497,8 @@ function drawMotionComparison(canvas, context, models) {
       y: panelTop + panelHeight / 2 - (point.z / extent) * panelHeight * 0.43,
     });
     drawPolyline(context, entry.trail.map(project), COLORS[entry.id], 2);
-    const position = project(entry.pose.observerPc);
-    const forward = applySpatialQuaternion(SPATIAL_LOCAL_FORWARD, entry.pose.orientationIcrs);
+    const position = project(entry.pose.position);
+    const forward = applySpatialQuaternion(SPATIAL_LOCAL_FORWARD, entry.pose.orientation);
     drawArrow(context, position, {
       x: position.x + forward.x * 24,
       y: position.y - forward.z * 24,
@@ -510,7 +511,7 @@ function drawMotionComparison(canvas, context, models) {
     context.fillText(entry.label.toUpperCase(), left + 13, panelTop + 22);
     context.fillStyle = COLORS.muted;
     context.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
-    context.fillText(`${formatNumber(entry.model.getSnapshot().speedPcPerSec)} pc/s`, left + 13, panelTop + 39);
+    context.fillText(`${formatNumber(entry.model.getSnapshot().speedUnitsPerSec)} pc/s`, left + 13, panelTop + 39);
   });
   context.restore();
 }
@@ -596,9 +597,9 @@ function axisSample(x, y) {
 }
 
 function clonePose(pose) {
-  return {
-    observerPc: { ...pose.observerPc },
-    orientationIcrs: { ...pose.orientationIcrs },
+  return { space,
+    position: { ...pose.position },
+    orientation: { ...pose.orientation },
   };
 }
 

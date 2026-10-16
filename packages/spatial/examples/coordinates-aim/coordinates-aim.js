@@ -1,11 +1,12 @@
 import {
+  SPATIAL_METERS_PER_PARSEC,
   SPATIAL_LOCAL_FORWARD,
   SPATIAL_LOCAL_RIGHT,
   SPATIAL_LOCAL_UP,
   applySpatialQuaternion,
   evaluateSpatialAim,
   getSpatialVectorLength,
-  icrsDirectionToTargetPc,
+  icrsDirectionToTarget,
   icrsToRaDec,
   normalizeSpatialAimSpec,
   normalizeSpatialDirection,
@@ -15,6 +16,8 @@ import {
   resolveSpatialTarget,
   subtractSpatialVectors,
 } from '@found-in-space/spatial';
+
+const space = Object.freeze({ frameId: 'spatial:example-icrs', metersPerUnit: SPATIAL_METERS_PER_PARSEC });
 
 const form = document.querySelector('[data-controls]');
 const canvas = document.querySelector('[data-visualization]');
@@ -71,12 +74,12 @@ function update() {
 }
 
 function readAuthoredValues() {
-  return {
+  return { space,
     semantics: fields.semantics.value,
     raDeg: numberFromInput(fields.raDeg),
     decDeg: numberFromInput(fields.decDeg),
-    distancePc: numberFromInput(fields.distancePc),
-    observerPc: {
+    distance: numberFromInput(fields.distance),
+    position: {
       x: numberFromInput(fields.observerX),
       y: numberFromInput(fields.observerY),
       z: numberFromInput(fields.observerZ),
@@ -87,64 +90,65 @@ function readAuthoredValues() {
 }
 
 function evaluateAuthoredValues(authored) {
-  const targetSpec = normalizeSpatialTarget({
+  const targetSpec = normalizeSpatialTarget({ space,
     kind: 'radec',
     raDeg: authored.raDeg,
     decDeg: authored.decDeg,
-    distancePc: authored.distancePc,
+    distance: authored.distance,
   });
-  const resolvedTargetPc = resolveSpatialTarget(targetSpec);
-  if (!resolvedTargetPc || typeof resolvedTargetPc.then === 'function') {
+  const resolvedTarget = resolveSpatialTarget(targetSpec);
+  if (!resolvedTarget || typeof resolvedTarget.then === 'function') {
     throw new Error('The synchronous RA/Dec target did not resolve to a position.');
   }
 
-  const authoredDirectionIcrs = raDecToIcrsDirection({
+  const authoredDirection = raDecToIcrsDirection({
     raDeg: authored.raDeg,
     decDeg: authored.decDeg,
   });
-  if (!authoredDirectionIcrs) {
+  if (!authoredDirection) {
     throw new TypeError('RA and Dec must resolve to an ICRS direction.');
   }
 
-  const targetOffset = subtractSpatialVectors(resolvedTargetPc, authored.observerPc);
-  const targetDistanceFromObserverPc = getSpatialVectorLength(targetOffset);
-  const expectedForwardIcrs = authored.semantics === 'target'
+  const targetOffset = subtractSpatialVectors(resolvedTarget, authored.position);
+  const targetDistanceFromObserver = getSpatialVectorLength(targetOffset);
+  const expectedForward = authored.semantics === 'target'
     ? normalizeSpatialDirection(targetOffset)
-    : authoredDirectionIcrs;
-  const aimSpec = normalizeSpatialAimSpec({
+    : authoredDirection;
+  const aimSpec = normalizeSpatialAimSpec({ space,
     ...(authored.semantics === 'target'
-      ? { kind: 'target', targetPc: resolvedTargetPc }
-      : { kind: 'direction', forwardIcrs: authoredDirectionIcrs }),
+      ? { space, kind: 'target', target: resolvedTarget }
+      : { space, kind: 'direction', forward: authoredDirection }),
     positionAngleDeg: authored.positionAngleDeg,
-    ...(authored.degenerateUp ? { upIcrs: expectedForwardIcrs } : {}),
+    ...(authored.degenerateUp ? { up: expectedForward } : {}),
   });
-  const aimInput = {
-    observerPc: authored.observerPc,
+  const aimInput = { space,
+    position: authored.position,
     aim: aimSpec,
-    syntheticTargetDistancePc: authored.distancePc,
+    syntheticTargetDistance: authored.distance,
   };
   const aimSample = evaluateSpatialAim(aimInput);
-  const directionTargetPc = icrsDirectionToTargetPc(
-    authoredDirectionIcrs,
-    authored.distancePc,
-    authored.observerPc,
+  const directionTarget = icrsDirectionToTarget(
+    authoredDirection,
+    authored.distance,
+    space,
+    authored.position,
   );
-  if (!directionTargetPc) {
+  if (!directionTarget) {
     throw new Error('The direction could not be materialized for the round-trip comparison.');
   }
 
-  const originRaDec = icrsToRaDec(resolvedTargetPc);
-  const observerRaDec = icrsToRaDec(resolvedTargetPc, authored.observerPc);
-  const directionRaDec = icrsToRaDec(directionTargetPc, authored.observerPc);
-  const evaluatedRaDec = icrsToRaDec(aimSample.forwardIcrs);
+  const originRaDec = icrsToRaDec(resolvedTarget);
+  const observerRaDec = icrsToRaDec(resolvedTarget, authored.position);
+  const directionRaDec = icrsToRaDec(directionTarget, authored.position);
+  const evaluatedRaDec = icrsToRaDec(aimSample.forward);
   if (!originRaDec || !evaluatedRaDec || !directionRaDec) {
     throw new Error('The evaluated coordinate could not be converted back to RA/Dec.');
   }
 
-  const orientationBasisIcrs = {
-    right: applySpatialQuaternion(SPATIAL_LOCAL_RIGHT, aimSample.orientationIcrs),
-    up: applySpatialQuaternion(SPATIAL_LOCAL_UP, aimSample.orientationIcrs),
-    forward: applySpatialQuaternion(SPATIAL_LOCAL_FORWARD, aimSample.orientationIcrs),
+  const orientationBasis = {
+    right: applySpatialQuaternion(SPATIAL_LOCAL_RIGHT, aimSample.orientation),
+    up: applySpatialQuaternion(SPATIAL_LOCAL_UP, aimSample.orientation),
+    forward: applySpatialQuaternion(SPATIAL_LOCAL_FORWARD, aimSample.orientation),
   };
   const stableProjection = {
     authored: projectSpatialEquirectangular({
@@ -171,23 +175,23 @@ function evaluateAuthoredValues(authored) {
       },
     },
     result: {
-      resolvedTargetPc,
-      authoredDirectionIcrs,
+      resolvedTarget,
+      authoredDirection,
       aimSample,
-      orientationBasisIcrs,
+      orientationBasis,
       roundTrip: {
         resolvedTargetAtIcrsOrigin: {
           ...originRaDec,
-          distancePc: getSpatialVectorLength(resolvedTargetPc),
+          distance: getSpatialVectorLength(resolvedTarget),
         },
         resolvedTargetAtObserver: observerRaDec
-          ? { ...observerRaDec, distancePc: targetDistanceFromObserverPc }
+          ? { ...observerRaDec, distance: targetDistanceFromObserver }
           : null,
-        directionAtObserver: {
-          targetPc: directionTargetPc,
+        directionAtObserver: { space,
+          target: directionTarget,
           ...directionRaDec,
-          distancePc: getSpatialVectorLength(
-            subtractSpatialVectors(directionTargetPc, authored.observerPc),
+          distance: getSpatialVectorLength(
+            subtractSpatialVectors(directionTarget, authored.position),
           ),
         },
       },
@@ -203,16 +207,16 @@ function evaluateAuthoredValues(authored) {
 
 function renderReadouts(model) {
   const { authored, result } = model;
-  output.resolvedPosition.textContent = formatVector(result.resolvedTargetPc, ' pc');
-  output.evaluatedForward.textContent = formatVector(result.aimSample.forwardIcrs);
+  output.resolvedPosition.textContent = formatVector(result.resolvedTarget, ' pc');
+  output.evaluatedForward.textContent = formatVector(result.aimSample.forward);
   output.roundTripOrigin.textContent = formatRaDec(
     result.roundTrip.resolvedTargetAtIcrsOrigin,
-    result.roundTrip.resolvedTargetAtIcrsOrigin.distancePc,
+    result.roundTrip.resolvedTargetAtIcrsOrigin.distance,
   );
   output.roundTripObserver.textContent = result.roundTrip.resolvedTargetAtObserver
     ? formatRaDec(
         result.roundTrip.resolvedTargetAtObserver,
-        result.roundTrip.resolvedTargetAtObserver.distancePc,
+        result.roundTrip.resolvedTargetAtObserver.distance,
       )
     : 'Target coincides with observer; RA/Dec is undefined.';
   output.semantics.textContent = authored.semantics === 'target'
@@ -385,7 +389,7 @@ function drawOrientationBasis(model, area) {
     drawBasisArrow(center, axis.vector, scale, 'rgba(150, 170, 195, 0.28)', axis.label, false);
   }
 
-  const basis = model.result.orientationBasisIcrs;
+  const basis = model.result.orientationBasis;
   drawBasisArrow(center, basis.right, scale, '#ff8f91', 'local +X · right', true);
   drawBasisArrow(center, basis.up, scale, '#73e6ae', 'local +Y · up', true);
   drawBasisArrow(center, basis.forward, scale, '#72d9ff', 'local −Z · forward', true);
@@ -409,7 +413,7 @@ function drawOrientationBasis(model, area) {
   });
   context.fillStyle = '#7890aa';
   context.fillText(
-    `q ${formatQuaternion(model.result.aimSample.orientationIcrs)}`,
+    `q ${formatQuaternion(model.result.aimSample.orientation)}`,
     textX,
     textY + rows.length * 24 + 8,
   );
@@ -498,9 +502,9 @@ function numberFromInput(input) {
   return value === '' ? Number.NaN : Number(value);
 }
 
-function formatRaDec(value, distancePc) {
+function formatRaDec(value, distance) {
   if (!value) return 'undefined';
-  return `RA ${formatNumber(value.raDeg, 5)}° · Dec ${formatSigned(value.decDeg, 5)}° · ${formatNumber(distancePc, 5)} pc`;
+  return `RA ${formatNumber(value.raDeg, 5)}° · Dec ${formatSigned(value.decDeg, 5)}° · ${formatNumber(distance, 5)} pc`;
 }
 
 function formatVector(vector, suffix = '') {

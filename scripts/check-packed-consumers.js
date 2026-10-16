@@ -73,6 +73,31 @@ if (existsSync(touchOsRoot)) {
 await import('@found-in-space/skykit');
 await import('@found-in-space/hr-diagram');
 console.log('ordinary SkyKit and HR roots imported without touch-os');
+
+const spatial = await import('@found-in-space/spatial');
+const skykit = await import('@found-in-space/skykit');
+const space = { frameId: 'packed:physical', metersPerUnit: 1 };
+const route = spatial.buildSpatialPolylineRoute({ space,
+  points: [{ x: 0, y: 0, z: 0 }, { x: 100, y: 0, z: 0 }],
+  travel: { kind: 'polyline', timing: { kind: 'constantSpeed', speedUnitsPerSec: 10 } },
+});
+if (spatial.evaluateSpatialRoute(route, 2).position.x !== 20) {
+  throw new Error('packed spatial modules did not evaluate a physical route');
+}
+const renderer = { render() {}, setSize() {}, dispose() {} };
+const viewer = await skykit.createSkykitViewer({ renderer,
+  plugins: [skykit.createSkykitNavigationPlugin()],
+});
+await viewer.actions.invoke(skykit.SKYKIT_ACTIONS.navigation.flyTo, {
+  targetPc: { x: 10, y: 0, z: 0 }, durationSecs: 2,
+});
+viewer.update(1);
+viewer.update(0);
+if (!(viewer.getViewState().observerPc.x > 0)) {
+  throw new Error('packed SkyKit did not bridge its parsec view into contextual navigation');
+}
+await viewer.dispose();
+console.log('packed spatial modules and SkyKit navigation evaluated without workspace links');
   `);
   run('node', ['check.mjs'], consumerDir);
 }
@@ -119,6 +144,15 @@ import {
   type TouchOsActionOutputMode,
 } from '@found-in-space/skykit/touch-os';
 import { createHrDiagramEmbeddedSurfaceNode } from '@found-in-space/hr-diagram/touch-os';
+import { normalizeSpatialPose, buildSpatialPolylineRoute } from '@found-in-space/spatial';
+
+const space = { frameId: 'packed:physical', metersPerUnit: 1 };
+const pose = normalizeSpatialPose({ space });
+buildSpatialPolylineRoute({ space, points: [pose.position],
+  travel: { kind: 'polyline', timing: { kind: 'duration', durationSecs: 1 } },
+});
+// @ts-expect-error Spatial poses use their declared coordinate context.
+normalizeSpatialPose({ observerPc: { x: 0, y: 0, z: 0 } });
 
 declare const root: DisplayNode;
 const actionOutputMode: TouchOsActionOutputMode = 'app-actions';
