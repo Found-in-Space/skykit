@@ -2908,6 +2908,13 @@ test('spatial preload adapters convert declared units once and reject unrelated 
   assert.equal(lookahead.length, 2);
   assert.deepEqual(lookahead[0].view.observerPc, { x: 1, y: 0, z: 0 });
   assert.deepEqual(lookahead[0].view.motion.velocityPcPerSec, { x: 1, y: 0, z: 0 });
+  const [sphere] = createSkykitStarPreloadRequestsFromSpatialHints([
+    { space, kind: 'sphereVolume', center: { x: 2 * pc, y: 0, z: 0 }, radius: pc },
+  ]);
+  const evaluator = sphere.strategy.createEvaluator(sphere.strategy.createAnchor({}));
+  const cell = { centerX: 2.5, centerY: 0, centerZ: 0, halfSize: 0, level: 0, mortonCode: '0' };
+  assert.equal(evaluator.evaluateCell(cell).include, true);
+  assert.equal(evaluator.evaluateCell({ ...cell, centerX: 3.5 }).include, false);
   assert.throws(() => createSkykitStarPreloadRequestsFromSpatialHints([
     { ...hints[0], space: { ...space, frameId: 'another-origin' } },
   ]), RangeError);

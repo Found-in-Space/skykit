@@ -676,7 +676,7 @@ export function createSkykitStarPreloadRequestsFromSpatialHints(hints, options =
       requests.push({
         strategy: createWarmStrategy(createSphereVolumeStrategy({
           centerPc: transformSpatialPoint(conversion, hint.center),
-          radiusPc: hint.radius,
+          radiusPc: hint.radius * unitsToPc,
         }), {
           reason: 'spatial-preload',
           scoreBias: finiteNumber(hint.priority, 0),

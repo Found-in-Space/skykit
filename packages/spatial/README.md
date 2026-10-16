@@ -3,9 +3,9 @@
 Dependency-free coordinates, transforms, poses, aims, routes, paths, timing,
 preload volumes, manual motion, and navigation automation.
 
-This source implements the **breaking 0.3.0-alpha.0 API**. It is distinct from
-published spatial 0.2.0. Use the matching packed alpha or a compatible release
-batch; changing an installed 0.2.0 package in place will break its consumers.
+This source implements the **breaking 0.3.0-alpha.1 API**. It is distinct from
+published spatial 0.2.0. Use this exact alpha with SkyKit 0.3.0-alpha.0 when
+composing both packages; 0.2.0 consumers require their compatible spatial API.
 
 Coordinates declare their space. Stellar applications can use parsecs; Solar
 System applications can use metres or AU. An operation's nested geometry inherits

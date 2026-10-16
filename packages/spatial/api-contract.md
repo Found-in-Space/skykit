@@ -1,6 +1,6 @@
 # Spatial API contract
 
-Status: canonical contract for source version **0.3.0-alpha.0**. This is a
+Status: canonical contract for source version **0.3.0-alpha.1**. This is a
 breaking alpha reset. Published 0.2.0 and earlier source APIs are not compatible.
 There are no legacy input aliases, deprecated exports, or compatibility paths.
 
