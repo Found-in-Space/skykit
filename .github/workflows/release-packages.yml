@@ -27,6 +27,11 @@ jobs:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
+      - name: Prepare the required TouchOS prerelease
+        run: |
+          mkdir -p .packages
+          npm pack @found-in-space/touch-os@0.4.0-alpha.0 --pack-destination .packages
+          mv .packages/found-in-space-touch-os-0.4.0-alpha.0.tgz .packages/touch-os.tgz
       - run: npm ci
       - name: Install Chromium for the browser smoke test
         run: npx playwright install --with-deps chromium

@@ -74,3 +74,25 @@ field.dispose();
 Picking returns the public `cellKey`, `objectIndex`, optional `StarObjectRef`,
 optional `StarPickMeta`, apparent magnitude, visual radius, and distance. It
 does not invent a renderer-specific star ID.
+
+## Shared panel and scene interaction (development)
+
+`@found-in-space/three-star-field/interaction` exports `createThreeStarFieldTarget`.
+Register it with TouchOS 0.4's `ui.registerTarget(...)` alongside panel views:
+
+```js
+import { createThreeStarFieldTarget } from '@found-in-space/three-star-field/interaction';
+const unregister = ui.registerTarget(createThreeStarFieldTarget({
+  id: 'stars', field, pickOptions: { toleranceDeg: 0.8 },
+  onSelect(result) { selectStar(result.objectRef, result); }
+}));
+```
+
+The pure query delegates to `field.pick(ray, options)`, preserving its angular
+tolerance, scoring, `StarObjectRef`, cell and metadata. It returns one aggregate
+target with a semantic entity identity, and converts the chosen local point to
+world metres for cross-target arbitration. A domain score is never treated as
+panel distance. Panel capture prevents selection behind a slider, including
+release outside the panel. Unregister before disposing the field. This subpath
+adds no runtime dependency on TouchOS; its type contract uses the optional peer.
+Packed composition checks run with TouchOS 0.4.0-alpha.0 and pointer-events 6.6.32.

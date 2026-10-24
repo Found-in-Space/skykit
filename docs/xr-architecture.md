@@ -7,8 +7,9 @@ This note defines the split between shared spatial navigation and WebXR-specific
 runtime behavior.
 
 The public website remains pinned to stable SkyKit `0.2.0` while this repository
-develops the broader `0.3.0` XR API. The repository bridge and examples resolve
-the published `@found-in-space/touch-os@0.3.0` package by default; they do not
+develops the broader `0.3.0` XR API. The current shared-interaction development batch requires TouchOS 0.4.0-alpha.0;
+run `npm run prepare:interaction` before `npm ci` (see the package README).
+The repository bridge and examples use that installed archive; they do not
 silently alias a sibling source checkout. Repository examples and deterministic
 fake-XR/browser tests validate the new API until a coordinated stable SkyKit
 release is available. See

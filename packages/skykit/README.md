@@ -573,16 +573,16 @@ Three panel output into SkyKit actions. It keeps panel rendering, layout, and
 pointer capture in touch-os while SkyKit owns frame adaptation, plugin
 lifecycle, and semantic action routing.
 
-Install the published stable touch-os release when using this subpath:
+This development version requires TouchOS `0.4.0-alpha.0` for its optional
+interaction contracts. Once that coordinated prerelease is published:
 
 ```sh
-npm install @found-in-space/skykit @found-in-space/touch-os@0.3.0 three
+npm install @found-in-space/skykit @found-in-space/touch-os@0.4.0-alpha.0 @pmndrs/pointer-events@6.6.32 three
 ```
 
 The ordinary `@found-in-space/skykit` entrypoint does not import touch-os at
-runtime and remains usable without that optional peer. Repository installs and
-builds resolve the registry package by default; a sibling touch-os checkout is
-not an implicit alias.
+runtime and remains usable without that optional peer. The private workspace prepares a packed local dependency as described below;
+public package manifests declare the required version. No source alias is used.
 
 ```js
 import {
@@ -768,3 +768,42 @@ SkyKit composes reusable modules:
 
 Core SkyKit should stay a teaching/composition layer, not a place for sidecars,
 journey logic, renderer internals, or experimental data lanes.
+
+## Shared UI interaction (development)
+
+The optional `@found-in-space/skykit/interaction` subpath provides
+`createSkykitInteractionInput({ renderer, origin })` and
+`createSkykitInteractionPlugin({ environment })` for TouchOS 0.4. The input adapter
+tracks source connections, mounts borrowed Three controller/grip objects beneath
+an XR-owned metre-space origin, forwards WebXR selection semantics, and restores
+parents on disposal. `getGripPose('left')` supplies panel placement without
+assuming that inputSources array order is a controller-slot identity. Handedness
+is a placement attribute, not source identity. Construct one shared environment
+for panels and scene targets; install the specialized star target from
+`@found-in-space/three-star-field/interaction`. Do not run the legacy star-pick
+router in parallel for those same activation inputs.
+
+For local development, run `npm run prepare:interaction` before `npm ci`. It
+builds the sibling TouchOS checkout, saves `.packages/touch-os.tgz`, and uses
+normal npm installation to record its integrity in the workspace lockfile.
+`npm ci` then reinstalls that same prepared package. To also prepare Geant, run
+`node scripts/stage-interaction-development.mjs ../touch-os ../pas-de-geant`.
+Re-run preparation after producer changes. The private root's file dependency
+and override never appear in the public package's peer contract.
+
+`npm run test:interaction:package` installs the packed public package graph
+without overrides or aliases, runs real star picking and XR input tests, checks
+external TypeScript declarations, and verifies npm identifies TouchOS 0.3 as an invalid dependency graph. Pass
+`../pas-de-geant` as the script's second argument to include Geant panel actions.
+`npm run release:check-packed-consumers` also checks legacy optional entrypoints
+and ordinary imports without TouchOS.
+
+TouchOS 0.4.0-alpha.0 is not yet published. Registry-only consumers and CI require
+that producer publication first. CI prepares the exact version before `npm ci`;
+refresh the workspace lock against the published archive as part of the release
+handoff. Local packed tests establish compatibility, not registry availability.
+
+The Geant development batch also prepares the sibling VoiceOS 0.1.0-alpha.2
+archive, whose optional peer admits TouchOS 0.4.0-alpha.0. Its published
+predecessor only admits TouchOS 0.3; coordinated publication must include this
+metadata update. Voice transport behavior is unchanged and tested offline.

@@ -1,6 +1,6 @@
 {
   "name": "@found-in-space/skykit",
-  "version": "0.3.0-alpha.0",
+  "version": "0.3.0-alpha.1",
   "description": "Slim composition and teaching layer for Found in Space packages",
   "license": "MIT",
   "type": "module",
@@ -54,6 +54,10 @@
     "./xr": {
       "types": "./src/xr.d.ts",
       "default": "./src/xr.js"
+    },
+    "./interaction": {
+      "types": "./src/interaction.d.ts",
+      "default": "./src/interaction.js"
     }
   },
   "files": [
@@ -70,18 +74,18 @@
   },
   "dependencies": {
     "@found-in-space/anchored-image": "0.2.0",
-    "@found-in-space/hr-diagram": "0.3.0-alpha.0",
+    "@found-in-space/hr-diagram": "0.3.0-alpha.1",
     "@found-in-space/meta-sidecar-provider": "0.2.1-alpha.0",
     "@found-in-space/spatial": "0.3.0-alpha.1",
     "@found-in-space/star-octree-provider": "0.3.0-alpha.0",
     "@found-in-space/star-trees": "0.2.1-alpha.0",
-    "@found-in-space/three-star-field": "0.3.0-alpha.0"
+    "@found-in-space/three-star-field": "0.3.0-alpha.1"
   },
   "devDependencies": {
-    "@found-in-space/touch-os": "0.3.0"
+    "@found-in-space/touch-os": "0.4.0-alpha.0"
   },
   "peerDependencies": {
-    "@found-in-space/touch-os": ">=0.3.0 <0.4.0",
+    "@found-in-space/touch-os": "0.4.0-alpha.0",
     "three": "^0.170.0"
   },
   "peerDependenciesMeta": {

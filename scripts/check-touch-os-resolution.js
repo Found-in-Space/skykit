@@ -7,10 +7,10 @@ import {
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const EXPECTED_VERSION = '0.3.0';
-const EXPECTED_PEER_RANGE = '>=0.3.0 <0.4.0';
+const EXPECTED_VERSION = '0.4.0-alpha.0';
+const EXPECTED_PEER_RANGE = '0.4.0-alpha.0';
 const PACKAGE_NAME = '@found-in-space/touch-os';
-const EXPECTED_TARBALL = 'https://registry.npmjs.org/@found-in-space/touch-os/-/touch-os-0.3.0.tgz';
+const EXPECTED_TARBALL = 'file:.packages/touch-os.tgz';
 const rootDir = process.cwd();
 
 if (String(process.env.TOUCH_OS_LOCAL_PATH ?? '').trim()) {
@@ -45,12 +45,12 @@ assertEqual(
 assertEqual(
   'packages/hr-diagram peerDependency',
   hrDiagramManifest.peerDependencies?.[PACKAGE_NAME],
-  EXPECTED_PEER_RANGE,
+  '>=0.3.0 <0.4.0 || 0.4.0-alpha.0',
 );
 
 const lockEntry = lock.packages?.[`node_modules/${PACKAGE_NAME}`];
 assertEqual('package-lock installed version', lockEntry?.version, EXPECTED_VERSION);
-assertEqual('package-lock registry tarball', lockEntry?.resolved, EXPECTED_TARBALL);
+assertEqual('package-lock development tarball', lockEntry?.resolved, EXPECTED_TARBALL);
 
 for (const configPath of ['vite.config.js', 'apps/examples/vite.config.js']) {
   const config = (await import(pathToFileURL(path.join(rootDir, configPath)).href)).default;
@@ -75,7 +75,7 @@ const packageManifest = JSON.parse(readFileSync(path.join(packageRoot, 'package.
 assertEqual('resolved package name', packageManifest.name, PACKAGE_NAME);
 assertEqual('resolved installed version', packageManifest.version, EXPECTED_VERSION);
 if (lstatSync(packageRoot).isSymbolicLink()) {
-  fail(`${PACKAGE_NAME} resolves through a symlink instead of the installed registry package.`);
+  fail(`${PACKAGE_NAME} resolves through a symlink instead of the installed package.`);
 }
 
 const expectedRoot = realpathSync(
