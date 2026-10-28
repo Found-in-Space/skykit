@@ -417,6 +417,10 @@ export function createSkykitXrSessionPlugin(options = {}) {
 
   /** @param {unknown} endedSession */
   async function detachEndedRendererSession(endedSession) {
+    // The handle's end listener is installed before Three binds the session.
+    // Let the renderer finish its native end handler before detaching leftovers;
+    // clearing its session during dispatch breaks Three's own cleanup.
+    await Promise.resolve();
     const rendererXr = resolveRendererXr(renderer ?? contextRenderer ?? context?.renderer);
     if (
       rendererXr

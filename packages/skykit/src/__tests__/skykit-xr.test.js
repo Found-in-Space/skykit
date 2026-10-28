@@ -565,6 +565,43 @@ test('skykit/xr native and explicit session ends share one cleanup lifecycle', a
   assert.equal(activeSession, null);
 });
 
+test('skykit/xr lets the renderer finish native end dispatch before fallback detach', async () => {
+  const session = createFakeXrSession();
+  let activeSession = null;
+  let rendererEnded = false;
+  let fallbackDetachCount = 0;
+  const renderer = { xr: {
+    isPresenting: false,
+    getSession() { return activeSession; },
+    setReferenceSpaceType() {},
+    async setSession(next) {
+      if (!next) fallbackDetachCount++;
+      activeSession = next;
+      this.isPresenting = Boolean(next);
+      if (next) next.addEventListener('end', () => {
+        // Three registers this after SkyKit's handle listener and still reads
+        // its session during dispatch. Premature setSession(null) breaks it.
+        assert.equal(activeSession, session);
+        rendererEnded = true;
+        activeSession = null;
+        this.isPresenting = false;
+      });
+    },
+  } };
+  const plugin = createSkykitXrSessionPlugin({ renderer, navigator: { xr: {
+    async isSessionSupported() { return true; },
+    async requestSession() { return session; },
+  } } });
+  plugin.setup(createPluginContext({ addPart() {} }));
+  await plugin.enter();
+  session.dispatchEnd();
+  await Promise.resolve();
+  assert.equal(rendererEnded, true);
+  assert.equal(activeSession, null);
+  assert.equal(fallbackDetachCount, 0);
+  assert.equal(plugin.getSnapshot().presenting, false);
+});
+
 test('skykit/xr explicit exit detaches an externally active renderer session', async () => {
   const externalSession = {
     endCount: 0,
