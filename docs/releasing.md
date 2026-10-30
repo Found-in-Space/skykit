@@ -4,10 +4,12 @@ SkyKit uses Changesets for the publishable `@found-in-space/*` packages under
 `packages/`. The repository root is a private workspace shell and is not
 published.
 
-The current publishable package manifests are independently versioned at
-`0.2.0`. Historical prerelease notes below are retained only for
-recovery/context; this checkout is not in Changesets prerelease mode because
-`.changeset/pre.json` is absent.
+This branch is in Changesets prerelease mode with the `alpha` tag recorded in
+`.changeset/pre.json`. The coordinated batch starts with SkyKit
+`0.3.0-alpha.0` and spatial `0.3.0-alpha.1`; the other packages retain independent
+versions. See [the batch release note](releases/0.3.0-alpha.0.md) for exact pins
+and migration details. Publishing this batch updates `alpha` and preserves the
+stable `latest` tag.
 
 ## Public Website Version Policy
 
@@ -90,6 +92,19 @@ changesets/action
 
 `changesets/action` either opens/updates the Changesets version pull request or
 publishes unpublished package versions that are already committed on `main`.
+
+An alpha prepared on a development branch can use the same trusted-publishing
+workflow without merging prerelease state into `main`. Commit the generated
+versions and lockfile, push that branch, then dispatch its exact ref:
+
+```sh
+gh workflow run release-packages.yml --ref <prepared-alpha-branch>
+```
+
+The workflow runs all normal release gates before publication. The action
+excludes changesets already recorded in `pre.json`, so a versioned alpha batch
+publishes rather than opening another version pull request. Keep `latest` and
+the public website on their stable versions until the stable migration.
 
 The canonical version command is:
 
@@ -225,7 +240,7 @@ Do not rely only on the private root workspace `repository` field.
 ## Prerelease Mode
 
 Changesets prerelease mode is active only when `.changeset/pre.json` exists with
-`"mode": "pre"`. This checkout does not currently have that file.
+`"mode": "pre"`. This branch currently uses that state with tag `alpha`.
 
 To re-enter alpha prerelease mode later:
 

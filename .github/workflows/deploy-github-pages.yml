@@ -28,6 +28,11 @@ jobs:
           node-version: "22"
           cache: npm
 
+      - name: Prepare the required TouchOS prerelease
+        run: |
+          mkdir -p .packages
+          npm pack @found-in-space/touch-os@0.4.0-alpha.0 --pack-destination .packages
+          mv .packages/found-in-space-touch-os-0.4.0-alpha.0.tgz .packages/touch-os.tgz
       - run: npm ci
       - run: npm run build
         env:

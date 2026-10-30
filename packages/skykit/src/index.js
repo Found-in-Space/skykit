@@ -54,3 +54,5 @@ export {
 } from './star-picking.js';
 export { createStreamingStarLayer } from './streaming-stars.js';
 export { createSkykitViewer } from './viewer.js';
+
+export { SKYKIT_ICRS_SPACE } from './spatial-adapter.js';

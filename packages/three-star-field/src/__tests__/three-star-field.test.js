@@ -103,6 +103,47 @@ test('aggregate geometry is deterministic by cellKey', () => {
   assert.equal(geometry.drawRange.count, 2);
 });
 
+test('custom vertex attributes update by cell and survive geometry rebuilds', () => {
+  const field = createThreeStarField({
+    materialProfile: createMaterialProfile(),
+    vertexAttributes: [{ name: 'duplicateRole', type: 'uint8' }],
+  });
+  const points = field.object3d.children[0];
+  const cellA = createCell({ keyOrdinal: 1, count: 2 });
+  const cellB = createCell({ keyOrdinal: 2, count: 1 });
+
+  field.setCells([cellB, cellA]);
+  assert.deepEqual(
+    Array.from(points.geometry.getAttribute('duplicateRole').array),
+    [0, 0, 0],
+  );
+  assert.equal(
+    field.setCellVertexAttribute(cellA.cellKey, 'duplicateRole', new Uint8Array([1, 2])),
+    true,
+  );
+  assert.deepEqual(
+    Array.from(points.geometry.getAttribute('duplicateRole').array),
+    [1, 2, 0],
+  );
+
+  field.apply({
+    type: 'stars/cells-upsert',
+    providerId: 'provider-a',
+    cells: [createCell({ keyOrdinal: 2, count: 1, x: 20 })],
+  });
+  assert.deepEqual(
+    Array.from(points.geometry.getAttribute('duplicateRole').array),
+    [1, 2, 0],
+  );
+  assert.equal(field.setCellVertexAttribute('missing', 'duplicateRole', new Uint8Array()), false);
+  assert.throws(
+    () => field.setCellVertexAttribute(cellA.cellKey, 'duplicateRole', new Uint8Array([1])),
+    /requires 2 values/,
+  );
+
+  field.dispose();
+});
+
 test('field exposes visible bounds in render and parsec units', () => {
   const field = createThreeStarField({
     coordinateUnitsPerParsec: 2,

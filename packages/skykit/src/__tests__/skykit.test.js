@@ -10,9 +10,11 @@ import {
 
 import {
   SPATIAL_LOCAL_UP as LOCAL_UP,
+  materializeSpatialPreloadHints,
   applySpatialQuaternion as applyQuaternion,
 } from '@found-in-space/spatial';
 import {
+  SKYKIT_ICRS_SPACE,
   computeSkykitLookAtOrientation,
   resolveSkykitTargetSync,
 } from '../spatial-adapter.js';
@@ -1633,7 +1635,7 @@ test('navigation plugin registers semantic actions and resolves RA/Dec and bookm
   assert.equal(viewer.actions.listActions().some((entry) => entry.id === SKYKIT_ACTIONS.navigation.flyTo), true);
   await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.flyTo, { raDeg: 0, decDeg: 0, distancePc: 10 });
   assert.equal(navigationPlugin.getSnapshot().navigation.activeTiming.kind, 'constantSpeed');
-  assert.equal(navigationPlugin.getSnapshot().navigation.activeTiming.cruiseSpeedPcPerSec, 12);
+  assert.equal(navigationPlugin.getSnapshot().navigation.activeTiming.cruiseSpeedUnitsPerSec, 12);
   viewer.update(0.5);
   viewer.update(0);
   assert.ok(viewer.getViewState().observerPc.x > 0);
@@ -1714,9 +1716,10 @@ test('navigation preserves resolved bookmark aim metadata', async () => {
 
   await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.lookAt, { bookmarkId: 'rolled-target' });
   assert.deepEqual(capturedAim, {
+    space: SKYKIT_ICRS_SPACE,
     kind: 'target',
-    targetPc: { x: 4, y: 5, z: 6 },
-    upIcrs: { x: 0, y: 0, z: 1 },
+    target: { x: 4, y: 5, z: 6 },
+    up: { x: 0, y: 0, z: 1 },
     positionAngleDeg: -45,
   });
   await viewer.dispose();
@@ -1769,7 +1772,7 @@ test('navigation plugin sampling defaults control generated orbital routes', asy
       radiusPc: 2,
       angularSpeedRadPerSec: 0.1,
     });
-    const pointCount = plugin.getSnapshot().navigation.activeRoute.pointsPc.length;
+    const pointCount = plugin.getSnapshot().navigation.activeRoute.points.length;
     await viewer.dispose();
     return pointCount;
   }
@@ -2077,7 +2080,7 @@ test('async navigation resolution applies only the newest command on each lane',
   slowTarget.resolve({ x: -20, y: 0, z: 0 });
   await slowAction;
   assert.equal(routes.length, 1);
-  assert.deepEqual(routes[0].pointsPc.at(-1), { x: 20, y: 0, z: 0 });
+  assert.deepEqual(routes[0].points.at(-1), { x: 20, y: 0, z: 0 });
 
   const movementAction = viewer.actions.invoke(SKYKIT_ACTIONS.navigation.flyTo, { id: 'movement-after-look' });
   await viewer.actions.invoke(SKYKIT_ACTIONS.navigation.lookAt, { raDeg: 90, decDeg: 0 });
@@ -2129,22 +2132,26 @@ test('navigation cancellation invalidates commands with pending resolvers', asyn
 test('spatial preload hints map to star-octree requests without exposing provider internals', () => {
   const hints = [
     {
+      space: SKYKIT_ICRS_SPACE,
       kind: 'pathVolume',
-      pointsPc: [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }],
-      radiusPc: 2,
+      points: [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }],
+      radius: 2,
     },
     {
+      space: SKYKIT_ICRS_SPACE,
       kind: 'sphereVolume',
-      centerPc: { x: 1, y: 2, z: 3 },
-      radiusPc: 4,
+      center: { x: 1, y: 2, z: 3 },
+      radius: 4,
     },
     {
+      space: SKYKIT_ICRS_SPACE,
       kind: 'viewLookahead',
       pose: {
-        observerPc: { x: 0, y: 0, z: 0 },
-        orientationIcrs: { x: 0, y: 0, z: 0, w: 1 },
+        space: SKYKIT_ICRS_SPACE,
+        position: { x: 0, y: 0, z: 0 },
+        orientation: { x: 0, y: 0, z: 0, w: 1 },
       },
-      velocityPcPerSec: { x: 1, y: 0, z: 0 },
+      velocityUnitsPerSec: { x: 1, y: 0, z: 0 },
       lookaheadSecs: 5,
     },
   ];
@@ -2641,6 +2648,51 @@ test('streaming star layer can use an explicit session without disposing it', as
   assert.equal(session.disposed, false);
 });
 
+test('star source debounces octree demand updates while keeping the provider view current', async () => {
+  const session = createFakeSession();
+  const source = createSkykitStarSourcePlugin({ session, demandDebounceMs: 10 });
+  const viewer = await createSkykitViewer({
+    renderer: createRenderer(),
+    plugins: [source],
+    view: {
+      observerPc: { x: 0, y: 0, z: 0 },
+      limitingMagnitude: 7,
+      coordinateUnitsPerParsec: 1,
+    },
+  });
+
+  assert.equal(session.updateCalls.length, 1);
+  assert.equal(source.getSnapshot().demandDebounceMs, 10);
+  assert.equal(source.getSnapshot().demandUpdatePending, false);
+
+  viewer.requestViewState({ observerPc: { x: 1, y: 0, z: 0 } }, 'test-move-a');
+  viewer.update(0.5);
+  viewer.requestViewState({ observerPc: { x: 3, y: 0, z: 0 } }, 'test-move-b');
+  viewer.update(0.5);
+
+  assert.equal(session.updateCalls.length, 3);
+  assert.equal(session.updateCalls[1].options.demand, 'suppress');
+  assert.equal(session.updateCalls[2].options.demand, 'suppress');
+  assert.equal(source.getSnapshot().demandUpdatePending, true);
+
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  assert.equal(session.updateCalls.length, 4);
+  assert.equal(session.updateCalls[3].patch.observerPc.x, 3);
+  assert.equal(session.updateCalls[3].options.reason, 'skykit.view-settled');
+  assert.equal(session.updateCalls[3].options.demand, undefined);
+  assert.equal(source.getSnapshot().demandUpdatePending, false);
+
+  viewer.requestViewState({ observerPc: { x: 4, y: 0, z: 0 } }, 'test-move-c');
+  viewer.update(0.5);
+  assert.equal(session.updateCalls.length, 5);
+  assert.equal(source.getSnapshot().demandUpdatePending, true);
+  await viewer.dispose();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(session.updateCalls.length, 5);
+  assert.equal(source.getSnapshot().demandUpdatePending, false);
+});
+
 function createTestCell(options = {}) {
   const keyOrdinal = options.keyOrdinal ?? 1;
   const node = {
@@ -2841,3 +2893,29 @@ function createEventTarget() {
     },
   };
 }
+
+
+test('spatial preload adapters convert declared units once and reject unrelated origins', () => {
+  const space = { frameId: SKYKIT_ICRS_SPACE.frameId, metersPerUnit: 1 };
+  const pc = SKYKIT_ICRS_SPACE.metersPerUnit;
+  const hints = materializeSpatialPreloadHints({ space, positionKeys: [
+    { id: 'a', timeSecs: 0, position: { x: 0, y: 0, z: 0 } },
+    { id: 'b', timeSecs: 2, position: { x: 2 * pc, y: 0, z: 0 } },
+  ] }, { sampleStepSecs: 1, pathRadius: pc, lookaheadSecs: 1 });
+  assert.ok(hints.every(hint => hint.space.frameId === space.frameId && hint.space.metersPerUnit === 1));
+  const requests = createSkykitStarPreloadRequestsFromSpatialHints(hints);
+  const lookahead = requests.filter(request => request.view);
+  assert.equal(lookahead.length, 2);
+  assert.deepEqual(lookahead[0].view.observerPc, { x: 1, y: 0, z: 0 });
+  assert.deepEqual(lookahead[0].view.motion.velocityPcPerSec, { x: 1, y: 0, z: 0 });
+  const [sphere] = createSkykitStarPreloadRequestsFromSpatialHints([
+    { space, kind: 'sphereVolume', center: { x: 2 * pc, y: 0, z: 0 }, radius: pc },
+  ]);
+  const evaluator = sphere.strategy.createEvaluator(sphere.strategy.createAnchor({}));
+  const cell = { centerX: 2.5, centerY: 0, centerZ: 0, halfSize: 0, level: 0, mortonCode: '0' };
+  assert.equal(evaluator.evaluateCell(cell).include, true);
+  assert.equal(evaluator.evaluateCell({ ...cell, centerX: 3.5 }).include, false);
+  assert.throws(() => createSkykitStarPreloadRequestsFromSpatialHints([
+    { ...hints[0], space: { ...space, frameId: 'another-origin' } },
+  ]), RangeError);
+});

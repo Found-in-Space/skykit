@@ -1,4 +1,5 @@
 import {
+  SPATIAL_METERS_PER_PARSEC,
   SPATIAL_IDENTITY_QUATERNION,
   buildSpatialOrbitalInsertRoute,
   buildSpatialOrbitTransferRoute,
@@ -11,11 +12,13 @@ import {
   sampleSpatialRoute,
 } from '@found-in-space/spatial';
 
-const CENTER_PC = Object.freeze({ x: 0, y: 0, z: 0 });
+const space = Object.freeze({ frameId: 'spatial:example-icrs', metersPerUnit: SPATIAL_METERS_PER_PARSEC });
+
+const CENTER_UNITS = Object.freeze({ x: 0, y: 0, z: 0 });
 const ORBIT_NORMAL = Object.freeze({ x: 0, y: 1, z: 0 });
 const REFERENCE_AXIS = Object.freeze({ x: 1, y: 0, z: 0 });
-const INNER_RADIUS_PC = 6;
-const OUTER_RADIUS_PC = 14;
+const INNER_RADIUS_UNITS = 6;
+const OUTER_RADIUS_UNITS = 14;
 const ANGULAR_SPEED_RAD_PER_SEC = 0.24;
 const ORBIT_PREVIEW_SECS = 3.5;
 const ROUTE_COLORS = Object.freeze({
@@ -130,25 +133,25 @@ function rebuildRoute() {
       ? 0
       : readNonNegative(elements.settle, 'Arrival settle');
     const timing = readTimingSpec(routeKind);
-    const insertionDepartureSpeedPcPerSec = timing.departureSpeedPcPerSec
-      ?? timing.speedPcPerSec;
+    const insertionDepartureSpeedUnitsPerSec = timing.departureSpeedUnitsPerSec
+      ?? timing.speedUnitsPerSec;
 
-    const arrivalOrbitTemplate = {
-      centerPc: CENTER_PC,
-      radiusPc: INNER_RADIUS_PC,
+    const arrivalOrbitTemplate = { space,
+      center: CENTER_UNITS,
+      radius: INNER_RADIUS_UNITS,
       orbitNormal: ORBIT_NORMAL,
       referenceAxis: REFERENCE_AXIS,
       handedness,
       angularSpeedRadPerSec: ANGULAR_SPEED_RAD_PER_SEC,
-      aim: { kind: 'target', targetPc: CENTER_PC },
+      aim: { space, kind: 'target', target: CENTER_UNITS },
     };
     const authoredArrivalOrbit = {
       ...arrivalOrbitTemplate,
       initialAngleRad: 0.62,
     };
-    const outerOrbit = {
-      centerPc: CENTER_PC,
-      radiusPc: OUTER_RADIUS_PC,
+    const outerOrbit = { space,
+      center: CENTER_UNITS,
+      radius: OUTER_RADIUS_UNITS,
       orbitNormal: ORBIT_NORMAL,
       referenceAxis: REFERENCE_AXIS,
       handedness,
@@ -168,23 +171,23 @@ function rebuildRoute() {
     };
 
     if (routeKind === 'polyline') {
-      const arrivalPc = sampleSpatialOrbitPosition(
+      const arrival = sampleSpatialOrbitPosition(
         authoredArrivalOrbit,
         authoredArrivalOrbit.initialAngleRad,
       );
-      authoredSpec = {
-        pointsPc: [
+      authoredSpec = { space,
+        points: [
           { x: -15, y: 0, z: 8 },
           { x: -9, y: 0, z: -10 },
           { x: 1, y: 0, z: -11 },
-          arrivalPc,
+          arrival,
         ],
         travel,
         arrivalAction,
       };
       route = buildSpatialPolylineRoute(authoredSpec);
     } else if (routeKind === 'orbitTransfer') {
-      authoredSpec = {
+      authoredSpec = { space,
         from: { orbit: outerOrbit },
         to: { orbit: authoredArrivalOrbit },
         travel,
@@ -192,20 +195,20 @@ function rebuildRoute() {
       };
       route = buildSpatialOrbitTransferRoute(authoredSpec);
     } else {
-      authoredSpec = {
-        from: {
-          positionPc: { x: -15, y: 0, z: 9 },
-          ...(insertionDepartureSpeedPcPerSec !== undefined
-            ? { speedPcPerSec: insertionDepartureSpeedPcPerSec }
+      authoredSpec = { space,
+        from: { space,
+          position: { x: -15, y: 0, z: 9 },
+          ...(insertionDepartureSpeedUnitsPerSec !== undefined
+            ? { speedUnitsPerSec: insertionDepartureSpeedUnitsPerSec }
             : {}),
         },
         // Omitting initialAngleRad asks the builder for a geometric tangent
         // contact point aligned with the signed orbit direction.
         orbit: arrivalOrbitTemplate,
-        destination: {
+        destination: { space,
           id: 'inner-orbit',
           label: 'Inner review orbit',
-          centerPc: CENTER_PC,
+          center: CENTER_UNITS,
           orbit: arrivalOrbitTemplate,
         },
         travel,
@@ -230,7 +233,7 @@ function rebuildRoute() {
       builder: builderName(routeKind),
       input: authoredSpec,
     });
-    elements.length.textContent = `${formatNumber(route.totalLengthPc)} pc`;
+    elements.length.textContent = `${formatNumber(route.totalLength)} pc`;
     elements.routeDuration.textContent = `${formatNumber(route.timing.durationSecs)} s`;
     elements.sampleCount.textContent = String(routeSamples.length);
     elements.controlNote.textContent = routeKind === 'orbitalInsert'
@@ -254,30 +257,30 @@ function readTimingSpec(routeKind) {
   if (kind === 'duration') {
     return { kind, durationSecs: readPositive(elements.duration, 'Duration') };
   }
-  const speedPcPerSec = readPositive(elements.speed, 'Cruise / peak speed');
-  if (kind === 'constantSpeed') return { kind, speedPcPerSec };
-  const accelerationPcPerSec2 = routeKind === 'orbitalInsert'
+  const speedUnitsPerSec = readPositive(elements.speed, 'Cruise / peak speed');
+  if (kind === 'constantSpeed') return { kind, speedUnitsPerSec };
+  const accelerationUnitsPerSec2 = routeKind === 'orbitalInsert'
     ? undefined
     : readPositive(elements.acceleration, 'Acceleration');
-  const decelerationPcPerSec2 = readPositive(elements.deceleration, 'Deceleration');
-  const departureSpeedPcPerSec = routeKind === 'orbitalInsert' ? speedPcPerSec : 0;
+  const decelerationUnitsPerSec2 = readPositive(elements.deceleration, 'Deceleration');
+  const departureSpeedUnitsPerSec = routeKind === 'orbitalInsert' ? speedUnitsPerSec : 0;
   if (kind === 'triangular') {
     return {
       kind,
-      departureSpeedPcPerSec,
-      peakSpeedPcPerSec: speedPcPerSec,
-      arrivalSpeedPcPerSec: INNER_RADIUS_PC * ANGULAR_SPEED_RAD_PER_SEC,
-      ...(accelerationPcPerSec2 !== undefined ? { accelerationPcPerSec2 } : {}),
-      decelerationPcPerSec2,
+      departureSpeedUnitsPerSec,
+      peakSpeedUnitsPerSec: speedUnitsPerSec,
+      arrivalSpeedUnitsPerSec: INNER_RADIUS_UNITS * ANGULAR_SPEED_RAD_PER_SEC,
+      ...(accelerationUnitsPerSec2 !== undefined ? { accelerationUnitsPerSec2 } : {}),
+      decelerationUnitsPerSec2,
     };
   }
-  return {
+  return { space,
     kind: 'trapezoid',
-    departureSpeedPcPerSec,
-    cruiseSpeedPcPerSec: speedPcPerSec,
-    arrivalSpeedPcPerSec: INNER_RADIUS_PC * ANGULAR_SPEED_RAD_PER_SEC,
-    ...(accelerationPcPerSec2 !== undefined ? { accelerationPcPerSec2 } : {}),
-    decelerationPcPerSec2,
+    departureSpeedUnitsPerSec,
+    cruiseSpeedUnitsPerSec: speedUnitsPerSec,
+    arrivalSpeedUnitsPerSec: INNER_RADIUS_UNITS * ANGULAR_SPEED_RAD_PER_SEC,
+    ...(accelerationUnitsPerSec2 !== undefined ? { accelerationUnitsPerSec2 } : {}),
+    decelerationUnitsPerSec2,
   };
 }
 
@@ -285,11 +288,11 @@ function setNavigationAt(timeSecs) {
   if (!route) return;
   playheadSecs = clamp(timeSecs, 0, totalTimelineSecs);
   navigation?.dispose();
-  navigation = createSpatialNavigationAutomation();
+  navigation = createSpatialNavigationAutomation(space);
   navigation.flyRoute(route);
-  pose = {
-    observerPc: route.departure.positionPc,
-    orientationIcrs: SPATIAL_IDENTITY_QUATERNION,
+  pose = { space,
+    position: route.departure.position,
+    orientation: SPATIAL_IDENTITY_QUATERNION,
   };
   pose = navigation.update({ pose, deltaSecs: playheadSecs });
   render();
@@ -338,11 +341,11 @@ function drawRoute(surface, currentMotion, frameState) {
   const project = createXzProjector(bounds, width, height, 42);
   drawGrid(ctx, project, bounds, width, height);
 
-  drawOrbitCircle(ctx, project, CENTER_PC, OUTER_RADIUS_PC, {
+  drawOrbitCircle(ctx, project, CENTER_UNITS, OUTER_RADIUS_UNITS, {
     color: 'rgba(123, 134, 163, 0.3)',
     dash: [5, 7],
   });
-  drawOrbitCircle(ctx, project, CENTER_PC, INNER_RADIUS_PC, {
+  drawOrbitCircle(ctx, project, CENTER_UNITS, INNER_RADIUS_UNITS, {
     color: frameState.orbit ? ROUTE_COLORS.orbitActive : ROUTE_COLORS.orbit,
     dash: [8, 6],
   });
@@ -353,8 +356,8 @@ function drawRoute(surface, currentMotion, frameState) {
   drawVector(
     ctx,
     project,
-    CENTER_PC,
-    scaleVector(arrivalRadial, arrivalOrbit.radiusPc),
+    CENTER_UNITS,
+    scaleVector(arrivalRadial, arrivalOrbit.radius),
     '#c5a7ff',
     'arrival radius',
     { labelAt: 0.58, labelOffsetX: -92, labelOffsetY: -7 },
@@ -363,7 +366,7 @@ function drawRoute(surface, currentMotion, frameState) {
     drawVector(
       ctx,
       project,
-      route.arrival.positionPc,
+      route.arrival.position,
       scaleVector(arrivalTangent, 3.5),
       '#73f0c1',
       'orbit tangent',
@@ -374,8 +377,8 @@ function drawRoute(surface, currentMotion, frameState) {
     drawGuideLine(
       ctx,
       project,
-      route.departure.positionPc,
-      route.arrival.positionPc,
+      route.departure.position,
+      route.arrival.position,
       'tangent approach',
     );
   }
@@ -386,7 +389,7 @@ function drawRoute(surface, currentMotion, frameState) {
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.beginPath();
-  route.pointsPc.forEach((point, index) => {
+  route.points.forEach((point, index) => {
     const screen = project(point);
     if (index === 0) ctx.moveTo(screen.x, screen.y);
     else ctx.lineTo(screen.x, screen.y);
@@ -395,9 +398,9 @@ function drawRoute(surface, currentMotion, frameState) {
   ctx.restore();
 
   for (const sample of routeSamples) {
-    const screen = project(sample.positionPc);
-    const speedRatio = route.diagnostics.peakSpeedPcPerSec > 0
-      ? sample.speedPcPerSec / route.diagnostics.peakSpeedPcPerSec
+    const screen = project(sample.position);
+    const speedRatio = route.diagnostics.peakSpeedUnitsPerSec > 0
+      ? sample.speedUnitsPerSec / route.diagnostics.peakSpeedUnitsPerSec
       : 0;
     ctx.fillStyle = colorMix('#73d5ff', '#ff8e71', speedRatio);
     ctx.beginPath();
@@ -405,16 +408,16 @@ function drawRoute(surface, currentMotion, frameState) {
     ctx.fill();
   }
 
-  drawPoint(ctx, project(route.departure.positionPc), ROUTE_COLORS.departure, 5, 'departure');
-  drawPoint(ctx, project(route.arrival.positionPc), ROUTE_COLORS.arrival, 5, 'arrival');
-  drawPoint(ctx, project(currentMotion.positionPc), ROUTE_COLORS.observer, 7, `observer · ${currentMotion.phaseLabel.toLowerCase()}`, 18);
+  drawPoint(ctx, project(route.departure.position), ROUTE_COLORS.departure, 5, 'departure');
+  drawPoint(ctx, project(route.arrival.position), ROUTE_COLORS.arrival, 5, 'arrival');
+  drawPoint(ctx, project(currentMotion.position), ROUTE_COLORS.observer, 7, `observer · ${currentMotion.phaseLabel.toLowerCase()}`, 18);
 
-  const velocityLength = currentMotion.speedPcPerSec > 0
-    ? 2.2 + 3.8 * currentMotion.speedPcPerSec / Math.max(currentMotion.maxSpeedPcPerSec, currentMotion.speedPcPerSec)
+  const velocityLength = currentMotion.speedUnitsPerSec > 0
+    ? 2.2 + 3.8 * currentMotion.speedUnitsPerSec / Math.max(currentMotion.maxSpeedUnitsPerSec, currentMotion.speedUnitsPerSec)
     : 0;
   if (velocityLength > 0) {
-    const direction = normalizeVector(currentMotion.velocityPcPerSec);
-    drawVector(ctx, project, currentMotion.positionPc, scaleVector(direction, velocityLength), ROUTE_COLORS.velocity, 'velocity');
+    const direction = normalizeVector(currentMotion.velocityUnitsPerSec);
+    drawVector(ctx, project, currentMotion.position, scaleVector(direction, velocityLength), ROUTE_COLORS.velocity, 'velocity');
   }
 
   ctx.fillStyle = ROUTE_COLORS.text;
@@ -434,12 +437,12 @@ function drawTiming(surface, currentMotion) {
     ? route.arrivalAction.settleSecs ?? 0
     : 0;
   const maxSpeed = Math.max(
-    route.diagnostics.peakSpeedPcPerSec,
-    INNER_RADIUS_PC * ANGULAR_SPEED_RAD_PER_SEC,
+    route.diagnostics.peakSpeedUnitsPerSec,
+    INNER_RADIUS_UNITS * ANGULAR_SPEED_RAD_PER_SEC,
     0.1,
   );
   const xAt = (timeSecs) => margin.left + timeSecs / totalTimelineSecs * plotWidth;
-  const yAt = (speedPcPerSec) => margin.top + plotHeight - speedPcPerSec / maxSpeed * plotHeight;
+  const yAt = (speedUnitsPerSec) => margin.top + plotHeight - speedUnitsPerSec / maxSpeed * plotHeight;
 
   for (const phase of route.timing.phases) {
     const left = xAt(phase.startTimeSecs);
@@ -473,7 +476,7 @@ function drawTiming(surface, currentMotion) {
   ctx.beginPath();
   routeSamples.forEach((sample, index) => {
     const x = xAt(sample.elapsedSecs);
-    const y = yAt(sample.speedPcPerSec);
+    const y = yAt(sample.speedUnitsPerSec);
     if (index === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
@@ -481,7 +484,7 @@ function drawTiming(surface, currentMotion) {
     ctx.lineTo(xAt(routeDuration), yAt(0));
     ctx.lineTo(xAt(routeDuration + settleDuration), yAt(0));
   }
-  const orbitSpeed = INNER_RADIUS_PC * ANGULAR_SPEED_RAD_PER_SEC;
+  const orbitSpeed = INNER_RADIUS_UNITS * ANGULAR_SPEED_RAD_PER_SEC;
   ctx.lineTo(xAt(routeDuration + settleDuration), yAt(orbitSpeed));
   ctx.lineTo(xAt(totalTimelineSecs), yAt(orbitSpeed));
   ctx.stroke();
@@ -495,7 +498,7 @@ function drawTiming(surface, currentMotion) {
   ctx.stroke();
   ctx.fillStyle = ROUTE_COLORS.observer;
   ctx.beginPath();
-  ctx.arc(markerX, yAt(currentMotion.speedPcPerSec), 4, 0, Math.PI * 2);
+  ctx.arc(markerX, yAt(currentMotion.speedUnitsPerSec), 4, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.fillStyle = ROUTE_COLORS.text;
@@ -511,7 +514,7 @@ function drawTiming(surface, currentMotion) {
 
 function renderReadouts(navigationDiagnostics, frameState, currentMotion) {
   elements.timeReadout.textContent = `${formatNumber(playheadSecs)} / ${formatNumber(totalTimelineSecs)} s`;
-  elements.currentSpeed.textContent = `${formatNumber(currentMotion.speedPcPerSec)} pc/s`;
+  elements.currentSpeed.textContent = `${formatNumber(currentMotion.speedUnitsPerSec)} pc/s`;
   elements.phase.textContent = currentMotion.phaseLabel;
   elements.phase.dataset.phase = currentMotion.phaseLabel.toLowerCase();
   elements.diagnosticsJson.textContent = displayJson({
@@ -521,16 +524,16 @@ function renderReadouts(navigationDiagnostics, frameState, currentMotion) {
     navigation: {
       activeMovement: navigationDiagnostics.activeMovement?.kind ?? 'idle',
       elapsedSecs: navigationDiagnostics.elapsedSecs,
-      currentSpeedPcPerSec: navigationDiagnostics.currentSpeedPcPerSec,
+      currentSpeedUnitsPerSec: navigationDiagnostics.currentSpeedUnitsPerSec,
       pendingSettle: navigationDiagnostics.pendingSettle,
       arrivalAction: navigationDiagnostics.arrivalAction,
     },
-    frame: {
-      observerPc: frameState.pose.observerPc,
+    frame: { space,
+      position: frameState.pose.position,
       orbit: frameState.orbit
         ? {
             angleRad: frameState.orbit.angleRad,
-            speedPcPerSec: frameState.orbit.speedPcPerSec,
+            speedUnitsPerSec: frameState.orbit.speedUnitsPerSec,
           }
         : null,
       pathFollow: frameState.pathFollow,
@@ -542,20 +545,20 @@ function renderReadouts(navigationDiagnostics, frameState, currentMotion) {
 function deriveInsertionGeometryReview() {
   if (route.kind !== 'orbitalInsert') return null;
   const approach = normalizeVector(subtractVector(
-    route.arrival.positionPc,
-    route.departure.positionPc,
+    route.arrival.position,
+    route.departure.position,
   ));
   const radial = route.diagnostics.selectedRadial
-    ?? normalizeVector(subtractVector(route.arrival.positionPc, CENTER_PC));
+    ?? normalizeVector(subtractVector(route.arrival.position, CENTER_UNITS));
   const tangent = route.diagnostics.selectedTangent;
   return {
     selection: route.diagnostics.insertionSelection,
     derivedInitialAngleRad: route.diagnostics.insertionAngleRad
       ?? arrivalOrbit.initialAngleRad,
-    insertionPositionPc: route.diagnostics.insertionPositionPc,
+    insertionPosition: route.diagnostics.insertionPosition,
     approachAlignment: route.diagnostics.insertionApproachAlignment,
     departureVelocityAlignment: route.diagnostics.insertionDepartureVelocityAlignment,
-    planeOffsetPc: route.diagnostics.insertionPlaneOffsetPc,
+    planeOffset: route.diagnostics.insertionPlaneOffset,
     approachDotRadial: dotVector(approach, radial),
     approachDotTangent: tangent ? dotVector(approach, tangent) : null,
     note: 'A tangent insertion has approachDotRadial near 0 and approachDotTangent near 1.',
@@ -565,48 +568,48 @@ function deriveInsertionGeometryReview() {
 function deriveCurrentMotion(navigationDiagnostics, frameState) {
   const activeKind = navigationDiagnostics.activeMovement?.kind ?? 'idle';
   if (navigationDiagnostics.pendingSettle) {
-    return {
-      positionPc: frameState.pose.observerPc,
-      velocityPcPerSec: { x: 0, y: 0, z: 0 },
-      speedPcPerSec: 0,
-      maxSpeedPcPerSec: Math.max(route.diagnostics.peakSpeedPcPerSec, 0.1),
+    return { space,
+      position: frameState.pose.position,
+      velocityUnitsPerSec: { x: 0, y: 0, z: 0 },
+      speedUnitsPerSec: 0,
+      maxSpeedUnitsPerSec: Math.max(route.diagnostics.peakSpeedUnitsPerSec, 0.1),
       phaseLabel: 'Settle',
     };
   }
   if (route && playheadSecs < route.timing.durationSecs && activeKind !== 'orbit') {
     const routeSample = evaluateSpatialRoute(route, playheadSecs);
-    return {
-      positionPc: routeSample.positionPc,
-      velocityPcPerSec: routeSample.velocityPcPerSec,
-      speedPcPerSec: routeSample.speedPcPerSec,
-      maxSpeedPcPerSec: Math.max(route.diagnostics.peakSpeedPcPerSec, 0.1),
+    return { space,
+      position: routeSample.position,
+      velocityUnitsPerSec: routeSample.velocityUnitsPerSec,
+      speedUnitsPerSec: routeSample.speedUnitsPerSec,
+      maxSpeedUnitsPerSec: Math.max(route.diagnostics.peakSpeedUnitsPerSec, 0.1),
       phaseLabel: 'Route',
     };
   }
   if (frameState.orbit) {
     const orbitSample = evaluateSpatialOrbit(frameState.orbit.orbit, navigationDiagnostics.elapsedSecs);
-    return {
-      positionPc: orbitSample.positionPc,
-      velocityPcPerSec: orbitSample.velocityPcPerSec,
-      speedPcPerSec: orbitSample.speedPcPerSec,
-      maxSpeedPcPerSec: Math.max(route.diagnostics.peakSpeedPcPerSec, orbitSample.speedPcPerSec, 0.1),
+    return { space,
+      position: orbitSample.position,
+      velocityUnitsPerSec: orbitSample.velocityUnitsPerSec,
+      speedUnitsPerSec: orbitSample.speedUnitsPerSec,
+      maxSpeedUnitsPerSec: Math.max(route.diagnostics.peakSpeedUnitsPerSec, orbitSample.speedUnitsPerSec, 0.1),
       phaseLabel: 'Orbit',
     };
   }
-  return {
-    positionPc: frameState.pose.observerPc,
-    velocityPcPerSec: { x: 0, y: 0, z: 0 },
-    speedPcPerSec: 0,
-    maxSpeedPcPerSec: Math.max(route.diagnostics.peakSpeedPcPerSec, 0.1),
+  return { space,
+    position: frameState.pose.position,
+    velocityUnitsPerSec: { x: 0, y: 0, z: 0 },
+    speedUnitsPerSec: 0,
+    maxSpeedUnitsPerSec: Math.max(route.diagnostics.peakSpeedUnitsPerSec, 0.1),
     phaseLabel: 'Idle',
   };
 }
 
 function collectPlotBounds() {
   const points = [
-    ...route.pointsPc,
-    { x: CENTER_PC.x - OUTER_RADIUS_PC, y: 0, z: CENTER_PC.z - OUTER_RADIUS_PC },
-    { x: CENTER_PC.x + OUTER_RADIUS_PC, y: 0, z: CENTER_PC.z + OUTER_RADIUS_PC },
+    ...route.points,
+    { x: CENTER_UNITS.x - OUTER_RADIUS_UNITS, y: 0, z: CENTER_UNITS.z - OUTER_RADIUS_UNITS },
+    { x: CENTER_UNITS.x + OUTER_RADIUS_UNITS, y: 0, z: CENTER_UNITS.z + OUTER_RADIUS_UNITS },
   ];
   return points.reduce((bounds, point) => ({
     minX: Math.min(bounds.minX, point.x),
@@ -640,7 +643,7 @@ function drawGrid(ctx, project, bounds, width, height) {
     ctx.lineTo(right.x, right.y);
     ctx.stroke();
   }
-  const origin = project(CENTER_PC);
+  const origin = project(CENTER_UNITS);
   ctx.strokeStyle = 'rgba(159, 179, 200, 0.3)';
   ctx.beginPath();
   ctx.moveTo(0, origin.y);
@@ -651,7 +654,7 @@ function drawGrid(ctx, project, bounds, width, height) {
   ctx.restore();
 }
 
-function drawOrbitCircle(ctx, project, centerPc, radiusPc, options) {
+function drawOrbitCircle(ctx, project, center, radius, options) {
   ctx.save();
   ctx.strokeStyle = options.color;
   ctx.lineWidth = 1.5;
@@ -660,9 +663,9 @@ function drawOrbitCircle(ctx, project, centerPc, radiusPc, options) {
   for (let index = 0; index <= 96; index += 1) {
     const angle = index / 96 * Math.PI * 2;
     const point = {
-      x: centerPc.x + Math.cos(angle) * radiusPc,
-      y: centerPc.y,
-      z: centerPc.z + Math.sin(angle) * radiusPc,
+      x: center.x + Math.cos(angle) * radius,
+      y: center.y,
+      z: center.z + Math.sin(angle) * radius,
     };
     const screen = project(point);
     if (index === 0) ctx.moveTo(screen.x, screen.y);
@@ -682,10 +685,10 @@ function drawPoint(ctx, screen, color, radius, label, labelOffsetY = -radius - 3
   ctx.fillText(label, screen.x + radius + 5, screen.y + labelOffsetY);
 }
 
-function drawVector(ctx, project, originPc, vectorPc, color, label, options = {}) {
-  const start = project(originPc);
-  const endPc = addVector(originPc, vectorPc);
-  const end = project(endPc);
+function drawVector(ctx, project, origin, vector, color, label, options = {}) {
+  const start = project(origin);
+  const endpoint = addVector(origin, vector);
+  const end = project(endpoint);
   const angle = Math.atan2(end.y - start.y, end.x - start.x);
   ctx.save();
   ctx.strokeStyle = color;
@@ -711,9 +714,9 @@ function drawVector(ctx, project, originPc, vectorPc, color, label, options = {}
   ctx.restore();
 }
 
-function drawGuideLine(ctx, project, startPc, endPc, label) {
-  const start = project(startPc);
-  const end = project(endPc);
+function drawGuideLine(ctx, project, startPosition, endPosition, label) {
+  const start = project(startPosition);
+  const end = project(endPosition);
   ctx.save();
   ctx.strokeStyle = 'rgba(115, 240, 193, 0.38)';
   ctx.fillStyle = '#73f0c1';

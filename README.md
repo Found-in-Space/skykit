@@ -59,8 +59,14 @@ porting references, not current alpha examples.
 
 ## Development
 
+This interaction development batch requires the sibling TouchOS checkout.
+Preparation builds its package and records a normal local archive dependency;
+repeat it after producer changes. Registry-only CI awaits the TouchOS 0.4
+prerelease publication. See the [interaction setup](packages/skykit/README.md#shared-ui-interaction-development).
+
 ```bash
-npm install
+npm run prepare:interaction
+npm ci
 npm run dev          # Vite dev server → http://localhost:5173/
 npm run build        # build the single GitHub Pages demo site into dist/
 node --test          # run all tests

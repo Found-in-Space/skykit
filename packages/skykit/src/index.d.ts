@@ -740,6 +740,8 @@ export interface SkykitStarCellSourceSnapshot {
   store: unknown;
   session: unknown;
   provider?: unknown;
+  demandDebounceMs: number;
+  demandUpdatePending: boolean;
   lastError?: string | null;
   disposed: boolean;
 }
@@ -768,6 +770,7 @@ export interface SkykitStarSourcePluginOptions {
   attributes?: readonly string[];
   coordinates?: StarOctreeCoordinateOutput;
   updateOptions?: ViewUpdateOptions;
+  demandDebounceMs?: number;
   retainCellsOnRestart?: SkykitStarSourceRestartRetentionPolicy | false;
   publish?: SkykitStarSourcePublishOptions | false;
 }
@@ -1309,3 +1312,5 @@ export declare function installSkykitDebugGlobal(
   debugBridge: SkykitDebugBridge,
   options?: InstallSkykitDebugGlobalOptions
 ): () => void;
+
+export const SKYKIT_ICRS_SPACE: Readonly<import('@found-in-space/spatial').SpatialCoordinateSpace>;

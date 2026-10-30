@@ -1,11 +1,14 @@
+import { SKYKIT_ICRS_SPACE } from '../spatial-adapter.js';
 import {
   applySpatialQuaternion,
   cloneSpatialVector3,
   SPATIAL_LOCAL_FORWARD,
   normalizeSpatialDirection,
   normalizeSpatialPose,
+  normalizeSpatialVector3,
+  normalizeSpatialCoordinateSpace,
 } from '@found-in-space/spatial';
-import { poseFromSkykitXrPose, poseFromViewer } from './body.js';
+import { coordinateSpaceForXrReferenceSpace, poseFromSkykitXrPose, poseFromViewer } from './body.js';
 
 /**
  * @param {import('../xr.d.ts').SkykitXrRaySourceOptions} [options]
@@ -41,7 +44,7 @@ export function createSkykitXrRaySource(options = {}) {
     if (kind === 'head-gaze') {
       const pose = context.body?.head
         ?? (context.frame && context.referenceSpace
-          ? poseFromViewer(context.frame.getViewerPose?.(context.referenceSpace))
+          ? poseFromViewer(context.frame.getViewerPose?.(context.referenceSpace), coordinateSpaceForXrReferenceSpace(context.referenceSpace))
           : null);
       lastRay = poseToRay(pose, { id, kind, handedness: null, length });
       return lastRay ? cloneRay(lastRay) : null;
@@ -49,7 +52,7 @@ export function createSkykitXrRaySource(options = {}) {
     if (kind === 'ship-forward') {
       const pose = context.rig?.getNavigationPose?.()
         ?? context.body?.ship
-        ?? normalizeSpatialPose({});
+        ?? normalizeSpatialPose({ space: SKYKIT_ICRS_SPACE });
       lastRay = poseToRay(pose, { id, kind, handedness: null, length });
       return lastRay ? cloneRay(lastRay) : null;
     }
@@ -110,7 +113,7 @@ function controllerRay(context, options) {
     if (options.handedness && input.handedness !== options.handedness) continue;
     const space = input[options.space];
     if (!space || typeof frame.getPose !== 'function') continue;
-    const pose = poseFromSkykitXrPose(frame.getPose(space, referenceSpace));
+    const pose = poseFromSkykitXrPose(frame.getPose(space, referenceSpace), coordinateSpaceForXrReferenceSpace(referenceSpace));
     const ray = poseToRay(pose, {
       id: options.id,
       kind: options.kind,
@@ -134,8 +137,9 @@ function poseToRay(pose, options) {
     id: options.id,
     kind: options.kind,
     handedness: options.handedness,
-    origin: cloneSpatialVector3(pose.observerPc),
-    direction: normalizeSpatialDirection(applySpatialQuaternion(SPATIAL_LOCAL_FORWARD, pose.orientationIcrs)),
+    space: pose.space,
+    origin: cloneSpatialVector3(pose.position),
+    direction: normalizeSpatialDirection(applySpatialQuaternion(SPATIAL_LOCAL_FORWARD, pose.orientation)),
     length: options.length,
   };
 }
@@ -148,7 +152,7 @@ export function normalizeRay(ray, fallback) {
   if (!ray || typeof ray !== 'object') {
     return null;
   }
-  const candidate = /** @type {{ origin?: unknown; direction?: unknown; length?: unknown; id?: unknown; kind?: unknown; handedness?: unknown }} */ (ray);
+  const candidate = /** @type {{ origin?: unknown; direction?: unknown; length?: unknown; space?: unknown; id?: unknown; kind?: unknown; handedness?: unknown }} */ (ray);
   if (!candidate.origin || !candidate.direction) {
     return null;
   }
@@ -156,8 +160,9 @@ export function normalizeRay(ray, fallback) {
     id: typeof candidate.id === 'string' ? candidate.id : fallback.id,
     kind: typeof candidate.kind === 'string' ? candidate.kind : fallback.kind,
     handedness: typeof candidate.handedness === 'string' ? candidate.handedness : fallback.handedness,
-    origin: normalizeSpatialPose({ observerPc: candidate.origin }).observerPc,
-    direction: normalizeSpatialDirection(normalizeSpatialPose({ observerPc: candidate.direction }).observerPc),
+    space: normalizeSpatialCoordinateSpace(candidate.space),
+    origin: normalizeSpatialVector3(candidate.origin),
+    direction: normalizeSpatialDirection(normalizeSpatialVector3(candidate.direction)),
     length: Number.isFinite(Number(candidate.length)) ? Number(candidate.length) : fallback.length,
   };
 }
@@ -170,6 +175,7 @@ export function cloneRay(ray) {
     id: ray.id,
     kind: ray.kind,
     handedness: ray.handedness,
+    space: normalizeSpatialCoordinateSpace(ray.space),
     origin: cloneSpatialVector3(ray.origin),
     direction: cloneSpatialVector3(ray.direction),
     length: ray.length,

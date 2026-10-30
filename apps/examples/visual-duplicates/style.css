@@ -1,0 +1,19 @@
+.duplicates-note {
+  margin: 10px 0 0;
+  color: #77684e;
+  font-size: 0.86rem;
+}
+
+.xr-checklist {
+  margin-top: 22px;
+}
+
+.xr-checklist li {
+  min-height: 58px;
+  padding: 10px 0;
+}
+
+.xr-outcome {
+  min-height: 132px;
+  margin-top: 16px;
+}

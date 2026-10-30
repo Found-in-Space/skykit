@@ -1,5 +1,6 @@
 import {
   lstatSync,
+  openSync, closeSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -48,7 +49,7 @@ function packWorkspace(relativePath) {
     { capture: true },
   );
   const report = JSON.parse(result.stdout);
-  const filename = report[0]?.filename;
+  const filename = (Array.isArray(report) ? report : Object.values(report))[0]?.filename;
   if (!filename) throw new Error(`npm pack did not report a tarball for ${relativePath}`);
   return path.join(packDir, filename);
 }
@@ -73,6 +74,31 @@ if (existsSync(touchOsRoot)) {
 await import('@found-in-space/skykit');
 await import('@found-in-space/hr-diagram');
 console.log('ordinary SkyKit and HR roots imported without touch-os');
+
+const spatial = await import('@found-in-space/spatial');
+const skykit = await import('@found-in-space/skykit');
+const space = { frameId: 'packed:physical', metersPerUnit: 1 };
+const route = spatial.buildSpatialPolylineRoute({ space,
+  points: [{ x: 0, y: 0, z: 0 }, { x: 100, y: 0, z: 0 }],
+  travel: { kind: 'polyline', timing: { kind: 'constantSpeed', speedUnitsPerSec: 10 } },
+});
+if (spatial.evaluateSpatialRoute(route, 2).position.x !== 20) {
+  throw new Error('packed spatial modules did not evaluate a physical route');
+}
+const renderer = { render() {}, setSize() {}, dispose() {} };
+const viewer = await skykit.createSkykitViewer({ renderer,
+  plugins: [skykit.createSkykitNavigationPlugin()],
+});
+await viewer.actions.invoke(skykit.SKYKIT_ACTIONS.navigation.flyTo, {
+  targetPc: { x: 10, y: 0, z: 0 }, durationSecs: 2,
+});
+viewer.update(1);
+viewer.update(0);
+if (!(viewer.getViewState().observerPc.x > 0)) {
+  throw new Error('packed SkyKit did not bridge its parsec view into contextual navigation');
+}
+await viewer.dispose();
+console.log('packed spatial modules and SkyKit navigation evaluated without workspace links');
   `);
   run('node', ['check.mjs'], consumerDir);
 }
@@ -81,7 +107,8 @@ function verifyOptionalSubpaths(workspaceTarballs) {
   const consumerDir = createConsumer('optional-subpaths');
   install(consumerDir, [
     ...workspaceTarballs,
-    '@found-in-space/touch-os@0.3.0',
+    path.join(rootDir, '.packages/touch-os.tgz'),
+    '@pmndrs/pointer-events@6.6.32',
     'three@0.170.0',
   ]);
 
@@ -96,8 +123,8 @@ await import('@found-in-space/touch-os/hosts/three');
 
 const packageRoot = path.join(process.cwd(), 'node_modules', '@found-in-space', 'touch-os');
 const manifest = JSON.parse(readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
-if (manifest.version !== '0.3.0') {
-  throw new Error(\`expected touch-os 0.3.0, received \${String(manifest.version)}\`);
+if (manifest.version !== '0.4.0-alpha.0') {
+  throw new Error(\`expected touch-os 0.4.0-alpha.0, received \${String(manifest.version)}\`);
 }
 if (lstatSync(packageRoot).isSymbolicLink()) {
   throw new Error('touch-os resolved through a workspace or sibling symlink');
@@ -119,6 +146,15 @@ import {
   type TouchOsActionOutputMode,
 } from '@found-in-space/skykit/touch-os';
 import { createHrDiagramEmbeddedSurfaceNode } from '@found-in-space/hr-diagram/touch-os';
+import { normalizeSpatialPose, buildSpatialPolylineRoute } from '@found-in-space/spatial';
+
+const space = { frameId: 'packed:physical', metersPerUnit: 1 };
+const pose = normalizeSpatialPose({ space });
+buildSpatialPolylineRoute({ space, points: [pose.position],
+  travel: { kind: 'polyline', timing: { kind: 'duration', durationSecs: 1 } },
+});
+// @ts-expect-error Spatial poses use their declared coordinate context.
+normalizeSpatialPose({ observerPc: { x: 0, y: 0, z: 0 } });
 
 declare const root: DisplayNode;
 const actionOutputMode: TouchOsActionOutputMode = 'app-actions';
@@ -155,7 +191,7 @@ void [panel, hrNode];
     throw new Error(`touch-os was installed as a symlink: ${packageRoot}`);
   }
   const manifest = JSON.parse(readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
-  if (manifest.version !== '0.3.0') {
+  if (manifest.version !== '0.4.0-alpha.0') {
     throw new Error(`packed consumer installed touch-os ${String(manifest.version)}`);
   }
   if (!realpathSync(packageRoot).startsWith(realpathSync(consumerDir) + path.sep)) {
@@ -163,10 +199,11 @@ void [panel, hrNode];
   }
   const lock = JSON.parse(readFileSync(path.join(consumerDir, 'package-lock.json'), 'utf8'));
   const lockEntry = lock.packages?.['node_modules/@found-in-space/touch-os'];
-  const expectedRegistryTarball = 'https://registry.npmjs.org/@found-in-space/touch-os/-/touch-os-0.3.0.tgz';
-  if (lockEntry?.version !== '0.3.0' || lockEntry?.resolved !== expectedRegistryTarball) {
+  const preparedTarball = path.join(rootDir, '.packages/touch-os.tgz');
+  const resolvedTarball = lockEntry?.resolved?.startsWith('file:') ? path.resolve(consumerDir, lockEntry.resolved.slice(5)) : '';
+  if (lockEntry?.version !== '0.4.0-alpha.0' || resolvedTarball !== preparedTarball) {
     throw new Error(
-      `packed consumer did not resolve registry touch-os 0.3.0: ${JSON.stringify(lockEntry)}`,
+      `packed consumer did not resolve the prepared touch-os package 0.4.0-alpha.0: ${JSON.stringify(lockEntry)}`,
     );
   }
 }
@@ -193,12 +230,14 @@ function install(consumerDir, specs) {
 }
 
 function run(command, args, cwd, options = {}) {
-  const result = spawnSync(command, args, {
-    cwd,
-    encoding: 'utf8',
-    env: withoutLocalTouchOsOverride(process.env),
-    stdio: options.capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
-  });
+  const log = path.join(tempRoot, 'command-output.txt');
+  const fd = options.capture ? openSync(log, 'w') : undefined;
+  let result;
+  try { result = spawnSync(command, args, {
+    cwd, encoding: 'utf8', env: withoutLocalTouchOsOverride(process.env),
+    stdio: options.capture ? ['ignore', fd, fd] : 'inherit',
+  }); } finally { if (fd !== undefined) closeSync(fd); }
+  if (options.capture) result.stdout = readFileSync(log, 'utf8');
   if (result.status !== 0) {
     if (options.capture) {
       if (result.stdout) process.stdout.write(result.stdout);

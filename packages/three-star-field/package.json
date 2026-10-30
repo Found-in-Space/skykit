@@ -1,6 +1,6 @@
 {
   "name": "@found-in-space/three-star-field",
-  "version": "0.2.0",
+  "version": "0.3.0-alpha.1",
   "description": "Three.js star field renderer for Found in Space star cells",
   "license": "MIT",
   "type": "module",
@@ -18,6 +18,10 @@
     ".": {
       "types": "./src/index.d.ts",
       "default": "./src/index.js"
+    },
+    "./interaction": {
+      "types": "./src/interaction.d.ts",
+      "default": "./src/interaction.js"
     }
   },
   "files": [
@@ -31,9 +35,18 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@found-in-space/star-trees": "0.2.0"
+    "@found-in-space/star-trees": "0.2.1-alpha.0"
   },
   "peerDependencies": {
-    "three": "^0.170.0"
+    "three": "^0.170.0",
+    "@found-in-space/touch-os": "0.4.0-alpha.0"
+  },
+  "peerDependenciesMeta": {
+    "@found-in-space/touch-os": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@found-in-space/touch-os": "0.4.0-alpha.0"
   }
 }

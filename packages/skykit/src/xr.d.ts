@@ -1,5 +1,6 @@
 import type {
   SpatialPose,
+  SpatialCoordinateSpace,
   SpatialQuaternion,
   SpatialScaleProfile,
   SpatialVector3,
@@ -181,6 +182,7 @@ export interface SkykitXrControlBindingsHandle {
 }
 
 export interface SkykitXrRay {
+  space: SpatialCoordinateSpace;
   id: string;
   kind: string;
   handedness: string | null;
@@ -307,7 +309,7 @@ export interface SkykitXrDepthRange {
     near: number;
     far: number;
     requiredNavigationUnits: number;
-    requiredMeters: number;
+    requiredWorldUnits: number;
     marginFactor: number;
     unclampedFar: number;
     minFar: number;
@@ -497,7 +499,7 @@ export declare function applySkykitXrDepthRange(
 export declare function isSkykitXrModeSupported(mode?: string, options?: { navigator?: unknown }): Promise<boolean>;
 export declare function enterSkykitXrSession(options?: EnterSkykitXrSessionOptions): Promise<SkykitXrSessionHandle>;
 export declare function exitSkykitXrSession(sessionOrHandle: unknown): Promise<void>;
-export declare function poseFromTransform(transform: unknown): SkykitXrPose | null;
-export declare function poseFromViewer(xrViewerPose: unknown): SkykitXrPose | null;
-export declare function poseFromSkykitXrPose(xrPose: unknown): SkykitXrPose | null;
+export declare function poseFromTransform(transform: unknown, space: SpatialCoordinateSpace): SkykitXrPose | null;
+export declare function poseFromViewer(xrViewerPose: unknown, space: SpatialCoordinateSpace): SkykitXrPose | null;
+export declare function poseFromSkykitXrPose(xrPose: unknown, space: SpatialCoordinateSpace): SkykitXrPose | null;
 export declare function forwardFromPose(pose: SkykitXrPose): SkykitXrVector3;
