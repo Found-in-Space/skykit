@@ -25,9 +25,10 @@ try {
   run('git', ['checkout', '--quiet', '--detach', 'FETCH_HEAD'], source);
   run('npm', ['ci', '--ignore-scripts', '--no-audit', '--fund=false'], source);
   run('npm', ['run', 'build'], source);
-  const [packed] = JSON.parse(execFileSync('npm', [
+  const result = JSON.parse(execFileSync('npm', [
     'pack', '--ignore-scripts', '--json', '--pack-destination', temporary,
   ], { cwd: source, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }));
+  const [packed] = Array.isArray(result) ? result : Object.values(result);
   const archive = path.join(temporary, packed.filename);
   if (integrity(archive) !== expected) {
     throw new Error('The pinned TouchOS build does not match package-lock.json; review source and archive identity before updating the lock.');
