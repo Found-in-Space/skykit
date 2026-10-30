@@ -29,8 +29,13 @@ export function aabbDistance(x, y, z, centerX, centerY, centerZ, halfSize) {
   return Math.sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-export function loadRadiusForMagnitudeShell(halfSize, mDesired, mIndex) {
-  return halfSize * 10 ** ((mDesired - mIndex) / 5);
+export function loadRadiusForMagnitudeShell(
+  magnitudeHalfSize,
+  mDesired,
+  mIndex,
+) {
+  return 2 * magnitudeHalfSize *
+    10 ** ((mDesired - mIndex) / 5);
 }
 
 export function evaluateMagnitudeShell(observerPc, nodeGeom, mDesired, mIndex) {
@@ -52,7 +57,7 @@ export function evaluateMagnitudeShell(observerPc, nodeGeom, mDesired, mIndex) {
   return {
     distancePc,
     loadRadiusPc,
-    inMagnitudeShell: distancePc <= loadRadiusPc,
+    inMagnitudeShell: distancePc < loadRadiusPc,
   };
 }
 

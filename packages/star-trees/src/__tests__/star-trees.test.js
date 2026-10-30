@@ -23,6 +23,7 @@ import {
   encodeMorton3D,
   evaluateStarCellStrategyChange,
   estimateStarCellBytes,
+  loadRadiusForMagnitudeShell,
   normalizeTargetFrustumView,
   parseStarCellKey,
   supportsTransferableBuffers,
@@ -363,6 +364,33 @@ test('observer-shell strategy evaluates magnitude-limited cell relevance', () =>
   assert.equal(far.descend, false);
 });
 
+test('observer-shell stays within the immediate level neighbourhood', () => {
+  const evaluateAt = (observerPc) => createEvaluator(
+    createObserverShellStrategy(),
+    { observerPc, limitingMagnitude: 6.5 },
+    { indexMagnitude: 6.5 },
+  );
+  const centers = [-3, -1, 1, 3, 5];
+  const cells = [];
+  for (const centerX of centers) {
+    for (const centerY of centers) {
+      for (const centerZ of centers) {
+        cells.push(createNode({ centerX, centerY, centerZ, halfSize: 1 }));
+      }
+    }
+  }
+
+  const atOrigin = evaluateAt({ x: 0, y: 0, z: 0 });
+  const atCellCenter = evaluateAt({ x: 1, y: 1, z: 1 });
+
+  assert.equal(loadRadiusForMagnitudeShell(1, 6.5, 6.5), 2);
+  assert.equal(cells.filter((cell) => atOrigin.evaluateCell(cell).include).length, 8);
+  assert.equal(
+    cells.filter((cell) => atCellCenter.evaluateCell(cell).include).length,
+    27,
+  );
+});
+
 test('observer-shell strategy prunes a coalesced subtree by its brightest level', () => {
   const evaluator = createEvaluator(
     createObserverShellStrategy(),
@@ -370,7 +398,7 @@ test('observer-shell strategy prunes a coalesced subtree by its brightest level'
     { indexMagnitude: 6.5 },
   );
   const geometry = {
-    centerX: 70,
+    centerX: 90,
     centerY: 0,
     centerZ: 0,
     halfSize: 50,
@@ -390,7 +418,7 @@ test('observer-shell strategy prunes a coalesced subtree by its brightest level'
   assert.equal(coalescedCell.include, false);
   assert.equal(coalescedCell.metadata.brightestLevel, 3);
   assert.equal(coalescedCell.metadata.magnitudeHalfSizePc, 12.5);
-  assert.equal(coalescedCell.metadata.loadRadiusPc, 12.5);
+  assert.equal(coalescedCell.metadata.loadRadiusPc, 25);
 });
 
 test('target-frustum strategy uses the nearest visible witness', () => {

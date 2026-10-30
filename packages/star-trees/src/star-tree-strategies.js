@@ -766,7 +766,7 @@ function evaluateObserverShellCell(options) {
     options.view.limitingMagnitude,
     options.indexMagnitude,
   );
-  const relevant = distancePc <= loadRadiusPc;
+  const relevant = distancePc < loadRadiusPc;
   const motionScore = relevant
     ? scoreMotionPriority({
         cell: options.cell,
@@ -829,7 +829,7 @@ function evaluateTargetFrustumCell(options) {
   const minimumDistancePc = options.queuedDistancePc ??
     distanceToCellAabbPc(options.view.observerPc, options.cell);
 
-  if (minimumDistancePc > loadRadiusPc) {
+  if (minimumDistancePc >= loadRadiusPc) {
     return {
       relevant: false,
       descend: false,
@@ -860,7 +860,7 @@ function evaluateTargetFrustumCell(options) {
   }
 
   const distancePc = visiblePoint.distancePc;
-  const relevant = distancePc <= loadRadiusPc;
+  const relevant = distancePc < loadRadiusPc;
 
   if (!relevant) {
     return {
@@ -1036,12 +1036,21 @@ export function normalizeTargetFrustumView(view = {}, options = {}) {
 }
 
 /**
- * @param {number} halfSize
+ * Return the visibility radius represented by a magnitude level. The octree
+ * bins guarantee that every encoded star at natural level L has a visibility
+ * radius strictly smaller than that level's full node width.
+ *
+ * @param {number} magnitudeHalfSize
  * @param {number} limitingMagnitude
  * @param {number} indexMagnitude
  */
-export function loadRadiusForMagnitudeShell(halfSize, limitingMagnitude, indexMagnitude) {
-  return halfSize * 10 ** ((limitingMagnitude - indexMagnitude) / 5);
+export function loadRadiusForMagnitudeShell(
+  magnitudeHalfSize,
+  limitingMagnitude,
+  indexMagnitude,
+) {
+  return 2 * magnitudeHalfSize *
+    10 ** ((limitingMagnitude - indexMagnitude) / 5);
 }
 
 /**

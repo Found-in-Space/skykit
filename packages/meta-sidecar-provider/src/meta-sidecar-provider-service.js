@@ -17,6 +17,8 @@ import { createBrowserPersistentCache } from './browser-persistent-cache.js';
 
 export const META_SIDECAR_c56103 =
   'https://data.foundin.space/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.meta.octree';
+export const META_SIDECAR_82d9da =
+  'https://data.foundin.space/82d9da64-0024-4485-9ac1-dd39ce9f7f08/stars.meta.octree';
 export const META_SIDECAR_DEFAULT = META_SIDECAR_c56103;
 
 export const ERR_META_SIDECAR_PARENT_MISMATCH =
