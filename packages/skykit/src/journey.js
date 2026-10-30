@@ -1,4 +1,7 @@
 export { createSkykitSequenceParticipant } from './sequence.js';
+import { SKYKIT_ACTIONS, SKYKIT_CONTROLS } from './actions.js';
+
+const interruptActions = new Set([...Object.values(SKYKIT_ACTIONS.navigation), ...Object.values(SKYKIT_ACTIONS.ship), SKYKIT_ACTIONS.viewer.reset]);
 
 /**
  * @param {import('./journey.d.ts').SkykitJourneyServices & {
@@ -15,6 +18,14 @@ export function createSkykitJourneyDriver({ viewer, navigation, prepare }) {
       for (const key of ['observerPc', 'orientationIcrs', 'lookAt', 'targetPc']) {
         if (scene.view && key in scene.view) throw new TypeError(`Put ${key} in scene.camera, not scene.view.`);
       }
+      context.addCleanup(viewer.actions.subscribe(event => {
+        if ((event.type === 'action/invoke' || event.type === 'action/press') && interruptActions.has(event.id)) context.cancel();
+        if (event.type === 'action/control' && (
+          event.id === 'skykit:navigation.manualLookActive' && event.value === true
+          || Object.values(SKYKIT_CONTROLS.ship).includes(event.id) && event.value && typeof event.value === 'object'
+            && Object.values(event.value).some(value => typeof value === 'number' && value !== 0)
+        )) context.cancel();
+      }));
       return prepare?.(scene, context);
     },
     enter(scene, context) {

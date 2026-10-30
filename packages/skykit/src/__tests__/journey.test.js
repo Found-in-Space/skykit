@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGuidedJourneyController } from '@found-in-space/guided-journey';
-import { exerciseJourneyDriver } from '@found-in-space/guided-journey/testing';
+import { exerciseJourneyDriver, exerciseJourneyInterruption } from '@found-in-space/guided-journey/testing';
 import { createSkykitNavigationPlugin, createSkykitViewer, SKYKIT_ACTIONS } from '../index.js';
 import { createSkykitJourneyDriver } from '../journey.js';
 
@@ -16,6 +16,21 @@ async function fixture() {
   ] } });
   return { viewer, navigation, journey };
 }
+
+for (const input of ['look', 'movement', 'ship']) test(`stellar ${input} cancels preparation and an arrived chapter`, async () => {
+  const { viewer, navigation, journey } = await fixture();
+  try {
+    await exerciseJourneyInterruption({ driver: createSkykitJourneyDriver({ viewer, navigation }),
+      scene: { camera: { observerPc: { x: 20, y: 0, z: 0 } } },
+      interrupt() {
+        if (input === 'look') viewer.actions.setControlValue('skykit:navigation.manualLookActive', true);
+        else if (input === 'ship') viewer.actions.setControlValue('skykit:ship.control.move', { x: 1, y: 0, z: 0 });
+        else return viewer.actions.invoke(SKYKIT_ACTIONS.navigation.cancelMovement);
+      },
+      async advance() { await flush(); viewer.frame(0); viewer.frame(.2); viewer.frame(0); await flush(); },
+    });
+  } finally { await journey.dispose(); await viewer.dispose(); }
+});
 
 test('journey preserves the first rendered pose and only arrives after the final queued sample is applied', async () => {
   const { viewer, journey } = await fixture();

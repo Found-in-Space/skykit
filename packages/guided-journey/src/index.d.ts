@@ -16,6 +16,8 @@ export interface JourneyContext<Scene = unknown, Services = unknown> {
   readonly transition: JourneyTransition;
   readonly reason?: LeaveReason;
   isCurrent(): boolean;
+  /** Cancel this activation, including preparation or an arrived chapter. No-op after replacement or disposal. */
+  cancel(): void;
   throwIfAborted(): void;
   addCleanup(cleanup: Cleanup): void;
   reportProgress(progress: unknown): void;

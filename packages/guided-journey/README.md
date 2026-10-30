@@ -33,6 +33,7 @@ const result = await operation.finished;
 | Unknown ID or disposed controller | Failed operation; no mutation of the current journey. |
 | New request | Supersedes pending work; stale hooks cannot enter or publish arrival. |
 | `cancel()` | Release navigation and chapter resources at the live pose. It does not restore a saved pose. |
+| Hook `context.cancel()` | Cancel the current activation during preparation, transition or arrival. A superseded/closed context cannot cancel a newer request. |
 | Operation `cancel()` | Cancel that pending operation. A completed operation stays completed; use controller cancellation to leave its chapter. |
 | `requestedChapterId` | Most recent accepted request, including a failed or cancelled request. |
 | `enteredChapterId` | Most recently entered scene; preparation alone does not change it. |
@@ -53,7 +54,7 @@ new scope. Edge overrides match the entered chapter and target, then fall back
 to chapter and journey transition settings.
 
 Hooks receive IDs, `source`, `signal`, `services`, `scene`, `transition`,
-`isCurrent()`, `throwIfAborted()`, `reportProgress(value)` and `addCleanup(fn)`.
+`isCurrent()`, `cancel()`, `throwIfAborted()`, `reportProgress(value)` and `addCleanup(fn)`.
 They may also return cleanup. Each registered cleanup runs once; all cleanup
 callbacks are attempted even if one fails, and `dispose()` reports aggregated
 cleanup errors. Leave is called only for an entered chapter. Asynchronous leave
@@ -63,6 +64,14 @@ Hooks must honor the signal and check it after asynchronous work before changing
 external state. The controller cannot undo arbitrary side effects in a hook that
 ignores cancellation. Cleanup returned by a stale hook runs immediately when it
 eventually returns; disposal does not wait forever for uncooperative preparation.
+
+Drivers connect manual exploration in `prepare`, before awaiting resources, using
+`context.cancel()` and registering the input unsubscription with `addCleanup`.
+Cancellation aborts the preparation signal, releases the prior chapter and keeps
+the live view. The same callback works after arrival. A retained callback from a
+superseded chapter is a no-op, including while that chapter remains visible during
+its replacement's preparation. Hosts still decide which inputs mean exploration;
+the shared controller owns cancellation and late-result cleanup.
 
 ## Drivers and units
 
