@@ -1,3 +1,5 @@
+export { createSkykitSequenceParticipant } from './sequence.js';
+
 /**
  * @param {import('./journey.d.ts').SkykitJourneyServices & {
  * prepare?: (scene: import('./journey.d.ts').SkykitJourneyScene,

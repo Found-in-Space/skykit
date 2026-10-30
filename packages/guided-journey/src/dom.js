@@ -54,3 +54,47 @@ export function mountJourneyControls({ root, journey, definition }) {
   const unsubscribe = journey.subscribe(update); update(journey.getSnapshot());
   return { destroy() { unsubscribe(); for (const dispose of disposables.splice(0)) dispose(); panel.remove(); } };
 }
+
+/** @template Value @param {{ root: HTMLElement, player: import('./sequence.d.ts').JourneySequencePlayer<Value> }} options */
+export function mountSequenceControls({ root, player }) {
+  const document = root.ownerDocument, panel = document.createElement('section');
+  panel.className = 'sequence-controls'; panel.setAttribute('aria-label', 'Sequence controls');
+  const play = document.createElement('button'), replay = document.createElement('button');
+  const join = document.createElement('button'), cancel = document.createElement('button');
+  for (const button of [play, replay, join, cancel]) button.type = 'button';
+  replay.textContent = 'Replay'; join.textContent = 'Rejoin view'; cancel.textContent = 'Explore freely';
+  play.onclick = () => { if (player.getSnapshot().status === 'playing') player.pause(); else player.play(); };
+  replay.onclick = () => { const state = player.getSnapshot(); player.seek(state.rate > 0 ? 0 : state.frame.durationSecs); player.play(); };
+  join.onclick = () => { player.join(); }; cancel.onclick = () => player.cancel();
+  const seekLabel = document.createElement('label'), seek = document.createElement('input');
+  seekLabel.textContent = 'Time '; seek.type = 'range'; seek.min = '0'; seek.step = 'any'; seekLabel.append(seek);
+  seek.oninput = () => { player.seek(Number(seek.value)); };
+  const rateLabel = document.createElement('label'); rateLabel.textContent = 'Playback rate ';
+  const rates = player.getSnapshot().capabilities.rates;
+  const rate = rates === 'any' ? document.createElement('input') : document.createElement('select');
+  if (rate instanceof document.defaultView.HTMLInputElement) { rate.type = 'number'; rate.step = 'any'; }
+  else if (rates !== 'any') for (const value of rates) {
+    const option = document.createElement('option'); option.value = String(value); option.textContent = `${value}×`; rate.append(option);
+  }
+  rate.onchange = () => {
+    try { player.setRate(Number(rate.value)); rate.setCustomValidity(''); }
+    catch (error) { rate.setCustomValidity(error instanceof Error ? error.message : String(error)); rate.reportValidity(); }
+  };
+  rateLabel.append(rate);
+  const status = document.createElement('p'); status.setAttribute('role', 'status');
+  panel.append(play, replay, join, cancel, seekLabel, rateLabel, status); root.append(panel);
+  /** @param {import('./sequence.d.ts').SequenceSnapshot<Value>} state */
+  function update(state) {
+    play.textContent = state.status === 'playing' ? 'Pause' : 'Play';
+    seek.max = String(state.frame.durationSecs); seek.value = String(state.frame.timeSecs);
+    rate.value = String(state.rate);
+    seek.disabled = !state.capabilities.seek || state.disposed; replay.disabled = seek.disabled;
+    play.disabled = join.disabled = cancel.disabled = rate.disabled = state.disposed;
+    const ownership = state.ownership === 'attached' ? 'View joined' : state.ownership === 'joining' ? 'Moving into the sequence' : 'Free exploration';
+    status.textContent = state.status === 'failed' ? `Sequence failed: ${state.error instanceof Error ? state.error.message : state.error}`
+      : `${ownership} · ${state.frame.timeSecs.toFixed(1)} / ${state.frame.durationSecs.toFixed(1)} seconds · ${state.status}`;
+  }
+  const unsubscribe = player.subscribe(update); update(player.getSnapshot());
+  return { destroy() { unsubscribe(); play.onclick = replay.onclick = join.onclick = cancel.onclick = null;
+    seek.oninput = rate.onchange = null; panel.remove(); } };
+}

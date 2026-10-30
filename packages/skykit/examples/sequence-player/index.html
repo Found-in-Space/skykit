@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>An authored view around the Hyades</title>
+<style>
+body { margin: 0; background: #08121e; color: #edf4ff; font: 1rem/1.5 system-ui, sans-serif; }
+main { max-width: 72rem; margin: auto; padding: 1rem; } #viewer { height: 60vh; min-height: 20rem; }
+button, label { margin: .3rem; padding: .5rem; } label { display: inline-flex; gap: .5rem; align-items: center; }
+input[type=number] { width: 5rem; } a { color: #bce4ff; }
+</style></head><body><main>
+<h1>An authored view around the Hyades</h1>
+<p>Join the view to follow a short camera sequence. Pause holds its time; Replay starts it again.
+Seeking moves directly to a time while joined. Explore freely releases the camera; rejoin blends back from wherever you are.</p>
+<div id="viewer" aria-label="Stellar sequence viewer"></div><div id="controls"></div>
+<p id="caption"></p><p id="loading" role="status"></p>
+<p>This is an illustrative camera path around a cluster, not a simulation of stellar motion. The star field uses the hosted stellar dataset.</p>
+<p><a href="../guided-journey/index.html">Shared chapter example</a> · <a href="../../../../index.html">SkyKit examples</a></p>
+</main><script type="module" src="./main.js"></script></body></html>

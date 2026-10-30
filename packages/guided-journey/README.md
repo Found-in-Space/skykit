@@ -78,8 +78,9 @@ not dispose its viewer.
 SkyKit uses ICRS parsecs; Geant uses body-relative geographic degrees, physical
 metres, an explicit altitude datum and a dimensionless scale denominator. World
 UTC milliseconds and mission elapsed seconds are separate quantities. There is
-no sequence player in this first increment; deterministic sequence playback is
-the next optional protocol, not an interpretation of Studio files in this core.
+an optional [shared sequence player](SEQUENCES.md) on `/sequence`. It owns
+presentation playback and participant handover; Studio format interpretation
+remains downstream.
 
 ## Presentation and conformance
 
@@ -100,4 +101,4 @@ The paired examples are SkyKit's
 [`guided-journey`](../skykit/examples/guided-journey/) and Pas de Géant's
 `integration/earth-journey.html`. See the
 [architecture](../../docs/chapter-and-camera-timeline-architecture.md) for the
-remaining sequence, XR presentation and release work.
+remaining domain adapters, XR presentation and release work.

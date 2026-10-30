@@ -5,3 +5,8 @@ export declare function mountJourneyControls(options: {
   journey: GuidedJourneyController;
   definition: { readonly chapters: readonly { readonly id: string; readonly title?: string }[] };
 }): { destroy(): void };
+/** Explicit play/pause, seek, rate, rejoin and free-exploration controls. */
+export declare function mountSequenceControls<Value>(options: {
+  root: HTMLElement;
+  player: import('./sequence.js').JourneySequencePlayer<Value>;
+}): { destroy(): void };

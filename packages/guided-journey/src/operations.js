@@ -22,7 +22,7 @@ export function createJourneyOperation(options = {}) {
   }
   /** @param {'cancelled' | 'superseded'} [status] */
   function abort(status = 'cancelled') {
-    if (settled) return;
+    if (settled || abortController.signal.aborted) return;
     abortController.abort(status);
     try { options.onCancel?.(status); }
     catch (error) { settle('failed', error); return; }

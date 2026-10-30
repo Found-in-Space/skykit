@@ -15,7 +15,14 @@ The SkyKit navigation plugin exposes `transitionTo`, `cancel`, `subscribe` and
 `getSnapshot`; the browser installs and exposes it as `browser.navigation`
 (supply `navigation: false` or your own plugin to replace this default).
 
-This increment does not implement typed orbit/route operations, sequence playback,
+The follow-up increment implements the optional
+[shared sequence player](../packages/guided-journey/SEQUENCES.md), with a SkyKit
+participant and authored-camera example. Play/pause/seek/rate, explicit live
+rejoin, and playback-end acknowledgement share the renderer-neutral package.
+Evaluators own coordinate frames, domain clocks and cue boundaries. Actual
+SkyKit frame checks complement the headless ownership/clock tests.
+
+This work does not yet implement typed orbit/route operations for chapters,
 Studio integration, URL/scroll or immersive chapter panels. Existing lower-level
 navigation actions remain available. The sections below retain those broader
 delivery requirements; their illustrative orbit schema is not accepted by the
@@ -353,8 +360,9 @@ current `fis-journey-v1` implementation contains observer waypoints, camera
 aim/orientation waypoints, cues, guides, tracks, evaluation, preload hints, and
 retiming helpers.
 
-The guided-journey or SkyKit side should define only a small, format-neutral
-camera-sequence player protocol. Studio should publish a browser-safe evaluator
+The guided-journey side now defines the small, format-neutral
+[camera-sequence player protocol](../packages/guided-journey/SEQUENCES.md).
+Studio should publish a browser-safe evaluator
 and a Studio-side adapter that implements that protocol. An application that
 wants both features imports the adapter from Studio and passes it to the journey
 controller. SkyKit does not import Studio, probe for it, or interpret
