@@ -1,4 +1,5 @@
 import {
+  SPATIAL_METERS_PER_PARSEC,
   SPATIAL_IDENTITY_QUATERNION,
   buildSpatialViewTransitionPath,
   evaluateSpatialAim,
@@ -10,19 +11,21 @@ import {
   sampleSpatialPathDiagnostics,
 } from '@found-in-space/spatial';
 
+const space = Object.freeze({ frameId: 'spatial:example-icrs', metersPerUnit: SPATIAL_METERS_PER_PARSEC });
+
 const PATH_DURATION_SECS = 6;
 const PLAYBACK_DURATION_SECS = 8;
 const SAMPLE_STEP_SECS = 0.125;
 const POSITION_KEYS = Object.freeze([
-  { id: 'departure', timeSecs: 0, positionPc: { x: -4.5, y: 0, z: 1.2 } },
-  { id: 'climb', timeSecs: 2, positionPc: { x: -1.5, y: 0, z: -2.5 } },
-  { id: 'swing', timeSecs: 4, positionPc: { x: 2.2, y: 0, z: 2.7 } },
-  { id: 'arrival', timeSecs: 6, positionPc: { x: 5.2, y: 0, z: -0.8 } },
+  { space, id: 'departure', timeSecs: 0, position: { x: -4.5, y: 0, z: 1.2 } },
+  { space, id: 'climb', timeSecs: 2, position: { x: -1.5, y: 0, z: -2.5 } },
+  { space, id: 'swing', timeSecs: 4, position: { x: 2.2, y: 0, z: 2.7 } },
+  { space, id: 'arrival', timeSecs: 6, position: { x: 5.2, y: 0, z: -0.8 } },
 ]);
 const AIM_KEYS = Object.freeze([
-  { id: 'aim-a', timeSecs: 0, targetPc: { x: -0.5, y: 0, z: -3.4 } },
-  { id: 'aim-b', timeSecs: 3, targetPc: { x: 1.5, y: 0, z: 3.8 } },
-  { id: 'aim-c', timeSecs: 6, targetPc: { x: 6.2, y: 0, z: 2.2 } },
+  { space, id: 'aim-a', timeSecs: 0, target: { x: -0.5, y: 0, z: -3.4 } },
+  { space, id: 'aim-b', timeSecs: 3, target: { x: 1.5, y: 0, z: 3.8 } },
+  { space, id: 'aim-c', timeSecs: 6, target: { x: 6.2, y: 0, z: 2.2 } },
 ]);
 const PLOT_BOUNDS = Object.freeze({ minX: -6, maxX: 7.5, minZ: -4.5, maxZ: 4.8 });
 const COLORS = Object.freeze({
@@ -105,7 +108,7 @@ requestAnimationFrame(update);
 
 function rebuildPath() {
   const interpolationKind = elements.interpolation.value;
-  path = normalizeSpatialPathSpec({
+  path = normalizeSpatialPathSpec({ space,
     durationSecs: PATH_DURATION_SECS,
     positionKeys: POSITION_KEYS.map((key, index) => ({
       ...key,
@@ -114,7 +117,7 @@ function rebuildPath() {
     aimKeys: AIM_KEYS.map((key) => ({
       id: key.id,
       timeSecs: key.timeSecs,
-      aim: { kind: 'target', targetPc: key.targetPc },
+      aim: { space, kind: 'target', target: key.target },
       interpolation: {
         kind: 'targetBezier',
         easing: { kind: 'smoothstep' },
@@ -136,8 +139,8 @@ function rebuildPath() {
   pathDiagnostics = sampleSpatialPathDiagnostics(path, { sampleStepSecs: SAMPLE_STEP_SECS });
   preloadHints = materializeSpatialPreloadHints(path, {
     sampleStepSecs: 0.5,
-    pathRadiusPc: 0.34,
-    sphereRadiusPc: 0.16,
+    pathRadius: 0.34,
+    sphereRadius: 0.16,
     lookaheadSecs: 0.7,
     priority: 3,
   });
@@ -150,24 +153,24 @@ function rebuildTransition() {
   const positionDurationSecs = readLaneDuration(elements.positionDuration, 3.2, positionDelaySecs);
   const aimDelaySecs = readLaneNumber(elements.aimDelay, 1.4);
   const aimDurationSecs = readLaneDuration(elements.aimDuration, 5.2, aimDelaySecs);
-  const fromPosition = POSITION_KEYS[0].positionPc;
-  const toPosition = POSITION_KEYS.at(-1).positionPc;
-  const fromAim = evaluateSpatialAim({
-    observerPc: fromPosition,
-    aim: { kind: 'target', targetPc: AIM_KEYS[0].targetPc },
+  const fromPosition = POSITION_KEYS[0].position;
+  const toPosition = POSITION_KEYS.at(-1).position;
+  const fromAim = evaluateSpatialAim({ space,
+    position: fromPosition,
+    aim: { space, kind: 'target', target: AIM_KEYS[0].target },
   });
-  const toAim = evaluateSpatialAim({
-    observerPc: toPosition,
-    aim: { kind: 'target', targetPc: AIM_KEYS.at(-1).targetPc },
+  const toAim = evaluateSpatialAim({ space,
+    position: toPosition,
+    aim: { space, kind: 'target', target: AIM_KEYS.at(-1).target },
   });
-  transitionSpec = {
+  transitionSpec = { space,
     durationSecs: PLAYBACK_DURATION_SECS,
     from: {
-      pose: { observerPc: fromPosition, orientationIcrs: fromAim.orientationIcrs },
+      pose: { space, position: fromPosition, orientation: fromAim.orientation },
       aim: fromAim,
     },
     to: {
-      pose: { observerPc: toPosition, orientationIcrs: toAim.orientationIcrs },
+      pose: { space, position: toPosition, orientation: toAim.orientation },
       aim: toAim,
     },
     position: {
@@ -223,8 +226,8 @@ function drawPathPlot(canvas, current) {
     context.lineJoin = 'round';
     context.lineCap = 'round';
     context.strokeStyle = COLORS.pathSoft;
-    context.lineWidth = Math.max(8, project.scale * pathVolume.radiusPc * 2);
-    strokePoints(context, pathVolume.pointsPc, project);
+    context.lineWidth = Math.max(8, project.scale * pathVolume.radius * 2);
+    strokePoints(context, pathVolume.points, project);
     context.restore();
   }
 
@@ -233,8 +236,8 @@ function drawPathPlot(canvas, current) {
   context.lineWidth = 1;
   context.strokeStyle = 'rgba(184, 255, 138, 0.14)';
   for (const hint of preloadHints.filter((entry) => entry.kind === 'viewLookahead')) {
-    const end = addScaled(hint.pose.observerPc, hint.velocityPcPerSec, hint.lookaheadSecs);
-    strokeSegment(context, project(hint.pose.observerPc), project(end));
+    const end = addScaled(hint.pose.position, hint.velocityUnitsPerSec, hint.lookaheadSecs);
+    strokeSegment(context, project(hint.pose.position), project(end));
   }
   context.restore();
 
@@ -244,9 +247,9 @@ function drawPathPlot(canvas, current) {
   const spheres = preloadHints.filter((hint) => hint.kind === 'sphereVolume');
   for (let index = 0; index < spheres.length; index += 2) {
     const hint = spheres[index];
-    const point = project(hint.centerPc);
+    const point = project(hint.center);
     context.beginPath();
-    context.arc(point.x, point.y, Math.max(2, project.scale * hint.radiusPc), 0, Math.PI * 2);
+    context.arc(point.x, point.y, Math.max(2, project.scale * hint.radius), 0, Math.PI * 2);
     context.stroke();
   }
   context.restore();
@@ -256,23 +259,23 @@ function drawPathPlot(canvas, current) {
   context.lineWidth = 3;
   context.lineJoin = 'round';
   context.lineCap = 'round';
-  strokePoints(context, pathSamples.map((sample) => sample.pose.observerPc), project);
+  strokePoints(context, pathSamples.map((sample) => sample.pose.position), project);
   context.restore();
 
   for (const key of POSITION_KEYS) {
-    const point = project(key.positionPc);
+    const point = project(key.position);
     drawDot(context, point, 6, COLORS.surface, COLORS.warm, 2);
     drawLabel(context, key.id, point.x + 9, point.y - 9, COLORS.muted);
   }
 
-  const observer = project(current.pose.observerPc);
+  const observer = project(current.pose.position);
   drawDot(context, observer, 9, COLORS.path, '#e9fbff', 2);
-  drawVectorArrow(context, project, current.pose.observerPc, current.velocityPcPerSec, 0.52, COLORS.velocity, 'velocity');
+  drawVectorArrow(context, project, current.pose.position, current.velocityUnitsPerSec, 0.52, COLORS.velocity, 'velocity');
 
   if (current.aim) {
-    drawVectorArrow(context, project, current.pose.observerPc, current.aim.forwardIcrs, 2.2, COLORS.aim, 'aim');
+    drawVectorArrow(context, project, current.pose.position, current.aim.forward, 2.2, COLORS.aim, 'aim');
     if (current.aim.kind === 'target') {
-      const target = project(current.aim.targetPc);
+      const target = project(current.aim.target);
       drawCross(context, target, 7, COLORS.aim);
       drawLabel(context, 'target', target.x + 9, target.y - 8, COLORS.aim);
     }
@@ -353,13 +356,13 @@ function drawTransitionPlot(canvas, current) {
   context.stroke();
   context.font = '12px ui-monospace, SFMono-Regular, Menlo, monospace';
   context.fillStyle = COLORS.text;
-  context.fillText(`observer  ${formatVector(current.pose.observerPc)}`, 54, cardY + 31);
+  context.fillText(`observer  ${formatVector(current.pose.position)}`, 54, cardY + 31);
   context.fillStyle = COLORS.muted;
   context.fillText(`positionComplete  ${String(current.positionComplete)}`, 54, cardY + 58);
   context.fillText(`aimComplete       ${String(current.aimComplete)}`, 54, cardY + 82);
   if (current.frameState.aim) {
     context.fillStyle = COLORS.aim;
-    context.fillText(`forward  ${formatVector(current.frameState.aim.forwardIcrs)}`, width / 2, cardY + 31);
+    context.fillText(`forward  ${formatVector(current.frameState.aim.forward)}`, width / 2, cardY + 31);
   }
   context.restore();
 }
@@ -394,7 +397,7 @@ function drawLane(context, options) {
 function updateReadouts(pathSample, transitionSample) {
   setReadout('playback', `${elapsedSecs.toFixed(2)} / ${PLAYBACK_DURATION_SECS.toFixed(2)} s`);
   setReadout('path-time', `${pathSample.timeSecs.toFixed(2)} / ${PATH_DURATION_SECS.toFixed(2)} s`);
-  setReadout('speed', `${pathSample.speedPcPerSec.toFixed(2)} pc/s`);
+  setReadout('speed', `${pathSample.speedUnitsPerSec.toFixed(2)} pc/s`);
   setReadout('aim', pathSample.aim?.kind ?? 'none');
   setReadout('position-lane', laneState(
     elapsedSecs,
@@ -422,12 +425,12 @@ function renderJson(pathSample, transitionSample) {
     pathDiagnostics,
     transitionDiagnostics: transition.diagnostics,
     current: {
-      path: {
+      path: { space,
         playbackElapsedSecs: pathSample.playbackElapsedSecs,
         timeSecs: pathSample.timeSecs,
-        observerPc: pathSample.pose.observerPc,
-        velocityPcPerSec: pathSample.velocityPcPerSec,
-        speedPcPerSec: pathSample.speedPcPerSec,
+        position: pathSample.pose.position,
+        velocityUnitsPerSec: pathSample.velocityUnitsPerSec,
+        speedUnitsPerSec: pathSample.speedUnitsPerSec,
         aim: pathSample.aim,
       },
       transition: {
@@ -457,7 +460,7 @@ function createPositionInterpolation(kind, index) {
       { x: -1.4, y: 0, z: 1.6 },
       { x: -1.1, y: 0, z: 1.4 },
     ];
-    return { kind: 'cubicBezier', outTangentPc: outTangents[index], inTangentPc: inTangents[index] };
+    return { kind: 'cubicBezier', outTangent: outTangents[index], inTangent: inTangents[index] };
   }
   const velocities = [
     { x: 1.2, y: 0, z: -1.8 },
@@ -465,7 +468,7 @@ function createPositionInterpolation(kind, index) {
     { x: 2.0, y: 0, z: -1.0 },
     { x: 1.1, y: 0, z: -1.4 },
   ];
-  return { kind: 'hermite', inVelocityPcPerSec: velocities[index], outVelocityPcPerSec: velocities[index] };
+  return { kind: 'hermite', inVelocityUnitsPerSec: velocities[index], outVelocityUnitsPerSec: velocities[index] };
 }
 
 function createPlotProjection(width, height) {
@@ -642,17 +645,17 @@ function summarizePreloadHint(hint) {
   if (hint.kind === 'pathVolume') {
     return {
       kind: hint.kind,
-      pointCount: hint.pointsPc.length,
-      radiusPc: hint.radiusPc,
+      pointCount: hint.points.length,
+      radius: hint.radius,
       timeRangeSecs: hint.timeRangeSecs,
       priority: hint.priority,
     };
   }
   if (hint.kind === 'sphereVolume') {
-    return {
+    return { space,
       kind: hint.kind,
-      centerPc: hint.centerPc,
-      radiusPc: hint.radiusPc,
+      center: hint.center,
+      radius: hint.radius,
       timeRangeSecs: hint.timeRangeSecs,
       priority: hint.priority,
     };
@@ -660,7 +663,7 @@ function summarizePreloadHint(hint) {
   return {
     kind: hint.kind,
     pose: hint.pose,
-    velocityPcPerSec: hint.velocityPcPerSec,
+    velocityUnitsPerSec: hint.velocityUnitsPerSec,
     lookaheadSecs: hint.lookaheadSecs,
     timeRangeSecs: hint.timeRangeSecs,
     priority: hint.priority,

@@ -3,6 +3,7 @@ import type { StarCellRef, StarObjectRef } from '@found-in-space/star-trees';
 export type { StarCellRef, StarObjectRef } from '@found-in-space/star-trees';
 
 export declare const META_SIDECAR_c56103: string;
+export declare const META_SIDECAR_82d9da: string;
 export declare const META_SIDECAR_DEFAULT: string;
 export declare const ERR_META_SIDECAR_PARENT_MISMATCH: string;
 export declare const ERR_META_SIDECAR_INVALID_ARTIFACT: string;

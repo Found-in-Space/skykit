@@ -6,7 +6,9 @@ import {
   ERR_META_SIDECAR_INVALID_ARTIFACT,
   ERR_META_SIDECAR_INVALID_KIND,
   ERR_META_SIDECAR_PARENT_MISMATCH,
+  META_SIDECAR_82d9da,
   META_SIDECAR_DEFAULT,
+  META_SIDECAR_c56103,
   createMetaSidecarProviderService,
   deriveMetaSidecarUrlFromRenderUrl,
   metaSidecarEntryDisplayFields,
@@ -21,6 +23,18 @@ const SHARD_NODE_SIZE = 20;
 const PARENT_UUID = 'c56103e6-ad4c-41f9-be06-048b48ec632b';
 const OTHER_UUID = '11111111-1111-4111-8111-111111111111';
 const SIDECAR_UUID = 'feea8a27-f1ac-451e-9ce1-44c8313ed837';
+
+test('default public meta sidecar URL constants are exported', () => {
+  assert.equal(
+    META_SIDECAR_c56103,
+    'https://data.foundin.space/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.meta.octree',
+  );
+  assert.equal(
+    META_SIDECAR_82d9da,
+    'https://data.foundin.space/82d9da64-0024-4485-9ac1-dd39ce9f7f08/stars.meta.octree',
+  );
+  assert.equal(META_SIDECAR_DEFAULT, META_SIDECAR_c56103);
+});
 
 test('deriveMetaSidecarUrlFromRenderUrl mirrors render octree names', () => {
   assert.equal(deriveMetaSidecarUrlFromRenderUrl(null), META_SIDECAR_DEFAULT);

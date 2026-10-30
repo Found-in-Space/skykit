@@ -1,0 +1,30 @@
+{
+  "mode": "pre",
+  "tag": "alpha",
+  "initialVersions": {
+    "@found-in-space/skykit-examples": "0.0.0",
+    "@found-in-space/anchored-image": "0.2.0",
+    "@found-in-space/hr-diagram": "0.2.0",
+    "@found-in-space/meta-sidecar-provider": "0.2.0",
+    "@found-in-space/skykit": "0.2.0",
+    "@found-in-space/spatial": "0.3.0-alpha.0",
+    "@found-in-space/star-map-canvas": "0.2.0",
+    "@found-in-space/star-octree-provider": "0.2.0",
+    "@found-in-space/star-trees": "0.2.0",
+    "@found-in-space/three-star-field": "0.2.0"
+  },
+  "changesets": [
+    "constellation-art-view-center",
+    "hyades-orbit-drag",
+    "skykit-product-registry",
+    "spatial-coordinate-spaces",
+    "spatial-orbital-route-timing",
+    "spatial-path-aim-interpolation",
+    "spatial-preload-radius-units",
+    "spatial-view-transition-lanes",
+    "star-octree-v2",
+    "strict-spatial-contract",
+    "touch-os-stable-bridge",
+    "visual-duplicates-overlay"
+  ]
+}

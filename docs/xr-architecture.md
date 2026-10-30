@@ -7,8 +7,9 @@ This note defines the split between shared spatial navigation and WebXR-specific
 runtime behavior.
 
 The public website remains pinned to stable SkyKit `0.2.0` while this repository
-develops the broader `0.3.0` XR API. The repository bridge and examples resolve
-the published `@found-in-space/touch-os@0.3.0` package by default; they do not
+develops the broader `0.3.0` XR API. The current shared-interaction development batch requires TouchOS 0.4.0-alpha.0;
+run `npm run prepare:interaction` before `npm ci` (see the package README).
+The repository bridge and examples use that installed archive; they do not
 silently alias a sibling source checkout. Repository examples and deterministic
 fake-XR/browser tests validate the new API until a coordinated stable SkyKit
 release is available. See
@@ -221,6 +222,14 @@ import {
 
 ---
 
+Spatial's source alpha requires declared coordinate spaces and separates
+physical unit conversion from rendered size. See the
+[canonical spatial contract](../packages/spatial/api-contract.md). SkyKit keeps
+its parsec/ICRS view fields at the adapter boundary. XR tracking poses and rays
+carry the identity of their reference space in metres; navigation poses carry
+the rig's declared coordinate space. A tracking pose must not be labelled ICRS
+merely because it uses the same vector/quaternion representation.
+
 ## 6. Current Implementation Status
 
 Implemented in `@found-in-space/spatial`:
@@ -431,7 +440,7 @@ Use distinct contracts:
 
 ```txt
 SpatialPose
-  observerPc + orientationIcrs
+  space + position + orientation
   parsec/ICRS navigation semantics
 
 XrReferencePose

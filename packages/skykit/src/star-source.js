@@ -67,6 +67,12 @@ export function createSkykitStarSourcePlugin(options) {
   let lastError = null;
   /** @type {string | null} */
   let lastErrorEventKey = null;
+  const demandDebounceMs = normalizeDemandDebounceMs(options.demandDebounceMs);
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let demandDebounceTimeout = null;
+  /** @type {import('@found-in-space/star-octree-provider').StarOctreeViewPatch | null} */
+  let pendingDemandView = null;
+  let submittedInitialDemand = false;
   const restartRetentionPolicy = normalizeRestartRetentionPolicy(options.retainCellsOnRestart);
   /** @type {RetainedRestartCells | null} */
   let retainedRestartCells = null;
@@ -249,10 +255,27 @@ export function createSkykitStarSourcePlugin(options) {
   /** @param {SkykitViewState} view */
   function setView(view) {
     if (disposed) return;
-    session?.updateView(resolveProviderViewPatch(view), {
+    const nextView = resolveProviderViewPatch(view);
+    const updateOptions = {
       reason: 'skykit.view',
       ...(options.updateOptions ?? {}),
-    });
+    };
+    if (!session) return;
+
+    if (!(demandDebounceMs > 0) || !submittedInitialDemand) {
+      clearPendingDemandView();
+      session.updateView(nextView, updateOptions);
+      submittedInitialDemand = true;
+      return;
+    }
+
+    // Keep the provider's current view in sync without replanning the octree on
+    // every locomotion frame. A single demand update follows once movement
+    // settles, while renderers continue to receive every observer position.
+    session.updateView(nextView, { ...updateOptions, demand: 'suppress' });
+    pendingDemandView = nextView;
+    if (demandDebounceTimeout) clearTimeout(demandDebounceTimeout);
+    demandDebounceTimeout = setTimeout(flushPendingDemandView, demandDebounceMs);
   }
 
   function detach() {
@@ -262,6 +285,7 @@ export function createSkykitStarSourcePlugin(options) {
 
   async function dispose() {
     if (disposed) return;
+    clearPendingDemandView();
     detach();
     clearRetainedRestartCells();
     clearStoreForConsumers();
@@ -290,6 +314,8 @@ export function createSkykitStarSourcePlugin(options) {
       store: store.getSnapshot(),
       session: session?.getSnapshot?.() ?? null,
       provider: options.provider?.getSnapshot?.() ?? null,
+      demandDebounceMs,
+      demandUpdatePending: pendingDemandView !== null,
       lastError,
       disposed,
     };
@@ -339,6 +365,8 @@ export function createSkykitStarSourcePlugin(options) {
    */
   async function restartSession(reason) {
     if (!context || !ownsSession || disposed) return;
+    clearPendingDemandView();
+    submittedInitialDemand = false;
     const previousSession = session;
     unsubscribeSession?.();
     unsubscribeSession = null;
@@ -359,6 +387,23 @@ export function createSkykitStarSourcePlugin(options) {
       reason,
       session,
     });
+  }
+
+  function flushPendingDemandView() {
+    const nextView = pendingDemandView;
+    demandDebounceTimeout = null;
+    pendingDemandView = null;
+    if (!nextView || !session || disposed) return;
+    session.updateView(nextView, {
+      reason: 'skykit.view-settled',
+      ...(options.updateOptions ?? {}),
+    });
+  }
+
+  function clearPendingDemandView() {
+    if (demandDebounceTimeout) clearTimeout(demandDebounceTimeout);
+    demandDebounceTimeout = null;
+    pendingDemandView = null;
   }
 
   function clearStoreForConsumers() {
@@ -511,6 +556,15 @@ function normalizeRestartRetentionPolicy(value) {
     DEFAULT_RESTART_RETENTION_MAX_AGE_MS,
   );
   return { until, maxAgeMs };
+}
+
+/**
+ * @param {SkykitStarSourcePluginOptions['demandDebounceMs']} value
+ * @returns {number}
+ */
+function normalizeDemandDebounceMs(value) {
+  const milliseconds = Number(value);
+  return Number.isFinite(milliseconds) && milliseconds > 0 ? milliseconds : 0;
 }
 
 /**

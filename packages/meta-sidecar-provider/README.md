@@ -29,6 +29,10 @@ convenient display bundle.
 Public lookups must not depend on octree storage fields such as `nodeKey`,
 `shardOffset`, `nodeIndex`, `payloadOffset`, or `payloadLength`.
 
+Immutable hosted sidecars are exported as `META_SIDECAR_c56103` (STAR v1
+dataset) and `META_SIDECAR_82d9da` (STAR v2 dataset). `META_SIDECAR_DEFAULT`
+selects the classic v1 dataset; use `META_SIDECAR_82d9da` explicitly for v2.
+
 ```js
 import {
   META_SIDECAR_DEFAULT,

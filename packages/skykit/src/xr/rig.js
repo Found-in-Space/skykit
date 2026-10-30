@@ -1,3 +1,4 @@
+import { SKYKIT_ICRS_SPACE } from '../spatial-adapter.js';
 import * as THREE from 'three';
 import {
   cloneSpatialPose,
@@ -29,7 +30,7 @@ export function createSkykitXrRig(options = {}) {
   /** @type {Record<string, THREE.Group>} */
   const scaleBandedContentRoots = {};
   /** @type {import('../xr.d.ts').SkykitXrPose} */
-  let navigationPose = normalizeSpatialPose(options.navigationPose ?? {});
+  let navigationPose = normalizeSpatialPose(options.navigationPose ?? { space: SKYKIT_ICRS_SPACE }, options.navigationPose?.space ?? SKYKIT_ICRS_SPACE);
   let disposed = false;
 
   navigationRoot.add(shipMountRoot);
@@ -99,20 +100,21 @@ export function createSkykitXrRig(options = {}) {
   function setNavigationPose(pose) {
     assertActive();
     navigationPose = normalizeSpatialPose({
-      observerPc: pose.observerPc ?? navigationPose.observerPc,
-      orientationIcrs: pose.orientationIcrs ?? navigationPose.orientationIcrs,
-    });
-    const worldScale = scaleProfile.worldUnitsPerNavigationUnit;
+      space: pose.space ?? navigationPose.space,
+      position: pose.position ?? navigationPose.position,
+      orientation: pose.orientation ?? navigationPose.orientation,
+    }, navigationPose.space);
+    const worldScale = scaleProfile.worldUnitsPerUnit;
     navigationRoot.position.set(
-      navigationPose.observerPc.x * worldScale,
-      navigationPose.observerPc.y * worldScale,
-      navigationPose.observerPc.z * worldScale,
+      navigationPose.position.x * worldScale,
+      navigationPose.position.y * worldScale,
+      navigationPose.position.z * worldScale,
     );
     navigationRoot.quaternion.set(
-      navigationPose.orientationIcrs.x,
-      navigationPose.orientationIcrs.y,
-      navigationPose.orientationIcrs.z,
-      navigationPose.orientationIcrs.w,
+      navigationPose.orientation.x,
+      navigationPose.orientation.y,
+      navigationPose.orientation.z,
+      navigationPose.orientation.w,
     );
     syncObserverContentRoot();
   }
@@ -127,9 +129,7 @@ export function createSkykitXrRig(options = {}) {
   function setScaleProfile(nextProfile) {
     assertActive();
     const normalized = normalizeSpatialScaleProfile(nextProfile);
-    scaleProfile.navigationUnits = normalized.navigationUnits;
-    scaleProfile.metersPerNavigationUnit = normalized.metersPerNavigationUnit;
-    scaleProfile.worldUnitsPerNavigationUnit = normalized.worldUnitsPerNavigationUnit;
+    scaleProfile.worldUnitsPerUnit = normalized.worldUnitsPerUnit;
     setNavigationPose(navigationPose);
   }
 
@@ -138,11 +138,11 @@ export function createSkykitXrRig(options = {}) {
   }
 
   function syncObserverContentRoot() {
-    const worldScale = scaleProfile.worldUnitsPerNavigationUnit;
+    const worldScale = scaleProfile.worldUnitsPerUnit;
     observerContentRoot.position.set(
-      navigationPose.observerPc.x * worldScale,
-      navigationPose.observerPc.y * worldScale,
-      navigationPose.observerPc.z * worldScale,
+      navigationPose.position.x * worldScale,
+      navigationPose.position.y * worldScale,
+      navigationPose.position.z * worldScale,
     );
     observerContentRoot.quaternion.identity();
     observerContentRoot.scale.setScalar(1);

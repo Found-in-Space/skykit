@@ -1,9 +1,11 @@
+import { SKYKIT_ICRS_SPACE } from '../spatial-adapter.js';
 import {
   applySpatialQuaternion,
   cloneSpatialPose,
   cloneSpatialQuaternion,
   cloneSpatialVector3,
   SPATIAL_IDENTITY_QUATERNION,
+  normalizeSpatialCoordinateSpace,
   SPATIAL_LOCAL_FORWARD,
   normalizeSpatialPose,
 } from '@found-in-space/spatial';
@@ -19,7 +21,7 @@ export function createSkykitXrBodyTracker(options = {}) {
     head: null,
     leftHand: null,
     rightHand: null,
-    ship: normalizeSpatialPose(options.shipPose ?? {}),
+    ship: normalizeSpatialPose(options.shipPose ?? { space: SKYKIT_ICRS_SPACE }, options.shipPose?.space ?? SKYKIT_ICRS_SPACE),
     torso: null,
   };
   let disposed = false;
@@ -42,7 +44,7 @@ export function createSkykitXrBodyTracker(options = {}) {
     const session = context.session;
     const inputSources = Array.from(context.inputSources ?? session?.inputSources ?? []);
     const head = frame && referenceSpace && typeof frame.getViewerPose === 'function'
-      ? poseFromViewer(frame.getViewerPose(referenceSpace))
+      ? poseFromViewer(frame.getViewerPose(referenceSpace), coordinateSpaceForXrReferenceSpace(referenceSpace))
       : null;
     /** @type {import('../xr.d.ts').SkykitXrBodyModel} */
     const nextBody = {
@@ -50,7 +52,7 @@ export function createSkykitXrBodyTracker(options = {}) {
       leftHand: null,
       rightHand: null,
       ship: context.shipPose
-        ? normalizeSpatialPose(context.shipPose)
+        ? normalizeSpatialPose(context.shipPose, context.rig?.getNavigationPose?.().space ?? body.ship.space)
         : context.rig?.getNavigationPose?.() ?? cloneSpatialPose(body.ship),
       torso: null,
     };
@@ -59,10 +61,10 @@ export function createSkykitXrBodyTracker(options = {}) {
       const hand = source?.handedness;
       if (hand !== 'left' && hand !== 'right') continue;
       const gripPose = frame && referenceSpace && source.gripSpace
-        ? poseFromSkykitXrPose(frame.getPose(source.gripSpace, referenceSpace))
+        ? poseFromSkykitXrPose(frame.getPose(source.gripSpace, referenceSpace), coordinateSpaceForXrReferenceSpace(referenceSpace))
         : null;
       const targetRayPose = frame && referenceSpace && source.targetRaySpace
-        ? poseFromSkykitXrPose(frame.getPose(source.targetRaySpace, referenceSpace))
+        ? poseFromSkykitXrPose(frame.getPose(source.targetRaySpace, referenceSpace), coordinateSpaceForXrReferenceSpace(referenceSpace))
         : null;
       const handPose = {
         handedness: hand,
@@ -106,7 +108,7 @@ export function createSkykitXrBodyTracker(options = {}) {
       head: null,
       leftHand: null,
       rightHand: null,
-      ship: normalizeSpatialPose({}),
+      ship: normalizeSpatialPose({ space: SKYKIT_ICRS_SPACE }),
       torso: null,
     };
   }
@@ -120,29 +122,32 @@ export function createSkykitXrBodyTracker(options = {}) {
 
 /**
  * @param {unknown} xrViewerPose
+ * @param {import('@found-in-space/spatial').SpatialCoordinateSpace} space
  */
-export function poseFromViewer(xrViewerPose) {
+export function poseFromViewer(xrViewerPose, space) {
   const pose = xrViewerPose && typeof xrViewerPose === 'object'
     ? /** @type {{ transform?: unknown; views?: Array<{ transform?: unknown }> }} */ (xrViewerPose)
     : null;
   if (!pose) return null;
-  return poseFromTransform(pose.transform ?? pose.views?.[0]?.transform);
+  return poseFromTransform(pose.transform ?? pose.views?.[0]?.transform, space);
 }
 
 /**
  * @param {unknown} xrPose
+ * @param {import('@found-in-space/spatial').SpatialCoordinateSpace} space
  */
-export function poseFromSkykitXrPose(xrPose) {
+export function poseFromSkykitXrPose(xrPose, space) {
   const pose = xrPose && typeof xrPose === 'object'
     ? /** @type {{ transform?: unknown }} */ (xrPose)
     : null;
-  return poseFromTransform(pose?.transform);
+  return poseFromTransform(pose?.transform, space);
 }
 
 /**
  * @param {unknown} transform
+ * @param {import('@found-in-space/spatial').SpatialCoordinateSpace} space
  */
-export function poseFromTransform(transform) {
+export function poseFromTransform(transform, space) {
   if (!transform || typeof transform !== 'object') {
     return null;
   }
@@ -151,8 +156,9 @@ export function poseFromTransform(transform) {
     return null;
   }
   return normalizeSpatialPose({
-    observerPc: t.position,
-    orientationIcrs: t.orientation ?? SPATIAL_IDENTITY_QUATERNION,
+    space: normalizeSpatialCoordinateSpace(space),
+    position: t.position,
+    orientation: t.orientation ?? SPATIAL_IDENTITY_QUATERNION,
   });
 }
 
@@ -163,12 +169,12 @@ export function poseFromTransform(transform) {
 function writeObjectPose(object, pose) {
   if (!object || !pose) return;
   const target = /** @type {{ position?: { set: (x: number, y: number, z: number) => void }; quaternion?: { set: (x: number, y: number, z: number, w: number) => void } }} */ (object);
-  target.position?.set(pose.observerPc.x, pose.observerPc.y, pose.observerPc.z);
+  target.position?.set(pose.position.x, pose.position.y, pose.position.z);
   target.quaternion?.set(
-    pose.orientationIcrs.x,
-    pose.orientationIcrs.y,
-    pose.orientationIcrs.z,
-    pose.orientationIcrs.w,
+    pose.orientation.x,
+    pose.orientation.y,
+    pose.orientation.z,
+    pose.orientation.w,
   );
 }
 
@@ -176,7 +182,7 @@ function writeObjectPose(object, pose) {
  * @param {import('../xr.d.ts').SkykitXrPose} pose
  */
 export function forwardFromPose(pose) {
-  return applySpatialQuaternion(SPATIAL_LOCAL_FORWARD, pose.orientationIcrs);
+  return applySpatialQuaternion(SPATIAL_LOCAL_FORWARD, pose.orientation);
 }
 
 /**
@@ -210,3 +216,15 @@ export {
   cloneSpatialQuaternion as cloneQuaternion,
   cloneSpatialVector3 as cloneVector3,
 };
+
+const referenceSpaces = new WeakMap();
+let nextReferenceSpace = 0;
+/** @param {object} referenceSpace @returns {import('@found-in-space/spatial').SpatialCoordinateSpace} */
+export function coordinateSpaceForXrReferenceSpace(referenceSpace) {
+  let space = referenceSpaces.get(referenceSpace);
+  if (!space) {
+    space = Object.freeze({ frameId: 'skykit:xr-reference:' + ++nextReferenceSpace, metersPerUnit: 1 });
+    referenceSpaces.set(referenceSpace, space);
+  }
+  return space;
+}

@@ -9,22 +9,22 @@ import {
 test('ObserverShellField expands selection as mDesired increases', async () => {
   const narrowContext = createFieldTestContext({
     state: {
-      observerPc: { x: 0, y: 60, z: 0 },
+      observerPc: { x: 0, y: 125, z: 0 },
       mDesired: 6.5,
     },
   });
   const wideContext = createFieldTestContext({
     state: {
-      observerPc: { x: 0, y: 60, z: 0 },
+      observerPc: { x: 0, y: 125, z: 0 },
       mDesired: 8.0,
     },
   });
 
   const narrowField = createObserverShellField({
-    observerPc: { x: 0, y: 60, z: 0 },
+    observerPc: { x: 0, y: 125, z: 0 },
   });
   const wideField = createObserverShellField({
-    observerPc: { x: 0, y: 60, z: 0 },
+    observerPc: { x: 0, y: 125, z: 0 },
   });
 
   const narrowSelection = await narrowField.selectNodes(narrowContext);

@@ -26,10 +26,10 @@ export function computeSkykitXrDepthRange(options = {}) {
   const requiredNavigationUnits = Math.max(
     farthestBoundsDistance,
     farthestObserverSphereDistance,
-    near / scale.metersPerNavigationUnit,
+    near / scale.worldUnitsPerUnit,
   );
-  const requiredMeters = requiredNavigationUnits * scale.metersPerNavigationUnit;
-  const unclampedFar = requiredMeters * marginFactor;
+  const requiredWorldUnits = requiredNavigationUnits * scale.worldUnitsPerUnit;
+  const unclampedFar = requiredWorldUnits * marginFactor;
   const far = Math.min(maxFar, Math.max(minFar, unclampedFar));
 
   return {
@@ -41,7 +41,7 @@ export function computeSkykitXrDepthRange(options = {}) {
       near,
       far,
       requiredNavigationUnits,
-      requiredMeters,
+      requiredWorldUnits,
       marginFactor,
       unclampedFar,
       minFar,

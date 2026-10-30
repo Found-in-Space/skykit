@@ -44,6 +44,14 @@ export interface ThreeStarFieldOptions extends Partial<ThreeStarFieldView> {
   ) => THREE.Material | ThreeStarFieldMaterialProfile;
   frustumCulled?: boolean;
   disposeMaterialProfile?: boolean;
+  vertexAttributes?: ThreeStarFieldVertexAttributeSpec[];
+}
+
+export interface ThreeStarFieldVertexAttributeSpec {
+  name: string;
+  itemSize?: 1 | 2 | 3 | 4;
+  type?: 'uint8' | 'float32';
+  normalized?: boolean;
 }
 
 export interface ThreeStarFieldMaterialFactoryContext {
@@ -122,6 +130,11 @@ export interface ThreeStarField {
   readonly object3d: THREE.Group;
   apply(delta: StarCellDelta): void;
   setCells(cells: Iterable<StarCellData>): void;
+  setCellVertexAttribute(
+    cellKey: string,
+    name: string,
+    values: Uint8Array | Float32Array
+  ): boolean;
   clear(): void;
   setView(view: Partial<ThreeStarFieldView>): void;
   pick(
