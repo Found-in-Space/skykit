@@ -1,5 +1,12 @@
 # @found-in-space/star-octree-provider
 
+## 0.3.0-alpha.1
+
+### Patch Changes
+
+- aa0bfbc: Expose the new immutable STAR v2 dataset and matching metadata sidecar URLs for
+  explicit performance trials while retaining the classic v1 hosted defaults.
+
 ## 0.3.0-alpha.0
 
 ### Minor Changes

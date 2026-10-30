@@ -1,5 +1,43 @@
 # @found-in-space/skykit
 
+## 0.3.0-alpha.2
+
+### Minor Changes
+
+- 21b8ca7: Add a renderer-independent guided chapter controller with scoped lifecycle,
+  latest-wins activation and terminal operation outcomes. SkyKit exposes awaitable
+  pose transitions, a browser navigation handle and a journey driver that preserves
+  the live view during interruption. A stellar example shares its controller,
+  controls and conformance fixture with the Pas de Géant Earth example.
+
+  Add the optional shared sequence player and SkyKit participant: presentation
+  seconds, explicit live rejoin, pause/seek/rate controls, separate arrival and
+  playback-end outcomes, and final-frame acknowledgement. Deterministic evaluators
+  remain domain-owned, with no Studio dependency.
+
+- 8d4f94f: Add optional interaction adapters for TouchOS 0.4: preserve the aggregate star
+  picker's angular policy and complete result in shared panel/scene arbitration;
+  bridge semantic WebXR selection and grip placement without per-panel input code.
+  The interaction subpaths require TouchOS 0.4.0-alpha.0 and pointer-events 6.6.32.
+  SkyKit and three-star-field declare the required 0.4 prerelease, so npm cannot
+  accept an incompatible 0.3 graph. The HR diagram retains its compatible 0.3
+  range and also admits 0.4. Private development roots prepare locked local
+  archives, and isolated consumers exercise the published package contracts.
+
+### Patch Changes
+
+- 847b884: Allow the renderer's native XR session-end handler to complete before detaching
+  any remaining session. This prevents Three.js session cleanup from reading a
+  session that SkyKit has already cleared, while retaining explicit-exit cleanup.
+- Updated dependencies [21b8ca7]
+- Updated dependencies [8d4f94f]
+- Updated dependencies [aa0bfbc]
+  - @found-in-space/guided-journey@0.1.0-alpha.1
+  - @found-in-space/three-star-field@0.3.0-alpha.2
+  - @found-in-space/hr-diagram@0.3.0-alpha.2
+  - @found-in-space/star-octree-provider@0.3.0-alpha.1
+  - @found-in-space/meta-sidecar-provider@0.2.1-alpha.1
+
 ## 0.3.0-alpha.0
 
 ### Minor Changes
