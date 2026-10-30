@@ -170,6 +170,18 @@ import {
 } from '@found-in-space/skykit/touch-os';
 import { createHrDiagramEmbeddedSurfaceNode } from '@found-in-space/hr-diagram/touch-os';
 import { normalizeSpatialPose, buildSpatialPolylineRoute } from '@found-in-space/spatial';
+import { createJourneySequencePlayer, type SequenceParticipant } from '@found-in-space/guided-journey/sequence';
+
+// A camera participant consumes a subset; author metadata must remain inferred
+// from the evaluator for captions, markers and evidence panels.
+declare const participant: SequenceParticipant<{ camera: number }>;
+const player = createJourneySequencePlayer({ participant, sequence: { durationSecs: 1,
+  evaluate: timeSecs => ({ camera: timeSecs, caption: 'Source interval', getSeconds: 100 + timeSecs }),
+} });
+const caption: string = player.getSnapshot().frame.value.caption;
+const get: number = player.getSnapshot().frame.value.getSeconds;
+// @ts-expect-error A participant must still accept the evaluator's actual camera type.
+createJourneySequencePlayer({ participant, sequence: { durationSecs: 1, evaluate: () => ({ camera: 'invalid' }) } });
 
 const space = { frameId: 'packed:physical', metersPerUnit: 1 };
 const pose = normalizeSpatialPose({ space });

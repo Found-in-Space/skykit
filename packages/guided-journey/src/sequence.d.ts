@@ -61,7 +61,7 @@ export interface JourneySequencePlayer<Value> {
 }
 export declare function createJourneySequencePlayer<Value>(options: {
   sequence: JourneySequence<Value>;
-  participant?: SequenceParticipant<Value>;
+  participant?: SequenceParticipant<NoInfer<Value>>;
   timeSecs?: number;
   rate?: number;
 }): JourneySequencePlayer<Value>;
