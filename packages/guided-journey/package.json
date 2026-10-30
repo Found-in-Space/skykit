@@ -13,9 +13,13 @@
     "./operations": { "types": "./src/operations.d.ts", "default": "./src/operations.js" },
     "./sequence": { "types": "./src/sequence.d.ts", "default": "./src/sequence.js" },
     "./dom": { "types": "./src/dom.d.ts", "default": "./src/dom.js" },
+    "./touch-os": { "types": "./src/touch-os.d.ts", "default": "./src/touch-os.js" },
     "./testing": { "types": "./testing/index.d.ts", "default": "./testing/index.js" }
   },
   "files": ["src/**/*.js", "src/**/*.d.ts", "!src/**/__tests__/**", "testing", "README.md", "SEQUENCES.md"],
   "sideEffects": false,
+  "peerDependencies": { "@found-in-space/touch-os": "0.4.0-alpha.0" },
+  "peerDependenciesMeta": { "@found-in-space/touch-os": { "optional": true } },
+  "devDependencies": { "@found-in-space/touch-os": "0.4.0-alpha.0" },
   "scripts": { "test": "node --test", "typecheck": "tsc -p tsconfig.json --noEmit" }
 }
