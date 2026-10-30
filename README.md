@@ -59,13 +59,17 @@ porting references, not current alpha examples.
 
 ## Development
 
-This interaction development batch requires the sibling TouchOS checkout.
-Preparation builds its package and records a normal local archive dependency;
-repeat it after producer changes. Registry-only CI awaits the TouchOS 0.4
-prerelease publication. See the [interaction setup](packages/skykit/README.md#shared-ui-interaction-development).
+For a clean checkout, preparation builds the exact public TouchOS source revision
+used by this batch and verifies the resulting archive against the lockfile. It
+does not require an unpublished npm version or a sibling checkout. Node 24 is
+used for the reproducible CI preparation.
+
+For active sibling development, use `npm run prepare:interaction` and review the
+resulting lock changes after producer edits. See the
+[interaction setup](packages/skykit/README.md#shared-ui-interaction-development).
 
 ```bash
-npm run prepare:interaction
+npm run prepare:development
 npm ci
 npm run dev          # Vite dev server → http://localhost:5173/
 npm run build        # build the single GitHub Pages demo site into dist/

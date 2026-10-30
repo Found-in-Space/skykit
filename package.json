@@ -28,6 +28,7 @@
   ],
   "sideEffects": false,
   "scripts": {
+    "prepare:development": "node scripts/prepare-development-dependencies.mjs",
     "dev": "vite --host 0.0.0.0",
     "dev:visual-duplicates": "node ./apps/examples/visual-duplicates/server.js",
     "build": "vite build",
