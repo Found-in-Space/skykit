@@ -235,7 +235,7 @@ function run(command, args, cwd, options = {}) {
   let result;
   try { result = spawnSync(command, args, {
     cwd, encoding: 'utf8', env: withoutLocalTouchOsOverride(process.env),
-    stdio: options.capture ? ['ignore', fd, fd] : 'inherit',
+    stdio: options.capture ? ['ignore', fd, 'inherit'] : 'inherit',
   }); } finally { if (fd !== undefined) closeSync(fd); }
   if (options.capture) result.stdout = readFileSync(log, 'utf8');
   if (result.status !== 0) {
