@@ -1,6 +1,40 @@
 # Guided Journey And Camera Sequence Architecture
 
-Status: `0.2.0` baseline and `0.3.0` target plan.
+Status: `0.2.0` website baseline; shared-controller implementation in development
+for the coordinated `0.3.0` work.
+
+## Implemented first increment
+
+`@found-in-space/guided-journey` now owns the single headless implementation;
+Pas de Géant is its second consumer. The
+[package contract](../packages/guided-journey/README.md) is the implemented API.
+SkyKit's `/journey` driver supports pose transitions, and Geant's `/journey`
+driver supports geographic surface destinations. Both examples import the same
+controller and `/dom` controls and run the same `/testing` conformance fixture.
+The SkyKit navigation plugin exposes `transitionTo`, `cancel`, `subscribe` and
+`getSnapshot`; the browser installs and exposes it as `browser.navigation`
+(supply `navigation: false` or your own plugin to replace this default).
+
+The follow-up increment implements the optional
+[shared sequence player](../packages/guided-journey/SEQUENCES.md), with a SkyKit
+participant and authored-camera example. Play/pause/seek/rate, explicit live
+rejoin, and playback-end acknowledgement share the renderer-neutral package.
+Evaluators own coordinate frames, domain clocks and cue boundaries. Actual
+SkyKit frame checks complement the headless ownership/clock tests.
+
+This work does not yet implement typed orbit/route operations for chapters,
+Studio integration, URL/scroll or immersive chapter panels. Existing lower-level
+navigation actions remain available. The sections below retain those broader
+delivery requirements; their illustrative orbit schema is not accepted by the
+current pose driver. Desktop and emulated-XR checks are not physical-headset
+acceptance.
+
+The downstream audit found website browser lessons that explicitly install a
+navigation plugin (`look-and-fly`, `journey-buttons`, and the `add-an-object`
+lesson). During their future 0.3.0 migration, use `browser.navigation` or supply
+the custom plugin through the browser's `navigation` option; do not install a
+second navigation plugin. These callers currently consume released 0.2.0 and
+remain unchanged. Raw-viewer callers still install their own navigation plugin.
 
 The stable public website currently keeps chapter behavior in its viewer scripts,
 while SkyKit Studio owns deterministic camera timeline authoring and export. For
@@ -137,12 +171,11 @@ and product packages, but none of those packages may depend on Studio. A host
 application may compose both. That composition does not make Studio a SkyKit
 dependency.
 
-The guided controller contract must be renderer-neutral. The preferred durable
-boundary is a focused `@found-in-space/guided-journey` package with a thin
-`@found-in-space/skykit/journey` adapter. If `0.3.0` has only one SkyKit
-consumer, the same protocol may incubate in the SkyKit subpath and move to a
-focused package when a second host such as Star Pilot adopts it. Do not create a
-generic content-management package around it.
+The guided controller contract is renderer-neutral and lives in the focused
+`@found-in-space/guided-journey` package. Thin `@found-in-space/skykit/journey`
+and `@found-in-space/pas-de-geant/journey` adapters interpret domain scene data.
+Their units and geometry remain distinct; lifecycle, chapter identity, operation
+outcomes, cleanup and UI semantics share one codebase.
 
 ## 4. Navigation Operations Come First
 
@@ -327,8 +360,9 @@ current `fis-journey-v1` implementation contains observer waypoints, camera
 aim/orientation waypoints, cues, guides, tracks, evaluation, preload hints, and
 retiming helpers.
 
-The guided-journey or SkyKit side should define only a small, format-neutral
-camera-sequence player protocol. Studio should publish a browser-safe evaluator
+The guided-journey side now defines the small, format-neutral
+[camera-sequence player protocol](../packages/guided-journey/SEQUENCES.md).
+Studio should publish a browser-safe evaluator
 and a Studio-side adapter that implements that protocol. An application that
 wants both features imports the adapter from Studio and passes it to the journey
 controller. SkyKit does not import Studio, probe for it, or interpret

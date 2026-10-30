@@ -1,0 +1,21 @@
+{
+  "name": "@found-in-space/guided-journey",
+  "version": "0.1.0-alpha.0",
+  "description": "Renderer-independent guided chapters, lifecycle and sequence playback",
+  "type": "module",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/Found-in-Space/skykit", "directory": "packages/guided-journey" },
+  "publishConfig": { "access": "public" },
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": { "types": "./src/index.d.ts", "default": "./src/index.js" },
+    "./operations": { "types": "./src/operations.d.ts", "default": "./src/operations.js" },
+    "./sequence": { "types": "./src/sequence.d.ts", "default": "./src/sequence.js" },
+    "./dom": { "types": "./src/dom.d.ts", "default": "./src/dom.js" },
+    "./testing": { "types": "./testing/index.d.ts", "default": "./testing/index.js" }
+  },
+  "files": ["src/**/*.js", "src/**/*.d.ts", "!src/**/__tests__/**", "testing", "README.md", "SEQUENCES.md"],
+  "sideEffects": false,
+  "scripts": { "test": "node --test", "typecheck": "tsc -p tsconfig.json --noEmit" }
+}

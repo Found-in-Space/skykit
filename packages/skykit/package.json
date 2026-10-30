@@ -15,6 +15,10 @@
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
   "exports": {
+    "./journey": {
+      "types": "./src/journey.d.ts",
+      "default": "./src/journey.js"
+    },
     ".": {
       "types": "./src/index.d.ts",
       "default": "./src/index.js"
@@ -73,6 +77,7 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@found-in-space/guided-journey": "0.1.0-alpha.0",
     "@found-in-space/anchored-image": "0.2.0",
     "@found-in-space/hr-diagram": "0.3.0-alpha.1",
     "@found-in-space/meta-sidecar-provider": "0.2.1-alpha.0",

@@ -4,8 +4,9 @@ Alpha composition package for Found in Space teaching experiences.
 
 SkyKit is intentionally slim: it wires focused packages together and gives
 students a friendly place to hack. It does not load octree bytes, interpret
-star cells, own star shaders, manage touch surfaces, or contain journey/chapter
-logic.
+star cells, own star shaders, manage touch surfaces, or own chapter lifecycle.
+The `/journey` adapter connects stellar navigation to the focused
+`@found-in-space/guided-journey` controller.
 
 SkyKit examples and plugins should preserve the star identity boundary from
 `@found-in-space/star-trees`: use `StarObjectRef` for stars and
@@ -371,9 +372,20 @@ const stars = await loadStarRows({
 
 ## Author Chapters
 
-Keep named chapters in the website or example script. Each chapter can call
-navigation actions such as `skykit:navigation.transitionTo` and
-`skykit:navigation.orbit` from its own `goTo(id)` dispatcher.
+Keep authored chapters in the website or example script. In development, use
+`defineGuidedJourney` and `createGuidedJourneyController` from
+`@found-in-space/guided-journey`, with `createSkykitJourneyDriver` from
+`@found-in-space/skykit/journey`. The browser exposes its installed navigation
+plugin as `browser.navigation`; supply `navigation: false` or a custom plugin to
+replace that default. The driver accepts pose camera intent and noncamera view
+settings. Put destination `lookAt`, observer and orientation in `scene.camera`.
+
+The [stellar example](examples/guided-journey/) shares its controller and controls
+with Pas de Géant's Earth example. Read the
+[shared contract](../guided-journey/README.md) for operation completion,
+cancellation, preparation and cleanup. Existing navigation actions remain usable
+directly; awaiting action invocation acknowledges acceptance rather than arrival.
+The public website stays on released 0.2.0 until the stable 0.3.0 batch is ready.
 
 Use the lower-level factories when an example is teaching composition or replacing
 a part of the stack:

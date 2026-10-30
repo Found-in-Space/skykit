@@ -28,6 +28,18 @@ with the focused packages.
 
 ## Teaching Principles
 
+The paired guided-journey lesson now uses one focused controller across stellar
+and planetary viewers. Start with
+[`packages/skykit/examples/guided-journey`](../packages/skykit/examples/guided-journey/):
+edit ordinary chapter data, observe requested/entered/arrived state, interrupt a
+transition and rejoin from the live view. Pas de Géant's `earth-journey.html`
+changes the scene units and driver while keeping the controller and controls.
+The [shared package contract](../packages/guided-journey/README.md) describes
+which parts a learner can replace. The
+[camera-sequence example](../packages/skykit/examples/sequence-player/) adds
+deterministic sampling, shared playback controls and explicit live rejoin.
+Immersive chapter presentation remains a later lesson.
+
 The current migration goal is:
 
 ```txt

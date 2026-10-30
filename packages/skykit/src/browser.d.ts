@@ -19,6 +19,7 @@ import type {
   SkykitThreePart,
   SkykitViewState,
   SkykitViewer,
+  SkykitNavigationPlugin,
   Vector3Like,
 } from './index.js';
 
@@ -115,6 +116,8 @@ export interface SkykitBrowserOptions {
   grab?: false | SkykitDragLookOptions | SkykitOrbitDragOptions;
   mouseMode?: SkykitBrowserMouseMode;
   plugins?: Iterable<SkykitPluginInput>;
+  /** Supply the navigation plugin here, rather than installing a second one in plugins. */
+  navigation?: false | SkykitNavigationPlugin;
   view?: Partial<SkykitViewState>;
   lookAt?: SkykitLookAtInput;
   loop?: SkykitAnimationLoopOptions;
@@ -141,6 +144,7 @@ export interface SkykitBrowser {
   provider: StarOctreeProviderService;
   starField: ThreeStarField;
   loop: SkykitAnimationLoop;
+  navigation: SkykitNavigationPlugin | null;
   capabilities: Set<string>;
   constellations: SkykitBrowserConstellationsFacade;
   install(input: SkykitBrowserInstallInput): Promise<SkykitPluginTeardown>;

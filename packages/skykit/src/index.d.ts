@@ -1026,6 +1026,22 @@ export interface SkykitStatusPluginOptions {
   render?: (payload: SkykitStatusPayload) => void;
 }
 
+export interface SkykitNavigationTransition {
+  view?: Partial<SkykitViewState>;
+  observerPc?: SkykitTargetInput;
+  orientationIcrs?: QuaternionLike;
+  lookAt?: SkykitLookAtInput;
+  durationSecs?: number;
+  movement?: { durationSecs?: number; delaySecs?: number; [key: string]: unknown };
+  orientation?: { durationSecs?: number; delaySecs?: number; [key: string]: unknown };
+  onArrive?: () => void;
+}
+export interface SkykitNavigationPlugin extends SkykitPlugin {
+  transitionTo(spec: SkykitNavigationTransition, options?: { signal?: AbortSignal }): import('@found-in-space/guided-journey').JourneyOperation;
+  cancel(): void;
+  getSnapshot(): unknown;
+  subscribe(listener: (snapshot: unknown) => void): () => void;
+}
 export interface SkykitNavigationPluginOptions {
   id?: string;
   priority?: number;
@@ -1278,9 +1294,7 @@ export declare function createSkykitDefaultKeyboardNavigationBindings(
 export declare function createKeyboardNavigationPlugin(options?: SkykitKeyboardNavigationOptions): SkykitPlugin & {
   getSnapshot(): unknown;
 };
-export declare function createSkykitNavigationPlugin(options?: SkykitNavigationPluginOptions): SkykitPlugin & {
-  getSnapshot(): unknown;
-};
+export declare function createSkykitNavigationPlugin(options?: SkykitNavigationPluginOptions): SkykitNavigationPlugin;
 export declare function createSkykitStarPreloadRequestsFromSpatialHints(
   hints: Iterable<SpatialPreloadHint>,
   options?: SkykitSpatialPreloadStrategyOptions

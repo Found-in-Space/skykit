@@ -58,6 +58,7 @@
     "test:watch": "node --test --watch",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "prepare:interaction": "node scripts/stage-interaction-development.mjs ../touch-os",
+    "prepare:journey": "node scripts/stage-journey-development.mjs ../pas-de-geant",
     "test:interaction:package": "node scripts/check-interaction-packed-consumer.mjs .packages/touch-os.tgz"
   },
   "dependencies": {

@@ -69,6 +69,8 @@ export default defineConfig({
         index: path.resolve(__dirname, 'index.html'),
         skykitFreeRoam: path.resolve(__dirname, 'apps/examples/free-roam/index.html'),
         skykitXrFreeRoam: path.resolve(__dirname, 'apps/examples/xr-free-roam/index.html'),
+        skykitGuidedJourney: path.resolve(__dirname, 'packages/skykit/examples/guided-journey/index.html'),
+        skykitSequencePlayer: path.resolve(__dirname, 'packages/skykit/examples/sequence-player/index.html'),
         spatialExamples: path.resolve(__dirname, 'packages/spatial/examples/index.html'),
         spatialCoordinatesAim: path.resolve(__dirname, 'packages/spatial/examples/coordinates-aim/index.html'),
         spatialRoutesOrbits: path.resolve(__dirname, 'packages/spatial/examples/routes-orbits/index.html'),

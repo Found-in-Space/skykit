@@ -64,6 +64,7 @@ export async function createSkykitBrowser(input = {}) {
     limitingMagnitude,
     exposure: positive(options.exposure, DEFAULT_EXPOSURE),
   });
+  const navigation = options.navigation === false ? null : options.navigation ?? createSkykitNavigationPlugin();
 
   renderer.setClearColor?.(options.background ?? 0x02040b, 1);
   if (host.style && options.disableTouchAction !== false) host.style.touchAction = 'none';
@@ -80,6 +81,7 @@ export async function createSkykitBrowser(input = {}) {
       ...(options.view ?? {}),
     },
     plugins: [
+      ...(navigation ? [navigation] : []),
       createStreamingStarsPlugin({
         id: 'stars',
         provider,
@@ -114,6 +116,7 @@ export async function createSkykitBrowser(input = {}) {
     provider,
     starField,
     loop,
+    navigation,
     capabilities,
     install,
     addObject,

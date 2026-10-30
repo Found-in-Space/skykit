@@ -19,6 +19,7 @@ mkdirSync(packDir);
 
 try {
   const workspaceTarballs = [
+    'packages/guided-journey',
     'packages/anchored-image',
     'packages/hr-diagram',
     'packages/meta-sidecar-provider',
@@ -72,11 +73,16 @@ if (existsSync(touchOsRoot)) {
 }
 
 await import('@found-in-space/skykit');
+await import('@found-in-space/guided-journey');
+await import('@found-in-space/skykit/journey');
 await import('@found-in-space/hr-diagram');
 console.log('ordinary SkyKit and HR roots imported without touch-os');
 
 const spatial = await import('@found-in-space/spatial');
 const skykit = await import('@found-in-space/skykit');
+const { createSkykitJourneyDriver, createSkykitSequenceParticipant } = await import('@found-in-space/skykit/journey');
+const { createJourneySequencePlayer } = await import('@found-in-space/guided-journey/sequence');
+const { exerciseJourneyDriver } = await import('@found-in-space/guided-journey/testing');
 const space = { frameId: 'packed:physical', metersPerUnit: 1 };
 const route = spatial.buildSpatialPolylineRoute({ space,
   points: [{ x: 0, y: 0, z: 0 }, { x: 100, y: 0, z: 0 }],
@@ -86,8 +92,9 @@ if (spatial.evaluateSpatialRoute(route, 2).position.x !== 20) {
   throw new Error('packed spatial modules did not evaluate a physical route');
 }
 const renderer = { render() {}, setSize() {}, dispose() {} };
+const navigation = skykit.createSkykitNavigationPlugin();
 const viewer = await skykit.createSkykitViewer({ renderer,
-  plugins: [skykit.createSkykitNavigationPlugin()],
+  plugins: [navigation],
 });
 await viewer.actions.invoke(skykit.SKYKIT_ACTIONS.navigation.flyTo, {
   targetPc: { x: 10, y: 0, z: 0 }, durationSecs: 2,
@@ -97,6 +104,22 @@ viewer.update(0);
 if (!(viewer.getViewState().observerPc.x > 0)) {
   throw new Error('packed SkyKit did not bridge its parsec view into contextual navigation');
 }
+await exerciseJourneyDriver({ driver: createSkykitJourneyDriver({ viewer, navigation }),
+  scenes: [0, 1, 2].map(x => ({ camera: { observerPc: { x, y: 0, z: 0 } } })),
+  async advance() { for (let i = 0; i < 30; i++) await Promise.resolve();
+    viewer.frame(0); viewer.frame(.2); viewer.frame(0);
+    for (let i = 0; i < 30; i++) await Promise.resolve(); },
+});
+const participant = createSkykitSequenceParticipant({ viewer, navigation, durationSecs: 0 });
+const player = createJourneySequencePlayer({ participant, sequence: { durationSecs: 1,
+  evaluate(timeSecs) { return { pose: spatial.normalizeSpatialPose({ space: skykit.SKYKIT_ICRS_SPACE, position: { x: timeSecs, y: 0, z: 0 } }) }; },
+} });
+const arrival = player.join();
+for (let i = 0; i < 30; i++) await Promise.resolve();
+viewer.frame(0); viewer.frame(0); await arrival.finished;
+const ended = player.play(); player.update(1); viewer.frame(0);
+if ((await ended.finished).status !== 'completed' || viewer.getViewState().observerPc.x !== 1) throw new Error('Packed sequence did not reach its applied final sample.');
+player.dispose(); participant.dispose();
 await viewer.dispose();
 console.log('packed spatial modules and SkyKit navigation evaluated without workspace links');
   `);
