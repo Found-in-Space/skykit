@@ -35,8 +35,9 @@ semantics.
 
 ## Examples
 
-The package exports `OCTREE_c56103` for the current public Gaia-derived octree
-and `OCTREE_DEFAULT` as the teaching-friendly alias used by examples.
+The package exports immutable dataset URLs as `OCTREE_c56103` (STAR v1) and
+`OCTREE_82d9da` (STAR v2). `OCTREE_DEFAULT` selects the classic v1 dataset;
+use `OCTREE_82d9da` explicitly when testing the v2 candidate.
 
 - `examples/volume-query/` shows sphere-volume streaming through the same
   provider strategy surface as observer-shell and target-frustum.

@@ -11,6 +11,7 @@ import type {
 } from '@found-in-space/star-trees';
 
 export declare const OCTREE_c56103: string;
+export declare const OCTREE_82d9da: string;
 export declare const OCTREE_DEFAULT: string;
 
 export interface StarOctreeProviderServiceOptions {

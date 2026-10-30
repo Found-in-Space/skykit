@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { createTargetFrustumStrategy } from '@found-in-space/star-trees';
 import {
+  OCTREE_82d9da,
   OCTREE_DEFAULT,
   OCTREE_c56103,
   createStarOctreeProviderService,
@@ -21,6 +22,10 @@ test('default public octree URL constants are exported', () => {
   assert.equal(
     OCTREE_c56103,
     'https://data.foundin.space/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree',
+  );
+  assert.equal(
+    OCTREE_82d9da,
+    'https://data.foundin.space/82d9da64-0024-4485-9ac1-dd39ce9f7f08/stars.octree',
   );
   assert.equal(OCTREE_DEFAULT, OCTREE_c56103);
 });
