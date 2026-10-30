@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A few steps through the stars</title>
+<style>
+body { margin: 0; background: #08121e; color: #edf4ff; font: 1rem/1.5 system-ui, sans-serif; }
+main { max-width: 72rem; margin: auto; padding: 1rem; }
+#viewer { height: 65vh; min-height: 20rem; }
+button { margin: .25rem; padding: .6rem 1rem; border-radius: .4rem; cursor: pointer; }
+button[data-requested="true"] { outline: 2px solid #eab75a; }
+button[data-arrived="true"] { background: #bce4ff; }
+a { color: #bce4ff; }
+</style></head>
+<body><main><h1>A few steps through the stars</h1>
+<p>Visit nearby clusters, interrupt a trip, or look around and rejoin. Drag to look; use WASD to move. The camera viewpoints are illustrative; the star field uses the hosted stellar dataset.</p>
+<div id="viewer" aria-label="Stellar journey viewer"></div>
+<div id="journey"></div><p id="loading" role="status"></p>
+<p>Chapter arrival describes the camera reaching its destination. Star detail can continue streaming.</p>
+<p><a href="../../../../index.html">SkyKit examples</a></p>
+</main><script type="module" src="./main.js"></script></body></html>

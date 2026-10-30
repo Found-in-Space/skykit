@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createJourneyOperation } from '@found-in-space/guided-journey/operations';
 
 import {
   combineStrategies,
@@ -163,12 +164,22 @@ export function createStreamingStarsPlugin(options) {
 
 /**
  * @param {import('./index.d.ts').SkykitNavigationPluginOptions} [options]
- * @returns {SkykitPlugin & { getSnapshot(): unknown }}
+ * @returns {import('./index.d.ts').SkykitNavigationPlugin}
  */
 export function createSkykitNavigationPlugin(options = {}) {
   const id = options.id ?? 'navigation';
   const navigation = options.navigation ?? createSpatialNavigationAutomation(SKYKIT_ICRS_SPACE);
   let disposed = false;
+  /** @type {import('./index.d.ts').SkykitThreePluginContext | null} */
+  let installedContext = null;
+  /** @type {import('@found-in-space/guided-journey/operations').OperationControl | null} */
+  let currentOperation = null;
+  /** @type {{ control: import('@found-in-space/guided-journey/operations').OperationControl, onArrive: (() => void) | null } | null} */
+  let pendingArrival = null;
+  /** @type {Set<(snapshot: unknown) => void>} */
+  const navigationListeners = new Set();
+  /** @type {WeakMap<import('@found-in-space/guided-journey').JourneyOperation, Promise<void>>} */
+  const preparations = new WeakMap();
   /** @type {import('@found-in-space/spatial').SpatialPoseTransition | null} */
   let activeTransition = null;
   /** @type {(() => void) | null} */
@@ -188,6 +199,19 @@ export function createSkykitNavigationPlugin(options = {}) {
     priority: options.priority,
     update(frame) {
       if (disposed) return;
+      // View patches queued by the previous update have now reached the rig.
+      // Arrival cannot settle in the update that merely queued the final pose.
+      if (pendingArrival) {
+        const arrival = pendingArrival;
+        pendingArrival = null;
+        if (currentOperation === arrival.control && !arrival.control.settled) {
+          currentOperation = null;
+          try { arrival.onArrive?.(); arrival.control.settle('completed'); }
+          catch (error) { arrival.control.settle('failed', error); }
+          notifyNavigation();
+        }
+        return;
+      }
       if (activeTransition) {
         transitionElapsedSeconds += Math.max(0, finiteNumber(frame.deltaSeconds, 0));
         const sample = evaluateSpatialPoseTransition(activeTransition, transitionElapsedSeconds);
@@ -210,7 +234,8 @@ export function createSkykitNavigationPlugin(options = {}) {
           transitionElapsedSeconds = 0;
           transitionMovementCancelled = false;
           transitionOrientationCancelled = false;
-          onArrive?.();
+          if (currentOperation) pendingArrival = { control: currentOperation, onArrive };
+          else onArrive?.();
         }
         return;
       }
@@ -232,15 +257,18 @@ export function createSkykitNavigationPlugin(options = {}) {
       }
     },
     dispose() {
-      invalidateNavigationCommands(['movement', 'orientation']);
-      clearActiveTransition();
       disposed = true;
+      invalidateNavigationCommands(['movement', 'orientation'], 'cancelled');
+      clearActiveTransition();
+      installedContext = null;
+      navigationListeners.clear();
       navigation.dispose?.();
     },
     getSnapshot() {
       return {
         id,
         disposed,
+        operation: currentOperation?.operation ?? null,
         navigation: navigation.getDiagnostics?.() ?? null,
         transition: activeTransition
           ? {
@@ -259,6 +287,8 @@ export function createSkykitNavigationPlugin(options = {}) {
     id,
     setup(context) {
       const threeContext = /** @type {import('./index.d.ts').SkykitThreePluginContext} */ (context);
+      if (installedContext || disposed) throw new Error('Create a navigation plugin for each viewer.');
+      installedContext = threeContext;
       const removePart = threeContext.addPart(part);
       const unregisterActions = registerNavigationActions(threeContext);
       return () => {
@@ -267,7 +297,62 @@ export function createSkykitNavigationPlugin(options = {}) {
       };
     },
     getSnapshot: () => part.getSnapshot?.() ?? null,
+    transitionTo,
+    cancel,
+    subscribe(listener) { navigationListeners.add(listener); return () => { navigationListeners.delete(listener); }; },
   };
+
+  function notifyNavigation() {
+    for (const listener of navigationListeners) listener(part.getSnapshot?.());
+  }
+  function holdDisplayedPose() {
+    if (!installedContext || disposed) return;
+    const view = installedContext.getViewState();
+    installedContext.requestViewState({ observerPc: view.observerPc, orientationIcrs: view.orientationIcrs }, id);
+  }
+  function cancel() {
+    invalidateNavigationCommands(['movement', 'orientation'], 'cancelled');
+    clearActiveTransition();
+    navigation.cancel();
+    holdDisplayedPose();
+    notifyNavigation();
+  }
+  /** @param {import('./index.d.ts').SkykitNavigationTransition} spec @param {{ signal?: AbortSignal }} [operationOptions] */
+  function transitionTo(spec, operationOptions = {}) {
+    if (operationOptions.signal?.aborted) {
+      return createJourneyOperation({ signal: operationOptions.signal, lanes: ['movement', 'orientation'] }).operation;
+    }
+    const command = beginNavigationCommand(['movement', 'orientation']);
+    navigation.cancel();
+    holdDisplayedPose();
+    const control = createJourneyOperation({ signal: operationOptions.signal, lanes: ['movement', 'orientation'], onCancel() {
+      clearActiveTransition(); navigation.cancel(); holdDisplayedPose();
+      currentOperation = null; notifyNavigation();
+    } });
+    currentOperation = control;
+    const context = installedContext;
+    if (!context || disposed) {
+      currentOperation = null;
+      control.settle('failed', new Error('Navigation must be installed on an active viewer.'));
+      return control.operation;
+    }
+    const prepared = createTransition(spec, context).then(transition => {
+      if (!isNavigationCommandCurrent(command) || control.settled) return;
+      activeTransition = transition;
+      activeTransitionOnArrive = resolveOnArrive(spec);
+      transitionElapsedSeconds = 0;
+      transitionMovementCancelled = false;
+      transitionOrientationCancelled = false;
+      notifyNavigation();
+    }).catch(error => {
+      if (control.settled) return;
+      currentOperation = null;
+      control.settle('failed', error); notifyNavigation();
+    });
+    preparations.set(control.operation, prepared);
+    notifyNavigation();
+    return control.operation;
+  }
 
   /**
    * @param {import('./index.d.ts').SkykitThreePluginContext} context
@@ -301,16 +386,9 @@ export function createSkykitNavigationPlugin(options = {}) {
         return points;
       }, { label: 'Fly polyline' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.transitionTo, async ({ payload }) => {
-        const command = beginNavigationCommand(['movement', 'orientation']);
-        navigation.cancel();
-        const transition = await createTransition(payload, context);
-        if (!isNavigationCommandCurrent(command)) return transition;
-        activeTransition = transition;
-        activeTransitionOnArrive = resolveOnArrive(payload);
-        transitionElapsedSeconds = 0;
-        transitionMovementCancelled = false;
-        transitionOrientationCancelled = false;
-        return activeTransition;
+        const operation = transitionTo(/** @type {import('./index.d.ts').SkykitNavigationTransition} */ (payload));
+        await preparations.get(operation);
+        return operation;
       }, { label: 'Transition to view' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.orbit, async ({ payload }) => {
         const command = beginNavigationCommand(['movement']);
@@ -359,28 +437,24 @@ export function createSkykitNavigationPlugin(options = {}) {
         return target;
       }, { label: 'Lock at target' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.unlockAt, () => {
-        invalidateNavigationCommands(['orientation']);
+        invalidateNavigationCommands(['orientation'], 'cancelled');
         navigation.unlockAt();
       }, { label: 'Unlock look target' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancelMovement, () => {
-        invalidateNavigationCommands(['movement']);
+        invalidateNavigationCommands(['movement'], 'cancelled');
         activeTransitionOnArrive = null;
         transitionMovementCancelled = Boolean(activeTransition);
         if (transitionOrientationCancelled) clearActiveTransition();
         cancelNavigationLane('movement');
       }, { label: 'Cancel movement' }),
       context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancelOrientation, () => {
-        invalidateNavigationCommands(['orientation']);
+        invalidateNavigationCommands(['orientation'], 'cancelled');
         activeTransitionOnArrive = null;
         transitionOrientationCancelled = Boolean(activeTransition);
         if (transitionMovementCancelled) clearActiveTransition();
         cancelNavigationLane('orientation');
       }, { label: 'Cancel orientation' }),
-      context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancel, () => {
-        invalidateNavigationCommands(['movement', 'orientation']);
-        clearActiveTransition();
-        navigation.cancel();
-      }, { label: 'Cancel navigation' }),
+      context.actions.registerAction(SKYKIT_ACTIONS.navigation.cancel, cancel, { label: 'Cancel navigation' }),
     ];
     return () => {
       for (const unregister of unregisters.reverse()) unregister();
@@ -473,6 +547,7 @@ export function createSkykitNavigationPlugin(options = {}) {
   }
 
   function clearActiveTransition() {
+    pendingArrival = null;
     activeTransition = null;
     activeTransitionOnArrive = null;
     transitionElapsedSeconds = 0;
@@ -492,9 +567,19 @@ export function createSkykitNavigationPlugin(options = {}) {
 
   /**
    * @param {Array<'movement' | 'orientation'>} lanes
+   * @param {'cancelled' | 'superseded'} [outcome]
    * @returns {{ epoch: number; movement: boolean; orientation: boolean }}
    */
-  function invalidateNavigationCommands(lanes) {
+  function invalidateNavigationCommands(lanes, outcome = 'superseded') {
+    if (outcome === 'cancelled' && lanes.length === 1) {
+      currentOperation?.settle(outcome);
+      currentOperation = null;
+      if (installedContext && !disposed) {
+        const view = installedContext.getViewState();
+        installedContext.requestViewState(lanes[0] === 'movement'
+          ? { observerPc: view.observerPc } : { orientationIcrs: view.orientationIcrs }, id);
+      }
+    } else currentOperation?.abort(outcome);
     const epoch = ++nextNavigationCommandEpoch;
     const movement = lanes.includes('movement');
     const orientation = lanes.includes('orientation');

@@ -35,12 +35,12 @@ try {
   install(root, ['touch-os']);
   if (geantRoot) {
     save(geantRoot, 'touch-os', touch);
-    for (const name of ['skykit', 'three-star-field', 'hr-diagram']) save(geantRoot, name, pack(path.join(root, 'packages', name)));
+    for (const name of ['guided-journey', 'skykit', 'three-star-field', 'hr-diagram']) save(geantRoot, name, pack(path.join(root, 'packages', name)));
     const voiceRoot = path.join(path.dirname(root), 'voice-os');
     if (!existsSync(path.join(voiceRoot, 'node_modules', 'typescript'))) run('npm', ['ci', '--ignore-scripts', '--no-audit', '--fund=false'], voiceRoot);
     run('npm', ['run', 'build'], voiceRoot);
     save(geantRoot, 'voice-os', pack(voiceRoot));
-    install(geantRoot, ['touch-os', 'skykit', 'three-star-field', 'hr-diagram', 'voice-os']);
+    install(geantRoot, ['guided-journey', 'touch-os', 'skykit', 'three-star-field', 'hr-diagram', 'voice-os']);
   }
   console.log('Installed packed prereleases through npm; manifests and lockfiles describe the actual dependency graph.');
   console.log('Keep .packages for npm ci. Re-run preparation after producer changes. Public package dependencies use exact release versions.');
