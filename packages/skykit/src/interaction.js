@@ -61,7 +61,7 @@ export function createSkykitInteractionInput(options) {
  */
 export function createSkykitInteractionPlugin(options) {
   return { id: options.id ?? 'skykit:interaction', setup(context) {
-    context.addPart({ id: options.id ?? 'skykit:interaction', priority: 200, update(frame) {
+    return context.addPart({ id: options.id ?? 'skykit:interaction', priority: 200, update(frame) {
       options.environment.update({ timestamp: (options.now ?? (() => performance.now()))(),
         scene: frame.scene, camera: frame.camera, ...(options.frame?.(frame) ?? {}) });
     } });
