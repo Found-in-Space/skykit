@@ -364,58 +364,31 @@ test('observer-shell strategy evaluates magnitude-limited cell relevance', () =>
   assert.equal(far.descend, false);
 });
 
-test('observer-shell keeps the brightest permitted star at a node corner', () => {
-  const evaluator = createEvaluator(
+test('observer-shell stays within the immediate level neighbourhood', () => {
+  const evaluateAt = (observerPc) => createEvaluator(
     createObserverShellStrategy(),
-    { observerPc: { x: 0, y: 0, z: 0 }, limitingMagnitude: 6.5 },
+    { observerPc, limitingMagnitude: 6.5 },
     { indexMagnitude: 6.5 },
   );
+  const centers = [-3, -1, 1, 3, 5];
+  const cells = [];
+  for (const centerX of centers) {
+    for (const centerY of centers) {
+      for (const centerZ of centers) {
+        cells.push(createNode({ centerX, centerY, centerZ, halfSize: 1 }));
+      }
+    }
+  }
 
-  const evaluation = evaluator.evaluateCell(createNode({
-    centerX: 2,
-    centerY: 2,
-    centerZ: 2,
-    halfSize: 1,
-  }));
+  const atOrigin = evaluateAt({ x: 0, y: 0, z: 0 });
+  const atCellCenter = evaluateAt({ x: 1, y: 1, z: 1 });
 
-  assert.equal(evaluation.include, true);
-  assert.equal(evaluation.metadata.distancePc, Math.sqrt(3));
-  assert.ok(evaluation.metadata.loadRadiusPc > 2);
-  assert.ok(evaluation.metadata.loadRadiusPc < 2.01);
-});
-
-test('observer-shell applies the finite conservative bound uniformly to level 0', () => {
-  const evaluator = createEvaluator(
-    createObserverShellStrategy(),
-    { observerPc: { x: 150.1, y: 0, z: 0 }, limitingMagnitude: 6.5 },
-    { indexMagnitude: 6.5 },
-  );
-  const levelZero = createNode({
-    centerX: 0,
-    centerY: 0,
-    centerZ: 0,
-    halfSize: 50,
-    level: 0,
-    gridX: 0,
-    gridY: 0,
-    gridZ: 0,
-  });
-
-  const evaluation = evaluator.evaluateCell(levelZero);
-
-  assert.equal(evaluation.include, true);
-  assert.equal(Number.isFinite(evaluation.metadata.loadRadiusPc), true);
+  assert.equal(loadRadiusForMagnitudeShell(1, 6.5, 6.5), 2);
+  assert.equal(cells.filter((cell) => atOrigin.evaluateCell(cell).include).length, 8);
   assert.equal(
-    evaluation.metadata.loadRadiusPc,
-    loadRadiusForMagnitudeShell(50, 6.5, 6.5),
+    cells.filter((cell) => atCellCenter.evaluateCell(cell).include).length,
+    27,
   );
-
-  const beyondBound = createEvaluator(
-    createObserverShellStrategy(),
-    { observerPc: { x: 150.3, y: 0, z: 0 }, limitingMagnitude: 6.5 },
-    { indexMagnitude: 6.5 },
-  ).evaluateCell(levelZero);
-  assert.equal(beyondBound.include, false);
 });
 
 test('observer-shell strategy prunes a coalesced subtree by its brightest level', () => {
@@ -445,10 +418,7 @@ test('observer-shell strategy prunes a coalesced subtree by its brightest level'
   assert.equal(coalescedCell.include, false);
   assert.equal(coalescedCell.metadata.brightestLevel, 3);
   assert.equal(coalescedCell.metadata.magnitudeHalfSizePc, 12.5);
-  assert.equal(
-    coalescedCell.metadata.loadRadiusPc,
-    loadRadiusForMagnitudeShell(12.5, 6.5, 6.5),
-  );
+  assert.equal(coalescedCell.metadata.loadRadiusPc, 25);
 });
 
 test('target-frustum strategy uses the nearest visible witness', () => {

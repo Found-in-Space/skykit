@@ -288,22 +288,20 @@ in the `warm` lane. Lookahead scoring favors cells that appear in more predicted
 samples, which biases fast movement toward cells likely to remain useful over
 one-frame churn.
 
-Observer-shell selection uses a uniform conservative bound for the brightest
-permitted star at the furthest useful point in a node:
+Observer-shell selection follows the geometry-driven magnitude-band contract:
 
 ```txt
 magnitudeHalfSizePc = halfSizePc / 2 ** (brightestLevel - level)
 loadRadiusPc = 2 * magnitudeHalfSizePc
   * 10 ** ((limitingMagnitude - indexMagnitude) / 5)
-  * 10 ** (0.005 / 5)
 ```
 
-The factor of two covers the full natural-level magnitude band. The final
-factor covers the brightest half-step introduced when payload magnitudes are
-encoded to the nearest `0.01`. This finite rule also applies to natural level
-0; level 0 is not a special never-prune case. For a coalesced v2 node, spatial
-AABB/frustum tests still use the node's actual `halfSizePc`; only the magnitude
-load radius uses the smaller half-size represented by `brightestLevel`.
+The factor of two converts half-size to full node width. At the index magnitude,
+every encoded star at natural level `L` has a visibility radius strictly below
+that width, keeping selection inside the current cell and its immediate
+neighbours. For a coalesced v2 node, spatial AABB/frustum tests still use the
+node's actual `halfSizePc`; only the magnitude load radius uses the smaller
+half-size represented by `brightestLevel`.
 
 Do not add broad fixed padding to compensate for streaming churn. Refresh
 throttling should be expressed through strategy change/diff policy, such as

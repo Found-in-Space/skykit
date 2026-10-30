@@ -276,7 +276,7 @@ test('observer-shell demand uses header magLimit for pruning', async () => {
   }
 });
 
-test('observer-shell demand covers the full magnitude band and encoding margin', async () => {
+test('observer-shell demand uses one full node width as the magnitude shell', async () => {
   const indexOffset = HEADER_SIZE + DESCRIPTOR_SIZE;
   const rootShard = createShardBytes({
     parentGlobalDepth: 0,
@@ -312,12 +312,7 @@ test('observer-shell demand covers the full magnitude band and encoding margin',
   };
 
   try {
-    const maximumVisibilityRadius =
-      2 * 50 * 10 ** ((6.5 - 6.5) / 5) * 10 ** (0.005 / 5);
-    assert.equal(
-      loadRadiusForMagnitudeShell(50, 6.5, 6.5),
-      maximumVisibilityRadius,
-    );
+    assert.equal(loadRadiusForMagnitudeShell(50, 6.5, 6.5), 100);
 
     const included = await planStarOctreeStrategyDemand({
       indexSource,
@@ -325,7 +320,7 @@ test('observer-shell demand covers the full magnitude band and encoding margin',
         ...baseContext,
         view: {
           revision: 1,
-          observerPc: { x: 100.1, y: -50, z: -50 },
+          observerPc: { x: 99, y: -50, z: -50 },
           limitingMagnitude: 6.5,
         },
       }),
@@ -336,16 +331,13 @@ test('observer-shell demand covers the full magnitude band and encoding margin',
         ...baseContext,
         view: {
           revision: 2,
-          observerPc: { x: 100.3, y: -50, z: -50 },
+          observerPc: { x: 100, y: -50, z: -50 },
           limitingMagnitude: 6.5,
         },
       }),
     });
     assert.equal(included.entries.length, 1);
-    assert.equal(
-      included.entries[0].metadata.loadRadiusPc,
-      maximumVisibilityRadius,
-    );
+    assert.equal(included.entries[0].metadata.loadRadiusPc, 100);
     assert.equal(pruned.entries.length, 0);
     assert.equal(pruned.metadata.prunedNodeCount, 1);
   } finally {
@@ -353,7 +345,7 @@ test('observer-shell demand covers the full magnitude band and encoding margin',
   }
 });
 
-test('observer-shell demand uses brightestLevel with the full STAR v2 terminal AABB', async () => {
+test('observer-shell demand skips an out-of-range coalesced STAR v2 payload', async () => {
   const indexOffset = HEADER_SIZE + DESCRIPTOR_SIZE;
   const rootShard = createShardBytes({
     version: 2,
@@ -389,24 +381,24 @@ test('observer-shell demand uses brightestLevel with the full STAR v2 terminal A
   };
 
   try {
-    const included = await planStarOctreeStrategyDemand({
-      indexSource,
-      context: withTraversalContext(indexSource, {
-        ...baseContext,
-        view: {
-          revision: 1,
-          observerPc: { x: 150.1, y: 0, z: 0 },
-          limitingMagnitude: 6.5,
-        },
-      }),
-    });
     const pruned = await planStarOctreeStrategyDemand({
       indexSource,
       context: withTraversalContext(indexSource, {
         ...baseContext,
         view: {
+          revision: 1,
+          observerPc: { x: 150, y: 0, z: 0 },
+          limitingMagnitude: 6.5,
+        },
+      }),
+    });
+    const included = await planStarOctreeStrategyDemand({
+      indexSource,
+      context: withTraversalContext(indexSource, {
+        ...baseContext,
+        view: {
           revision: 2,
-          observerPc: { x: 150.2, y: 0, z: 0 },
+          observerPc: { x: 125, y: 0, z: 0 },
           limitingMagnitude: 6.5,
         },
       }),
@@ -418,10 +410,7 @@ test('observer-shell demand uses brightestLevel with the full STAR v2 terminal A
     assert.equal(included.entries.length, 1);
     assert.equal(included.entries[0].node.brightestLevel, 2);
     assert.equal(included.entries[0].metadata.magnitudeHalfSizePc, 25);
-    assert.equal(
-      included.entries[0].metadata.loadRadiusPc,
-      loadRadiusForMagnitudeShell(25, 6.5, 6.5),
-    );
+    assert.equal(included.entries[0].metadata.loadRadiusPc, 50);
   } finally {
     restoreFetch();
   }

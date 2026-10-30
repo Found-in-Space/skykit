@@ -35,8 +35,7 @@ export function loadRadiusForMagnitudeShell(
   mIndex,
 ) {
   return 2 * magnitudeHalfSize *
-    10 ** ((mDesired - mIndex) / 5) *
-    10 ** (0.005 / 5);
+    10 ** ((mDesired - mIndex) / 5);
 }
 
 export function evaluateMagnitudeShell(observerPc, nodeGeom, mDesired, mIndex) {
@@ -58,7 +57,7 @@ export function evaluateMagnitudeShell(observerPc, nodeGeom, mDesired, mIndex) {
   return {
     distancePc,
     loadRadiusPc,
-    inMagnitudeShell: distancePc <= loadRadiusPc,
+    inMagnitudeShell: distancePc < loadRadiusPc,
   };
 }
 
