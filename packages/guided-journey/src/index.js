@@ -188,6 +188,11 @@ export function createGuidedJourneyController({ definition: input, driver }) {
       services: /** @type {Services} */ (driver.services),
       transition: definition.transitions?.find(edge => edge.from === from && edge.to === id) ?? chapter.transition ?? definition.transition ?? {},
       isCurrent: () => !scope.closed && !state.disposed && (pending?.scope === scope || activeScope === scope),
+      cancel() {
+        // A previous chapter can remain active while its replacement prepares.
+        // Its delayed callbacks must not cancel the newer request.
+        if (!scope.closed && !state.disposed && (pending ? pending.scope === scope : activeScope === scope)) cancel();
+      },
       throwIfAborted() { controller.signal.throwIfAborted(); if (!this.isCurrent()) throw new Error('Journey activation superseded.'); },
       addCleanup(cleanup) {
         if (typeof cleanup !== 'function') throw new TypeError('Cleanup must be a function.');

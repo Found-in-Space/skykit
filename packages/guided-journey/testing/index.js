@@ -3,6 +3,39 @@ import { createGuidedJourneyController } from '../src/index.js';
 
 const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 
+/** Exercise host input while assets prepare, and again after arrival. */
+export async function exerciseJourneyInterruption({ driver, scene, interrupt, advance }) {
+  let release, context, entered = 0, cleaned = 0, delayed = true;
+  const gate = new Promise(resolve => { release = resolve; });
+  const journey = createGuidedJourneyController({ driver, definition: { id: 'interruption',
+    transition: { durationSecs: .1 }, chapters: [{ id: 'a', scene,
+      async prepare(ctx) { context = ctx; if (delayed) { await gate; return () => { cleaned++; }; } },
+      enter() { entered++; },
+    }],
+  } });
+  try {
+    const pending = journey.start(); await flush();
+    assert.equal(journey.getSnapshot().status, 'preparing');
+    await interrupt(); await flush();
+    assert.equal(journey.getSnapshot().status, 'cancelled');
+    assert.equal(context.signal.aborted, true);
+    assert.equal((await pending.finished).status, 'cancelled');
+    release(); await flush(); await advance();
+    assert.equal(entered, 0); assert.equal(cleaned, 1);
+    assert.deepEqual(journey.getSnapshot().history, []);
+    delayed = false;
+    const retry = journey.start(); await flush(); await advance();
+    assert.equal((await retry.finished).status, 'completed');
+    await interrupt(); await flush();
+    assert.equal(journey.getSnapshot().status, 'cancelled');
+    assert.equal(context.signal.aborted, true);
+    assert.deepEqual(journey.getSnapshot().history, ['a']);
+    await journey.dispose();
+    const disposed = journey.getSnapshot();
+    await interrupt(); assert.deepEqual(journey.getSnapshot(), disposed);
+  } finally { release(); await journey.dispose(); }
+}
+
 /** The same behavioral exercise runs against real host drivers, outside browser bundles. */
 export async function exerciseJourneyDriver({ driver, scenes, advance }) {
   let release;

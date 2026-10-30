@@ -5,6 +5,25 @@ import { createJourneyOperation } from '../operations.js';
 
 const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
+
+test('scoped cancellation cannot cancel a replacement, including while the previous chapter remains active', async () => {
+  const contexts = [], gate = deferred();
+  const f = fixture([{ id: 'a', prepare: ctx => { contexts.push(ctx); } },
+    { id: 'b', prepare: ctx => { contexts.push(ctx); return gate.promise; } }]);
+  f.journey.start(); await f.arrive();
+  const b = f.journey.goTo('b'); await flush();
+  contexts[0].cancel();
+  assert.equal(f.journey.getSnapshot().status, 'preparing');
+  contexts[1].cancel(); await flush();
+  assert.equal((await b.finished).status, 'cancelled');
+  assert.ok(contexts.every(ctx => ctx.signal.aborted));
+  const replacement = f.journey.goTo('a'); await flush();
+  contexts[1].cancel(); gate.resolve(); await f.arrive();
+  assert.equal((await replacement.finished).status, 'completed');
+  contexts[2].cancel(); assert.equal(f.journey.getSnapshot().status, 'cancelled');
+  await f.journey.dispose();
+  contexts[2].cancel(); assert.equal(f.journey.getSnapshot().disposed, true);
+});
 function fixture(chapters, options = {}) {
   const trace = [], motions = [];
   const driver = {
