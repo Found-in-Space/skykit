@@ -22,6 +22,11 @@ rejoin, and playback-end acknowledgement share the renderer-neutral package.
 Evaluators own coordinate frames, domain clocks and cue boundaries. Actual
 SkyKit frame checks complement the headless ownership/clock tests.
 
+The optional guided-journey `/touch-os` presentation supplies chapter and playback
+panels over the same controller/player. The stellar examples mount canvas
+previews; hosts remain responsible for spatial placement and XR input. See the
+package contract for ownership and subscriptions.
+
 This work does not yet implement typed orbit/route operations for chapters,
 Studio integration, URL/scroll or immersive chapter panels. Existing lower-level
 navigation actions remain available. The sections below retain those broader

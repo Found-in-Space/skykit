@@ -89,13 +89,49 @@ definition, journey})`, used unchanged by both examples. It supplies chapter,
 previous/next, free-exploration and retry buttons, pending/arrival status and
 accessible current-step state. Its `destroy()` removes only its own UI. It does
 not auto-start a journey or render article prose. DOM code is outside the root
-import graph; TouchOS, URL and scroll adapters can use the same controller.
+import graph; URL and scroll adapters can use the same controller.
+
+The optional `/touch-os` export supplies `createJourneyTouchControls({id,
+definition, journey})` and `createSequenceTouchControls({id, player, title?,
+rates?, seekStepSecs?})`. Install the optional TouchOS peer only for that subpath.
+The root and sequence player remain dependency-free. Both DOM and TouchOS
+presentations use the same status and playback helpers.
+
+```js
+import {createSequenceTouchControls} from '@found-in-space/guided-journey/touch-os';
+const controls = createSequenceTouchControls({id: 'journey-player', player});
+const panel = environment.mountPanel({id: 'journey-player',
+  content: controls.render, surface: {width: 480, height: 640},
+  // Supply canvas or spatial placement and inputs through the existing host.
+  bind: output => { controls.handleOutput(output); },
+});
+const unsubscribe = player.subscribe(() => panel.setContent(controls.render()));
+// Teardown: unsubscribe(); panel.dispose(); — player ownership stays with its host.
+```
+
+TouchOS owns layout, scrolling, focus and gesture cancellation. These controls
+borrow the controller/player: rendering or mounting neither starts a chapter nor
+joins a sequence, and removing a panel does not dispose the experience. Play and
+Replay never implicitly join. Rejoin retains the existing live-entry operation;
+pause retains ownership, while Explore freely releases it. A cancelled slider
+gesture retains its last applied time. Capability restrictions disable seeking
+and restrict rate choices. Unrestricted players default to a small rate menu;
+authors may provide other finite nonzero choices without limiting the player API.
+A zero-duration sequence displays time without creating an invalid slider.
+
+The host still supplies spatial placement, input and scheduling, and must decide
+its motion/comfort policy. A working panel does not establish physical-headset
+acceptance or make continuous travel automatic.
 
 `@found-in-space/guided-journey/testing` exports a Node-only
 `exerciseJourneyDriver({driver, scenes: [a, b, c], advance})`. Both real host
 test suites run this fixture, checking latest-wins preparation, arrival, cleanup,
 order, invalid IDs, revisit and cancellation. Coordinate and rendered-pose checks
 remain in each host. The testing subpath is never imported by browser entrypoints.
+
+The stellar chapter and sequence examples also mount TouchOS canvas previews
+beside their DOM controls, sharing the live controller/player. These previews do
+not install an XR session or claim headset acceptance.
 
 The paired examples are SkyKit's
 [`guided-journey`](../skykit/examples/guided-journey/) and Pas de Géant's

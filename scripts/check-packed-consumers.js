@@ -143,6 +143,17 @@ await import('@found-in-space/skykit/touch-os');
 await import('@found-in-space/hr-diagram/touch-os');
 await import('@found-in-space/touch-os');
 await import('@found-in-space/touch-os/hosts/three');
+const {createSequenceTouchControls} = await import('@found-in-space/guided-journey/touch-os');
+const {createJourneySequencePlayer} = await import('@found-in-space/guided-journey/sequence');
+const {createRuntime} = await import('@found-in-space/touch-os');
+const player = createJourneySequencePlayer({sequence: {durationSecs: 1, evaluate: time => time}});
+const controls = createSequenceTouchControls({id: 'packed-sequence', player});
+const runtime = createRuntime({root: controls.render(), surface: {width: 480, height: 640}});
+runtime.render();
+controls.handleOutput({type: 'action', componentId: 'packed-sequence:play', actionId: 'packed-sequence:play'});
+player.update(1);
+if (player.getSnapshot().status !== 'ended' || player.getSnapshot().ownership !== 'detached') throw new Error('Packed controls changed shared playback ownership.');
+runtime.dispose(); player.dispose();
 
 const packageRoot = path.join(process.cwd(), 'node_modules', '@found-in-space', 'touch-os');
 const manifest = JSON.parse(readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
@@ -171,6 +182,7 @@ import {
 import { createHrDiagramEmbeddedSurfaceNode } from '@found-in-space/hr-diagram/touch-os';
 import { normalizeSpatialPose, buildSpatialPolylineRoute } from '@found-in-space/spatial';
 import { createJourneySequencePlayer, type SequenceParticipant } from '@found-in-space/guided-journey/sequence';
+import {createSequenceTouchControls} from '@found-in-space/guided-journey/touch-os';
 
 // A camera participant consumes a subset; author metadata must remain inferred
 // from the evaluator for captions, markers and evidence panels.
@@ -180,6 +192,8 @@ const player = createJourneySequencePlayer({ participant, sequence: { durationSe
 } });
 const caption: string = player.getSnapshot().frame.value.caption;
 const get: number = player.getSnapshot().frame.value.getSeconds;
+const controls = createSequenceTouchControls({id: 'typed-controls', player, rates: [-1, 1, 10]});
+const controlRoot: DisplayNode = controls.render();
 // @ts-expect-error A participant must still accept the evaluator's actual camera type.
 createJourneySequencePlayer({ participant, sequence: { durationSecs: 1, evaluate: () => ({ camera: 'invalid' }) } });
 
